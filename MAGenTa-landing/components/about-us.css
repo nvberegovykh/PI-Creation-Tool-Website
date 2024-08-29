@@ -1,0 +1,293 @@
+.about-us-container {
+  width: 100%;
+  height: auto;
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.about-us-container1 {
+  flex: 0 0 auto;
+  width: 93%;
+  height: auto;
+  display: flex;
+  max-width: 1200px;
+  align-self: center;
+  align-items: center;
+  padding-top: 120px;
+  padding-left: 0px;
+  padding-right: 0px;
+  flex-direction: column;
+  padding-bottom: 0px;
+}
+.about-us-container2 {
+  top: 1rem;
+  width: auto;
+  display: flex;
+  position: sticky;
+  max-width: auto;
+  align-self: center;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+}
+.about-us-text {
+  fill: var(--dl-color-theme-neutral-dark);
+  color: var(--dl-color-theme-neutral-dark);
+  padding: 15px;
+  font-size: 64px;
+  align-self: center;
+  font-style: normal;
+  text-align: center;
+  font-weight: 900;
+  border-radius: var(--dl-radius-radius-radius40);
+  text-transform: uppercase;
+}
+.about-us-text01 {
+  fill: #dcdcdc;
+  color: rgb(220, 220, 220);
+  padding: 15px;
+  font-size: 24px;
+  max-width: 50%;
+  align-self: center;
+  font-style: normal;
+  text-align: center;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.about-us-container3 {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: var(--dl-space-space-tripleunit);
+  align-items: flex-start;
+  margin-left: var(--dl-space-space-unitandahalfunit);
+  margin-right: var(--dl-space-space-unitandahalfunit);
+  flex-direction: row;
+}
+.about-us-container4 {
+  flex: 0 0 auto;
+  width: 50%;
+  height: 100%;
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.about-us-image {
+  width: 40%;
+  align-self: flex-end;
+  object-fit: cover;
+  margin-left: 3rem;
+  margin-right: -3rem;
+  border-radius: var(--dl-radius-radius-radius75);
+}
+.about-us-text02 {
+  fill: #b713ee;
+  flex: 0 0 auto;
+  color: rgb(222, 164, 243);
+  width: 40%;
+  display: flex;
+  padding: var(--dl-space-space-unit);
+  font-size: 0.875rem;
+  align-self: flex-end;
+  margin-top: var(--dl-space-space-unitandahalfunit);
+  align-items: flex-start;
+  font-family: "Open Sans";
+  font-weight: 400;
+  line-height: 1.5;
+  border-color: #dea4f3;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 0.25rem;
+  margin-bottom: 8rem;
+  flex-direction: column;
+  text-transform: none;
+  text-decoration: none;
+}
+.about-us-container5 {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.about-us-image1 {
+  top: 0px;
+  right: 0px;
+  width: 60%;
+  bottom: auto;
+  display: block;
+  position: absolute;
+  box-shadow: 0 8px 26px -4px hsla(0,0%,8%,.15),0 8px 9px -5px hsla(0,0%,8%,.06)!important;
+  margin-top: -1.5rem;
+  object-fit: cover;
+  margin-left: 2rem;
+  border-radius: var(--dl-radius-radius-radius75);
+  margin-bottom: var(--dl-space-space-tripleunit);
+}
+.about-us-container6 {
+  flex: 0 0 auto;
+  width: 40%;
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  padding-left: var(--dl-space-space-triplequarterunit);
+  padding-right: var(--dl-space-space-triplequarterunit);
+  flex-direction: column;
+}
+.about-us-image2 {
+  width: 100%;
+  box-shadow: 0 8px 26px -4px hsla(0,0%,8%,.15),0 8px 9px -5px hsla(0,0%,8%,.06)!important;
+  margin-top: 8rem;
+  object-fit: cover;
+  margin-left: -1.5rem;
+  border-radius: var(--dl-radius-radius-radius75);
+  margin-bottom: var(--dl-space-space-tripleunit);
+}
+.about-us-container7 {
+  width: 90%;
+  display: flex;
+  align-self: center;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.about-us-text07 {
+  fill: var(--dl-color-theme-neutral-dark);
+  color: var(--dl-color-theme-neutral-dark);
+  font-size: 1.875rem;
+  font-family: "Open Sans";
+  font-weight: 700;
+  line-height: 1.375;
+  margin-bottom: 30px;
+  text-transform: none;
+  text-decoration: none;
+}
+.about-us-text08 {
+  fill: #dcdcdc;
+  color: rgb(220, 220, 220);
+}
+
+
+
+@media(max-width: 991px) {
+  .about-us-container1 {
+    max-width: 960px;
+  }
+  .about-us-text {
+    font-size: 48px;
+  }
+  .about-us-text01 {
+    font-size: 20px;
+  }
+}
+@media(max-width: 767px) {
+  .about-us-container1 {
+    max-width: 720px;
+  }
+  .about-us-container2 {
+    max-width: 100%;
+    margin-right: 0px;
+    flex-direction: column;
+  }
+  .about-us-text {
+    align-self: center;
+    text-align: center;
+  }
+  .about-us-text01 {
+    max-width: 100%;
+    align-self: center;
+    text-align: center;
+  }
+  .about-us-container3 {
+    align-items: center;
+    flex-direction: column;
+  }
+  .about-us-container4 {
+    width: 80%;
+  }
+  .about-us-image {
+    width: 60%;
+    align-self: center;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  .about-us-text02 {
+    width: 100%;
+    align-self: center;
+    text-align: center;
+    align-items: center;
+    margin-bottom: var(--dl-space-space-unit);
+    justify-content: flex-start;
+  }
+  .about-us-text03 {
+    width: 100%;
+    align-self: center;
+    text-align: center;
+    margin-bottom: var(--dl-space-space-unit);
+  }
+  .about-us-container5 {
+    height: auto;
+  }
+  .about-us-image1 {
+    display: none;
+  }
+  .about-us-container6 {
+    width: 80%;
+    align-self: center;
+    padding-left: 0px;
+    padding-right: 0px;
+  }
+  .about-us-image2 {
+    display: none;
+  }
+  .about-us-container7 {
+    align-self: center;
+    align-items: center;
+  }
+  .about-us-text07 {
+    align-self: center;
+    text-align: center;
+  }
+  .about-us-text08 {
+    text-align: center;
+  }
+}
+@media(max-width: 479px) {
+  .about-us-text {
+    font-size: 42px;
+  }
+  .about-us-text01 {
+    font-size: 18px;
+    text-transform: capitalize;
+  }
+  .about-us-text02 {
+    color: rgb(222, 164, 243);
+    width: 100%;
+    font-size: 0.875rem;
+    text-align: center;
+    align-items: center;
+    font-family: Open Sans;
+    font-weight: 400;
+    line-height: 1.5;
+    text-decoration: none;
+  }
+  .about-us-text03 {
+    width: 100%;
+  }
+  .about-us-container6 {
+    align-items: flex-start;
+    padding-left: 0px;
+    padding-right: 0px;
+    justify-content: flex-start;
+  }
+  .about-us-text07 {
+    width: 100%;
+    align-self: flex-start;
+  }
+  .about-us-text08 {
+    margin-bottom: 30px;
+  }
+}
