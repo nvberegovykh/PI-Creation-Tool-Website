@@ -328,6 +328,11 @@
     padding-left: 0px;
     padding-right: 0px;
   }
+
+  #caution {
+    display: none;
+  }
+
   .navbar4-nav {
     max-width: 100%;
   }
