@@ -1,0 +1,21 @@
+.outline-gray-button-container {
+  display: flex;
+  position: relative;
+}
+.outline-gray-button-button {
+  fill: var(--dl-color-theme-neutral-light);
+  color: var(--dl-color-theme-neutral-light);
+  outlinr: none;
+  transition: all .15s ease-in;
+  padding-top: var(--dl-space-space-triplequarterunit);
+  border-color: var(--dl-color-theme-neutral-light);
+  padding-left: var(--dl-space-space-unitandahalfunit);
+  border-radius: 1.875rem;
+  padding-right: var(--dl-space-space-unitandahalfunit);
+  padding-bottom: var(--dl-space-space-triplequarterunit);
+  background-color: var(--dl-color-theme-neutral-dark);
+}
+.outline-gray-button-button:hover {
+  cursor: pointer;
+  transform: scale(1.02);
+}

@@ -1,0 +1,20 @@
+.lines-container {
+  width: 100%;
+  height: auto;
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.lines-image {
+  top: 0;
+  width: 100%;
+  height: auto;
+  position: absolute;
+  max-width: 100%;
+  align-self: flex-start;
+  object-fit: cover;
+}
+
+
+
