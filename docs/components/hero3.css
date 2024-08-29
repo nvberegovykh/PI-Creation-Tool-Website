@@ -1,0 +1,274 @@
+.hero3-header9 {
+  width: 100%;
+  display: flex;
+  position: relative;
+  min-height: 100%;
+  align-items: center;
+  flex-direction: column;
+}
+.hero3-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  z-index: 100;
+  align-items: flex-start;
+  justify-content: center;
+}
+.hero3-container1 {
+  flex: 0 0 auto;
+  width: 93%;
+  height: 100%;
+  display: flex;
+  max-width: 1200px;
+  align-self: center;
+  align-items: center;
+  padding-top: 120px;
+  border-radius: var(--dl-radius-radius-radius4);
+  justify-content: space-between;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 30px;
+  border-bottom-right-radius: 30px;
+}
+.hero3-card {
+  flex: 0 0 auto;
+  width: 50%;
+  display: flex;
+  padding: var(--dl-space-space-tripleunit);
+  z-index: 1;
+  box-shadow: 0 8px 26px -4px hsla(0,0%,8%,.15),0 8px 9px -5px hsla(0,0%,8%,.06)!important;
+  align-items: flex-start;
+  border-radius: var(--dl-radius-radius-radius1);
+  animation-name: fadeInLeft;
+  flex-direction: column;
+  animation-delay: 0s;
+  backdrop-filter: saturate(200%) blur(30px);
+  background-color: hsla(0,0%,100%,.8);
+  animation-duration: 1300ms;
+  animation-direction: normal;
+  -webkit-backdrop-filter: saturate(200%) blur(30px);
+  animation-iteration-count: 1;
+  animation-timing-function: ease;
+}
+.hero3-text {
+  text-align: left;
+  background-image: linear-gradient(90deg, rgb(0, 37, 255) 3.00%,rgb(183, 19, 238) 100.00%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero3-text1 {
+  color: var(--dl-color-secondary-700);
+  text-align: center;
+  margin-bottom: var(--dl-space-space-unitandahalfunit);
+}
+.hero3-text2 {
+  color: var(--dl-color-secondary-600);
+  margin-right: var(--dl-space-space-tripleunit);
+  margin-bottom: var(--dl-space-space-unit);
+  padding-right: var(--dl-space-space-tripleunit);
+}
+.hero3-container2 {
+  display: flex;
+  margin-top: var(--dl-space-space-unitandahalfunit);
+  align-items: flex-start;
+  margin-bottom: var(--dl-space-space-unit);
+  flex-direction: row;
+}
+.hero3-link {
+  color: rgb(0, 0, 0);
+  outline: none;
+  font-size: 1rem;
+  box-shadow: rgba(0, 0, 0, 0.11) 0px 4px 7px -1px, rgba(0, 0, 0, 0.07) 0px 2px 4px -1px;
+  font-style: normal;
+  margin-top: 15px;
+  transition: all .15s ease-in;
+  font-family: "Inter";
+  font-weight: 700;
+  line-height: 1.4;
+  margin-left: 0px;
+  padding-top: var(--dl-space-space-triplequarterunit);
+  border-width: 0px;
+  margin-right: 15px;
+  padding-left: var(--dl-space-space-unitandahalfunit);
+  border-radius: 1.875rem;
+  margin-bottom: 15px;
+  padding-right: var(--dl-space-space-unitandahalfunit);
+  letter-spacing: -0.025rem;
+  padding-bottom: var(--dl-space-space-triplequarterunit);
+  text-transform: uppercase;
+  text-decoration: none;
+  background-color: #ffffff;
+}
+.hero3-link1 {
+  color: var(--dl-color-gray-white);
+  outline: none;
+  font-size: 1rem;
+  background: linear-gradient( 310deg ,#7928ca,#ff0080);
+  box-shadow: rgba(0, 0, 0, 0.11) 0px 4px 7px -1px, rgba(0, 0, 0, 0.07) 0px 2px 4px -1px;
+  font-style: normal;
+  margin-top: 15px;
+  transition: 0.3s;
+  font-family: "Inter";
+  font-weight: 700;
+  line-height: 1.4;
+  margin-left: 15px;
+  padding-top: var(--dl-space-space-triplequarterunit);
+  border-width: 0px;
+  margin-right: 0px;
+  padding-left: var(--dl-space-space-unitandahalfunit);
+  border-radius: 1.875rem;
+  margin-bottom: 15px;
+  padding-right: var(--dl-space-space-unitandahalfunit);
+  letter-spacing: -0.025rem;
+  padding-bottom: var(--dl-space-space-triplequarterunit);
+  text-transform: uppercase;
+  text-decoration: none;
+  background-image: linear-gradient(90deg, rgb(0, 37, 255) 3.00%,rgb(183, 19, 238) 100.00%);
+}
+.hero3-link1:hover {
+  background-image: linear-gradient(to right, #fc00ff 0%, #00dbde 100%);
+}
+.hero3-container3 {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: var(--dl-space-space-halfunit);
+  align-items: flex-start;
+  flex-direction: row;
+  justify-content: center;
+}
+.hero3-image {
+  width: 25%;
+  object-fit: cover;
+}
+.hero3-image1 {
+  width: 25%;
+  object-fit: cover;
+}
+.hero3-image2 {
+  width: 25%;
+  object-fit: cover;
+}
+.hero3-image3 {
+  width: 25%;
+  object-fit: cover;
+}
+.hero3-image4 {
+  width: auto;
+  height: auto;
+  max-width: 50%;
+  min-height: 50%;
+  object-fit: cover;
+  animation-name: fadeInRight;
+  animation-delay: 0s;
+  animation-duration: 1300ms;
+  animation-direction: normal;
+  animation-iteration-count: 1;
+  animation-timing-function: ease;
+}
+.hero3-root-class-name {
+  height: 100%;
+}
+.hero3-root-class-name1 {
+  height: 100%;
+}
+.hero3-root-class-name2 {
+  height: 100%;
+}
+@media(max-width: 991px) {
+  .hero3-container1 {
+    flex-direction: column;
+  }
+  .hero3-card {
+    width: 100%;
+  }
+  .hero3-text {
+    align-self: center;
+    text-align: center;
+  }
+  .hero3-text1 {
+    align-self: center;
+  }
+  .hero3-text2 {
+    align-self: center;
+    text-align: center;
+    margin-right: 0px;
+    padding-right: 0px;
+  }
+  .hero3-container2 {
+    align-self: center;
+  }
+  .hero3-link {
+    width: auto;
+    height: auto;
+  }
+  .hero3-link1 {
+    width: auto;
+    height: auto;
+  }
+  .hero3-image4 {
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+  }
+}
+@media(max-width: 767px) {
+  .hero3-container1 {
+    flex-direction: column;
+  }
+  .hero3-card {
+    align-items: center;
+  }
+  .hero3-text {
+    text-align: center;
+  }
+  .hero3-text2 {
+    text-align: center;
+    margin-right: 0px;
+    padding-right: 0px;
+  }
+  .hero3-link1 {
+    font-size: 1rem;
+    align-self: center;
+  }
+  .hero3-image {
+    width: 40%;
+  }
+  .hero3-image1 {
+    width: 40%;
+  }
+  .hero3-image2 {
+    width: 40%;
+  }
+  .hero3-image3 {
+    width: 40%;
+  }
+  .hero3-image4 {
+    width: 100%;
+    height: auto;
+  }
+}
+@media(max-width: 479px) {
+  .hero3-header9 {
+    width: 93%;
+  }
+  .hero3-container {
+    width: 100%;
+  }
+  .hero3-container1 {
+    width: 100%;
+    flex-direction: column;
+  }
+  .hero3-card {
+    padding: var(--dl-space-space-unit);
+  }
+  .hero3-container2 {
+    align-items: center;
+    flex-direction: row;
+  }
+  .hero3-image4 {
+    width: 371px;
+    height: auto;
+  }
+}
