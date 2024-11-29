@@ -1,9 +1,10 @@
 .navbar-interactive-wrapper {
   display: contents;
+  position: sticky;
 }
 .navbar-interactive-container {
   display: flex;
-  position: relative;
+  position: sticky;
 }
 .navbar-interactive-navbar-interactive {
   width: 100%;
