@@ -500,24 +500,34 @@
   display: inline-block;
 }
 .home-slider {
-  width: 500px;
-  height: 300px;
+  width: 600px;
+  height: 600px;
   display: inline-block;
 }
 .home-slider-slide1 {
   display: flex;
-  background-size: 100%;
-  background-image: url('https://images.unsplash.com/photo-1698778574083-279be0ac6681?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTMyMXwwfDF8cmFuZG9tfHx8fHx8fHx8MTY5OTk3NzU2N3w&ixlib=rb-4.0.3&q=80&w=500');
+  background-size: cover;
+  background-image: url('imglib/Frame2.png');
 }
 .home-slider-slide2 {
   display: flex;
-  background-size: 100%;
-  background-image: url('https://images.unsplash.com/photo-1697384333613-de519c7367c4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTMyMXwwfDF8cmFuZG9tfHx8fHx8fHx8MTY5OTk3NzAzN3w&ixlib=rb-4.0.3&q=80&w=1500');
+  background-size: cover;
+  background-image: url('imglib/photo_2023-12-18_18-49-36.jpg');
 }
 .home-slider-slide3 {
   display: flex;
-  background-size: 100%;
-  background-image: url('https://images.unsplash.com/photo-1698180687511-bd6c0104ee98?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTMyMXwwfDF8cmFuZG9tfHx8fHx8fHx8MTY5OTk3NzQ5NXw&ixlib=rb-4.0.3&q=80&w=500');
+  background-size: cover;
+  background-image: url('imglib/render_View0166.jpg');
+}
+.home-slider-slide4 {
+  display: flex;
+  background-size: cover;
+  background-image: url('imglib/Frame5.png');
+}
+.home-slider-slide5 {
+  display: flex;
+  background-size: cover;
+  background-image: url('imglib/colomnarnd_View05.jpg');
 }
 .home-slider-pagination {
   display: none;
