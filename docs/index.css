@@ -1,5 +1,6 @@
 .navbar-interactive-wrapper {
   display: contents;
+  position: sticky;
 }
 .navbar-interactive-container {
   display: flex;
