@@ -1,15 +1,21 @@
 .navbar-interactive-wrapper {
   display: contents;
   position: sticky;
+  position: -webkit-sticky;
+  top: 0; /* required */
 }
 .navbar-interactive-container {
   display: flex;
   position: sticky;
+  position: -webkit-sticky;
+  top: 0; /* required */
 }
 .navbar-interactive-navbar-interactive {
   width: 100%;
   display: flex;
   position: sticky;
+  position: -webkit-sticky;
+  top: 0; /* required */
   align-items: center;
   padding-top: var(--dl-space-space-twounits);
   padding-left: var(--dl-space-space-threeunits);
