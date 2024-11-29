@@ -10,6 +10,8 @@
   position: sticky;
   position: -webkit-sticky;
   top: 0; /* required */
+  background-color: black;
+    width: 100%;
 }
 .navbar-interactive-navbar-interactive {
   width: 100%;
