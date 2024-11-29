@@ -504,7 +504,7 @@
   height: 600px;
   display: inline-block;
 }
-.home-slider-slide1 {
+.home--slide1 {
   display: flex;
   background-size: cover;
   background-image: url('imglib/Frame2.png');
@@ -519,25 +519,25 @@
   background-size: cover;
   background-image: url('imglib/render_View0166.jpg');
 }
-.home-slider-slide4 {
+.home--slide4 {
   display: flex;
   background-size: cover;
   background-image: url('imglib/Frame5.png');
 }
-.home-slider-slide5 {
+.home--slide5 {
   display: flex;
   background-size: cover;
   background-image: url('imglib/colomnarnd_View05.jpg');
 }
-.home-slider-pagination {
+.home--pagination {
   display: none;
 }
-.home-slider-button-prev {
+.home--button-prev {
   fill: var(--dl-color-theme-accent2);
   color: var(--dl-color-theme-accent2);
   display: block;
 }
-.home-slider-button-next {
+.home--button-next {
   fill: var(--dl-color-theme-accent2);
   color: var(--dl-color-theme-accent2);
   display: block;
@@ -590,10 +590,7 @@
   display: inline-block;
 }
 @media(max-width: 991px) {
-  .home-slider-slide1 {
-    background-image: url('https://images.unsplash.com/photo-1698778574083-279be0ac6681?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTMyMXwwfDF8cmFuZG9tfHx8fHx8fHx8MTY5OTk3NzU2N3w&ixlib=rb-4.0.3&q=80&w=500');
-  }
-  .home-slider-pagination {
+  .home--pagination {
     fill: var(--dl-color-theme-neutral-dark);
     color: var(--dl-color-theme-neutral-dark);
   }
@@ -620,7 +617,6 @@
   }
   .home-slider-slide3 {
     background-size: cover;
-    background-image: url('https://images.unsplash.com/photo-1698180687511-bd6c0104ee98?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTMyMXwwfDF8cmFuZG9tfHx8fHx8fHx8MTY5OTk3NzQ5NXw&ixlib=rb-4.0.3&q=80&w=500');
     background-repeat: no-repeat;
   }
 }
