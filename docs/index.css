@@ -516,30 +516,35 @@
 }
 .home-slider-slide1 {
   display: flex;
+  transition-duration: 1s;
   background-size: cover;
   background-position: center center;
   background-image: url('imglib/Frame2.png');
 }
 .home-slider-slide2 {
   display: flex;
+  transition-duration: 1s;
   background-size: cover;
   background-position: center center;
   background-image: url('imglib/photo_2024-11-24_11-44-07.jpg');
 }
 .home-slider-slide3 {
   display: flex;
+  transition-duration: 1s;
   background-size: cover;
   background-position: center center;
   background-image: url('imglib/render_View0166.jpg');
 }
 .home-slider-slide4 {
   display: flex;
+  transition-duration: 1s;
   background-size: cover;
   background-position: center center;
   background-image: url('imglib/Frame5.png');
 }
 .home-slider-slide5 {
   display: flex;
+  transition-duration: 1s;
   background-size: cover;
   background-position: center center;
   background-image: url('imglib/colomnarnd_View05.jpg');
