@@ -3486,7 +3486,7 @@ var __privateSet = (obj, member, value, setter) => {
     oneWayMovement: false,
     touchEventsTarget: "wrapper",
     initialSlide: 0,
-    speed: 300,
+    speed: 700,
     cssMode: false,
     updateOnWindowResize: true,
     resizeObserver: true,
@@ -3543,7 +3543,7 @@ var __privateSet = (obj, member, value, setter) => {
     shortSwipes: true,
     longSwipes: true,
     longSwipesRatio: 0.5,
-    longSwipesMs: 300,
+    longSwipesMs: 700,
     followFinger: true,
     allowTouchMove: true,
     threshold: 5,
@@ -5239,7 +5239,7 @@ var __privateSet = (obj, member, value, setter) => {
             }
           }
           const autoplay2 = JSON.parse(properties.autoplay ?? "false");
-          const autoPlayDelay = JSON.parse(properties.autoplayDelay ?? "3000");
+          const autoPlayDelay = JSON.parse(properties.autoplayDelay ?? "5000");
           const loop2 = JSON.parse(properties.loop ?? "false");
           const pagination2 = JSON.parse(properties.pagination ?? "false");
           const disableAutoplayOnInteraction = JSON.parse(
