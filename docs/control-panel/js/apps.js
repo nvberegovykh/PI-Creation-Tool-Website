@@ -81,7 +81,7 @@ class AppsManager {
             {
                 id: 'calculator',
                 name: 'Calculator',
-                description: 'A simple calculator application for basic mathematical operations.',
+                description: 'A calculator application for mathematical operations.',
                 version: '1.0.0',
                 category: 'utilities',
                 icon: 'fas fa-calculator',
@@ -94,8 +94,8 @@ class AppsManager {
             {
                 id: 'invoice-generator',
                 name: 'Invoice Generator',
-                description: 'Create, manage, and download professional invoices with encrypted data storage.',
-                version: '2.0.0',
+                description: 'Create, manage, and download invoices.',
+                version: '1.0.0',
                 category: 'business',
                 icon: 'fas fa-file-invoice-dollar',
                 status: 'online',
@@ -472,3 +472,4 @@ window.appsManager = new AppsManager();
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = AppsManager;
 }
+
