@@ -125,7 +125,20 @@ class InvoiceCryptoManager {
                 throw new Error('User not authenticated');
             }
             const encryptedData = await this.encrypt(data, this.userKey);
-            localStorage.setItem(key, JSON.stringify(encryptedData));
+            
+            // Add timestamp for debugging
+            const storageData = {
+                encrypted: encryptedData,
+                timestamp: new Date().toISOString(),
+                version: '1.0'
+            };
+            
+            localStorage.setItem(key, JSON.stringify(storageData));
+            
+            // Create backup
+            await this.backupData(key, data);
+            
+            console.log(`✅ Data stored successfully for key: ${key}`, { timestamp: storageData.timestamp });
             return true;
         } catch (error) {
             console.error('Secure store error:', error);
@@ -138,13 +151,48 @@ class InvoiceCryptoManager {
             if (!this.isAuthenticated()) {
                 throw new Error('User not authenticated');
             }
-            const encryptedData = localStorage.getItem(key);
-            if (!encryptedData) return null;
+            const storedData = localStorage.getItem(key);
+            if (!storedData) {
+                console.log(`📭 No data found for key: ${key}`);
+                return null;
+            }
             
-            const parsedData = JSON.parse(encryptedData);
-            return await this.decrypt(parsedData, this.userKey);
+            const parsedData = JSON.parse(storedData);
+            
+            // Handle both old format (direct encrypted data) and new format (with metadata)
+            let encryptedData;
+            if (parsedData.encrypted) {
+                // New format with metadata
+                encryptedData = parsedData.encrypted;
+                console.log(`📖 Data retrieved for key: ${key}`, { 
+                    timestamp: parsedData.timestamp,
+                    version: parsedData.version 
+                });
+            } else {
+                // Old format - direct encrypted data
+                encryptedData = parsedData;
+                console.log(`📖 Legacy data retrieved for key: ${key}`);
+            }
+            
+            const decryptedData = await this.decrypt(encryptedData, this.userKey);
+            console.log(`✅ Data decrypted successfully for key: ${key}`);
+            return decryptedData;
         } catch (error) {
             console.error('Secure retrieve error:', error);
+            console.error('Error details:', {
+                key,
+                error: error.message,
+                stack: error.stack
+            });
+            
+            // Try to restore from backup
+            console.log('🔄 Attempting to restore from backup...');
+            const backupData = await this.restoreFromBackup(key);
+            if (backupData) {
+                console.log(`✅ Successfully restored ${key} from backup`);
+                return backupData;
+            }
+            
             return null;
         }
     }
@@ -200,6 +248,98 @@ class InvoiceCryptoManager {
         const invoices = await this.loadInvoices();
         const filteredInvoices = invoices.filter(invoice => invoice.invoiceId !== invoiceId);
         return await this.saveInvoices(filteredInvoices);
+    }
+
+    // Debug method to check all stored data
+    async debugStorage() {
+        console.log('🔍 Debugging localStorage...');
+        const keys = Object.keys(localStorage);
+        const liberKeys = keys.filter(key => key.startsWith('liber_'));
+        
+        console.log('Found Liber keys:', liberKeys);
+        
+        for (const key of liberKeys) {
+            try {
+                const data = localStorage.getItem(key);
+                const parsed = JSON.parse(data);
+                console.log(`Key: ${key}`, {
+                    hasData: !!data,
+                    isObject: typeof parsed === 'object',
+                    hasEncrypted: !!parsed.encrypted,
+                    hasTimestamp: !!parsed.timestamp,
+                    timestamp: parsed.timestamp || 'N/A'
+                });
+            } catch (error) {
+                console.log(`Key: ${key} - Error parsing:`, error.message);
+            }
+        }
+    }
+
+    // Method to migrate old data format to new format
+    async migrateOldData() {
+        console.log('🔄 Migrating old data format...');
+        const keys = ['liber_invoices', 'liber_services', 'liber_clients', 'liber_invoice_counter'];
+        
+        for (const key of keys) {
+            try {
+                const storedData = localStorage.getItem(key);
+                if (!storedData) continue;
+                
+                const parsedData = JSON.parse(storedData);
+                
+                // If it's already in new format, skip
+                if (parsedData.encrypted) continue;
+                
+                // Migrate old format to new format
+                const newFormat = {
+                    encrypted: parsedData,
+                    timestamp: new Date().toISOString(),
+                    version: '1.0'
+                };
+                
+                localStorage.setItem(key, JSON.stringify(newFormat));
+                console.log(`✅ Migrated ${key} to new format`);
+            } catch (error) {
+                console.error(`❌ Error migrating ${key}:`, error.message);
+            }
+        }
+    }
+
+    // Backup data to sessionStorage as fallback
+    async backupData(key, data) {
+        try {
+            const backupKey = `backup_${key}`;
+            const backupData = {
+                data: data,
+                timestamp: new Date().toISOString(),
+                user: localStorage.getItem('liber_current_user')
+            };
+            sessionStorage.setItem(backupKey, JSON.stringify(backupData));
+            console.log(`💾 Backup created for ${key}`);
+        } catch (error) {
+            console.error('Backup error:', error);
+        }
+    }
+
+    // Restore data from backup if main storage fails
+    async restoreFromBackup(key) {
+        try {
+            const backupKey = `backup_${key}`;
+            const backupData = sessionStorage.getItem(backupKey);
+            if (!backupData) return null;
+            
+            const parsed = JSON.parse(backupData);
+            const currentUser = localStorage.getItem('liber_current_user');
+            
+            // Only restore if it's for the same user
+            if (parsed.user === currentUser) {
+                console.log(`🔄 Restoring ${key} from backup`);
+                return parsed.data;
+            }
+        } catch (error) {
+            console.error('Restore error:', error);
+        }
+        return null;
     }
 }
 

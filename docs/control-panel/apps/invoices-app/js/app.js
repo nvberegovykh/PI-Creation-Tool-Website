@@ -26,6 +26,12 @@ class InvoiceGenerator {
         window.invoiceCryptoManager.setUserKey(userPassword);
         this.userAuthenticated = true;
         
+        // Migrate old data format if needed
+        await window.invoiceCryptoManager.migrateOldData();
+        
+        // Debug storage for troubleshooting
+        await window.invoiceCryptoManager.debugStorage();
+        
         // Initialize the app
         this.initializeApp();
     }
