@@ -24,17 +24,96 @@ class AppsManager {
      * Setup event listeners
      */
     setupEventListeners() {
-        // Search functionality
-        const searchInput = document.getElementById('app-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.searchTerm = e.target.value.toLowerCase();
-                this.filterApps();
-            });
-        }
-
         // Auto-refresh if enabled
         this.setupAutoRefresh();
+    }
+
+    /**
+     * Setup search functionality
+     */
+    setupSearchFunctionality() {
+        console.log('Setting up search functionality...');
+        
+        // Remove existing event listeners to prevent duplicates
+        const searchInput = document.getElementById('app-search');
+        if (searchInput) {
+            console.log('Search input found, setting up event listeners...');
+            
+            // Clone the element to remove all event listeners
+            const newSearchInput = searchInput.cloneNode(true);
+            searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+            
+            // Add new event listener
+            newSearchInput.addEventListener('input', (e) => {
+                console.log('Search input event triggered:', e.target.value);
+                this.searchTerm = e.target.value.toLowerCase();
+                this.filterApps();
+                this.renderApps();
+            });
+
+            // Add keydown event for better UX
+            newSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    console.log('Escape key pressed, clearing search');
+                    this.clearSearch();
+                }
+            });
+
+            // Add clear button functionality
+            const searchContainer = newSearchInput.closest('.search-container');
+            if (searchContainer) {
+                console.log('Search container found, adding clear button...');
+                
+                // Remove existing clear button if any
+                const existingClearBtn = searchContainer.querySelector('.search-clear');
+                if (existingClearBtn) {
+                    existingClearBtn.remove();
+                }
+
+                // Add clear button
+                const clearBtn = document.createElement('button');
+                clearBtn.className = 'search-clear';
+                clearBtn.innerHTML = '<i class="fas fa-times"></i>';
+                
+                clearBtn.addEventListener('click', () => {
+                    console.log('Clear button clicked');
+                    this.clearSearch();
+                });
+
+                searchContainer.appendChild(clearBtn);
+
+                // Show/hide clear button based on input value
+                newSearchInput.addEventListener('input', () => {
+                    if (newSearchInput.value) {
+                        clearBtn.classList.add('visible');
+                    } else {
+                        clearBtn.classList.remove('visible');
+                    }
+                });
+            } else {
+                console.warn('Search container not found');
+            }
+        } else {
+            console.error('Search input element not found!');
+        }
+    }
+
+    /**
+     * Clear search
+     */
+    clearSearch() {
+        console.log('Clearing search...');
+        const searchInput = document.getElementById('app-search');
+        if (searchInput) {
+            searchInput.value = '';
+            console.log('Search input cleared');
+        } else {
+            console.warn('Search input not found during clear');
+        }
+        this.searchTerm = '';
+        this.filterApps();
+        this.renderApps();
+        console.log('Search cleared successfully');
     }
 
     /**
@@ -57,6 +136,9 @@ class AppsManager {
         try {
             // Show loading state
             this.showLoadingState();
+
+            // Setup search functionality when apps section is loaded
+            this.setupSearchFunctionality();
 
             // In a real implementation, this would scan the apps directory
             // For now, we'll use sample apps
@@ -126,13 +208,20 @@ class AppsManager {
      * Filter apps based on search term and category
      */
     filterApps() {
+        console.log('Filtering apps with search term:', this.searchTerm);
+        console.log('Available apps:', this.apps.length);
+        
         this.filteredApps = this.apps.filter(app => {
-            const matchesSearch = app.name.toLowerCase().includes(this.searchTerm) ||
-                                app.description.toLowerCase().includes(this.searchTerm);
+            const matchesSearch = this.searchTerm === '' || 
+                                app.name.toLowerCase().includes(this.searchTerm) ||
+                                app.description.toLowerCase().includes(this.searchTerm) ||
+                                app.category.toLowerCase().includes(this.searchTerm);
             const matchesCategory = this.currentCategory === 'all' || app.category === this.currentCategory;
             
             return matchesSearch && matchesCategory;
         });
+        
+        console.log('Filtered apps:', this.filteredApps.length);
     }
 
     /**

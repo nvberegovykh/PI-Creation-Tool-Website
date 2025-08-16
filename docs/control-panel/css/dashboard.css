@@ -304,6 +304,31 @@
     pointer-events: none;
 }
 
+.search-clear {
+    position: absolute;
+    right: 35px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--secondary-text);
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: none;
+    z-index: 10;
+}
+
+.search-clear:hover {
+    background: var(--border-color);
+    color: var(--primary-text);
+}
+
+.search-clear.visible {
+    display: block;
+}
+
 /* Add User Form */
 .add-user-form-container {
     background: var(--secondary-bg);
