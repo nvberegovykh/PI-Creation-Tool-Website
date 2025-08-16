@@ -107,12 +107,12 @@ class AuthManager {
         
         if (checkbox.checked) {
             input.type = 'text';
-            icon.className = 'fas fa-eye-slash';
-            text.textContent = 'Password invisible';
-        } else {
-            input.type = 'password';
             icon.className = 'fas fa-eye';
             text.textContent = 'Password visible';
+        } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye-slash';
+            text.textContent = 'Password invisible';
         }
     }
 
