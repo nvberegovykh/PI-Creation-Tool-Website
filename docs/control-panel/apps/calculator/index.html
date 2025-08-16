@@ -28,6 +28,8 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
+            min-height: 100vh;
+            align-items: center;
         }
 
         .calculator-section {
@@ -2145,6 +2147,67 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
+        // Mobile responsiveness
+        function handleResize() {
+            const container = document.querySelector('.container');
+            const calculatorSection = document.querySelector('.calculator-section');
+            const visualSection = document.querySelector('.visual-section');
+            
+            if (window.innerWidth <= 768) {
+                container.style.gridTemplateColumns = '1fr';
+                container.style.gap = '15px';
+                container.style.padding = '10px';
+                
+                if (calculatorSection) {
+                    calculatorSection.style.padding = '15px';
+                }
+                
+                if (visualSection) {
+                    visualSection.style.padding = '15px';
+                }
+                
+                // Adjust button grid for mobile
+                const buttons = document.querySelector('.buttons');
+                if (buttons) {
+                    buttons.style.gridTemplateColumns = 'repeat(4, 1fr)';
+                    buttons.style.gap = '6px';
+                }
+                
+                // Adjust display font size
+                const display = document.querySelector('.display');
+                if (display) {
+                    display.style.fontSize = '1.2rem';
+                    display.style.minHeight = '60px';
+                }
+            } else {
+                container.style.gridTemplateColumns = '1fr 1fr';
+                container.style.gap = '20px';
+                container.style.padding = '20px';
+                
+                if (calculatorSection) {
+                    calculatorSection.style.padding = '20px';
+                }
+                
+                if (visualSection) {
+                    visualSection.style.padding = '20px';
+                }
+                
+                // Restore button grid for desktop
+                const buttons = document.querySelector('.buttons');
+                if (buttons) {
+                    buttons.style.gridTemplateColumns = 'repeat(6, 1fr)';
+                    buttons.style.gap = '8px';
+                }
+                
+                // Restore display font size
+                const display = document.querySelector('.display');
+                if (display) {
+                    display.style.fontSize = '1.5rem';
+                    display.style.minHeight = '80px';
+                }
+            }
+        }
+
         // Initialize plot canvas
         window.addEventListener('load', () => {
             const canvas = document.getElementById('plotCanvas');
@@ -2156,7 +2219,13 @@
             
             // Initialize fractal options
             updateFractalOptions();
+            
+            // Handle initial resize
+            handleResize();
         });
+
+        // Listen for window resize
+        window.addEventListener('resize', handleResize);
     </script>
 </body>
 </html>

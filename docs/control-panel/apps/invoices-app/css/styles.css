@@ -277,23 +277,23 @@ body {
 }
 
 .btn-primary {
-    background: #ffffff;
+    background: #00d4ff;
     color: #000000;
 }
 
 .btn-primary:hover {
-    background: #e0e0e0;
+    background: #00b8e6;
     transform: translateY(-1px);
 }
 
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.1);
+    background: #333333;
     color: #ffffff;
-    border: 1px solid #444;
+    border: 1px solid #555;
 }
 
 .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: #444444;
     border-color: #666;
 }
 
@@ -701,14 +701,14 @@ body {
 .invoice-card-client {
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: #ffffff;
     margin-bottom: 8px;
 }
 
 .invoice-card-total {
     font-size: 18px;
     font-weight: bold;
-    color: #2c5aa0;
+    color: #00d4ff;
 }
 
 .invoice-card-actions {
@@ -725,24 +725,25 @@ body {
 .empty-state {
     text-align: center;
     padding: 60px 20px;
-    color: #666;
+    color: #888;
     grid-column: 1 / -1;
 }
 
 .empty-state i {
     font-size: 48px;
     margin-bottom: 20px;
-    color: #ddd;
+    color: #00d4ff;
 }
 
 .empty-state h3 {
     margin: 0 0 10px 0;
-    color: #333;
+    color: #ffffff;
 }
 
 .empty-state p {
     margin: 0;
     font-size: 14px;
+    color: #888;
 }
 
 /* Modal Footer */
@@ -757,19 +758,59 @@ body {
 
 .btn-danger {
     background: #dc3545;
-    color: white;
+    color: #ffffff;
     border: none;
 }
 
 .btn-danger:hover {
     background: #c82333;
+    color: #ffffff;
 }
 
 /* Responsive adjustments for issued invoices */
 @media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .header {
+        flex-direction: column;
+        text-align: center;
+        gap: 15px;
+    }
+    
+    .header h1 {
+        font-size: 1.5rem;
+    }
+    
+    .nav-tabs {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .tab-btn {
+        padding: 10px 15px;
+        font-size: 0.9rem;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
     .invoices-controls {
         flex-direction: column;
         align-items: stretch;
+        gap: 10px;
     }
     
     .search-box {
@@ -782,9 +823,59 @@ body {
     
     .invoice-card-actions {
         flex-direction: column;
+        gap: 8px;
     }
     
     .modal-footer {
         flex-direction: column;
+        gap: 10px;
+    }
+    
+    .modal-content {
+        margin: 10px;
+        max-width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
+    }
+    
+    .back-btn {
+        top: 10px;
+        left: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+    
+    .service-fields {
+        grid-template-columns: 1fr;
+    }
+    
+    .add-service-form .form-row,
+    .add-client-form .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 5px;
+    }
+    
+    .header h1 {
+        font-size: 1.3rem;
+    }
+    
+    .tab-btn {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+    }
+    
+    .btn {
+        padding: 10px 16px;
+        font-size: 0.9rem;
+    }
+    
+    .modal-content {
+        margin: 5px;
+        max-width: calc(100vw - 10px);
+        max-height: calc(100vh - 10px);
     }
 }

@@ -480,3 +480,47 @@
         font-size: 1.1rem;
     }
 }
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+    /* Prevent zoom on input focus for iOS */
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        font-size: 16px;
+    }
+    
+    /* Improve touch targets */
+    .btn,
+    .nav-btn,
+    .tab-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    /* Better spacing for mobile */
+    .app-card {
+        margin-bottom: 15px;
+    }
+    
+    /* Improve modal usability on mobile */
+    .modal-content {
+        border-radius: 8px;
+        margin: 10px;
+    }
+    
+    /* Better form layout on mobile */
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    /* Improve button spacing */
+    .form-actions {
+        gap: 10px;
+    }
+    
+    .form-actions .btn {
+        width: 100%;
+    }
+}
