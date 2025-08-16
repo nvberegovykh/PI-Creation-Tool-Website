@@ -1,0 +1,24 @@
+{
+  "name": "liber-control-panel",
+  "version": "1.0.0",
+  "description": "Liber Apps Control Panel with encrypted data storage",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "python -m http.server 8000",
+    "add-favicon": "node add-favicon.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "liber",
+    "apps",
+    "control-panel",
+    "encryption",
+    "invoices",
+    "calculator"
+  ],
+  "author": "Liber Apps",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
