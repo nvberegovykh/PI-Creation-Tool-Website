@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIBER Invoice Generator - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .btn {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px 5px;
+        }
+        .btn:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>LIBER Invoice Generator - System Test</h1>
+    
+    <div class="test-section">
+        <h2>Application Status</h2>
+        <div id="status">Testing...</div>
+    </div>
+
+    <div class="test-section">
+        <h2>Quick Links</h2>
+        <a href="invoices.html" class="btn">Open Invoice Generator</a>
+        <a href="README.md" class="btn">View Documentation</a>
+    </div>
+
+    <div class="test-section">
+        <h2>System Requirements Check</h2>
+        <div id="requirements"></div>
+    </div>
+
+    <script>
+        function checkRequirements() {
+            const requirements = document.getElementById('requirements');
+            let html = '';
+            
+            // Check localStorage
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                html += '<p class="success">✓ Local Storage: Available</p>';
+            } catch (e) {
+                html += '<p class="error">✗ Local Storage: Not available</p>';
+            }
+            
+            // Check modern JavaScript features
+            if (typeof Promise !== 'undefined') {
+                html += '<p class="success">✓ Promises: Available</p>';
+            } else {
+                html += '<p class="error">✗ Promises: Not available</p>';
+            }
+            
+            // Check fetch API
+            if (typeof fetch !== 'undefined') {
+                html += '<p class="success">✓ Fetch API: Available</p>';
+            } else {
+                html += '<p class="error">✗ Fetch API: Not available</p>';
+            }
+            
+            // Check ES6 features
+            if (typeof Array.prototype.find !== 'undefined') {
+                html += '<p class="success">✓ ES6 Features: Available</p>';
+            } else {
+                html += '<p class="error">✗ ES6 Features: Not available</p>';
+            }
+            
+            requirements.innerHTML = html;
+        }
+
+        function checkStatus() {
+            const status = document.getElementById('status');
+            
+            // Check if main files exist
+            fetch('invoices.html')
+                .then(response => {
+                    if (response.ok) {
+                        return fetch('css/styles.css');
+                    } else {
+                        throw new Error('invoices.html not found');
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return fetch('js/app.js');
+                    } else {
+                        throw new Error('styles.css not found');
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        status.innerHTML = '<p class="success">✓ All files loaded successfully!</p>';
+                        status.innerHTML += '<p>The application is ready to use.</p>';
+                    } else {
+                        throw new Error('app.js not found');
+                    }
+                })
+                .catch(error => {
+                    status.innerHTML = `<p class="error">✗ Error: ${error.message}</p>`;
+                    status.innerHTML += '<p>Please ensure all files are in the correct locations.</p>';
+                });
+        }
+
+        // Run tests when page loads
+        window.addEventListener('load', () => {
+            checkStatus();
+            checkRequirements();
+        });
+    </script>
+</body>
+</html>
