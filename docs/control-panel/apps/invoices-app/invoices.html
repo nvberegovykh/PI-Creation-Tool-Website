@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIBER - Invoice Generator</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <img src="images/logo.png" alt="LIBER" class="logo-image">
+            </div>
+            <h1>Invoice Generator</h1>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" data-tab="generate">Generate Invoice</button>
+            <button class="tab-btn" data-tab="issued">Issued Invoices</button>
+            <button class="tab-btn" data-tab="services">Manage Services</button>
+            <button class="tab-btn" data-tab="clients">Manage Clients</button>
+        </nav>
+
+        <!-- Generate Invoice Tab -->
+        <div class="tab-content active" id="generate-tab">
+            <div class="invoice-form">
+                <div class="form-section">
+                    <h2>Invoice Details</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="clientName">Client Name *</label>
+                            <div class="input-with-dropdown">
+                                <input type="text" id="clientName" placeholder="Enter client name" required>
+                                <button type="button" class="dropdown-btn" id="clientDropdownBtn">
+                                    <i class="fas fa-chevron-down"></i>
+                                </button>
+                                <div class="dropdown-menu" id="clientDropdown">
+                                    <!-- Saved clients will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="invoiceDate">Invoice Date</label>
+                            <input type="date" id="invoiceDate">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="invoiceId">Invoice ID</label>
+                            <input type="text" id="invoiceId" placeholder="Auto-generated" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Services</h2>
+                    <div id="servicesList">
+                        <!-- Services will be added here dynamically -->
+                    </div>
+                    <button type="button" class="btn btn-secondary" id="addServiceBtn">
+                        <i class="fas fa-plus"></i> Add Service
+                    </button>
+                </div>
+
+                <div class="form-section">
+                                         <div class="total-section">
+                         <div class="total-row total-final">
+                             <span>Total:</span>
+                             <span id="total">$0.00</span>
+                         </div>
+                     </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary" id="generatePdfBtn">
+                        <i class="fas fa-file-pdf"></i> Generate PDF
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="previewBtn">
+                        <i class="fas fa-eye"></i> Preview
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Issued Invoices Tab -->
+        <div class="tab-content" id="issued-tab">
+            <div class="issued-invoices-manager">
+                <h2>Issued Invoices</h2>
+                <div class="invoices-controls">
+                    <div class="search-box">
+                        <input type="text" id="invoiceSearch" placeholder="Search invoices by client name or ID...">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <div class="filter-controls">
+                        <select id="dateFilter">
+                            <option value="all">All Dates</option>
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month">This Month</option>
+                            <option value="year">This Year</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="invoices-list" id="invoicesList">
+                    <!-- Issued invoices will be displayed here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Services Tab -->
+        <div class="tab-content" id="services-tab">
+            <div class="services-manager">
+                <h2>Manage Services</h2>
+                <div class="add-service-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newServiceName">Service Name</label>
+                            <input type="text" id="newServiceName" placeholder="Enter service name">
+                        </div>
+                        <div class="form-group">
+                            <label for="newServiceCost">Default Cost</label>
+                            <input type="number" id="newServiceCost" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="newServiceRate">Rate per Hour (optional)</label>
+                            <input type="number" id="newServiceRate" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="form-group">
+                            <button type="button" class="btn btn-primary" id="saveServiceBtn">
+                                <i class="fas fa-save"></i> Save Service
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="services-list">
+                    <h3>Saved Services</h3>
+                    <div id="savedServicesList">
+                        <!-- Saved services will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Clients Tab -->
+        <div class="tab-content" id="clients-tab">
+            <div class="clients-manager">
+                <h2>Manage Clients</h2>
+                <div class="add-client-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newClientName">Client Name</label>
+                            <input type="text" id="newClientName" placeholder="Enter client name">
+                        </div>
+                        <div class="form-group">
+                            <button type="button" class="btn btn-primary" id="saveClientBtn">
+                                <i class="fas fa-save"></i> Save Client
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="clients-list">
+                    <h3>Saved Clients</h3>
+                    <div id="savedClientsList">
+                        <!-- Saved clients will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal" id="previewModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Invoice Preview</h3>
+                <button class="close-btn" id="closePreviewBtn">&times;</button>
+            </div>
+            <div class="modal-body" id="previewContent">
+                <!-- Preview content will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice Details Modal -->
+    <div class="modal" id="invoiceDetailsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Invoice Details</h3>
+                <button class="close-btn" id="closeInvoiceDetailsBtn">&times;</button>
+            </div>
+            <div class="modal-body" id="invoiceDetailsContent">
+                <!-- Invoice details will be displayed here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="downloadInvoiceBtn">
+                    <i class="fas fa-download"></i> Download PDF
+                </button>
+                <button type="button" class="btn btn-danger" id="deleteInvoiceBtn">
+                    <i class="fas fa-trash"></i> Delete Invoice
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/crypto.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

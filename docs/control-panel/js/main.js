@@ -1,0 +1,604 @@
+/**
+ * Main Application Entry Point
+ * Liber Apps Control Panel
+ */
+
+class LiberAppsControlPanel {
+    constructor() {
+        this.isInitialized = false;
+        this.init();
+    }
+
+    /**
+     * Initialize the application
+     */
+    async init() {
+        try {
+            // Show loading screen
+            this.showLoadingScreen();
+
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => this.startApp());
+            } else {
+                this.startApp();
+            }
+
+        } catch (error) {
+            console.error('Failed to initialize application:', error);
+            this.showError('Failed to initialize application');
+        }
+    }
+
+    /**
+     * Start the application
+     */
+    async startApp() {
+        try {
+            // Initialize all modules
+            await this.initializeModules();
+
+            // Setup global event listeners
+            this.setupGlobalEventListeners();
+
+            // Initialize keyboard shortcuts
+            if (window.dashboardManager) {
+                window.dashboardManager.initKeyboardShortcuts();
+            }
+
+            // Hide loading screen
+            this.hideLoadingScreen();
+
+            // Mark as initialized
+            this.isInitialized = true;
+
+            console.log('Liber Apps Control Panel initialized successfully');
+
+        } catch (error) {
+            console.error('Failed to start application:', error);
+            this.showError('Failed to start application');
+        }
+    }
+
+    /**
+     * Initialize all modules
+     */
+    async initializeModules() {
+        // Wait for all modules to be available
+        const maxWaitTime = 5000; // 5 seconds
+        const startTime = Date.now();
+
+        while (!this.areModulesReady() && (Date.now() - startTime) < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (!this.areModulesReady()) {
+            throw new Error('Failed to load required modules');
+        }
+
+        // Initialize modules in order
+        if (window.cryptoManager) {
+            console.log('Crypto module initialized');
+        }
+
+        if (window.authManager) {
+            console.log('Auth module initialized');
+        }
+
+        if (window.dashboardManager) {
+            console.log('Dashboard module initialized');
+        }
+
+        if (window.appsManager) {
+            console.log('Apps module initialized');
+        }
+
+        if (window.usersManager) {
+            console.log('Users module initialized');
+        }
+    }
+
+    /**
+     * Check if all required modules are ready
+     */
+    areModulesReady() {
+        return window.cryptoManager && 
+               window.authManager && 
+               window.dashboardManager && 
+               window.appsManager && 
+               window.usersManager;
+    }
+
+    /**
+     * Setup global event listeners
+     */
+    setupGlobalEventListeners() {
+        // Handle window resize
+        window.addEventListener('resize', this.debounce(() => {
+            this.handleResize();
+        }, 250));
+
+        // Handle visibility change (tab switching)
+        document.addEventListener('visibilitychange', () => {
+            this.handleVisibilityChange();
+        });
+
+        // Handle beforeunload
+        window.addEventListener('beforeunload', (e) => {
+            this.handleBeforeUnload(e);
+        });
+
+        // Handle keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            this.handleGlobalKeyboardShortcuts(e);
+        });
+
+        // Handle clicks outside modals
+        document.addEventListener('click', (e) => {
+            this.handleOutsideClick(e);
+        });
+
+        // Handle form submissions
+        document.addEventListener('submit', (e) => {
+            this.handleFormSubmission(e);
+        });
+    }
+
+    /**
+     * Handle window resize
+     */
+    handleResize() {
+        // Trigger resize events for responsive components
+        window.dispatchEvent(new CustomEvent('app-resize'));
+    }
+
+    /**
+     * Handle visibility change
+     */
+    handleVisibilityChange() {
+        if (document.hidden) {
+            // Page is hidden (user switched tabs)
+            console.log('Page hidden');
+        } else {
+            // Page is visible again
+            console.log('Page visible');
+            // Refresh data if needed
+            if (window.dashboardManager) {
+                window.dashboardManager.loadOverview();
+            }
+        }
+    }
+
+    /**
+     * Handle before unload
+     */
+    handleBeforeUnload(e) {
+        // Save any unsaved data
+        if (window.dashboardManager) {
+            window.dashboardManager.saveSettings();
+        }
+    }
+
+    /**
+     * Handle global keyboard shortcuts
+     */
+    handleGlobalKeyboardShortcuts(e) {
+        // Only handle shortcuts when not in input fields
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        // Escape key to close modals
+        if (e.key === 'Escape') {
+            const modals = document.querySelectorAll('.modal-overlay');
+            if (modals.length > 0) {
+                modals[modals.length - 1].remove();
+            }
+        }
+
+        // Ctrl/Cmd + K for search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            const searchInput = document.getElementById('app-search');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }
+
+        // Ctrl/Cmd + L for logout
+        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+            e.preventDefault();
+            if (window.authManager) {
+                window.authManager.logout();
+            }
+        }
+    }
+
+    /**
+     * Handle clicks outside modals
+     */
+    handleOutsideClick(e) {
+        // Close modals when clicking outside
+        if (e.target.classList.contains('modal-overlay')) {
+            e.target.remove();
+        }
+    }
+
+    /**
+     * Handle form submissions
+     */
+    handleFormSubmission(e) {
+        // Add loading states to forms
+        const form = e.target;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        
+        if (submitBtn) {
+            submitBtn.classList.add('loading');
+            submitBtn.disabled = true;
+            
+            // Remove loading state after form processing
+            setTimeout(() => {
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+            }, 2000);
+        }
+    }
+
+    /**
+     * Show loading screen
+     */
+    showLoadingScreen() {
+        const loadingScreen = document.getElementById('loading-screen');
+        if (loadingScreen) {
+            loadingScreen.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * Hide loading screen
+     */
+    hideLoadingScreen() {
+        const loadingScreen = document.getElementById('loading-screen');
+        if (loadingScreen) {
+            loadingScreen.classList.add('hidden');
+            // Remove from DOM after animation
+            setTimeout(() => {
+                if (loadingScreen.parentNode) {
+                    loadingScreen.remove();
+                }
+            }, 500);
+        }
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message) {
+        console.error(message);
+        
+        // Create error notification
+        const notification = document.createElement('div');
+        notification.className = 'notification notification-error';
+        notification.innerHTML = `
+            <div class="notification-content">
+                <i class="fas fa-exclamation-circle"></i>
+                <span>${message}</span>
+            </div>
+            <button class="notification-close">&times;</button>
+        `;
+
+        // Add styles
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--error-color);
+            color: var(--primary-bg);
+            padding: 12px 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-hover);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 400px;
+            animation: slideIn 0.3s ease-out;
+        `;
+
+        // Add to page
+        document.body.appendChild(notification);
+
+        // Setup close button
+        const closeBtn = notification.querySelector('.notification-close');
+        closeBtn.addEventListener('click', () => {
+            notification.remove();
+        });
+
+        // Auto remove after 10 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 10000);
+    }
+
+    /**
+     * Debounce function
+     */
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    /**
+     * Get application version
+     */
+    getVersion() {
+        return '1.0.0';
+    }
+
+    /**
+     * Get application info
+     */
+    getAppInfo() {
+        return {
+            name: 'Liber Apps Control Panel',
+            version: this.getVersion(),
+            description: 'A modern control panel for managing and launching applications',
+            author: 'Liber Apps Team',
+            initialized: this.isInitialized
+        };
+    }
+
+    /**
+     * Reload application
+     */
+    reload() {
+        window.location.reload();
+    }
+
+    /**
+     * Clear all data
+     */
+    clearAllData() {
+        if (confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
+            localStorage.clear();
+            sessionStorage.clear();
+            this.reload();
+        }
+    }
+}
+
+// Create global application instance
+window.liberApps = new LiberAppsControlPanel();
+
+// Export for module systems
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = LiberAppsControlPanel;
+}
+
+// Add some additional CSS for missing elements
+const additionalStyles = `
+    .users-table-container {
+        overflow-x: auto;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--border-color);
+    }
+
+    .users-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--secondary-bg);
+    }
+
+    .users-table th,
+    .users-table td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .users-table th {
+        background: var(--tertiary-bg);
+        font-weight: 600;
+        color: var(--primary-text);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .users-table tr:hover {
+        background: var(--tertiary-bg);
+    }
+
+    .user-info-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .current-user-badge {
+        background: var(--accent-color);
+        color: var(--primary-bg);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .role-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .role-admin {
+        background: var(--accent-color);
+        color: var(--primary-bg);
+    }
+
+    .role-user {
+        background: var(--tertiary-bg);
+        color: var(--secondary-text);
+        border: 1px solid var(--border-color);
+    }
+
+    .user-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .delete-confirmation {
+        text-align: center;
+        padding: 20px;
+    }
+
+    .delete-confirmation i {
+        font-size: 3rem;
+        margin-bottom: 16px;
+    }
+
+    .delete-confirmation h4 {
+        margin-bottom: 12px;
+        color: var(--primary-text);
+    }
+
+    .delete-confirmation p {
+        color: var(--secondary-text);
+        line-height: 1.6;
+    }
+
+    .app-info-details {
+        padding: 20px 0;
+    }
+
+    .app-info-header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .app-icon.large {
+        width: 80px;
+        height: 80px;
+        font-size: 40px;
+    }
+
+    .app-info-text h4 {
+        font-size: 1.5rem;
+        margin-bottom: 8px;
+        color: var(--primary-text);
+    }
+
+    .app-version {
+        color: var(--accent-color);
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .app-author {
+        color: var(--secondary-text);
+        font-size: 0.9rem;
+    }
+
+    .app-description-full h5 {
+        margin-bottom: 12px;
+        color: var(--primary-text);
+    }
+
+    .app-description-full p {
+        color: var(--secondary-text);
+        line-height: 1.6;
+        margin-bottom: 24px;
+    }
+
+    .app-details {
+        display: grid;
+        gap: 12px;
+    }
+
+    .detail-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .detail-item:last-child {
+        border-bottom: none;
+    }
+
+    .detail-label {
+        font-weight: 600;
+        color: var(--primary-text);
+    }
+
+    .detail-value {
+        color: var(--secondary-text);
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: 400px;
+        animation: slideIn 0.3s ease-out;
+    }
+
+    .notification-content {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+    }
+
+    .notification-close {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: var(--transition);
+    }
+
+    .notification-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+`;
+
+// Inject additional styles
+const styleSheet = document.createElement('style');
+styleSheet.textContent = additionalStyles;
+document.head.appendChild(styleSheet);

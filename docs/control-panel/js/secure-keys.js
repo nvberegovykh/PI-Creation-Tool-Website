@@ -1,0 +1,255 @@
+/**
+ * Secure Key Management for Liber Apps Control Panel
+ * Fetches decryption keys from Google Drive to decrypt sensitive data
+ */
+
+class SecureKeyManager {
+    constructor() {
+        // Default GitHub Gist URL - can be overridden in settings
+        // This URL is obfuscated to prevent easy discovery
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3LzNjMWEzYWMxZTVlZmYxNzU5NGJlYWMzMTQ5MTlhZTIyMWU3NDc5NmQvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
+        this.keyUrl = null;
+        this.cachedKeys = null;
+        this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
+        this.lastFetch = 0;
+    }
+
+    /**
+     * Decode base64 URL to prevent easy discovery
+     */
+    decodeUrl(encoded) {
+        try {
+            return atob(encoded);
+        } catch (error) {
+            console.error('Failed to decode URL:', error);
+            return '';
+        }
+    }
+
+    /**
+     * Set the secure keys URL (GitHub Gist, private repo, etc.)
+     * This should be called by admin during setup
+     */
+    setKeySource(url) {
+        this.keyUrl = url;
+        localStorage.setItem('liber_keys_url', url);
+    }
+
+    /**
+     * Get the key source URL
+     */
+    getKeySource() {
+        if (!this.keyUrl) {
+            this.keyUrl = localStorage.getItem('liber_keys_url') || this.defaultKeyUrl;
+        }
+        return this.keyUrl;
+    }
+
+    /**
+     * Generate default admin credentials for fallback
+     */
+    async generateDefaultCredentials() {
+        // Use environment variables or generate random fallback
+        const adminPassword = 'FALLBACK_PASSWORD_' + Math.random().toString(36).substring(2, 15);
+        const adminHash = await this.generateAdminHash(adminPassword);
+        
+        return {
+            admin: {
+                username: 'admin_fallback',
+                email: 'admin@fallback.local',
+                passwordHash: adminHash,
+                role: 'admin'
+            },
+            system: {
+                masterKeyHash: 'fallback_system_key_' + Math.random().toString(36).substring(2, 15)
+            }
+        };
+    }
+
+    /**
+     * Clear all encrypted data when keys change
+     */
+    clearAllEncryptedData() {
+        const keysToRemove = [
+            'liber_users',
+            'liber_session',
+            'liber_current_user',
+            'liber_user_password',
+            'liber_keys_url' // Also clear the cached URL
+        ];
+        
+        keysToRemove.forEach(key => {
+            localStorage.removeItem(key);
+        });
+        
+        // Clear cache
+        this.cachedKeys = null;
+        this.lastFetch = 0;
+        this.keyUrl = null; // Force re-fetch of URL
+        
+        console.log('Cleared all encrypted data due to key change');
+    }
+
+    /**
+     * Fetch keys from secure source (GitHub Gist, private repo, etc.)
+     */
+    async fetchKeys() {
+        const url = this.getKeySource();
+        
+        // If no URL configured, use default credentials
+        if (!url) {
+            console.warn('No key source URL configured. Using default credentials.');
+            return await this.generateDefaultCredentials();
+        }
+
+        try {
+            // Check cache first
+            if (this.cachedKeys && (Date.now() - this.lastFetch) < this.keyCacheExpiry) {
+                return this.cachedKeys;
+            }
+
+            // Fetch from secure source
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.warn(`Failed to fetch keys from ${url}: ${response.status} ${response.statusText}`);
+                console.warn('Falling back to default credentials. Please set up your Gist file.');
+                return await this.generateDefaultCredentials();
+            }
+
+            const keysData = await response.json();
+            
+            // Validate keys structure
+            if (!this.validateKeys(keysData)) {
+                console.warn('Invalid keys format from Gist. Using default credentials.');
+                return await this.generateDefaultCredentials();
+            }
+
+            // Check if the Gist contains placeholder hash
+            const placeholderHash = 'a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456';
+            const correctHash = '597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2';
+            
+            if (keysData.admin && keysData.admin.passwordHash === placeholderHash) {
+                console.warn('Gist contains placeholder hash. Using default credentials.');
+                console.warn('Please update your Gist with the correct hash. Run this in browser console:');
+                console.warn('await window.secureKeyManager.getCorrectAdminHash()');
+                return await this.generateDefaultCredentials();
+            }
+            
+            // If we have the correct hash, clear any old encrypted data
+            if (keysData.admin && keysData.admin.passwordHash === correctHash) {
+                console.log('✅ Correct hash detected in Gist. Clearing old encrypted data...');
+                this.clearAllEncryptedData();
+            }
+
+            // Check if we're switching from fallback to Gist keys
+            const wasUsingFallback = this.cachedKeys && this.cachedKeys.admin && 
+                                   this.cachedKeys.admin.username === 'admin_fallback' &&
+                                   this.cachedKeys.system.masterKeyHash.startsWith('fallback_system_key_');
+            
+            const isNowUsingGist = keysData.admin && keysData.admin.username === 'nvberegovykh' &&
+                                 !keysData.system.masterKeyHash.startsWith('fallback_system_key_');
+
+            // If switching from fallback to Gist, clear old encrypted data
+            if (wasUsingFallback && isNowUsingGist) {
+                console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
+                this.clearAllEncryptedData();
+            }
+
+            // Cache the keys
+            this.cachedKeys = keysData;
+            this.lastFetch = Date.now();
+
+            return keysData;
+        } catch (error) {
+            console.error('Error fetching keys:', error);
+            console.warn('Falling back to default credentials. Please set up your Gist file.');
+            return await this.generateDefaultCredentials();
+        }
+    }
+
+    /**
+     * Validate keys structure
+     */
+    validateKeys(keys) {
+        return keys && 
+               typeof keys === 'object' &&
+               keys.admin &&
+               keys.system &&
+               keys.admin.passwordHash &&
+               keys.system.masterKeyHash;
+    }
+
+    /**
+     * Get admin credentials from secure keys
+     */
+    async getAdminCredentials() {
+        const keys = await this.fetchKeys();
+        return keys.admin;
+    }
+
+    /**
+     * Get system master key from secure keys
+     */
+    async getSystemKey() {
+        const keys = await this.fetchKeys();
+        return keys.system.masterKeyHash;
+    }
+
+    /**
+     * Generate admin password hash for comparison
+     */
+    async generateAdminHash(password) {
+        const salt = 'liber_admin_salt_2024';
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password + salt);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /**
+     * Get the correct hash for the admin password
+     * This is the hash that should be in your Gist file
+     */
+    async getCorrectAdminHash() {
+        // This method should be called with the actual password
+        // For security, we don't hardcode the password here
+        console.warn('Please provide the actual admin password to generate the correct hash');
+        return 'HASH_NOT_AVAILABLE';
+    }
+
+    /**
+     * Test key connectivity
+     */
+    async testConnection() {
+        try {
+            const keys = await this.fetchKeys();
+            const url = this.getKeySource();
+            
+            if (!url) {
+                return { success: true, message: 'Using default credentials (no Gist configured)' };
+            }
+            
+            // Try to fetch from Gist
+            const response = await fetch(url);
+            if (response.ok) {
+                return { success: true, message: 'Keys accessible from Gist' };
+            } else {
+                return { success: false, message: `Gist returned ${response.status}. Using fallback credentials.` };
+            }
+        } catch (error) {
+            return { success: false, message: `Connection failed: ${error.message}. Using fallback credentials.` };
+        }
+    }
+
+    /**
+     * Clear cached keys (for security)
+     */
+    clearCache() {
+        this.cachedKeys = null;
+        this.lastFetch = 0;
+    }
+}
+
+// Initialize secure key manager
+window.secureKeyManager = new SecureKeyManager();

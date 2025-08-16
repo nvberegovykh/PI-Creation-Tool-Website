@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liber Apps Control Panel</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/apps.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <p>Loading Liber Apps Control Panel...</p>
+    </div>
+
+    <!-- Authentication Screen -->
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-container">
+            <div class="auth-header">
+                <h1><i class="fas fa-infinity"></i> Liber Apps</h1>
+                <p>Control Panel Access</p>
+            </div>
+            
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Login</button>
+                <button class="tab-btn" data-tab="register">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm" class="auth-form active">
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <div class="password-input">
+                        <input type="password" id="loginPassword" required>
+                        <label class="password-toggle-label">
+                            <input type="checkbox" id="loginPasswordToggle" class="password-toggle-checkbox">
+                            <i class="fas fa-eye"></i>
+                            <span>Password visible</span>
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="auth-btn">Login</button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="registerForm" class="auth-form">
+                <div class="form-group">
+                    <label for="registerUsername">Username</label>
+                    <input type="text" id="registerUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="registerEmail">Email</label>
+                    <input type="email" id="registerEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="registerPassword">Password</label>
+                    <div class="password-input">
+                        <input type="password" id="registerPassword" required>
+                        <label class="password-toggle-label">
+                            <input type="checkbox" id="registerPasswordToggle" class="password-toggle-checkbox">
+                            <i class="fas fa-eye"></i>
+                            <span>Password visible</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <div class="password-input">
+                        <input type="password" id="confirmPassword" required>
+                        <label class="password-toggle-label">
+                            <input type="checkbox" id="confirmPasswordToggle" class="password-toggle-checkbox">
+                            <i class="fas fa-eye"></i>
+                            <span>Password visible</span>
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="auth-btn">Register</button>
+            </form>
+
+            <div id="auth-message" class="auth-message"></div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard hidden">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <h1><i class="fas fa-infinity"></i> Liber Apps Control Panel</h1>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span id="current-user"></span>
+                    <span id="user-role"></span>
+                </div>
+                <button id="logout-btn" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="dashboard-nav">
+            <button class="nav-btn active" data-section="overview">
+                <i class="fas fa-home"></i> Overview
+            </button>
+            <button class="nav-btn" data-section="apps">
+                <i class="fas fa-rocket"></i> Launch Apps
+            </button>
+            <button class="nav-btn admin-only" data-section="users">
+                <i class="fas fa-users"></i> User Management
+            </button>
+            <button class="nav-btn admin-only" data-section="settings">
+                <i class="fas fa-cog"></i> Settings
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="dashboard-content">
+            <!-- Overview Section -->
+            <section id="overview-section" class="content-section active">
+                <div class="section-header">
+                    <h2>Dashboard Overview</h2>
+                </div>
+                <div class="overview-grid">
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-rocket"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Available Apps</h3>
+                            <p id="apps-count">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Total Users</h3>
+                            <p id="users-count">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Last Login</h3>
+                            <p id="last-login">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>System Status</h3>
+                            <p id="system-status">Online</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Apps Section -->
+            <section id="apps-section" class="content-section">
+                <div class="section-header">
+                    <h2>Launch Applications</h2>
+                    <div class="search-container">
+                        <input type="text" id="app-search" placeholder="Search apps...">
+                        <i class="fas fa-search"></i>
+                    </div>
+                </div>
+                <div id="apps-grid" class="apps-grid">
+                    <!-- Apps will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Users Section -->
+            <section id="users-section" class="content-section">
+                <div class="section-header">
+                    <h2>User Management</h2>
+                    <div class="header-actions">
+                        <div class="search-container">
+                            <input type="text" id="user-search" placeholder="Search users...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <button id="add-user-btn" class="add-btn">
+                            <i class="fas fa-plus"></i> Add User
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Add User Form -->
+                <div class="add-user-form-container">
+                    <form id="add-user-form" class="add-user-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-username">Username *</label>
+                                <input type="text" id="new-username" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-email">Email *</label>
+                                <input type="email" id="new-email" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-password">Password *</label>
+                                <input type="password" id="new-password" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-role">Role</label>
+                                <select id="new-role">
+                                    <option value="user">User</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add User
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="users-stats">
+                    <span id="users-count">0 total (0 pending)</span>
+                </div>
+                
+                <div id="users-list" class="users-list">
+                    <!-- Users will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section id="settings-section" class="content-section">
+                <div class="section-header">
+                    <h2>System Settings</h2>
+                </div>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h3>Security Settings</h3>
+                        <div class="setting-item">
+                            <label>Session Timeout (minutes)</label>
+                            <input type="number" id="session-timeout" value="30" min="5" max="480">
+                        </div>
+                        <div class="setting-item">
+                            <label>Enable Two-Factor Authentication</label>
+                            <input type="checkbox" id="enable-2fa">
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>Secure Keys Configuration</h3>
+                                                 <div class="setting-item">
+                             <label>Secure Keys URL</label>
+                             <input type="url" id="secure-keys-url" placeholder="https://gist.githubusercontent.com/..." value="">
+                             <button type="button" id="test-keys-btn" class="btn btn-secondary">
+                                 <i class="fas fa-test"></i> Test Connection
+                             </button>
+                         </div>
+                        <div class="setting-item">
+                            <label>Key Cache Duration (minutes)</label>
+                            <input type="number" id="key-cache-duration" value="30" min="5" max="120">
+                        </div>
+                                                 <div class="setting-item">
+                             <button type="button" id="clear-key-cache-btn" class="btn btn-warning">
+                                 <i class="fas fa-trash"></i> Clear Key Cache
+                             </button>
+                         </div>
+                         <div class="setting-item">
+                             <button type="button" id="clear-encrypted-data-btn" class="btn btn-danger">
+                                 <i class="fas fa-exclamation-triangle"></i> Clear All Encrypted Data
+                             </button>
+                         </div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>App Settings</h3>
+                        <div class="setting-item">
+                            <label>Auto-refresh Apps List</label>
+                            <input type="checkbox" id="auto-refresh-apps" checked>
+                        </div>
+                        <div class="setting-item">
+                            <label>Show App Descriptions</label>
+                            <input type="checkbox" id="show-app-descriptions" checked>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal Title</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/crypto.js"></script>
+    <script src="js/secure-keys.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/apps.js"></script>
+    <script src="js/users.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
