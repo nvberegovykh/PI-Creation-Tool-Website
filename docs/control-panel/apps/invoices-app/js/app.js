@@ -990,9 +990,27 @@ class InvoiceGenerator {
             await this.deleteInvoice(this.currentInvoiceId);
         }
     }
+
+    // Back to Control Panel function
+    goBack() {
+        if (window.opener) {
+            window.close();
+        } else {
+            window.history.back();
+        }
+    }
 }
 
 // Initialize the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new InvoiceGenerator();
 });
+
+// Global goBack function for the back button
+function goBack() {
+    if (window.opener) {
+        window.close();
+    } else {
+        window.history.back();
+    }
+}
