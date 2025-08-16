@@ -13,6 +13,27 @@ body {
     min-height: 100vh;
 }
 
+/* Back Button */
+.back-btn {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: #333333;
+    color: #ffffff;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    z-index: 1000;
+}
+
+.back-btn:hover {
+    background: #00d4ff;
+    color: #000000;
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;
