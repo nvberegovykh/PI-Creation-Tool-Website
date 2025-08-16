@@ -81,27 +81,27 @@ class AppsManager {
             {
                 id: 'calculator',
                 name: 'Calculator',
-                description: 'A simple calculator application for basic mathematical operations.',
+                description: 'A calculator application for mathematical operations.',
                 version: '1.0.0',
                 category: 'utilities',
                 icon: 'fas fa-calculator',
                 status: 'online',
                 path: 'apps/calculator/index.html',
                 author: 'Liber Apps',
-                lastUpdated: '2024-01-15',
+                lastUpdated: '2025-08-16',
                 logo: 'images/LIBER LOGO.png'
             },
             {
                 id: 'invoice-generator',
                 name: 'Invoice Generator',
-                description: 'Create, manage, and download professional invoices with encrypted data storage.',
-                version: '2.0.0',
+                description: 'Create, manage, and download invoices.',
+                version: '1.0.0',
                 category: 'business',
                 icon: 'fas fa-file-invoice-dollar',
                 status: 'online',
                 path: 'apps/invoices-app/invoices.html',
                 author: 'Liber Apps',
-                lastUpdated: '2024-12-19',
+                lastUpdated: '2025-08-16',
                 logo: 'images/LIBER LOGO.png'
             }
         ];
