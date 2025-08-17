@@ -660,9 +660,9 @@
         display: none;
     }
     
-    /* Show only when on dashboard and not hidden */
+    /* Hide by default on mobile dashboard too */
     .dashboard .chatgpt-widget {
-        display: block;
+        display: none;
         bottom: 80px; /* Move up to avoid mobile navigation */
         right: 10px;
         width: calc(100vw - 20px);
@@ -673,7 +673,7 @@
         display: none; /* Hide when toggled off */
     }
     
-    /* Allow widget to be shown when explicitly activated on login screen */
+    /* Allow widget to be shown when explicitly activated */
     .chatgpt-widget.mobile-activated {
         display: block !important;
         position: fixed !important;
@@ -691,9 +691,9 @@
         display: none;
     }
     
-    /* Show only when on dashboard and not hidden */
+    /* Hide by default on mobile dashboard too */
     .dashboard .chatgpt-widget {
-        display: block;
+        display: none;
         bottom: 80px; /* Move up to avoid mobile navigation */
         right: 10px;
         width: calc(100vw - 20px);
@@ -704,7 +704,7 @@
         display: none; /* Hide when toggled off */
     }
     
-    /* Allow widget to be shown when explicitly activated on login screen */
+    /* Allow widget to be shown when explicitly activated */
     .chatgpt-widget.mobile-activated {
         display: block !important;
         position: fixed !important;
