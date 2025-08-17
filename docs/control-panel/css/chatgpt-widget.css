@@ -51,19 +51,22 @@
     gap: 8px;
     font-weight: 600;
     font-size: 14px;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .chatgpt-icon {
     width: 20px;
     height: 20px;
     object-fit: contain;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .chatgpt-title i {
     font-size: 16px;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .chatgpt-controls {
