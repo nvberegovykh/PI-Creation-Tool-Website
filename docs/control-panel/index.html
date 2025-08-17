@@ -63,6 +63,8 @@
                     <button type="submit" class="btn-primary">Login</button>
                     <div class="form-footer">
                         <a href="#" onclick="authManager.showPasswordResetTab()">Forgot Password?</a>
+                        <span class="separator">•</span>
+                        <a href="#" onclick="authManager.showResendVerificationTab()">Resend Verification</a>
                     </div>
                 </form>
 
@@ -108,6 +110,18 @@
                         <input type="email" id="resetEmail" required>
                     </div>
                     <button type="submit" class="btn-primary">Send Reset Link</button>
+                    <div class="form-footer">
+                        <a href="#" onclick="authManager.switchTab('login')">Back to Login</a>
+                    </div>
+                </form>
+
+                <!-- Resend Verification Form -->
+                <form id="resendVerificationForm" class="auth-form">
+                    <div class="form-group">
+                        <label for="resendVerificationEmail">Email Address</label>
+                        <input type="email" id="resendVerificationEmail" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Resend Verification Email</button>
                     <div class="form-footer">
                         <a href="#" onclick="authManager.switchTab('login')">Back to Login</a>
                     </div>
