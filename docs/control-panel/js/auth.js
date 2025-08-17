@@ -268,7 +268,12 @@ class AuthManager {
 
             // Send verification email
             try {
+                console.log('Sending verification email to:', email);
+                console.log('Email service available:', !!window.emailService);
+                
                 await window.emailService.sendVerificationEmail(email, username, verificationToken);
+                console.log('Verification email sent successfully');
+                
                 this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
                 
                 // Clear form
@@ -304,6 +309,15 @@ class AuthManager {
         }
 
         try {
+            console.log('Password reset requested for email:', email);
+            
+            // Check if email service is available
+            if (!window.emailService) {
+                console.error('Email service not available');
+                this.showMessage('Email service not available. Please try again later.', 'error');
+                return;
+            }
+
             const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
             const user = users.find(u => u.email === email);
 
@@ -311,6 +325,8 @@ class AuthManager {
                 this.showMessage('If an account with this email exists, a reset link will be sent.', 'info');
                 return;
             }
+
+            console.log('User found, generating reset token...');
 
             // Generate reset token
             const resetToken = window.emailService.generateResetToken();
@@ -321,6 +337,8 @@ class AuthManager {
             
             const updatedUsers = users.map(u => u.email === email ? user : u);
             localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+
+            console.log('Sending password reset email...');
 
             // Send reset email
             await window.emailService.sendPasswordResetEmail(email, user.username, resetToken);
@@ -451,7 +469,7 @@ class AuthManager {
     /**
      * Show password reset form (for "Forgot Password?" link)
      */
-    showPasswordResetForm() {
+    showPasswordResetTab() {
         this.switchTab('reset');
     }
 

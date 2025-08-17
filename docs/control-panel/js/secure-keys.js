@@ -254,10 +254,29 @@ class SecureKeyManager {
      * Get Mailgun configuration
      */
     async getMailgunConfig() {
-        return {
-            apiKey: 'cf734f84b041de2fb043f6e99839d97a-16bc1610-22061845',
-            domain: 'sandbox1a3904d669c448f5b5df4216d696ce00.mailgun.org'
-        };
+        try {
+            // Fetch Mailgun config from Gist
+            const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3LzAwMDcyZjE2ODk3ZDg2M2M3NTZkZWFkZDVlMDM2YmMzZGFiY2M2N2EvbWFpbGd1bi1jb25maWcuanNvbg==');
+            
+            const response = await fetch(gistUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch Mailgun config: ${response.status}`);
+            }
+            
+            const config = await response.json();
+            
+            if (!config.mailgun || !config.mailgun.apiKey) {
+                throw new Error('Invalid Mailgun configuration format');
+            }
+            
+            return {
+                apiKey: config.mailgun.apiKey,
+                domain: 'sandbox1a3904d669c448f5b5df4216d696ce00.mailgun.org'
+            };
+        } catch (error) {
+            console.error('Error loading Mailgun config from Gist:', error);
+            throw new Error('Mailgun configuration not available. Please check your Gist configuration.');
+        }
     }
 }
 
