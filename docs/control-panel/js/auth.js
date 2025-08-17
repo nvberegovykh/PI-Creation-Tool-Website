@@ -82,6 +82,9 @@ class AuthManager {
                 this.togglePasswordVisibility(checkbox);
             });
         });
+        
+        // Setup mobile WALL-E toggle for initial load
+        this.setupMobileWallEToggle();
     }
 
     switchTab(tabName) {
@@ -435,6 +438,7 @@ class AuthManager {
             
             newToggleBtn.addEventListener('click', async (e) => {
                 console.log('WALL-E toggle button clicked!', e);
+                alert('WALL-E button clicked!'); // Simple test to see if it works
                 
                 // Wait for WALL-E widget to be initialized
                 let attempts = 0;
