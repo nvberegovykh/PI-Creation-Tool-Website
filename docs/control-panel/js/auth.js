@@ -439,6 +439,21 @@ class AuthManager {
             newToggleBtn.addEventListener('click', async (e) => {
                 console.log('WALL-E toggle button clicked!', e);
                 
+                // Check if widget is already active
+                const widget = document.querySelector('.chatgpt-widget');
+                const isWidgetActive = widget && widget.classList.contains('mobile-activated');
+                
+                if (isWidgetActive) {
+                    // Widget is active, hide it
+                    console.log('Hiding WALL-E widget...');
+                    widget.classList.remove('mobile-activated');
+                    sessionStorage.removeItem('wallE_activated_on_login');
+                    return;
+                }
+                
+                // Widget is not active, show it
+                console.log('Showing WALL-E widget...');
+                
                 // Wait for WALL-E widget to be initialized
                 let attempts = 0;
                 const maxAttempts = 30; // Increased attempts
@@ -455,18 +470,18 @@ class AuthManager {
                 }
                 
                 // Force create widget if it doesn't exist
-                let widget = document.querySelector('.chatgpt-widget');
-                if (!widget && window.wallE.createChatInterface) {
+                let widgetToShow = document.querySelector('.chatgpt-widget');
+                if (!widgetToShow && window.wallE.createChatInterface) {
                     console.log('Forcing widget creation...');
                     window.wallE.createChatInterface();
-                    widget = document.querySelector('.chatgpt-widget');
+                    widgetToShow = document.querySelector('.chatgpt-widget');
                 }
                 
-                if (widget) {
+                if (widgetToShow) {
                     console.log('WALL-E widget found, showing it...');
                     
                     // Use CSS class instead of inline styles for better compatibility
-                    widget.classList.add('mobile-activated');
+                    widgetToShow.classList.add('mobile-activated');
                     
                     // Expand the widget
                     if (window.wallE && typeof window.wallE.expandChat === 'function') {
