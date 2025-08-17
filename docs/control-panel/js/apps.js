@@ -32,20 +32,15 @@ class AppsManager {
      * Setup search functionality
      */
     setupSearchFunctionality() {
-        console.log('Setting up search functionality...');
-        
         // Remove existing event listeners to prevent duplicates
         const searchInput = document.getElementById('app-search');
         if (searchInput) {
-            console.log('Search input found, setting up event listeners...');
-            
             // Clone the element to remove all event listeners
             const newSearchInput = searchInput.cloneNode(true);
             searchInput.parentNode.replaceChild(newSearchInput, searchInput);
             
             // Add new event listener
             newSearchInput.addEventListener('input', (e) => {
-                console.log('Search input event triggered:', e.target.value);
                 this.searchTerm = e.target.value.toLowerCase();
                 this.filterApps();
                 this.renderApps();
@@ -54,7 +49,6 @@ class AppsManager {
             // Add keydown event for better UX
             newSearchInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
-                    console.log('Escape key pressed, clearing search');
                     this.clearSearch();
                 }
             });
@@ -62,8 +56,6 @@ class AppsManager {
             // Add clear button functionality
             const searchContainer = newSearchInput.closest('.search-container');
             if (searchContainer) {
-                console.log('Search container found, adding clear button...');
-                
                 // Remove existing clear button if any
                 const existingClearBtn = searchContainer.querySelector('.search-clear');
                 if (existingClearBtn) {
@@ -76,7 +68,6 @@ class AppsManager {
                 clearBtn.innerHTML = '<i class="fas fa-times"></i>';
                 
                 clearBtn.addEventListener('click', () => {
-                    console.log('Clear button clicked');
                     this.clearSearch();
                 });
 
@@ -90,11 +81,7 @@ class AppsManager {
                         clearBtn.classList.remove('visible');
                     }
                 });
-            } else {
-                console.warn('Search container not found');
             }
-        } else {
-            console.error('Search input element not found!');
         }
     }
 
@@ -102,18 +89,13 @@ class AppsManager {
      * Clear search
      */
     clearSearch() {
-        console.log('Clearing search...');
         const searchInput = document.getElementById('app-search');
         if (searchInput) {
             searchInput.value = '';
-            console.log('Search input cleared');
-        } else {
-            console.warn('Search input not found during clear');
         }
         this.searchTerm = '';
         this.filterApps();
         this.renderApps();
-        console.log('Search cleared successfully');
     }
 
     /**
@@ -208,9 +190,6 @@ class AppsManager {
      * Filter apps based on search term and category
      */
     filterApps() {
-        console.log('Filtering apps with search term:', this.searchTerm);
-        console.log('Available apps:', this.apps.length);
-        
         this.filteredApps = this.apps.filter(app => {
             const matchesSearch = this.searchTerm === '' || 
                                 app.name.toLowerCase().includes(this.searchTerm) ||
@@ -220,8 +199,6 @@ class AppsManager {
             
             return matchesSearch && matchesCategory;
         });
-        
-        console.log('Filtered apps:', this.filteredApps.length);
     }
 
     /**
@@ -249,6 +226,11 @@ class AppsManager {
         const settings = dashboardManager.getSettings();
         const showDescriptions = settings.showAppDescriptions;
         
+        // Get the current pathname to determine the base path
+        const currentPath = window.location.pathname;
+        const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
+        const appUrl = `${window.location.origin}${basePath}/${app.path}`;
+        
         return `
             <div class="app-card" data-app-id="${app.id}">
                 <div class="app-header">
@@ -274,6 +256,10 @@ class AppsManager {
                         <button class="app-btn secondary info-btn" data-app-id="${app.id}">
                             <i class="fas fa-info-circle"></i> Info
                         </button>
+                        <!-- Mobile-friendly direct link (hidden on desktop) -->
+                        <a href="${appUrl}" class="app-btn mobile-launch-link" target="_blank" style="display: none;">
+                            <i class="fas fa-external-link-alt"></i> Open
+                        </a>
                     </div>
                 </div>
             </div>
@@ -347,24 +333,43 @@ class AppsManager {
         }
 
         try {
-            // In a real implementation, this would open the app in a new window/tab
-            // For now, we'll simulate launching
+            // Get the current pathname to determine the base path
+            const currentPath = window.location.pathname;
+            const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
+            const appUrl = `${window.location.origin}${basePath}/${app.path}`;
+            
+            // Show success message
             this.showSuccess(`Launching ${app.name}...`);
             
-            // Simulate app launch
-            setTimeout(() => {
-                // Open app in new window
-                // Get the current pathname to determine the base path
-                const currentPath = window.location.pathname;
-                const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
-                const appUrl = `${window.location.origin}${basePath}/${app.path}`;
-                window.open(appUrl, '_blank');
-            }, 1000);
+            // Open app immediately (no delay for mobile compatibility)
+            const newWindow = window.open(appUrl, '_blank');
+            
+            // Check if popup was blocked (especially on mobile)
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                // Popup was blocked, try alternative approach for mobile
+                if (this.isMobileDevice()) {
+                    // For mobile, try to navigate in the same window
+                    this.showWarning('Popup blocked. Opening app in current window...');
+                    setTimeout(() => {
+                        window.location.href = appUrl;
+                    }, 500);
+                } else {
+                    this.showError('Popup blocked. Please allow popups for this site.');
+                }
+            }
 
         } catch (error) {
             console.error('Error launching app:', error);
             this.showError('Failed to launch app');
         }
+    }
+
+    /**
+     * Check if device is mobile
+     */
+    isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+               window.innerWidth <= 768;
     }
 
     /**

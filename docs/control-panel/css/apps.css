@@ -413,6 +413,32 @@
         padding: 6px 12px;
         font-size: 12px;
     }
+    
+    /* Mobile-specific app launch improvements */
+    .mobile-launch-link {
+        display: inline-flex !important;
+        background: var(--accent-color);
+        color: var(--primary-bg);
+        text-decoration: none;
+        border-radius: var(--border-radius);
+        padding: 8px 16px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: var(--transition);
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .mobile-launch-link:hover {
+        background: var(--accent-hover);
+        color: var(--primary-bg);
+        text-decoration: none;
+    }
+    
+    /* Hide regular launch button on mobile to avoid confusion */
+    .launch-btn {
+        display: none !important;
+    }
 }
 
 @media (max-width: 480px) {
@@ -449,5 +475,12 @@
     .app-btn {
         width: 100%;
         justify-content: center;
+    }
+    
+    /* Ensure mobile launch link is visible on very small screens */
+    .mobile-launch-link {
+        width: 100%;
+        justify-content: center;
+        margin-top: 8px;
     }
 }
