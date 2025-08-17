@@ -677,10 +677,10 @@
     .chatgpt-widget.mobile-activated {
         display: block !important;
         position: fixed !important;
-        bottom: 20px !important;
-        right: 20px !important;
-        width: 350px !important;
-        max-width: calc(100vw - 40px) !important;
+        bottom: 80px !important; /* Position above mobile navigation */
+        right: 10px !important;
+        width: calc(100vw - 20px) !important;
+        max-width: 350px !important;
         z-index: 10001 !important;
     }
 }
@@ -708,10 +708,10 @@
     .chatgpt-widget.mobile-activated {
         display: block !important;
         position: fixed !important;
-        bottom: 20px !important;
-        right: 20px !important;
-        width: 350px !important;
-        max-width: calc(100vw - 40px) !important;
+        bottom: 80px !important; /* Position above mobile navigation */
+        right: 10px !important;
+        width: calc(100vw - 20px) !important;
+        max-width: 350px !important;
         z-index: 10001 !important;
     }
 }
