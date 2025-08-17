@@ -76,7 +76,8 @@
 }
 
 .chatgpt-toggle,
-.chatgpt-settings {
+.chatgpt-settings,
+.chatgpt-clear-history {
     background: rgba(255, 255, 255, 0.2);
     border: none;
     color: var(--primary-bg);
@@ -98,14 +99,24 @@
 }
 
 .chatgpt-toggle:hover,
-.chatgpt-settings:hover {
+.chatgpt-settings:hover,
+.chatgpt-clear-history:hover {
     background: rgba(255, 255, 255, 0.3);
     transform: translateY(-1px);
 }
 
 .chatgpt-toggle:active,
-.chatgpt-settings:active {
+.chatgpt-settings:active,
+.chatgpt-clear-history:active {
     transform: translateY(0);
+}
+
+.chatgpt-clear-history {
+    margin-right: 8px;
+}
+
+.chatgpt-clear-history.visible {
+    display: flex !important;
 }
 
 /* Body */
@@ -966,4 +977,48 @@
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
+}
+
+/* Drag and Drop Styles */
+.chatgpt-widget.drag-over {
+    border: 2px dashed var(--accent-color);
+    background: rgba(0, 212, 255, 0.1);
+    transform: scale(1.02);
+    transition: all 0.2s ease;
+}
+
+.chatgpt-widget.drag-over::before {
+    content: '📁 Drop files here';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--accent-color);
+    color: var(--primary-bg);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    z-index: 10001;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Mobile drag and drop improvements */
+@media (max-width: 768px) {
+    .chatgpt-widget.drag-over::before {
+        font-size: 12px;
+        padding: 8px 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .chatgpt-widget.drag-over {
+        transform: scale(1.01);
+    }
+    
+    .chatgpt-widget.drag-over::before {
+        font-size: 11px;
+        padding: 6px 12px;
+    }
 }
