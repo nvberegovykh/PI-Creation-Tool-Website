@@ -14,8 +14,27 @@ class EmailService {
     async init() {
         try {
             await this.loadMailgunConfig();
+            // Test the configuration
+            await this.testMailgunConfig();
         } catch (error) {
             console.error('Failed to load Mailgun configuration:', error);
+        }
+    }
+
+    /**
+     * Test Mailgun configuration
+     */
+    async testMailgunConfig() {
+        try {
+            console.log('Testing Mailgun configuration...');
+            await this.loadMailgunConfig();
+            console.log('✅ Mailgun configuration test successful');
+            console.log('Domain:', this.mailgunDomain);
+            console.log('API Key available:', !!this.mailgunApiKey);
+            return true;
+        } catch (error) {
+            console.error('❌ Mailgun configuration test failed:', error);
+            return false;
         }
     }
 

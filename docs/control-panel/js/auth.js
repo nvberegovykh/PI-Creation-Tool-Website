@@ -102,13 +102,21 @@ class AuthManager {
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('active');
         });
-        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        const activeTabBtn = document.querySelector(`[data-tab="${tabName}"]`);
+        if (activeTabBtn) {
+            activeTabBtn.classList.add('active');
+        }
 
         // Update active form
         document.querySelectorAll('.auth-form').forEach(form => {
             form.classList.remove('active');
         });
-        document.getElementById(`${tabName}Form`).classList.add('active');
+        
+        const activeForm = document.getElementById(`${tabName}Form`);
+        if (activeForm) {
+            activeForm.classList.add('active');
+        }
     }
 
     togglePasswordVisibility(checkbox) {

@@ -258,15 +258,18 @@ class SecureKeyManager {
             // Fetch Mailgun config from Gist
             const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3LzAwMDcyZjE2ODk3ZDg2M2M3NTZkZWFkZDVlMDM2YmMzZGFiY2M2N2EvbWFpbGd1bi1jb25maWcuanNvbg==');
             
+            console.log('Fetching Mailgun config from Gist...');
             const response = await fetch(gistUrl);
+            
             if (!response.ok) {
-                throw new Error(`Failed to fetch Mailgun config: ${response.status}`);
+                throw new Error(`Failed to fetch Mailgun config: ${response.status} ${response.statusText}`);
             }
             
             const config = await response.json();
+            console.log('Mailgun config loaded successfully:', { hasMailgun: !!config.mailgun, hasApiKey: !!config.mailgun?.apiKey });
             
             if (!config.mailgun || !config.mailgun.apiKey) {
-                throw new Error('Invalid Mailgun configuration format');
+                throw new Error('Invalid Mailgun configuration format - missing mailgun.apiKey');
             }
             
             return {
@@ -275,7 +278,7 @@ class SecureKeyManager {
             };
         } catch (error) {
             console.error('Error loading Mailgun config from Gist:', error);
-            throw new Error('Mailgun configuration not available. Please check your Gist configuration.');
+            throw new Error(`Mailgun configuration not available: ${error.message}`);
         }
     }
 }
