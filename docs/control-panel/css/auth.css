@@ -24,6 +24,31 @@
     animation: slideUp 0.5s ease-out;
 }
 
+/* Legal Links */
+.legal-links {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    font-size: 12px;
+    color: #999;
+    z-index: 10;
+}
+
+.legal-links a {
+    color: #999;
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.legal-links a:hover {
+    color: #ccc;
+}
+
+.legal-links .separator {
+    margin: 0 8px;
+    color: #999;
+}
+
 .auth-header {
     text-align: center;
     margin-bottom: 30px;
@@ -393,4 +418,71 @@
 .wall-e-toggle-btn span {
     font-size: 14px;
     font-weight: 600;
+}
+
+/* Form Footer */
+.form-footer {
+    text-align: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.form-footer a {
+    color: var(--accent-color);
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.form-footer a:hover {
+    text-decoration: underline;
+}
+
+/* Reset Modal */
+.reset-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.reset-modal-content {
+    background: var(--primary-bg);
+    border-radius: var(--border-radius);
+    padding: 30px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: var(--shadow-hover);
+}
+
+.reset-modal-content h2 {
+    margin-bottom: 10px;
+    color: var(--primary-text);
+}
+
+.reset-modal-content p {
+    margin-bottom: 20px;
+    color: var(--secondary-text);
+}
+
+.reset-modal-content .btn-primary {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.reset-modal-content .btn-secondary {
+    width: 100%;
+    background: var(--tertiary-bg);
+    color: var(--primary-text);
+    border: 1px solid var(--border-color);
+}
+
+.reset-modal-content .btn-secondary:hover {
+    background: var(--secondary-bg);
 }
