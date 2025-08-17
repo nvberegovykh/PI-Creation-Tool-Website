@@ -577,33 +577,55 @@ class DashboardManager {
      * Toggle WALL-E widget
      */
     toggleWallEWidget() {
+        console.log('Dashboard WALL-E toggle button clicked!');
+        
         // Check if we're on mobile
         if (window.innerWidth <= 768) {
-            // On mobile, toggle visibility of the widget
+            // On mobile, use the same toggle logic as login screen
             const widget = document.querySelector('.chatgpt-widget');
-            if (widget) {
-                if (widget.classList.contains('hidden')) {
-                    widget.classList.remove('hidden');
-                    // Also expand it if it's collapsed
-                    if (!widget.classList.contains('expanded')) {
-                        window.wallE.expandChat();
-                    }
-                } else {
-                    widget.classList.add('hidden');
-                }
+            const isWidgetActive = widget && widget.classList.contains('mobile-activated');
+            
+            if (isWidgetActive) {
+                // Widget is active, hide it
+                console.log('Hiding WALL-E widget on dashboard...');
+                widget.classList.remove('mobile-activated');
                 
                 // Update mobile WALL-E button state
                 const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
                 if (mobileWallEBtn) {
-                    mobileWallEBtn.classList.toggle('active');
+                    mobileWallEBtn.classList.remove('active');
+                }
+            } else {
+                // Widget is not active, show it
+                console.log('Showing WALL-E widget on dashboard...');
+                
+                if (widget) {
+                    widget.classList.add('mobile-activated');
+                    
+                    // Expand the widget
+                    if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                        console.log('Expanding WALL-E widget...');
+                        window.wallE.expandChat();
+                    }
+                    
+                    // Update mobile WALL-E button state
+                    const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+                    if (mobileWallEBtn) {
+                        mobileWallEBtn.classList.add('active');
+                    }
+                    
+                    console.log('WALL-E widget successfully activated on dashboard');
+                } else {
+                    console.error('WALL-E widget element not found on dashboard');
                 }
             }
         } else {
             // On desktop, use the normal toggle
             if (window.wallE && typeof window.wallE.toggleChat === 'function') {
+                console.log('Toggling WALL-E widget on desktop...');
                 window.wallE.toggleChat();
             } else {
-                console.warn('WALL-E widget not available');
+                console.warn('WALL-E widget not available on desktop');
             }
         }
     }
