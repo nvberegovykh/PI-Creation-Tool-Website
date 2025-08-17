@@ -12,7 +12,7 @@
     z-index: 10000;
     font-family: inherit;
     transition: all 0.3s ease;
-    overflow: hidden;
+    overflow: visible;
     min-height: 60px;
     pointer-events: auto !important;
 }
@@ -1051,8 +1051,12 @@
     border: 1px solid #34495e;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 1000;
+    z-index: 10001;
     overflow: hidden;
+    display: none;
+    visibility: visible;
+    opacity: 1;
+    margin-top: 5px;
 }
 
 .thread-selector-header {
