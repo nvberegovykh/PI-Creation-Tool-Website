@@ -272,7 +272,9 @@ class AuthManager {
 
             // Add user to storage
             users.push(newUser);
-            await this.saveUsers(users);
+            console.log('Saving user to encrypted storage:', newUser);
+            const saveResult = await this.saveUsers(users);
+            console.log('Save result:', saveResult);
 
             // Send verification email
             try {
@@ -590,6 +592,19 @@ class AuthManager {
         try {
             const masterKey = await this.getMasterKey();
             const users = await window.cryptoManager.secureRetrieve('liber_users', masterKey);
+            
+            // If no users in encrypted storage, check for legacy localStorage users
+            if (!users || users.length === 0) {
+                console.log('No users in encrypted storage, checking for legacy users...');
+                const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
+                if (legacyUsers.length > 0) {
+                    console.log('Found legacy users, migrating to encrypted storage...');
+                    await this.saveUsers(legacyUsers);
+                    localStorage.removeItem('liber_users'); // Clean up legacy data
+                    return legacyUsers;
+                }
+            }
+            
             return users || [];
         } catch (error) {
             console.error('Error loading users:', error);
@@ -603,8 +618,12 @@ class AuthManager {
 
     async saveUsers(users) {
         try {
+            console.log('saveUsers called with:', users.length, 'users');
             const masterKey = await this.getMasterKey();
-            return await window.cryptoManager.secureStore('liber_users', users, masterKey);
+            console.log('Master key obtained:', !!masterKey);
+            const result = await window.cryptoManager.secureStore('liber_users', users, masterKey);
+            console.log('secureStore result:', result);
+            return result;
         } catch (error) {
             console.error('Error saving users:', error);
             return false;
@@ -832,6 +851,42 @@ class AuthManager {
         } else {
             console.error('Mobile WALL-E toggle button not found in DOM');
         }
+    }
+
+    /**
+     * Test function to debug user storage
+     */
+    async testUserStorage() {
+        console.log('=== Testing User Storage ===');
+        
+        // Check current users
+        const users = await this.getUsers();
+        console.log('Current users:', users);
+        
+        // Check legacy storage
+        const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
+        console.log('Legacy users:', legacyUsers);
+        
+        // Test saving a user
+        const testUser = {
+            id: 'test_user_' + Date.now(),
+            username: 'testuser',
+            email: 'test@example.com',
+            passwordHash: 'test_hash',
+            role: 'user',
+            isVerified: false,
+            createdAt: new Date().toISOString()
+        };
+        
+        console.log('Testing save with user:', testUser);
+        const saveResult = await this.saveUsers([testUser]);
+        console.log('Save result:', saveResult);
+        
+        // Check if user was saved
+        const savedUsers = await this.getUsers();
+        console.log('Users after save:', savedUsers);
+        
+        return saveResult;
     }
 }
 

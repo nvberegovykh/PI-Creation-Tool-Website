@@ -137,8 +137,13 @@ class SecureKeyManager {
             
             // If we have the correct hash, clear any old encrypted data
             if (keysData.admin && keysData.admin.passwordHash === correctHash) {
-                console.log('✅ Correct hash detected in Gist. Clearing old encrypted data...');
-                this.clearAllEncryptedData();
+                console.log('✅ Correct hash detected in Gist.');
+                // Only clear data if we're switching from fallback to Gist
+                if (this.cachedKeys && this.cachedKeys.admin && 
+                    this.cachedKeys.admin.username === 'admin_fallback') {
+                    console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
+                    this.clearAllEncryptedData();
+                }
             }
 
             // Check if we're switching from fallback to Gist keys
