@@ -438,7 +438,6 @@ class AuthManager {
             
             newToggleBtn.addEventListener('click', async (e) => {
                 console.log('WALL-E toggle button clicked!', e);
-                alert('WALL-E button clicked!'); // Simple test to see if it works
                 
                 // Wait for WALL-E widget to be initialized
                 let attempts = 0;
@@ -474,9 +473,6 @@ class AuthManager {
                         console.log('Expanding WALL-E widget...');
                         window.wallE.expandChat();
                     }
-                    
-                    // Hide the toggle button temporarily
-                    newToggleBtn.style.display = 'none';
                     
                     // Store state that WALL-E was activated on login screen
                     sessionStorage.setItem('wallE_activated_on_login', 'true');
