@@ -10,12 +10,13 @@ class DashboardManager {
     }
 
     /**
-     * Initialize dashboard
+     * Initialize the dashboard
      */
     init() {
         this.setupEventListeners();
         this.loadOverview();
         this.updateNavigation();
+        this.setupMobileWallEToggle();
     }
 
     /**
@@ -996,6 +997,36 @@ class DashboardManager {
      */
     initKeyboardShortcuts() {
         this.setupKeyboardShortcuts();
+    }
+
+    /**
+     * Setup mobile WALL-E toggle for login screen
+     */
+    setupMobileWallEToggle() {
+        const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                // Show WALL-E widget on login screen
+                const widget = document.querySelector('.chatgpt-widget');
+                if (widget) {
+                    widget.style.display = 'block';
+                    widget.style.position = 'fixed';
+                    widget.style.bottom = '20px';
+                    widget.style.right = '20px';
+                    widget.style.width = '350px';
+                    widget.style.maxWidth = 'calc(100vw - 40px)';
+                    widget.style.zIndex = '10001';
+                    
+                    // Expand the widget
+                    if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                        window.wallE.expandChat();
+                    }
+                    
+                    // Hide the toggle button
+                    toggleBtn.style.display = 'none';
+                }
+            });
+        }
     }
 }
 

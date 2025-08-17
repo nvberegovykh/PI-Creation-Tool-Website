@@ -47,6 +47,10 @@ class ChatGPTIntegration {
         if (window.innerWidth <= 768) {
             this.isExpanded = true;
             this.updateMobileButtonState();
+        } else {
+            // On desktop, always ensure widget is visible
+            this.isExpanded = true;
+            this.expandChat();
         }
     }
 
