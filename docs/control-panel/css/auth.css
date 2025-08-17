@@ -44,24 +44,24 @@
 }
 
 .auth-logo {
-    width: 65px;
-    height: 65px;
-    margin-right: 12px;
-    vertical-align: middle;
+    width: 325px;
+    height: 325px;
+    margin: 0 auto 20px auto;
+    display: block;
 }
 
 /* Responsive auth logo */
 @media (max-width: 768px) {
     .auth-logo {
-        width: 60px;
-        height: 60px;
+        width: 300px;
+        height: 300px;
     }
 }
 
 @media (max-width: 480px) {
     .auth-logo {
-        width: 55px;
-        height: 55px;
+        width: 275px;
+        height: 275px;
     }
 }
 
