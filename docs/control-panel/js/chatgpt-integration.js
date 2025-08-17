@@ -51,8 +51,9 @@ class ChatGPTIntegration {
         
         // Set initial state based on screen size
         if (window.innerWidth <= 768) {
-            this.isExpanded = true;
-            this.updateMobileButtonState();
+            // On mobile, let the dashboard control visibility
+            this.isExpanded = false;
+            // Don't auto-expand on mobile - let dashboard handle it
         } else {
             // On desktop, always ensure widget is visible
             this.isExpanded = true;

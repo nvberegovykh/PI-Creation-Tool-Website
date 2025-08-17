@@ -1095,6 +1095,11 @@ class DashboardManager {
                     mobileWallEBtn.classList.remove('active');
                 }
                 
+                // Ensure WALL-E widget is collapsed on mobile
+                if (window.wallE && typeof window.wallE.collapseChat === 'function') {
+                    window.wallE.collapseChat();
+                }
+                
                 console.log('WALL-E widget positioned for mobile dashboard - hidden by default');
             } else {
                 // On desktop, use normal positioning and keep visible
