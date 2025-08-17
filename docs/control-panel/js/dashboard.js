@@ -16,7 +16,7 @@ class DashboardManager {
         this.setupEventListeners();
         this.loadOverview();
         this.updateNavigation();
-        this.setupMobileWallEToggle();
+        this.handleWallETransitionToDashboard();
     }
 
     /**
@@ -999,33 +999,39 @@ class DashboardManager {
         this.setupKeyboardShortcuts();
     }
 
+
+
     /**
-     * Setup mobile WALL-E toggle for login screen
+     * Handle WALL-E widget positioning when entering dashboard
      */
-    setupMobileWallEToggle() {
-        const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', () => {
-                // Show WALL-E widget on login screen
-                const widget = document.querySelector('.chatgpt-widget');
-                if (widget) {
-                    widget.style.display = 'block';
-                    widget.style.position = 'fixed';
-                    widget.style.bottom = '20px';
-                    widget.style.right = '20px';
-                    widget.style.width = '350px';
-                    widget.style.maxWidth = 'calc(100vw - 40px)';
-                    widget.style.zIndex = '10001';
-                    
-                    // Expand the widget
-                    if (window.wallE && typeof window.wallE.expandChat === 'function') {
-                        window.wallE.expandChat();
-                    }
-                    
-                    // Hide the toggle button
-                    toggleBtn.style.display = 'none';
-                }
-            });
+    handleWallETransitionToDashboard() {
+        const widget = document.querySelector('.chatgpt-widget');
+        if (widget && sessionStorage.getItem('wallE_activated_on_login') === 'true') {
+            // Reset widget positioning for dashboard
+            widget.style.position = '';
+            widget.style.bottom = '';
+            widget.style.right = '';
+            widget.style.width = '';
+            widget.style.maxWidth = '';
+            widget.style.zIndex = '';
+            
+            // Ensure widget is visible and positioned correctly for dashboard
+            if (window.innerWidth <= 768) {
+                // On mobile dashboard, position above navigation
+                widget.style.bottom = '80px';
+                widget.style.right = '10px';
+                widget.style.width = 'calc(100vw - 20px)';
+                widget.style.maxWidth = '350px';
+                widget.style.display = 'block';
+                widget.classList.remove('hidden');
+            } else {
+                // On desktop, use normal positioning
+                widget.style.display = 'block';
+                widget.classList.remove('hidden');
+            }
+            
+            // Clear the session storage flag
+            sessionStorage.removeItem('wallE_activated_on_login');
         }
     }
 }

@@ -371,6 +371,21 @@ class AuthManager {
     showAuthScreen() {
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('dashboard').classList.add('hidden');
+        
+        // Restore mobile WALL-E toggle button if it was hidden
+        const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
+        if (toggleBtn) {
+            toggleBtn.style.display = '';
+        }
+        
+        // Hide WALL-E widget on login screen (unless it was activated)
+        const widget = document.querySelector('.chatgpt-widget');
+        if (widget && sessionStorage.getItem('wallE_activated_on_login') !== 'true') {
+            widget.style.display = 'none';
+        }
+        
+        // Setup mobile WALL-E toggle for login screen
+        this.setupMobileWallEToggle();
     }
 
     showDashboard() {
@@ -402,6 +417,43 @@ class AuthManager {
 
     isAdmin() {
         return this.currentUser && this.currentUser.role === 'admin';
+    }
+
+    /**
+     * Setup mobile WALL-E toggle for login screen
+     */
+    setupMobileWallEToggle() {
+        const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
+        if (toggleBtn) {
+            // Remove any existing event listeners
+            const newToggleBtn = toggleBtn.cloneNode(true);
+            toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
+            
+            newToggleBtn.addEventListener('click', () => {
+                // Show WALL-E widget on login screen
+                const widget = document.querySelector('.chatgpt-widget');
+                if (widget) {
+                    widget.style.display = 'block';
+                    widget.style.position = 'fixed';
+                    widget.style.bottom = '20px';
+                    widget.style.right = '20px';
+                    widget.style.width = '350px';
+                    widget.style.maxWidth = 'calc(100vw - 40px)';
+                    widget.style.zIndex = '10001';
+                    
+                    // Expand the widget
+                    if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                        window.wallE.expandChat();
+                    }
+                    
+                    // Hide the toggle button temporarily
+                    newToggleBtn.style.display = 'none';
+                    
+                    // Store state that WALL-E was activated on login screen
+                    sessionStorage.setItem('wallE_activated_on_login', 'true');
+                }
+            });
+        }
     }
 }
 
