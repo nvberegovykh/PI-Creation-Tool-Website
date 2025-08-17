@@ -2442,6 +2442,7 @@ class ChatGPTIntegration {
 
 // Create global instance
 window.chatgptIntegration = new ChatGPTIntegration();
+window.wallE = window.chatgptIntegration; // Alias for compatibility
 
 // Export for module systems
 if (typeof module !== 'undefined' && module.exports) {
