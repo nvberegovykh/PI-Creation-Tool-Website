@@ -909,12 +909,52 @@ class ChatGPTIntegration {
      */
     async addMessageToThread(message, files = []) {
         try {
-            // If files exist, upload them and attach to assistant
+            let content;
+            
             if (files && files.length > 0) {
-                await this.attachFilesToAssistant(files);
+                // Upload files first
+                const fileIds = [];
+                for (const file of files) {
+                    try {
+                        const fileId = await this.uploadFile(file);
+                        fileIds.push(fileId);
+                    } catch (fileError) {
+                        console.error('Failed to upload file:', fileError);
+                        // Continue with other files
+                    }
+                }
+
+                if (fileIds.length === 0) {
+                    console.warn('No files were successfully uploaded');
+                    // Fall back to text-only message
+                    content = message.trim() || 'Please analyze the attached files.';
+                } else {
+                    // Create content array with text and file attachments
+                    content = [
+                        {
+                            type: 'text',
+                            text: {
+                                value: message.trim() || 'Please analyze the attached files.',
+                                annotations: []
+                            }
+                        }
+                    ];
+                    
+                    // Add file attachments to content
+                    for (const fileId of fileIds) {
+                        content.push({
+                            type: 'file',
+                            file: {
+                                file_id: fileId
+                            }
+                        });
+                    }
+                }
+            } else {
+                // Text-only message
+                content = message.trim() || 'Please analyze the attached files.';
             }
 
-            // Always send simple text message (this is the correct format for v2)
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -924,7 +964,7 @@ class ChatGPTIntegration {
                 },
                 body: JSON.stringify({
                     role: 'user',
-                    content: message.trim() || 'Please analyze the attached files.'
+                    content: content
                 })
             });
 
@@ -941,73 +981,7 @@ class ChatGPTIntegration {
         }
     }
 
-    /**
-     * Attach files to the assistant
-     */
-    async attachFilesToAssistant(files) {
-        try {
-            const fileIds = [];
-            
-            // Upload files first
-            for (const file of files) {
-                try {
-                    const fileId = await this.uploadFile(file);
-                    fileIds.push(fileId);
-                } catch (fileError) {
-                    console.error('Failed to upload file:', fileError);
-                    // Continue with other files
-                }
-            }
 
-            if (fileIds.length === 0) {
-                console.warn('No files were successfully uploaded');
-                return;
-            }
-
-            // Get current assistant configuration
-            const getResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                }
-            });
-
-            if (!getResponse.ok) {
-                throw new Error(`Failed to get assistant configuration: ${getResponse.status}`);
-            }
-
-            const assistant = await getResponse.json();
-            
-            // Merge existing file_ids with new ones
-            const existingFileIds = assistant.file_ids || [];
-            const allFileIds = [...new Set([...existingFileIds, ...fileIds])];
-
-            // Update assistant with new file_ids
-            const updateResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                },
-                body: JSON.stringify({
-                    file_ids: allFileIds
-                })
-            });
-
-            if (!updateResponse.ok) {
-                const errorData = await updateResponse.text();
-                console.error('Failed to attach files to assistant:', updateResponse.status, errorData);
-                throw new Error(`Failed to attach files to assistant: ${updateResponse.status} - ${updateResponse.statusText}`);
-            }
-
-            console.log(`Successfully attached ${fileIds.length} files to assistant`);
-            return await updateResponse.json();
-        } catch (error) {
-            console.error('Error attaching files to assistant:', error);
-            throw error;
-        }
-    }
 
     /**
      * Upload file to OpenAI
