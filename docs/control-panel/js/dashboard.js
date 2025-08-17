@@ -581,7 +581,7 @@ class DashboardManager {
         
         // Check if we're on mobile
         if (window.innerWidth <= 768) {
-            // On mobile, use the same toggle logic as login screen
+            // Use the exact same logic as login page
             const widget = document.querySelector('.chatgpt-widget');
             const isWidgetActive = widget && widget.classList.contains('mobile-activated');
             
@@ -599,25 +599,8 @@ class DashboardManager {
                 // Widget is not active, show it
                 console.log('Showing WALL-E widget on dashboard...');
                 
-                if (widget) {
-                    widget.classList.add('mobile-activated');
-                    
-                    // Expand the widget
-                    if (window.wallE && typeof window.wallE.expandChat === 'function') {
-                        console.log('Expanding WALL-E widget...');
-                        window.wallE.expandChat();
-                    }
-                    
-                    // Update mobile WALL-E button state
-                    const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
-                    if (mobileWallEBtn) {
-                        mobileWallEBtn.classList.add('active');
-                    }
-                    
-                    console.log('WALL-E widget successfully activated on dashboard');
-                } else {
-                    console.error('WALL-E widget element not found on dashboard');
-                }
+                // Wait for WALL-E widget to be initialized (same as login page)
+                this.waitForWidgetAndShow();
             }
         } else {
             // On desktop, use the normal toggle
@@ -627,6 +610,56 @@ class DashboardManager {
             } else {
                 console.warn('WALL-E widget not available on desktop');
             }
+        }
+    }
+
+    /**
+     * Wait for widget to be available and then show it (same logic as login page)
+     */
+    async waitForWidgetAndShow() {
+        let attempts = 0;
+        const maxAttempts = 30;
+        
+        while ((!window.wallE || !document.querySelector('.chatgpt-widget')) && attempts < maxAttempts) {
+            console.log(`Waiting for WALL-E widget... attempt ${attempts + 1}`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (!window.wallE) {
+            console.error('WALL-E widget not available after waiting');
+            return;
+        }
+        
+        // Force create widget if it doesn't exist
+        let widgetToShow = document.querySelector('.chatgpt-widget');
+        if (!widgetToShow && window.wallE.createChatInterface) {
+            console.log('Forcing widget creation...');
+            window.wallE.createChatInterface();
+            widgetToShow = document.querySelector('.chatgpt-widget');
+        }
+        
+        if (widgetToShow) {
+            console.log('WALL-E widget found, showing it...');
+            
+            // Use CSS class instead of inline styles for better compatibility
+            widgetToShow.classList.add('mobile-activated');
+            
+            // Expand the widget
+            if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                console.log('Expanding WALL-E widget...');
+                window.wallE.expandChat();
+            }
+            
+            // Update mobile WALL-E button state
+            const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+            if (mobileWallEBtn) {
+                mobileWallEBtn.classList.add('active');
+            }
+            
+            console.log('WALL-E widget successfully activated on dashboard');
+        } else {
+            console.error('WALL-E widget element not found even after creation attempt');
         }
     }
 
