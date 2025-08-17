@@ -37,17 +37,22 @@ class ChatGPTIntegration {
      */
     async loadConfiguration() {
         try {
-            // Use the existing SecureKeyManager's obfuscated URL system
+            // Use the correct Gist URL with your API keys and assistant ID
             const wallEGistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvMTM2Yjg1NmM5NDY3OTRmYWQ4MDBjNjM2M2E4ZmE4NmUvcmF3L2M2YzU3MTA2MzM2YmZhNDllOTczYmJhMTZkYzU3Nzk5OGRlOTMwMDgvd2FsbC1lLWNvbmZpZy5qc29u');
             
             // Load configuration directly from Gist raw URL
             const response = await fetch(wallEGistUrl);
             
             if (!response.ok) {
-                throw new Error(`Failed to load configuration: ${response.status}`);
+                throw new Error(`Failed to load configuration: ${response.status} - ${response.statusText}`);
             }
             
             const config = await response.json();
+            
+            // Validate configuration
+            if (!config.openai || !config.openai.apiKey || !config.openai.assistantId) {
+                throw new Error('Invalid configuration format. Missing OpenAI API key or assistant ID.');
+            }
             
             // Set configuration values
             this.apiKey = config.openai.apiKey;
@@ -59,7 +64,7 @@ class ChatGPTIntegration {
             
         } catch (error) {
             console.error('Failed to load WALL-E configuration:', error);
-            this.showError('Failed to load WALL-E configuration. Please check the Gist setup.');
+            this.showError(`WALL-E Configuration Error: ${error.message}`);
             this.isEnabled = false;
         }
     }
@@ -498,6 +503,11 @@ class ChatGPTIntegration {
      */
     async callWALLE(message) {
         try {
+            // Validate configuration
+            if (!this.apiKey || !this.assistantId) {
+                throw new Error('WALL-E not configured. Please check your Gist configuration.');
+            }
+
             // Create or get thread
             if (!this.threadId) {
                 this.threadId = await this.createThread();
@@ -523,21 +533,28 @@ class ChatGPTIntegration {
      * Create a new thread
      */
     async createThread() {
-        const response = await fetch('https://api.openai.com/v1/threads', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v1'
+        try {
+            const response = await fetch('https://api.openai.com/v1/threads', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v1'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Thread creation failed:', response.status, errorData);
+                throw new Error(`Failed to create thread: ${response.status} - ${response.statusText}`);
             }
-        });
 
-        if (!response.ok) {
-            throw new Error('Failed to create thread');
+            const data = await response.json();
+            return data.id;
+        } catch (error) {
+            console.error('Thread creation error:', error);
+            throw new Error(`Thread creation failed: ${error.message}`);
         }
-
-        const data = await response.json();
-        return data.id;
     }
 
     /**
