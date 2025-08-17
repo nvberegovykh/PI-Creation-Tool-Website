@@ -122,19 +122,8 @@ class ChatGPTIntegration {
                         <div class="chatgpt-welcome">
                             <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <i class="fas fa-robot" style="display: none;"></i>
-                            <h4>Welcome to WALL-E!</h4>
-                            <p>I'm your AI assistant powered by GPT-4o. I can help you with:</p>
-                            <ul>
-                                <li>Using this application</li>
-                                <li>Analyzing images and PDFs</li>
-                                <li>Generating images from descriptions</li>
-                                <li>Answering questions</li>
-                                <li>Providing guidance</li>
-                            </ul>
-                            <p>Upload files, ask questions, or request image generation!</p>
-                            <p><strong>💡 Tip:</strong> You can ask me to generate images by saying "generate an image of..." or "create a picture of..."</p>
-                            <p><strong>📁 File Upload:</strong> Drag & drop files, paste images from clipboard, or use the paperclip button!</p>
-                            <p><strong>💾 Chat History:</strong> Your conversations are automatically saved and will be restored when you return.</p>
+                            <h4>Wall-eeeee!</h4>
+                            <p>Any help?</p>
                             ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                         </div>
                     </div>
@@ -1484,18 +1473,8 @@ class ChatGPTIntegration {
                     <div class="chatgpt-welcome">
                         <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <i class="fas fa-robot" style="display: none;"></i>
-                        <h4>Welcome to WALL-E!</h4>
-                        <p>I'm your AI assistant powered by GPT-4o. I can help you with:</p>
-                        <ul>
-                            <li>Using this application</li>
-                            <li>Analyzing images and PDFs</li>
-                            <li>Generating images from descriptions</li>
-                            <li>Answering questions</li>
-                            <li>Providing guidance</li>
-                        </ul>
-                        <p>Upload files, ask questions, or request image generation!</p>
-                        <p><strong>💡 Tip:</strong> You can ask me to generate images by saying "generate an image of..." or "create a picture of..."</p>
-                        <p><strong>💾 Chat History:</strong> Your conversations are automatically saved and will be restored when you return.</p>
+                        <h4>Wall-eeeee!</h4>
+                        <p>Any help?</p>
                         ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                     </div>
                 `;
