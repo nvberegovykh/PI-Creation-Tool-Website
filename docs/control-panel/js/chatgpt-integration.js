@@ -33,29 +33,21 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Load configuration from GitHub Gist
+     * Load configuration from GitHub Gist using existing SecureKeyManager
      */
     async loadConfiguration() {
         try {
-            // Gist ID - using the actual Gist created by the user
-            const gistId = '136b856c946794fad800c6363a8fa86e';
-            const filename = 'wall-e-config.json';
+            // Use the existing SecureKeyManager's obfuscated URL system
+            const wallEGistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvMTM2Yjg1NmM5NDY3OTRmYWQ4MDBjNjM2M2E4ZmE4NmUvcmF3L2M2YzU3MTA2MzM2YmZhNDllOTczYmJhMTZkYzU3Nzk5OGRlOTMwMDgvd2FsbC1lLWNvbmZpZy5qc29u');
             
-            // Load configuration from Gist
-            const response = await fetch(`https://api.github.com/gists/${gistId}`);
+            // Load configuration directly from Gist raw URL
+            const response = await fetch(wallEGistUrl);
             
             if (!response.ok) {
                 throw new Error(`Failed to load configuration: ${response.status}`);
             }
             
-            const gist = await response.json();
-            const configFile = gist.files[filename];
-            
-            if (!configFile) {
-                throw new Error(`Configuration file '${filename}' not found in Gist`);
-            }
-            
-            const config = JSON.parse(configFile.content);
+            const config = await response.json();
             
             // Set configuration values
             this.apiKey = config.openai.apiKey;
@@ -69,6 +61,18 @@ class ChatGPTIntegration {
             console.error('Failed to load WALL-E configuration:', error);
             this.showError('Failed to load WALL-E configuration. Please check the Gist setup.');
             this.isEnabled = false;
+        }
+    }
+
+    /**
+     * Decode base64 URL using the same method as SecureKeyManager
+     */
+    decodeUrl(encoded) {
+        try {
+            return atob(encoded);
+        } catch (error) {
+            console.error('Failed to decode WALL-E URL:', error);
+            return '';
         }
     }
 
