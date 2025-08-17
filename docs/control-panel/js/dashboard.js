@@ -1028,35 +1028,45 @@ class DashboardManager {
      */
     handleWallETransitionToDashboard() {
         const widget = document.querySelector('.chatgpt-widget');
-        if (widget && sessionStorage.getItem('wallE_activated_on_login') === 'true') {
-            // Remove mobile-activated class
-            widget.classList.remove('mobile-activated');
+        if (widget) {
+            if (sessionStorage.getItem('wallE_activated_on_login') === 'true') {
+                // Remove mobile-activated class
+                widget.classList.remove('mobile-activated');
+                
+                // Reset widget positioning for dashboard
+                widget.style.position = '';
+                widget.style.bottom = '';
+                widget.style.right = '';
+                widget.style.width = '';
+                widget.style.maxWidth = '';
+                widget.style.zIndex = '';
+                
+                // Clear the session storage flag
+                sessionStorage.removeItem('wallE_activated_on_login');
+            }
             
-            // Reset widget positioning for dashboard
-            widget.style.position = '';
-            widget.style.bottom = '';
-            widget.style.right = '';
-            widget.style.width = '';
-            widget.style.maxWidth = '';
-            widget.style.zIndex = '';
-            
-            // Ensure widget is visible and positioned correctly for dashboard
+            // Ensure widget is positioned correctly for dashboard on initial load
             if (window.innerWidth <= 768) {
-                // On mobile dashboard, position above navigation
+                // On mobile dashboard, ensure proper positioning
                 widget.style.bottom = '80px';
                 widget.style.right = '10px';
                 widget.style.width = 'calc(100vw - 20px)';
                 widget.style.maxWidth = '350px';
                 widget.style.display = 'block';
                 widget.classList.remove('hidden');
+                
+                // Ensure widget is expanded on mobile
+                if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                    window.wallE.expandChat();
+                }
+                
+                console.log('WALL-E widget positioned for mobile dashboard on initial load');
             } else {
                 // On desktop, use normal positioning
                 widget.style.display = 'block';
                 widget.classList.remove('hidden');
+                console.log('WALL-E widget positioned for desktop dashboard on initial load');
             }
-            
-            // Clear the session storage flag
-            sessionStorage.removeItem('wallE_activated_on_login');
         }
     }
 }
