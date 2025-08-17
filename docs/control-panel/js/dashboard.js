@@ -1047,24 +1047,27 @@ class DashboardManager {
             
             // Ensure widget is positioned correctly for dashboard on initial load
             if (window.innerWidth <= 768) {
-                // On mobile dashboard, ensure proper positioning
+                // On mobile dashboard, ensure proper positioning but keep hidden by default
                 widget.style.bottom = '80px';
                 widget.style.right = '10px';
                 widget.style.width = 'calc(100vw - 20px)';
                 widget.style.maxWidth = '350px';
-                widget.style.display = 'block';
+                widget.style.display = 'none'; // Hidden by default on mobile
                 widget.classList.remove('hidden');
+                widget.classList.remove('mobile-activated'); // Ensure not activated
                 
-                // Ensure widget is expanded on mobile
-                if (window.wallE && typeof window.wallE.expandChat === 'function') {
-                    window.wallE.expandChat();
+                // Update mobile button state to inactive
+                const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+                if (mobileWallEBtn) {
+                    mobileWallEBtn.classList.remove('active');
                 }
                 
-                console.log('WALL-E widget positioned for mobile dashboard on initial load');
+                console.log('WALL-E widget positioned for mobile dashboard - hidden by default');
             } else {
-                // On desktop, use normal positioning
+                // On desktop, use normal positioning and keep visible
                 widget.style.display = 'block';
                 widget.classList.remove('hidden');
+                widget.classList.remove('mobile-activated'); // Ensure not activated
                 console.log('WALL-E widget positioned for desktop dashboard on initial load');
             }
         }
