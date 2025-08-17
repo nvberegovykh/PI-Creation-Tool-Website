@@ -745,7 +745,7 @@
         max-width: 60px;
         max-height: 60px;
         pointer-events: auto !important;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .chatgpt-widget.expanded {
@@ -756,6 +756,7 @@
         border-radius: 12px;
         left: 5vw;
         right: 5vw;
+        overflow: visible;
     }
 
     .chatgpt-header {
@@ -1191,6 +1192,8 @@
         width: 260px;
         right: 10px;
         bottom: 100%;
+        margin-bottom: 10px;
+        z-index: 10002;
     }
     
     .thread-actions {
