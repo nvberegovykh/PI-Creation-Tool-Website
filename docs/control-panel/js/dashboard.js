@@ -26,25 +26,40 @@ class DashboardManager {
         // Desktop navigation buttons
         const navBtns = document.querySelectorAll('.nav-btn');
         navBtns.forEach(btn => {
-            btn.addEventListener('click', () => this.switchSection(btn.dataset.section));
+            // Remove any existing event listeners by cloning
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+            
+            newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
         });
 
         // Mobile navigation buttons
         const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
         mobileNavBtns.forEach(btn => {
-            if (btn.id === 'mobile-wall-e-btn') {
+            // Remove any existing event listeners by cloning
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+            
+            if (newBtn.id === 'mobile-wall-e-btn') {
                 // WALL-E button - toggle the WALL-E widget
-                btn.addEventListener('click', () => this.toggleWallEWidget());
+                newBtn.addEventListener('click', () => this.toggleWallEWidget());
             } else {
                 // Regular navigation buttons
-                btn.addEventListener('click', () => this.switchSection(btn.dataset.section));
+                newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
             }
         });
 
         // Logout button
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            authManager.logout();
-        });
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            // Remove any existing event listeners by cloning
+            const newLogoutBtn = logoutBtn.cloneNode(true);
+            logoutBtn.parentNode.replaceChild(newLogoutBtn, logoutBtn);
+            
+            newLogoutBtn.addEventListener('click', () => {
+                authManager.logout();
+            });
+        }
 
         // Settings form handlers
         this.setupSettingsHandlers();
