@@ -283,6 +283,11 @@ class ChatGPTIntegration {
      * Handle paste events for file uploads
      */
     handlePaste(e) {
+        // Prevent duplicate processing
+        if (e.defaultPrevented) {
+            return;
+        }
+        
         const items = e.clipboardData?.items;
         if (!items) return;
 
@@ -306,6 +311,7 @@ class ChatGPTIntegration {
 
         if (hasFiles) {
             e.preventDefault();
+            console.log(`Processing ${files.length} files from paste event`);
             this.processFiles(files);
         }
     }
@@ -359,6 +365,18 @@ class ChatGPTIntegration {
      */
     processFiles(files) {
         files.forEach(file => {
+            // Check if file is already in uploads (prevent duplicates)
+            const isDuplicate = this.fileUploads.some(existingFile => 
+                existingFile.name === file.name && 
+                existingFile.size === file.size &&
+                existingFile.lastModified === file.lastModified
+            );
+            
+            if (isDuplicate) {
+                console.log(`Skipping duplicate file: ${file.name}`);
+                return;
+            }
+            
             if (file.size > this.maxFileSize) {
                 this.showError(`File ${file.name} is too large. Maximum size is 25MB.`);
                 return;
@@ -850,24 +868,43 @@ class ChatGPTIntegration {
                 return await response.json();
             }
 
-            // If files exist, upload them first and then send a simple text message
-            // The assistant will have access to the uploaded files through the thread
-            const uploadedFileIds = [];
+            // If files exist, upload them and create message with file attachments
+            const content = [];
             
+            // Add text content if message exists
+            if (message && message.trim()) {
+                content.push({
+                    type: 'text',
+                    text: {
+                        value: message.trim()
+                    }
+                });
+            }
+
+            // Upload files and add them to content
             for (const file of files) {
                 try {
                     // Upload file to OpenAI
                     const fileId = await this.uploadFile(file);
-                    uploadedFileIds.push(fileId);
+                    
+                    // Add file reference to content
+                    content.push({
+                        type: 'file',
+                        file: {
+                            file_id: fileId
+                        }
+                    });
                 } catch (fileError) {
                     console.error('Failed to upload file:', fileError);
                     // Continue with other files
                 }
             }
 
-            // Send message with file references
-            const messageText = message.trim() || 'Please analyze the attached files.';
-            
+            // If no content to send, return early
+            if (content.length === 0) {
+                throw new Error('No content to send');
+            }
+
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -877,7 +914,7 @@ class ChatGPTIntegration {
                 },
                 body: JSON.stringify({
                     role: 'user',
-                    content: messageText
+                    content: content
                 })
             });
 
