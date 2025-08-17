@@ -423,14 +423,18 @@ class AuthManager {
      * Setup mobile WALL-E toggle for login screen
      */
     setupMobileWallEToggle() {
+        console.log('setupMobileWallEToggle called');
         const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
+        console.log('Toggle button found:', !!toggleBtn);
+        
         if (toggleBtn) {
+            console.log('Setting up event listener for toggle button');
             // Remove any existing event listeners
             const newToggleBtn = toggleBtn.cloneNode(true);
             toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
             
-            newToggleBtn.addEventListener('click', async () => {
-                console.log('WALL-E toggle button clicked on login screen');
+            newToggleBtn.addEventListener('click', async (e) => {
+                console.log('WALL-E toggle button clicked!', e);
                 
                 // Wait for WALL-E widget to be initialized
                 let attempts = 0;
@@ -457,13 +461,9 @@ class AuthManager {
                 
                 if (widget) {
                     console.log('WALL-E widget found, showing it...');
-                    widget.style.display = 'block';
-                    widget.style.position = 'fixed';
-                    widget.style.bottom = '20px';
-                    widget.style.right = '20px';
-                    widget.style.width = '350px';
-                    widget.style.maxWidth = 'calc(100vw - 40px)';
-                    widget.style.zIndex = '10001';
+                    
+                    // Use CSS class instead of inline styles for better compatibility
+                    widget.classList.add('mobile-activated');
                     
                     // Expand the widget
                     if (window.wallE && typeof window.wallE.expandChat === 'function') {
@@ -482,6 +482,10 @@ class AuthManager {
                     console.error('WALL-E widget element not found even after creation attempt');
                 }
             });
+            
+            console.log('Event listener attached successfully');
+        } else {
+            console.error('Mobile WALL-E toggle button not found in DOM');
         }
     }
 }

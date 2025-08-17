@@ -1007,6 +1007,9 @@ class DashboardManager {
     handleWallETransitionToDashboard() {
         const widget = document.querySelector('.chatgpt-widget');
         if (widget && sessionStorage.getItem('wallE_activated_on_login') === 'true') {
+            // Remove mobile-activated class
+            widget.classList.remove('mobile-activated');
+            
             // Reset widget positioning for dashboard
             widget.style.position = '';
             widget.style.bottom = '';
