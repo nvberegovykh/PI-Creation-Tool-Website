@@ -274,7 +274,7 @@ class SecureKeyManager {
             
             return {
                 apiKey: config.mailgun.apiKey,
-                domain: 'sandbox1a3904d669c448f5b5df4216d696ce00.mailgun.org'
+                domain: 'sandbox96d3d2543629448cba4e500e0da88a60.mailgun.org'
             };
         } catch (error) {
             console.error('Error loading Mailgun config from Gist:', error);
