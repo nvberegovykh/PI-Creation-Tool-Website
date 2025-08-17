@@ -1053,6 +1053,9 @@ class ChatGPTIntegration {
         } else {
             this.expandChat();
         }
+        
+        // Sync with mobile button state
+        this.updateMobileButtonState();
     }
 
     /**
@@ -1077,6 +1080,9 @@ class ChatGPTIntegration {
                 setTimeout(() => input.focus(), 100);
             }
         }
+        
+        // Sync mobile button state
+        this.updateMobileButtonState();
     }
 
     /**
@@ -1094,6 +1100,23 @@ class ChatGPTIntegration {
             icon.className = 'fas fa-chevron-up';
             widget.classList.remove('expanded');
             this.isExpanded = false;
+        }
+        
+        // Sync mobile button state
+        this.updateMobileButtonState();
+    }
+
+    /**
+     * Update mobile button state to sync with widget state
+     */
+    updateMobileButtonState() {
+        const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+        if (mobileWallEBtn) {
+            if (this.isExpanded) {
+                mobileWallEBtn.classList.add('active');
+            } else {
+                mobileWallEBtn.classList.remove('active');
+            }
         }
     }
 

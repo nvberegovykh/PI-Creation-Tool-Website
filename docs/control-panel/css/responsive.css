@@ -523,4 +523,77 @@
     .form-actions .btn {
         width: 100%;
     }
+    
+    /* Mobile bottom navigation improvements */
+    .mobile-bottom-nav {
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.95);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 15px;
+    }
+    
+    /* Ensure content doesn't overlap with bottom nav */
+    .dashboard-content {
+        padding-bottom: 90px;
+    }
+    
+    /* Improve mobile nav touch targets */
+    .mobile-nav-btn {
+        min-height: 50px;
+        min-width: 50px;
+    }
+    
+    /* Add safe area padding for devices with home indicators */
+    .mobile-bottom-nav {
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    
+    /* Dynamic layout for mobile navigation */
+    .mobile-bottom-nav {
+        position: relative;
+    }
+    
+    /* Left side navigation items */
+    .mobile-bottom-nav .mobile-nav-btn:not(.wall-e-btn) {
+        flex: 1;
+        max-width: 60px;
+    }
+    
+    /* WALL-E button positioning */
+    .mobile-bottom-nav .wall-e-btn {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+    }
+    
+    /* Adjust spacing for different screen sizes */
+    @media (max-width: 480px) {
+        .mobile-bottom-nav {
+            padding: 8px 10px;
+        }
+        
+        .mobile-bottom-nav .mobile-nav-btn:not(.wall-e-btn) {
+            max-width: 50px;
+        }
+    }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 375px) {
+    .mobile-nav-btn {
+        font-size: 18px;
+        padding: 10px 6px;
+    }
+    
+    .mobile-bottom-nav {
+        padding: 6px 0;
+    }
+    
+    .dashboard-content {
+        padding-bottom: 85px;
+    }
 }

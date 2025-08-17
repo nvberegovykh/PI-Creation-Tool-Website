@@ -656,7 +656,7 @@
 /* Responsive Design */
 @media (max-width: 768px) {
     .chatgpt-widget {
-        bottom: 10px;
+        bottom: 80px; /* Move above bottom navigation */
         right: 10px;
         left: 10px;
         width: auto;
@@ -736,7 +736,7 @@
 
 @media (max-width: 480px) {
     .chatgpt-widget {
-        bottom: 20px;
+        bottom: 80px; /* Move above bottom navigation */
         right: 20px;
         left: auto;
         width: 60px;

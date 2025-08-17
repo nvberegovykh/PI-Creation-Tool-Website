@@ -22,10 +22,22 @@ class DashboardManager {
      * Setup dashboard event listeners
      */
     setupEventListeners() {
-        // Navigation buttons
+        // Desktop navigation buttons
         const navBtns = document.querySelectorAll('.nav-btn');
         navBtns.forEach(btn => {
             btn.addEventListener('click', () => this.switchSection(btn.dataset.section));
+        });
+
+        // Mobile navigation buttons
+        const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
+        mobileNavBtns.forEach(btn => {
+            if (btn.id === 'mobile-wall-e-btn') {
+                // WALL-E button - toggle the WALL-E widget
+                btn.addEventListener('click', () => this.toggleWallEWidget());
+            } else {
+                // Regular navigation buttons
+                btn.addEventListener('click', () => this.switchSection(btn.dataset.section));
+            }
         });
 
         // Logout button
@@ -41,10 +53,21 @@ class DashboardManager {
      * Switch between dashboard sections
      */
     switchSection(section) {
-        // Update navigation
+        // Update desktop navigation
         const navBtns = document.querySelectorAll('.nav-btn');
         navBtns.forEach(btn => btn.classList.remove('active'));
-        document.querySelector(`[data-section="${section}"]`).classList.add('active');
+        const desktopActiveBtn = document.querySelector(`.nav-btn[data-section="${section}"]`);
+        if (desktopActiveBtn) {
+            desktopActiveBtn.classList.add('active');
+        }
+
+        // Update mobile navigation
+        const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
+        mobileNavBtns.forEach(btn => btn.classList.remove('active'));
+        const mobileActiveBtn = document.querySelector(`.mobile-nav-btn[data-section="${section}"]`);
+        if (mobileActiveBtn) {
+            mobileActiveBtn.classList.add('active');
+        }
 
         // Update content sections
         const contentSections = document.querySelectorAll('.content-section');
@@ -547,6 +570,23 @@ class DashboardManager {
                 }
             }
         });
+    }
+
+    /**
+     * Toggle WALL-E widget
+     */
+    toggleWallEWidget() {
+        if (window.wallE && typeof window.wallE.toggleChat === 'function') {
+            window.wallE.toggleChat();
+            
+            // Update mobile WALL-E button state
+            const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+            if (mobileWallEBtn) {
+                mobileWallEBtn.classList.toggle('active');
+            }
+        } else {
+            console.warn('WALL-E widget not available');
+        }
     }
 
     /**
