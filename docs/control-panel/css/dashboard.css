@@ -39,7 +39,6 @@
     width: 28px;
     height: 28px;
     margin-right: 12px;
-    filter: brightness(0) invert(1);
     vertical-align: middle;
 }
 
@@ -47,15 +46,6 @@
     width: 32px;
     height: 32px;
     margin-right: 12px;
-    filter: brightness(0) invert(1);
-    vertical-align: middle;
-}
-
-.auth-logo {
-    width: 28px;
-    height: 28px;
-    margin-right: 10px;
-    filter: brightness(0) invert(1);
     vertical-align: middle;
 }
 
@@ -142,11 +132,6 @@
     background: var(--secondary-bg);
 }
 
-.nav-btn:hover .nav-icon {
-    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg) !important;
-    transform: scale(1.05);
-}
-
 .nav-btn.active {
     color: var(--accent-color);
     border-bottom-color: var(--accent-color);
@@ -155,17 +140,13 @@
 
 .nav-btn i {
     font-size: 16px;
-}
-
-.nav-btn .nav-icon {
-    width: 16px;
-    height: 16px;
-    filter: var(--icon-filter);
     transition: var(--transition);
 }
 
-.nav-btn.active .nav-icon {
-    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
+.nav-btn:hover i,
+.nav-btn.active i {
+    color: var(--accent-color) !important;
+    transform: scale(1.05);
 }
 
 /* Dashboard Content */
@@ -910,11 +891,6 @@
     color: #007bff;
 }
 
-.mobile-nav-btn:hover .nav-icon {
-    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg) !important;
-    transform: scale(1.05);
-}
-
 .mobile-nav-btn.active {
     color: #007bff;
 }
@@ -931,11 +907,15 @@
     border-radius: 2px;
 }
 
-.mobile-nav-btn .nav-icon {
-    width: 20px;
-    height: 20px;
-    filter: brightness(0) invert(1);
+.mobile-nav-btn i {
+    font-size: 20px;
     transition: var(--transition);
+}
+
+.mobile-nav-btn:hover i,
+.mobile-nav-btn.active i {
+    color: #007bff !important;
+    transform: scale(1.05);
 }
 
 .wall-e-modal-header .modal-icon {
@@ -950,10 +930,6 @@
     height: 48px;
     margin-bottom: 16px;
     filter: brightness(0) invert(1);
-}
-
-.mobile-nav-btn.active .nav-icon {
-    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
 }
 
 /* Hide mobile nav on desktop */
