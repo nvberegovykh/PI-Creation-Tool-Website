@@ -251,34 +251,46 @@ class SecureKeyManager {
     }
 
     /**
-     * Get Mailgun configuration
+     * Get Mailgun configuration from secure Gist
+     * 
+     * PRODUCTION SETUP:
+     * 1. Add your own domain to Mailgun (not sandbox)
+     * 2. Configure DNS records as provided by Mailgun
+     * 3. Update the domain below to your production domain
+     * 4. Update the Gist with your production API key
+     * 
+     * SANDBOX LIMITATIONS:
+     * - Can only send to 5 authorized recipients per month
+     * - Cannot send to any email address
+     * - For testing only
      */
     async getMailgunConfig() {
         try {
-            // Fetch Mailgun config from Gist
             const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3L2JlY2NjNGY2NjBiNWVhMTAzNGU1MDFlOGI3ODM3YjQ5ZDUzNWNkNGEvbWFpbGd1bi1jb25maWcuanNvbg==');
-            
             console.log('Fetching Mailgun config from Gist...');
             const response = await fetch(gistUrl);
-            
             if (!response.ok) {
                 throw new Error(`Failed to fetch Mailgun config: ${response.status} ${response.statusText}`);
             }
-            
             const config = await response.json();
             console.log('Mailgun config loaded successfully:', { hasMailgun: !!config.mailgun, hasApiKey: !!config.mailgun?.apiKey });
-            
             if (!config.mailgun || !config.mailgun.apiKey) {
                 throw new Error('Invalid Mailgun configuration format - missing mailgun.apiKey');
             }
             
+            // PRODUCTION: Replace with your own domain
+            const domain = 'mail.liberpict.com'; // Your production domain
+            
+            // SANDBOX: For testing only (limited to authorized recipients)
+            // const domain = 'sandbox96d3d2543629448cba4e500e0da88a60.mailgun.org';
+            
             return {
                 apiKey: config.mailgun.apiKey,
-                domain: 'sandbox96d3d2543629448cba4e500e0da88a60.mailgun.org'
+                domain: domain
             };
         } catch (error) {
             console.error('Error loading Mailgun config from Gist:', error);
-            throw new Error(`Mailgun configuration not available: ${error.message}`);
+            throw new Error('Mailgun configuration not available. Please check your Gist configuration.');
         }
     }
 }
