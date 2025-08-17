@@ -215,15 +215,29 @@ class EmailService {
      */
     async verifyToken(token, email) {
         try {
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            console.log('Verifying token for email:', email);
+            console.log('Token received:', token);
+            
+            const users = await window.authManager.getUsers();
+            console.log('Total users in storage:', users.length);
+            console.log('All users:', users);
+            
             const user = users.find(u => u.email === email && u.verificationToken === token);
+            console.log('User found:', !!user);
             
             if (!user) {
+                // Try to find user by email only to see if user exists
+                const userByEmail = users.find(u => u.email === email);
+                console.log('User by email only:', userByEmail);
+                if (userByEmail) {
+                    console.log('User exists but token mismatch. Expected:', userByEmail.verificationToken, 'Received:', token);
+                }
                 throw new Error('Invalid or expired verification token');
             }
 
             // Check if token is expired (24 hours)
             const tokenAge = Date.now() - user.verificationTokenCreated;
+            console.log('Token age (hours):', tokenAge / (60 * 60 * 1000));
             if (tokenAge > 24 * 60 * 60 * 1000) {
                 throw new Error('Verification token has expired');
             }
@@ -236,7 +250,9 @@ class EmailService {
 
             // Update user in storage
             const updatedUsers = users.map(u => u.email === email ? user : u);
-            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+            await window.authManager.saveUsers(updatedUsers);
+            
+            console.log('User verified successfully:', user);
 
             return user;
         } catch (error) {
@@ -250,7 +266,7 @@ class EmailService {
      */
     async verifyResetToken(token, email) {
         try {
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const users = await window.authManager.getUsers();
             const user = users.find(u => u.email === email && u.resetToken === token);
             
             if (!user) {
@@ -275,7 +291,7 @@ class EmailService {
      */
     async updatePassword(email, newPassword) {
         try {
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const users = await window.authManager.getUsers();
             const user = users.find(u => u.email === email);
             
             if (!user) {
@@ -293,7 +309,7 @@ class EmailService {
 
             // Update user in storage
             const updatedUsers = users.map(u => u.email === email ? user : u);
-            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+            await window.authManager.saveUsers(updatedUsers);
 
             return user;
         } catch (error) {

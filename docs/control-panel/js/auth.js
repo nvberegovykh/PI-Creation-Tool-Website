@@ -242,7 +242,7 @@ class AuthManager {
 
         try {
             // Check if user already exists
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const users = await this.getUsers();
             const existingUser = users.find(u => u.username === username || u.email === email);
             
             if (existingUser) {
@@ -272,7 +272,7 @@ class AuthManager {
 
             // Add user to storage
             users.push(newUser);
-            localStorage.setItem('liber_users', JSON.stringify(users));
+            await this.saveUsers(users);
 
             // Send verification email
             try {
@@ -326,7 +326,7 @@ class AuthManager {
                 return;
             }
 
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const users = await this.getUsers();
             const user = users.find(u => u.email === email);
 
             if (!user) {
@@ -344,7 +344,7 @@ class AuthManager {
             user.resetTokenCreated = Date.now();
             
             const updatedUsers = users.map(u => u.email === email ? user : u);
-            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+            await this.saveUsers(updatedUsers);
 
             console.log('Sending password reset email...');
 
