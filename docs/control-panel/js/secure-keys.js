@@ -256,7 +256,7 @@ class SecureKeyManager {
     async getMailgunConfig() {
         try {
             // Fetch Mailgun config from Gist
-            const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3LzMyMDhiNjMxMjAwNDNhZjViNGZjMzY3OTdhM2E4ODU5ZDg5OTRmNTIvbWFpbGd1bi1jb25maWcuanNvbg==');
+            const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3L2JlY2NjNGY2NjBiNWVhMTAzNGU1MDFlOGI3ODM3YjQ5ZDUzNWNkNGEvbWFpbGd1bi1jb25maWcuanNvbg==');
             
             console.log('Fetching Mailgun config from Gist...');
             const response = await fetch(gistUrl);
