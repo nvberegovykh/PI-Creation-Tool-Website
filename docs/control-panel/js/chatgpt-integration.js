@@ -844,67 +844,12 @@ class ChatGPTIntegration {
      */
     async addMessageToThread(message, files = []) {
         try {
-            // If no files, send simple text message
-            if (!files || files.length === 0) {
-                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v2'
-                    },
-                    body: JSON.stringify({
-                        role: 'user',
-                        content: message.trim()
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.text();
-                    console.error('Failed to add message to thread:', response.status, errorData);
-                    throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
-                }
-
-                return await response.json();
+            // If files exist, upload them and attach to assistant
+            if (files && files.length > 0) {
+                await this.attachFilesToAssistant(files);
             }
 
-            // If files exist, upload them and create message with file attachments
-            const content = [];
-            
-            // Add text content if message exists
-            if (message && message.trim()) {
-                content.push({
-                    type: 'text',
-                    text: {
-                        value: message.trim()
-                    }
-                });
-            }
-
-            // Upload files and add them to content
-            for (const file of files) {
-                try {
-                    // Upload file to OpenAI
-                    const fileId = await this.uploadFile(file);
-                    
-                    // Add file reference to content
-                    content.push({
-                        type: 'file',
-                        file: {
-                            file_id: fileId
-                        }
-                    });
-                } catch (fileError) {
-                    console.error('Failed to upload file:', fileError);
-                    // Continue with other files
-                }
-            }
-
-            // If no content to send, return early
-            if (content.length === 0) {
-                throw new Error('No content to send');
-            }
-
+            // Always send simple text message (this is the correct format for v2)
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -914,7 +859,7 @@ class ChatGPTIntegration {
                 },
                 body: JSON.stringify({
                     role: 'user',
-                    content: content
+                    content: message.trim() || 'Please analyze the attached files.'
                 })
             });
 
@@ -927,6 +872,56 @@ class ChatGPTIntegration {
             return await response.json();
         } catch (error) {
             console.error('Error adding message to thread:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Attach files to the assistant
+     */
+    async attachFilesToAssistant(files) {
+        try {
+            const fileIds = [];
+            
+            // Upload files first
+            for (const file of files) {
+                try {
+                    const fileId = await this.uploadFile(file);
+                    fileIds.push(fileId);
+                } catch (fileError) {
+                    console.error('Failed to upload file:', fileError);
+                    // Continue with other files
+                }
+            }
+
+            if (fileIds.length === 0) {
+                console.warn('No files were successfully uploaded');
+                return;
+            }
+
+            // Attach files to the assistant
+            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                },
+                body: JSON.stringify({
+                    file_ids: fileIds
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Failed to attach files to assistant:', response.status, errorData);
+                throw new Error(`Failed to attach files to assistant: ${response.status} - ${response.statusText}`);
+            }
+
+            console.log(`Successfully attached ${fileIds.length} files to assistant`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error attaching files to assistant:', error);
             throw error;
         }
     }
