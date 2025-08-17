@@ -869,6 +869,15 @@ class ChatGPTIntegration {
                 throw new Error('WALL-E not configured. Please check your Gist configuration.');
             }
 
+            // If no files, use chat completions API (more reliable for text-only)
+            if (!files || files.length === 0) {
+                console.log('No files detected, using chat completions API');
+                return await this.callChatCompletions(message);
+            }
+
+            // If files are present, use assistants API
+            console.log('Files detected, using assistants API');
+            
             // Create or get thread
             if (!this.threadId) {
                 this.threadId = await this.createThread();
@@ -886,6 +895,52 @@ class ChatGPTIntegration {
             return response;
         } catch (error) {
             console.error('WALL-E API Error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Use Chat Completions API for text-only messages
+     */
+    async callChatCompletions(message) {
+        try {
+            console.log('Using chat completions API for text-only message');
+            
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are WALL-E, a helpful AI assistant. Be concise and helpful.'
+                        },
+                        {
+                            role: 'user',
+                            content: message
+                        }
+                    ],
+                    max_tokens: 1000,
+                    temperature: 0.7
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Chat completions failed:', response.status, errorData);
+                throw new Error(`Chat completions failed: ${response.status} - ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Chat completions response:', data);
+            
+            return data.choices[0].message.content;
+        } catch (error) {
+            console.error('Chat completions error:', error);
             throw error;
         }
     }
@@ -919,7 +974,7 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Add message to thread
+     * Add message to thread - HANDLES ALL POSSIBLE INPUT COMBINATIONS
      */
     async addMessageToThread(message, files = []) {
         try {
@@ -928,58 +983,101 @@ class ChatGPTIntegration {
             console.log('Files:', files);
             console.log('Files length:', files.length);
             
-            let content;
-            
-            if (files && files.length > 0) {
-                console.log('Processing files...');
-                // Upload files first
-                const fileIds = [];
-                for (const file of files) {
-                    try {
-                        console.log('Uploading file:', file.name, file.type, file.size);
-                        const fileId = await this.uploadFile(file);
-                        fileIds.push(fileId);
-                        console.log('File uploaded successfully:', file.name, '->', fileId);
-                    } catch (fileError) {
-                        console.error('Failed to upload file:', fileError);
-                        // Continue with other files
-                    }
-                }
-
-                if (fileIds.length === 0) {
-                    console.warn('No files were successfully uploaded');
-                    // Fall back to text-only message
-                    content = message.trim() || 'Please analyze the attached files.';
-                    console.log('Using text-only content:', content);
-                } else {
-                    console.log('Creating content array with files:', fileIds);
-                    // Create content array with text and file attachments
-                    content = [
-                        {
-                            type: 'text',
-                            text: message.trim() || 'Please analyze the attached files.'
-                        }
-                    ];
-                    
-                    // Add file attachments to content
-                    for (const fileId of fileIds) {
-                        content.push({
-                            type: 'file',
-                            file: {
-                                file_id: fileId
-                            }
-                        });
-                    }
-                    console.log('Final content array:', JSON.stringify(content, null, 2));
-                }
-            } else {
-                console.log('No files, using text-only message');
-                // Text-only message
-                content = message.trim() || 'Please analyze the attached files.';
+            // SCENARIO 1: No message and no files - INVALID
+            if (!message && (!files || files.length === 0)) {
+                throw new Error('Cannot send empty message with no files');
             }
+            
+            // SCENARIO 2: Text-only message (no files)
+            if (message && (!files || files.length === 0)) {
+                console.log('SCENARIO 2: Text-only message');
+                
+                console.log('Sending text-only content as string:', message.trim());
+                
+                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'OpenAI-Beta': 'assistants=v2'
+                    },
+                    body: JSON.stringify({
+                        role: 'user',
+                        content: message.trim()
+                    })
+                });
 
-            console.log('Sending request to OpenAI with content:', JSON.stringify(content, null, 2));
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    console.error('Failed to add text-only message:', response.status, errorData);
+                    throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+                }
 
+                const result = await response.json();
+                console.log('Text-only message added successfully:', result);
+                return result;
+            }
+            
+            // SCENARIO 3: Files only (no message)
+            if (!message && files && files.length > 0) {
+                console.log('SCENARIO 3: Files only');
+                return await this.handleFilesOnlyMessage(files);
+            }
+            
+            // SCENARIO 4: Message with files
+            if (message && files && files.length > 0) {
+                console.log('SCENARIO 4: Message with files');
+                return await this.handleMessageWithFiles(message, files);
+            }
+            
+            // Fallback - should never reach here
+            throw new Error('Invalid input combination');
+            
+        } catch (error) {
+            console.error('Error adding message to thread:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Handle files-only message (no text)
+     */
+    async handleFilesOnlyMessage(files) {
+        console.log('Processing files-only message');
+        
+        // Upload all files first
+        const uploadedFiles = await this.uploadAllFiles(files);
+        
+        if (uploadedFiles.length === 0) {
+            throw new Error('No files were successfully uploaded');
+        }
+        
+        // Separate files by type
+        const { imageFiles, otherFiles } = this.separateFilesByType(uploadedFiles);
+        
+        // Create content array
+        const content = [];
+        
+        // Add image files directly to message content
+        for (const { fileId } of imageFiles) {
+            content.push({
+                type: 'image_file',
+                image_file: {
+                    file_id: fileId
+                }
+            });
+        }
+        
+        // For non-image files, attach them to the assistant first
+        if (otherFiles.length > 0) {
+            const otherFileIds = otherFiles.map(({ fileId }) => fileId);
+            await this.attachFilesToAssistant(otherFileIds);
+        }
+        
+        // If we have no content (shouldn't happen), add a default text
+        if (content.length === 0) {
+            console.log('No files uploaded, sending default text message');
+            
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -989,26 +1087,177 @@ class ChatGPTIntegration {
                 },
                 body: JSON.stringify({
                     role: 'user',
-                    content: content
+                    content: 'Please analyze the attached files.'
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.text();
-                console.error('Failed to add message to thread:', response.status, errorData);
+                console.error('Failed to add default message:', response.status, errorData);
                 throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
             }
 
             const result = await response.json();
-            console.log('Message added successfully:', result);
+            console.log('Default message added successfully:', result);
             return result;
-        } catch (error) {
-            console.error('Error adding message to thread:', error);
-            throw error;
         }
+        
+        console.log('Sending files-only content:', JSON.stringify(content, null, 2));
+        
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v2'
+            },
+            body: JSON.stringify({
+                role: 'user',
+                content: content
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            console.error('Failed to add files-only message:', response.status, errorData);
+            throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('Files-only message added successfully:', result);
+        return result;
     }
 
+    /**
+     * Handle message with files
+     */
+    async handleMessageWithFiles(message, files) {
+        console.log('Processing message with files');
+        
+        // Upload all files first
+        const uploadedFiles = await this.uploadAllFiles(files);
+        
+        if (uploadedFiles.length === 0) {
+            console.warn('No files were successfully uploaded, falling back to text-only');
+            // Fall back to text-only message
+            console.log('Fallback to text-only message');
+            
+            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                },
+                body: JSON.stringify({
+                    role: 'user',
+                    content: message.trim()
+                })
+            });
 
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Failed to add fallback message:', response.status, errorData);
+                throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('Fallback message added successfully:', result);
+            return result;
+        }
+        
+        // Separate files by type
+        const { imageFiles, otherFiles } = this.separateFilesByType(uploadedFiles);
+        
+        // Create content array starting with text
+        const content = [
+            {
+                type: 'text',
+                text: message.trim()
+            }
+        ];
+        
+        // Add image files directly to message content
+        for (const { fileId } of imageFiles) {
+            content.push({
+                type: 'image_file',
+                image_file: {
+                    file_id: fileId
+                }
+            });
+        }
+        
+        // For non-image files, attach them to the assistant first
+        if (otherFiles.length > 0) {
+            const otherFileIds = otherFiles.map(({ fileId }) => fileId);
+            await this.attachFilesToAssistant(otherFileIds);
+        }
+        
+        console.log('Sending message with files content:', JSON.stringify(content, null, 2));
+        
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v2'
+            },
+            body: JSON.stringify({
+                role: 'user',
+                content: content
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            console.error('Failed to add message with files:', response.status, errorData);
+            throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('Message with files added successfully:', result);
+        return result;
+    }
+
+    /**
+     * Upload all files and return array of { file, fileId }
+     */
+    async uploadAllFiles(files) {
+        const uploadedFiles = [];
+        
+        for (const file of files) {
+            try {
+                console.log('Uploading file:', file.name, file.type, file.size);
+                const fileId = await this.uploadFile(file);
+                uploadedFiles.push({ file, fileId });
+                console.log('File uploaded successfully:', file.name, '->', fileId);
+            } catch (fileError) {
+                console.error('Failed to upload file:', fileError);
+                // Continue with other files
+            }
+        }
+        
+        return uploadedFiles;
+    }
+
+    /**
+     * Separate files by type (images vs others)
+     */
+    separateFilesByType(uploadedFiles) {
+        const imageFiles = [];
+        const otherFiles = [];
+        
+        for (const { file, fileId } of uploadedFiles) {
+            if (file.type && file.type.startsWith('image/')) {
+                imageFiles.push({ file, fileId });
+            } else {
+                otherFiles.push({ file, fileId });
+            }
+        }
+        
+        console.log('Separated files - Images:', imageFiles.length, 'Others:', otherFiles.length);
+        return { imageFiles, otherFiles };
+    }
 
     /**
      * Upload file to OpenAI
@@ -1044,27 +1293,97 @@ class ChatGPTIntegration {
     }
 
     /**
+     * Attach files to the assistant
+     */
+    async attachFilesToAssistant(fileIds) {
+        try {
+            console.log('Attaching files to assistant:', fileIds);
+            
+            // First, get the current assistant configuration
+            const getResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                }
+            });
+
+            if (!getResponse.ok) {
+                const errorData = await getResponse.text();
+                console.error('Failed to get assistant config:', getResponse.status, errorData);
+                throw new Error(`Failed to get assistant config: ${getResponse.status} - ${getResponse.statusText}`);
+            }
+
+            const assistant = await getResponse.json();
+            console.log('Current assistant config:', assistant);
+            
+            // Get existing file IDs
+            const existingFileIds = assistant.file_ids || [];
+            console.log('Existing file IDs:', existingFileIds);
+            
+            // Merge with new file IDs, avoiding duplicates
+            const allFileIds = [...new Set([...existingFileIds, ...fileIds])];
+            console.log('All file IDs (merged):', allFileIds);
+            
+            // Update the assistant with all file IDs
+            const updateResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                },
+                body: JSON.stringify({
+                    file_ids: allFileIds
+                })
+            });
+
+            if (!updateResponse.ok) {
+                const errorData = await updateResponse.text();
+                console.error('Failed to update assistant with files:', updateResponse.status, errorData);
+                throw new Error(`Failed to update assistant with files: ${updateResponse.status} - ${updateResponse.statusText}`);
+            }
+
+            const data = await updateResponse.json();
+            console.log('Assistant updated with files successfully:', data);
+            return data;
+        } catch (error) {
+            console.error('Error attaching files to assistant:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Run the assistant
      */
     async runAssistant() {
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v2'
-            },
-            body: JSON.stringify({
-                assistant_id: this.assistantId
-            })
-        });
+        try {
+            console.log('Starting assistant run...');
+            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                },
+                body: JSON.stringify({
+                    assistant_id: this.assistantId
+                })
+            });
 
-        if (!response.ok) {
-            throw new Error('Failed to run assistant');
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Assistant run failed:', response.status, errorData);
+                throw new Error(`Failed to run assistant: ${response.status} - ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Assistant run started successfully:', data);
+            return data.id;
+        } catch (error) {
+            console.error('Error in runAssistant:', error);
+            throw error;
         }
-
-        const data = await response.json();
-        return data.id;
     }
 
     /**
@@ -1074,34 +1393,54 @@ class ChatGPTIntegration {
         let attempts = 0;
         const maxAttempts = 30; // 30 seconds timeout
 
+        console.log(`Waiting for assistant response (runId: ${runId})...`);
+
         while (attempts < maxAttempts) {
-            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs/${runId}`, {
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
+            try {
+                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs/${runId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'OpenAI-Beta': 'assistants=v2'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    console.error('Failed to check run status:', response.status, errorData);
+                    throw new Error(`Failed to check run status: ${response.status} - ${response.statusText}`);
                 }
-            });
 
-            if (!response.ok) {
-                throw new Error('Failed to check run status');
+                const data = await response.json();
+                console.log(`Run status (attempt ${attempts + 1}):`, data.status);
+
+                if (data.status === 'completed') {
+                    console.log('Assistant run completed successfully');
+                    // Get the response message
+                    return await this.getLastMessage();
+                } else if (data.status === 'failed') {
+                    console.error('Assistant run failed:', data);
+                    throw new Error(`Assistant run failed: ${data.last_error?.message || 'Unknown error'}`);
+                } else if (data.status === 'requires_action') {
+                    console.error('Assistant requires action:', data);
+                    throw new Error(`Assistant requires action: ${data.required_action?.type || 'Unknown action'}`);
+                } else if (data.status === 'cancelled') {
+                    console.error('Assistant run was cancelled');
+                    throw new Error('Assistant run was cancelled');
+                } else if (data.status === 'expired') {
+                    console.error('Assistant run expired');
+                    throw new Error('Assistant run expired');
+                }
+
+                // Wait 1 second before checking again
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+            } catch (error) {
+                console.error(`Error checking run status (attempt ${attempts + 1}):`, error);
+                throw error;
             }
-
-            const data = await response.json();
-
-            if (data.status === 'completed') {
-                // Get the response message
-                return await this.getLastMessage();
-            } else if (data.status === 'failed') {
-                throw new Error('Assistant run failed');
-            } else if (data.status === 'requires_action') {
-                throw new Error('Assistant requires action');
-            }
-
-            // Wait 1 second before checking again
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            attempts++;
         }
 
+        console.error('Assistant run timed out after', maxAttempts, 'attempts');
         throw new Error('Response timeout');
     }
 
