@@ -1510,15 +1510,7 @@ class ChatGPTIntegration {
                     <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                     <i class="fas fa-robot" style="display: none;"></i>
                     <h4>Wall-eeeee!</h4>
-                    <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
-                    <ul>
-                        <li>📁 Analyzing images, PDFs, and documents</li>
-                        <li>🎨 Generating images from descriptions</li>
-                        <li>💬 Answering questions and providing guidance</li>
-                        <li>🔧 Helping with app usage and features</li>
-                    </ul>
-                    <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
-                    <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
+                    <p>Any help?</p>
                     ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                 </div>
             `;
@@ -1544,7 +1536,7 @@ class ChatGPTIntegration {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         
         // Show clear history button
-        this.updateClearHistoryButton(true);
+        this.updateClearHistoryButton(historyToSave.length > 0);
     }
 
     /**
@@ -1619,15 +1611,7 @@ class ChatGPTIntegration {
                         <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <i class="fas fa-robot" style="display: none;"></i>
                         <h4>Wall-eeeee!</h4>
-                        <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
-                        <ul>
-                            <li>📁 Analyzing images, PDFs, and documents</li>
-                            <li>🎨 Generating images from descriptions</li>
-                            <li>💬 Answering questions and providing guidance</li>
-                            <li>🔧 Helping with app usage and features</li>
-                        </ul>
-                        <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
-                        <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
+                        <p>Any help?</p>
                         ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                     </div>
                 `;
