@@ -2380,9 +2380,13 @@ class ChatGPTIntegration {
      */
     toggleThreadSelector() {
         const threadSelector = document.getElementById('chatgpt-thread-selector');
-        if (!threadSelector) return;
         
-        if (threadSelector.style.display === 'none') {
+        if (!threadSelector) {
+            console.error('Thread selector element not found!');
+            return;
+        }
+        
+        if (threadSelector.style.display === 'none' || !threadSelector.style.display) {
             this.showThreadSelector();
         } else {
             this.hideThreadSelector();
@@ -2394,9 +2398,16 @@ class ChatGPTIntegration {
      */
     showThreadSelector() {
         const threadSelector = document.getElementById('chatgpt-thread-selector');
-        if (!threadSelector) return;
+        if (!threadSelector) {
+            console.error('Thread selector element not found in showThreadSelector!');
+            return;
+        }
         
         threadSelector.style.display = 'block';
+        threadSelector.style.visibility = 'visible';
+        threadSelector.style.opacity = '1';
+        
+        // Update the thread list
         this.updateThreadSelector();
     }
 
@@ -2405,7 +2416,10 @@ class ChatGPTIntegration {
      */
     hideThreadSelector() {
         const threadSelector = document.getElementById('chatgpt-thread-selector');
-        if (!threadSelector) return;
+        if (!threadSelector) {
+            console.error('Thread selector element not found in hideThreadSelector!');
+            return;
+        }
         
         threadSelector.style.display = 'none';
     }
