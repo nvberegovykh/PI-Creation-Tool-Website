@@ -77,6 +77,15 @@ class AuthManager {
             });
         }
 
+        // Resend verification form
+        const resendVerificationForm = document.getElementById('resendVerificationForm');
+        if (resendVerificationForm) {
+            resendVerificationForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this.handleResendVerification();
+            });
+        }
+
         // Tab switching
         const tabBtns = document.querySelectorAll('.tab-btn');
         tabBtns.forEach(btn => {
@@ -211,7 +220,7 @@ class AuthManager {
     }
 
     /**
-     * Handle user registration with email verification
+     * Handle registration with resend verification option
      */
     async handleRegister() {
         const username = document.getElementById('registerUsername').value.trim();
@@ -219,7 +228,6 @@ class AuthManager {
         const password = document.getElementById('registerPassword').value;
         const confirmPassword = document.getElementById('registerConfirmPassword').value;
 
-        // Validation
         if (!username || !email || !password || !confirmPassword) {
             this.showMessage('All fields are required', 'error');
             return;
@@ -246,7 +254,15 @@ class AuthManager {
             const existingUser = users.find(u => u.username === username || u.email === email);
             
             if (existingUser) {
-                this.showMessage('Username or email already exists', 'error');
+                // If user exists but is not verified, offer to resend verification
+                if (!existingUser.isVerified) {
+                    const resend = confirm(`User already exists but is not verified. Would you like to resend the verification email to ${existingUser.email}?`);
+                    if (resend) {
+                        await this.resendVerificationEmail(existingUser);
+                    }
+                } else {
+                    this.showMessage('Username or email already exists', 'error');
+                }
                 return;
             }
 
@@ -264,6 +280,7 @@ class AuthManager {
                 passwordHash: hashedPassword,
                 role: 'user',
                 isVerified: false,
+                status: 'pending', // Add status for admin panel
                 verificationToken: verificationToken,
                 verificationTokenCreated: Date.now(),
                 createdAt: new Date().toISOString(),
@@ -299,6 +316,34 @@ class AuthManager {
         } catch (error) {
             console.error('Registration error:', error);
             this.showMessage('Registration failed. Please try again.', 'error');
+        }
+    }
+
+    /**
+     * Resend verification email for existing unverified user
+     */
+    async resendVerificationEmail(user) {
+        try {
+            // Generate new verification token
+            const newToken = window.emailService.generateVerificationToken();
+            
+            // Update user with new token
+            const users = await this.getUsers();
+            const updatedUser = users.find(u => u.id === user.id);
+            if (updatedUser) {
+                updatedUser.verificationToken = newToken;
+                updatedUser.verificationTokenCreated = Date.now();
+                
+                const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
+                await this.saveUsers(updatedUsers);
+                
+                // Send new verification email
+                await window.emailService.sendVerificationEmail(user.email, user.username, newToken);
+                this.showMessage(`Verification email resent to ${user.email}`, 'success');
+            }
+        } catch (error) {
+            console.error('Failed to resend verification email:', error);
+            this.showMessage('Failed to resend verification email. Please try again.', 'error');
         }
     }
 
@@ -360,6 +405,72 @@ class AuthManager {
         } catch (error) {
             console.error('Password reset error:', error);
             this.showMessage('Failed to send reset email. Please try again.', 'error');
+        }
+    }
+
+    /**
+     * Handle resend verification request
+     */
+    async handleResendVerification() {
+        const email = document.getElementById('resendVerificationEmail').value.trim();
+
+        if (!email) {
+            this.showMessage('Please enter your email address', 'error');
+            return;
+        }
+
+        if (!this.isValidEmail(email)) {
+            this.showMessage('Please enter a valid email address', 'error');
+            return;
+        }
+
+        try {
+            console.log('Resend verification requested for email:', email);
+            
+            // Check if email service is available
+            if (!window.emailService) {
+                console.error('Email service not available');
+                this.showMessage('Email service not available. Please try again later.', 'error');
+                return;
+            }
+
+            const users = await this.getUsers();
+            const user = users.find(u => u.email === email);
+
+            if (!user) {
+                this.showMessage('No account found with this email address.', 'error');
+                return;
+            }
+
+            if (user.isVerified) {
+                this.showMessage('This account is already verified. You can login directly.', 'info');
+                return;
+            }
+
+            console.log('User found, generating new verification token...');
+
+            // Generate new verification token
+            const newToken = window.emailService.generateVerificationToken();
+            
+            // Update user with new token
+            user.verificationToken = newToken;
+            user.verificationTokenCreated = Date.now();
+            
+            const updatedUsers = users.map(u => u.email === email ? user : u);
+            await this.saveUsers(updatedUsers);
+
+            console.log('Sending verification email...');
+
+            // Send verification email
+            await window.emailService.sendVerificationEmail(email, user.username, newToken);
+            this.showMessage('Verification email sent to your email. Please check your inbox.', 'success');
+            
+            // Clear form
+            document.getElementById('resendVerificationEmail').value = '';
+
+        } catch (error) {
+            console.error('Resend verification error:', error);
+            this.showMessage('Failed to send verification email. Please try again.', 'error');
         }
     }
 
@@ -481,6 +592,13 @@ class AuthManager {
      */
     showPasswordResetTab() {
         this.switchTab('reset');
+    }
+
+    /**
+     * Show resend verification form (for "Resend Verification" link)
+     */
+    showResendVerificationTab() {
+        this.switchTab('resendVerification');
     }
 
     /**
@@ -887,6 +1005,42 @@ class AuthManager {
         console.log('Users after save:', savedUsers);
         
         return saveResult;
+    }
+
+    /**
+     * Debug verification process
+     */
+    async debugVerification(email) {
+        console.log('=== Debugging Verification for:', email, '===');
+        
+        try {
+            const users = await this.getUsers();
+            console.log('All users:', users);
+            
+            const user = users.find(u => u.email === email);
+            console.log('User found:', user);
+            
+            if (user) {
+                console.log('User verification status:', user.isVerified);
+                console.log('User verification token:', user.verificationToken);
+                console.log('Token created:', user.verificationTokenCreated);
+                console.log('Token age (hours):', (Date.now() - user.verificationTokenCreated) / (60 * 60 * 1000));
+            }
+            
+            // Test verification process
+            if (user && user.verificationToken) {
+                console.log('Testing verification with token:', user.verificationToken);
+                try {
+                    const verifiedUser = await window.emailService.verifyToken(user.verificationToken, email);
+                    console.log('Verification successful:', verifiedUser);
+                } catch (error) {
+                    console.error('Verification failed:', error);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Debug error:', error);
+        }
     }
 }
 
