@@ -97,7 +97,7 @@ class ChatGPTIntegration {
     createChatInterface() {
         const chatHTML = `
             <div id="chatgpt-widget" class="chatgpt-widget ${this.isEnabled ? 'enabled' : 'disabled'}">
-                <div class="chatgpt-header">
+                <div class="chatgpt-header" id="chatgpt-header">
                     <div class="chatgpt-title">
                         <img src="images/wall_e.svg" alt="WALL-E" class="chatgpt-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <i class="fas fa-robot" style="display: none;"></i>
@@ -160,12 +160,46 @@ class ChatGPTIntegration {
      * Setup chat event listeners
      */
     setupChatEventListeners() {
+        const header = document.getElementById('chatgpt-header');
         const toggle = document.getElementById('chatgpt-toggle');
         const send = document.getElementById('chatgpt-send');
         const input = document.getElementById('chatgpt-input');
         const uploadBtn = document.getElementById('chatgpt-upload-btn');
         const imageGenBtn = document.getElementById('chatgpt-image-gen-btn');
         const fileInput = document.getElementById('chatgpt-file-input');
+
+        // Add header click listener for mobile expansion
+        if (header) {
+            header.addEventListener('click', (e) => {
+                // Don't trigger if clicking on toggle button or other controls
+                if (e.target.closest('.chatgpt-controls')) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleChat();
+            });
+        }
+
+        // Add specific click listener for WALL-E icon and title
+        const title = document.querySelector('.chatgpt-title');
+        if (title) {
+            title.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleChat();
+            });
+        }
+
+        // Add click listener for the WALL-E icon specifically
+        const icon = document.querySelector('.chatgpt-icon');
+        if (icon) {
+            icon.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleChat();
+            });
+        }
 
         if (toggle) {
             toggle.addEventListener('click', (e) => {
@@ -539,7 +573,7 @@ class ChatGPTIntegration {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v1'
+                    'OpenAI-Beta': 'assistants=v2'
                 }
             });
 
@@ -566,7 +600,7 @@ class ChatGPTIntegration {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v1'
+                'OpenAI-Beta': 'assistants=v2'
             },
             body: JSON.stringify({
                 role: 'user',
@@ -590,7 +624,7 @@ class ChatGPTIntegration {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v1'
+                'OpenAI-Beta': 'assistants=v2'
             },
             body: JSON.stringify({
                 assistant_id: this.assistantId
@@ -616,7 +650,7 @@ class ChatGPTIntegration {
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs/${runId}`, {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v1'
+                    'OpenAI-Beta': 'assistants=v2'
                 }
             });
 
@@ -640,17 +674,17 @@ class ChatGPTIntegration {
             attempts++;
         }
 
-        throw new Error('Assistant response timeout');
+        throw new Error('Response timeout');
     }
 
     /**
      * Get the last message from the thread
      */
     async getLastMessage() {
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages?limit=1`, {
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v1'
+                'OpenAI-Beta': 'assistants=v2'
             }
         });
 
@@ -659,10 +693,12 @@ class ChatGPTIntegration {
         }
 
         const data = await response.json();
-        if (data.data && data.data.length > 0) {
-            const message = data.data[0];
-            if (message.content && message.content.length > 0) {
-                return message.content[0].text.value;
+        const messages = data.data;
+        
+        if (messages.length > 0) {
+            const lastMessage = messages[0];
+            if (lastMessage.content && lastMessage.content.length > 0) {
+                return lastMessage.content[0].text.value;
             }
         }
 
