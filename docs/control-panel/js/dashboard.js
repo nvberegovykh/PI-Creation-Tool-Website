@@ -576,12 +576,9 @@ class DashboardManager {
      * Toggle WALL-E widget
      */
     toggleWallEWidget() {
-        // Check if we're on mobile
-        const isMobile = window.innerWidth <= 768;
-        
-        if (isMobile) {
-            // On mobile, show WALL-E in a modal/overlay
-            this.showWallEModal();
+        // Always use the original WALL-E widget (both desktop and mobile)
+        if (window.wallE && typeof window.wallE.toggleChat === 'function') {
+            window.wallE.toggleChat();
             
             // Update mobile WALL-E button state
             const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
@@ -589,12 +586,7 @@ class DashboardManager {
                 mobileWallEBtn.classList.toggle('active');
             }
         } else {
-            // On desktop, use the original widget
-            if (window.wallE && typeof window.wallE.toggleChat === 'function') {
-                window.wallE.toggleChat();
-            } else {
-                console.warn('WALL-E widget not available');
-            }
+            console.warn('WALL-E widget not available');
         }
     }
 
@@ -733,7 +725,7 @@ class DashboardManager {
         
         const avatar = document.createElement('div');
         avatar.className = 'wall-e-avatar';
-        avatar.innerHTML = type === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+                    avatar.innerHTML = type === 'user' ? '<i class="fas fa-user"></i>' : '<img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon">';
         
         const textDiv = document.createElement('div');
         textDiv.className = 'wall-e-text';
