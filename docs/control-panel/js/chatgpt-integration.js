@@ -1146,20 +1146,31 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Render file attachments
+     * Render file attachments in message
      */
     renderFileAttachments(files) {
         if (!files || files.length === 0) return '';
 
         return `
             <div class="file-attachments">
-                ${files.map(file => `
-                    <div class="file-attachment">
-                        <i class="fas ${this.getFileIcon(file.type)}"></i>
-                        <span>${file.name}</span>
-                        <small>(${this.formatFileSize(file.size)})</small>
-                    </div>
-                `).join('')}
+                ${files.map(file => {
+                    // Safety check for file object
+                    if (!file || typeof file !== 'object') {
+                        return '';
+                    }
+                    
+                    const fileName = file.name || 'Unknown file';
+                    const fileType = file.type || '';
+                    const fileSize = file.size || 0;
+                    
+                    return `
+                        <div class="file-attachment">
+                            <i class="fas ${this.getFileIcon(fileType)}"></i>
+                            <span>${fileName}</span>
+                            <small>(${this.formatFileSize(fileSize)})</small>
+                        </div>
+                    `;
+                }).join('')}
             </div>
         `;
     }
@@ -1168,6 +1179,11 @@ class ChatGPTIntegration {
      * Get file icon based on type
      */
     getFileIcon(type) {
+        // Handle undefined, null, or empty type
+        if (!type || typeof type !== 'string') {
+            return 'fa-file';
+        }
+        
         if (type.startsWith('image/')) return 'fa-image';
         if (type === 'application/pdf') return 'fa-file-pdf';
         if (type.startsWith('text/')) return 'fa-file-text';
@@ -1220,11 +1236,19 @@ class ChatGPTIntegration {
         existingFiles.forEach(file => file.remove());
 
         this.fileUploads.forEach((file, index) => {
+            // Safety check for file object
+            if (!file || typeof file !== 'object') {
+                return;
+            }
+            
+            const fileName = file.name || 'Unknown file';
+            const fileType = file.type || '';
+            
             const fileDiv = document.createElement('div');
             fileDiv.className = 'uploaded-file';
             fileDiv.innerHTML = `
-                <i class="fas ${this.getFileIcon(file.type)}"></i>
-                <span>${file.name}</span>
+                <i class="fas ${this.getFileIcon(fileType)}"></i>
+                <span>${fileName}</span>
                 <button class="remove-file" onclick="chatgptIntegration.removeFile(${index})">
                     <i class="fas fa-times"></i>
                 </button>
