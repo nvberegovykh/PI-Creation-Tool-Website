@@ -804,67 +804,74 @@
     bottom: 0;
     left: 0;
     right: 0;
-    background: var(--secondary-bg);
-    border-top: 1px solid var(--border-color);
-    padding: 8px 0;
+    background: #000000;
+    border-top: 1px solid #333;
+    padding: 12px 20px;
     z-index: 1000;
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .mobile-nav-btn {
     flex: 1;
     background: transparent;
-    color: var(--secondary-text);
+    color: #ffffff;
     border: none;
     padding: 12px 8px;
     cursor: pointer;
     font-size: 20px;
-    transition: var(--transition);
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    min-height: 44px;
+    min-width: 44px;
 }
 
 /* WALL-E button special styling */
 .mobile-nav-btn.wall-e-btn {
-    background: linear-gradient(135deg, var(--accent-color), var(--accent-hover));
-    color: var(--primary-bg);
+    background: #007bff;
+    color: #000000;
     border-radius: 50%;
-    width: 50px;
-    height: 50px;
-    flex: 0 0 50px;
-    margin: 0 10px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    width: 56px;
+    height: 56px;
+    flex: 0 0 56px;
+    margin: 0 15px;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+    position: relative;
+    z-index: 10;
 }
 
 .mobile-nav-btn.wall-e-btn:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(0, 123, 255, 0.5);
 }
 
 .mobile-nav-btn.wall-e-btn.active {
-    background: linear-gradient(135deg, var(--accent-hover), var(--accent-color));
-    transform: scale(1.05);
+    background: #0056b3;
+    transform: scale(1.02);
 }
 
 .mobile-nav-btn:hover {
-    color: var(--primary-text);
+    color: #007bff;
 }
 
 .mobile-nav-btn.active {
-    color: var(--accent-color);
+    color: #007bff;
 }
 
 .mobile-nav-btn.active::after {
     content: '';
     position: absolute;
-    bottom: 0;
+    bottom: -12px;
     left: 50%;
     transform: translateX(-50%);
     width: 20px;
     height: 3px;
-    background: var(--accent-color);
+    background: #007bff;
     border-radius: 2px;
 }
 
@@ -883,7 +890,7 @@
     
     /* Add bottom padding to content to account for mobile nav */
     .dashboard-content {
-        padding-bottom: 80px;
+        padding-bottom: 90px;
     }
     
     /* Hide desktop navigation on mobile */
