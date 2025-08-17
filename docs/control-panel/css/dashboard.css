@@ -132,6 +132,11 @@
     width: 16px;
     height: 16px;
     filter: var(--icon-filter);
+    transition: var(--transition);
+}
+
+.nav-btn.active .nav-icon {
+    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
 }
 
 /* Dashboard Content */
@@ -891,6 +896,25 @@
     width: 20px;
     height: 20px;
     filter: brightness(0) invert(1);
+    transition: var(--transition);
+}
+
+.wall-e-modal-header .modal-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    filter: brightness(0) invert(1);
+}
+
+.wall-e-welcome .welcome-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    filter: brightness(0) invert(1);
+}
+
+.mobile-nav-btn.active .nav-icon {
+    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
 }
 
 /* Hide mobile nav on desktop */
