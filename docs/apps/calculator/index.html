@@ -1,0 +1,2233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Calculator - Liber Apps</title>
+    <link rel="icon" type="image/png" href="../images/LIBER LOGO.png">
+    <link rel="icon" type="image/svg+xml" href="../images/LIBER LOGO.svg">
+    <link rel="stylesheet" href="../css/chatgpt-widget.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000000;
+            color: #ffffff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            min-height: 100vh;
+            align-items: center;
+        }
+
+        .calculator-section {
+            background: #111111;
+            border: 1px solid #333333;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .display {
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: right;
+            font-size: 1.5rem;
+            font-weight: 600;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            overflow: hidden;
+            word-wrap: break-word;
+        }
+
+        .expression {
+            font-size: 1rem;
+            color: #888;
+            margin-bottom: 10px;
+            min-height: 20px;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+        }
+
+        .btn {
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            color: #ffffff;
+            padding: 15px 8px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .btn:hover {
+            background: #00d4ff;
+            color: #000000;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.operator {
+            background: #333333;
+            color: #00d4ff;
+        }
+
+        .btn.function {
+            background: #2a2a2a;
+            color: #ffd700;
+        }
+
+        .btn.equals {
+            background: #00d4ff;
+            color: #000000;
+            grid-column: span 2;
+        }
+
+        .btn.clear {
+            background: #ff4444;
+            color: #ffffff;
+        }
+
+        .btn.mode {
+            background: #4a4a4a;
+            color: #00ff00;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333333;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #cccccc;
+            font-size: 0.9rem;
+        }
+
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: #333333;
+            color: #ffffff;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .back-btn:hover {
+            background: #00d4ff;
+            color: #000000;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 4px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: #00d4ff;
+            color: #000000;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .plot-container {
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .conversion-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .conversion-group {
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .conversion-group h3 {
+            margin-bottom: 10px;
+            color: #00d4ff;
+        }
+
+        .conversion-input {
+            width: 100%;
+            background: #2a2a2a;
+            border: 1px solid #333333;
+            color: #ffffff;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .triangle-calculator {
+            background: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .triangle-inputs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .input-group label {
+            margin-bottom: 5px;
+            color: #00d4ff;
+            font-size: 0.9rem;
+        }
+
+        .input-group input {
+            background: #2a2a2a;
+            border: 1px solid #333333;
+            color: #ffffff;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .triangle-results {
+            background: #2a2a2a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid #333333;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .buttons {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            
+            .btn {
+                padding: 12px 6px;
+                font-size: 0.8rem;
+            }
+            
+            .display {
+                font-size: 1.2rem;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="back-btn" onclick="goBack()">
+        ← Back to Control Panel
+    </button>
+
+    <div class="container">
+        <div class="calculator-section">
+            <div class="header">
+                <h1>Advanced Calculator</h1>
+                <p>Scientific Functions • Plotting • Conversions • Geometry</p>
+            </div>
+
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('calculator')">Calculator</div>
+                <div class="tab" onclick="switchTab('plotter')">Function Plotter</div>
+                <div class="tab" onclick="switchTab('calculus')">Calculus</div>
+                <div class="tab" onclick="switchTab('matrix')">Matrix</div>
+                <div class="tab" onclick="switchTab('fractals')">Fractals</div>
+                <div class="tab" onclick="switchTab('converter')">Unit Converter</div>
+                <div class="tab" onclick="switchTab('triangle')">Triangle Calculator</div>
+            </div>
+
+            <!-- Calculator Tab -->
+            <div id="calculator" class="tab-content active">
+                <div class="expression" id="expression"></div>
+                <div class="display" id="display">0</div>
+                
+                <div class="buttons">
+                    <!-- Row 1 -->
+                    <button class="btn clear" onclick="clearDisplay()">C</button>
+                    <button class="btn function" onclick="addFunction('(')">(</button>
+                    <button class="btn function" onclick="addFunction(')')">)</button>
+                    <button class="btn function" onclick="addFunction('^')">^</button>
+                    <button class="btn function" onclick="addFunction('√')">√</button>
+                    <button class="btn operator" onclick="addOperator('/')">÷</button>
+                    
+                    <!-- Row 2 -->
+                    <button class="btn function" onclick="addFunction('sin')">sin</button>
+                    <button class="btn" onclick="addNumber('7')">7</button>
+                    <button class="btn" onclick="addNumber('8')">8</button>
+                    <button class="btn" onclick="addNumber('9')">9</button>
+                    <button class="btn operator" onclick="addOperator('*')">×</button>
+                    <button class="btn function" onclick="addFunction('cos')">cos</button>
+                    
+                    <!-- Row 3 -->
+                    <button class="btn function" onclick="addFunction('tan')">tan</button>
+                    <button class="btn" onclick="addNumber('4')">4</button>
+                    <button class="btn" onclick="addNumber('5')">5</button>
+                    <button class="btn" onclick="addNumber('6')">6</button>
+                    <button class="btn operator" onclick="addOperator('-')">−</button>
+                    <button class="btn function" onclick="addFunction('log')">log</button>
+                    
+                    <!-- Row 4 -->
+                    <button class="btn function" onclick="addFunction('ln')">ln</button>
+                    <button class="btn" onclick="addNumber('1')">1</button>
+                    <button class="btn" onclick="addNumber('2')">2</button>
+                    <button class="btn" onclick="addNumber('3')">3</button>
+                    <button class="btn operator" onclick="addOperator('+')">+</button>
+                    <button class="btn function" onclick="addFunction('π')">π</button>
+                    
+                                         <!-- Row 5 -->
+                     <button class="btn function" onclick="addFunction('e')">e</button>
+                     <button class="btn" onclick="addNumber('0')">0</button>
+                     <button class="btn" onclick="addNumber('.')">.</button>
+                     <button class="btn function" onclick="addFunction('!')">!</button>
+                     <button class="btn equals" onclick="calculate()">=</button>
+                     
+                     <!-- Row 6 -->
+                     <button class="btn function" onclick="addFunction('abs')">|x|</button>
+                     <button class="btn function" onclick="addFunction('exp')">exp</button>
+                     <button class="btn function" onclick="addFunction('asin')">asin</button>
+                     <button class="btn function" onclick="addFunction('acos')">acos</button>
+                     <button class="btn function" onclick="addFunction('atan')">atan</button>
+                     <button class="btn function" onclick="addFunction('floor')">⌊x⌋</button>
+                </div>
+            </div>
+
+            <!-- Function Plotter Tab -->
+            <div id="plotter" class="tab-content">
+                <div class="plot-container">
+                    <h3>Function Plotter</h3>
+                    <div style="margin-bottom: 15px;">
+                        <input type="text" id="functionInput" placeholder="Enter function (e.g., x^2, sin(x), 2*x+1)" 
+                               class="conversion-input" style="margin-bottom: 10px;">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="xMin" placeholder="X min" class="conversion-input" value="-10" style="flex: 1;">
+                            <input type="number" id="xMax" placeholder="X max" class="conversion-input" value="10" style="flex: 1;">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="btn" onclick="plotFunction()" style="flex: 1;">Plot Function</button>
+                            <button class="btn" onclick="clearPlot()" style="flex: 1;">Clear Plot</button>
+                        </div>
+                        <div style="margin-top: 15px; padding: 10px; background: #2a2a2a; border-radius: 6px; font-size: 0.9em;">
+                            <strong>Example Functions:</strong><br>
+                            • <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('x^2')">x^2</code> (parabola) • 
+                            <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('-(x^2)')">-(x^2)</code> (reverse parabola) • 
+                            <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('sin(x)')">sin(x)</code> (sine wave) • 
+                            <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('cos(x)')">cos(x)</code> (cosine wave)<br>
+                            • <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('exp(x)')">exp(x)</code> (exponential) • 
+                            <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('1/x')">1/x</code> (hyperbola) • 
+                            <code style="color: #00d4ff; cursor: pointer;" onclick="loadExample('abs(x)')">abs(x)</code> (absolute value)
+                        </div>
+                    </div>
+                    <canvas id="plotCanvas" width="600" height="400" style="width: 100%; height: 400px; background: #000; border: 1px solid #333;"></canvas>
+                </div>
+            </div>
+
+            <!-- Calculus Tab -->
+            <div id="calculus" class="tab-content">
+                <div class="plot-container">
+                    <h3>Calculus Calculator</h3>
+                    <div style="margin-bottom: 15px;">
+                        <input type="text" id="calculusFunction" placeholder="Enter function (e.g., x^2, sin(x), 2*x+1)" 
+                               class="conversion-input" style="margin-bottom: 10px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <input type="number" id="calcXMin" placeholder="Lower bound" class="conversion-input" value="0" style="flex: 1;">
+                            <input type="number" id="calcXMax" placeholder="Upper bound" class="conversion-input" value="1" style="flex: 1;">
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn" onclick="calculateIntegral()" style="flex: 1;">Calculate Integral</button>
+                            <button class="btn" onclick="calculateDerivative()" style="flex: 1;">Calculate Derivative</button>
+                        </div>
+                    </div>
+                    <div id="calculusResults" class="result-item" style="margin-top: 15px; padding: 15px; background: #2a2a2a; border-radius: 8px; min-height: 60px;">
+                        <div>Results will appear here...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Matrix Tab -->
+            <div id="matrix" class="tab-content">
+                <div class="plot-container">
+                    <h3>Matrix Calculator</h3>
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <select id="matrixSize" class="conversion-input" style="flex: 1;" onchange="createMatrixInputs()">
+                                <option value="2">2x2 Matrix</option>
+                                <option value="3">3x3 Matrix</option>
+                                <option value="4">4x4 Matrix</option>
+                            </select>
+                            <select id="matrixOperation" class="conversion-input" style="flex: 1;">
+                                <option value="determinant">Determinant</option>
+                                <option value="inverse">Inverse</option>
+                                <option value="transpose">Transpose</option>
+                                <option value="eigenvalues">Eigenvalues</option>
+                                <option value="multiply">Multiply</option>
+                            </select>
+                        </div>
+                        <div id="matrixInputs" style="margin-bottom: 15px;">
+                            <!-- Matrix inputs will be generated here -->
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn" onclick="calculateMatrix()" style="flex: 1;">Calculate</button>
+                            <button class="btn" onclick="clearMatrix()" style="flex: 1;">Clear</button>
+                        </div>
+                    </div>
+                    <div id="matrixResults" class="result-item" style="margin-top: 15px; padding: 15px; background: #2a2a2a; border-radius: 8px; min-height: 60px;">
+                        <div>Matrix results will appear here...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fractals Tab -->
+            <div id="fractals" class="tab-content">
+                <div class="plot-container">
+                    <h3>Fractal & Noise Generator</h3>
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                                    <select id="fractalType" class="conversion-input" style="flex: 1;" onchange="updateFractalOptions()">
+                            <option value="mandelbrot">Mandelbrot Set</option>
+                            <option value="julia">Julia Set</option>
+                            <option value="sierpinski">Sierpinski Triangle</option>
+                            <option value="koch">Koch Snowflake</option>
+                            <option value="dragon">Dragon Curve</option>
+                            <option value="barnsley">Barnsley Fern</option>
+                            <option value="perlin">Perlin Noise</option>
+                            <option value="simplex">Simplex Noise</option>
+                            <option value="cellular">Cellular Automata</option>
+                            <option value="voronoi">Voronoi Diagram</option>
+                            <option value="wave">Wave Pattern</option>
+                            <option value="spiral">Spiral Pattern</option>
+                        </select>
+                            <input type="number" id="fractalIterations" placeholder="Iterations" class="conversion-input" value="100" style="flex: 1;">
+                        </div>
+                        <div id="fractalOptions" style="margin-bottom: 10px;">
+                            <!-- Dynamic options will appear here -->
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn" onclick="generateFractal()" style="flex: 1;">Generate</button>
+                            <button class="btn" onclick="clearFractal()" style="flex: 1;">Clear</button>
+                        </div>
+                    </div>
+                    <canvas id="fractalCanvas" width="600" height="400" style="width: 100%; height: 400px; background: #000; border: 1px solid #333;"></canvas>
+                </div>
+            </div>
+
+            <!-- Unit Converter Tab -->
+            <div id="converter" class="tab-content">
+                <div class="conversion-section">
+                    <div class="conversion-group">
+                        <h3>Length</h3>
+                        <input type="number" id="lengthInput" placeholder="Enter value" class="conversion-input" oninput="convertLength()">
+                        <select id="lengthFrom" class="conversion-input" onchange="convertLength()">
+                            <option value="m">Meters</option>
+                            <option value="km">Kilometers</option>
+                            <option value="cm">Centimeters</option>
+                            <option value="mm">Millimeters</option>
+                            <option value="ft">Feet</option>
+                            <option value="in">Inches</option>
+                            <option value="yd">Yards</option>
+                            <option value="mi">Miles</option>
+                        </select>
+                        <select id="lengthTo" class="conversion-input" onchange="convertLength()">
+                            <option value="ft">Feet</option>
+                            <option value="m">Meters</option>
+                            <option value="km">Kilometers</option>
+                            <option value="cm">Centimeters</option>
+                            <option value="mm">Millimeters</option>
+                            <option value="in">Inches</option>
+                            <option value="yd">Yards</option>
+                            <option value="mi">Miles</option>
+                        </select>
+                        <div id="lengthResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
+                    </div>
+
+                    <div class="conversion-group">
+                        <h3>Weight</h3>
+                        <input type="number" id="weightInput" placeholder="Enter value" class="conversion-input" oninput="convertWeight()">
+                        <select id="weightFrom" class="conversion-input" onchange="convertWeight()">
+                            <option value="kg">Kilograms</option>
+                            <option value="g">Grams</option>
+                            <option value="lb">Pounds</option>
+                            <option value="oz">Ounces</option>
+                        </select>
+                        <select id="weightTo" class="conversion-input" onchange="convertWeight()">
+                            <option value="lb">Pounds</option>
+                            <option value="kg">Kilograms</option>
+                            <option value="g">Grams</option>
+                            <option value="oz">Ounces</option>
+                        </select>
+                        <div id="weightResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
+                    </div>
+
+                    <div class="conversion-group">
+                        <h3>Temperature</h3>
+                        <input type="number" id="tempInput" placeholder="Enter value" class="conversion-input" oninput="convertTemp()">
+                        <select id="tempFrom" class="conversion-input" onchange="convertTemp()">
+                            <option value="c">Celsius</option>
+                            <option value="f">Fahrenheit</option>
+                            <option value="k">Kelvin</option>
+                        </select>
+                        <select id="tempTo" class="conversion-input" onchange="convertTemp()">
+                            <option value="f">Fahrenheit</option>
+                            <option value="c">Celsius</option>
+                            <option value="k">Kelvin</option>
+                        </select>
+                        <div id="tempResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
+                    </div>
+
+                    <div class="conversion-group">
+                        <h3>Fraction ↔ Decimal</h3>
+                        <input type="text" id="fractionInput" placeholder="Enter fraction (e.g., 3/4) or decimal" class="conversion-input" oninput="convertFraction()">
+                        <button class="btn" onclick="convertFraction()" style="margin-top: 10px;">Convert</button>
+                        <div id="fractionResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Triangle Calculator Tab -->
+            <div id="triangle" class="tab-content">
+                <div class="triangle-calculator">
+                    <h3>Triangle Calculator</h3>
+                    <div class="triangle-inputs">
+                        <div class="input-group">
+                            <label>Side a:</label>
+                            <input type="number" id="sideA" placeholder="Enter length" oninput="calculateTriangle()">
+                        </div>
+                        <div class="input-group">
+                            <label>Side b:</label>
+                            <input type="number" id="sideB" placeholder="Enter length" oninput="calculateTriangle()">
+                        </div>
+                        <div class="input-group">
+                            <label>Side c:</label>
+                            <input type="number" id="sideC" placeholder="Enter length" oninput="calculateTriangle()">
+                        </div>
+                        <div class="input-group">
+                            <label>Angle A (degrees):</label>
+                            <input type="number" id="angleA" placeholder="Enter angle" oninput="calculateTriangle()">
+                        </div>
+                        <div class="input-group">
+                            <label>Angle B (degrees):</label>
+                            <input type="number" id="angleB" placeholder="Enter angle" oninput="calculateTriangle()">
+                        </div>
+                        <div class="input-group">
+                            <label>Angle C (degrees):</label>
+                            <input type="number" id="angleC" placeholder="Enter angle" oninput="calculateTriangle()">
+                        </div>
+                    </div>
+                    <div class="triangle-results" id="triangleResults">
+                        <div class="result-item">
+                            <span>Area:</span>
+                            <span id="triangleArea">-</span>
+                        </div>
+                        <div class="result-item">
+                            <span>Perimeter:</span>
+                            <span id="trianglePerimeter">-</span>
+                        </div>
+                        <div class="result-item">
+                            <span>Type:</span>
+                            <span id="triangleType">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let displayValue = '0';
+        let expression = '';
+        let currentMode = 'calculator';
+        let plotChart = null;
+
+        const display = document.getElementById('display');
+        const expressionDiv = document.getElementById('expression');
+
+        // Calculator Functions
+        function updateDisplay() {
+            display.textContent = displayValue;
+            expressionDiv.textContent = expression;
+        }
+
+        function addNumber(number) {
+            if (displayValue === '0' && number !== '.') {
+                displayValue = number;
+            } else {
+                displayValue += number;
+            }
+            updateDisplay();
+        }
+
+        function addOperator(operator) {
+            expression += displayValue + ' ' + operator + ' ';
+            displayValue = '0';
+            updateDisplay();
+        }
+
+        function addFunction(func) {
+            if (func === 'π') {
+                displayValue = Math.PI.toString();
+            } else if (func === 'e') {
+                displayValue = Math.E.toString();
+            } else if (func === '!') {
+                const num = parseInt(displayValue);
+                if (num >= 0 && num <= 170) {
+                    displayValue = factorial(num).toString();
+                } else {
+                    displayValue = 'Error';
+                }
+            } else {
+                expression += func + '(' + displayValue + ') ';
+                displayValue = '0';
+            }
+            updateDisplay();
+        }
+
+        function factorial(n) {
+            if (n === 0 || n === 1) return 1;
+            let result = 1;
+            for (let i = 2; i <= n; i++) {
+                result *= i;
+            }
+            return result;
+        }
+
+        function calculate() {
+            try {
+                let finalExpression = expression + displayValue;
+                
+                // Handle power operations properly - convert x^2 to Math.pow(x,2)
+                finalExpression = finalExpression.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                finalExpression = finalExpression.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                finalExpression = finalExpression.replace(/(\d+\.\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                
+                // Handle exponential function properly
+                finalExpression = finalExpression.replace(/exp\(/g, 'Math.exp(');
+                
+                // Replace other mathematical functions
+                finalExpression = finalExpression.replace(/sin\(/g, 'Math.sin(');
+                finalExpression = finalExpression.replace(/cos\(/g, 'Math.cos(');
+                finalExpression = finalExpression.replace(/tan\(/g, 'Math.tan(');
+                finalExpression = finalExpression.replace(/asin\(/g, 'Math.asin(');
+                finalExpression = finalExpression.replace(/acos\(/g, 'Math.acos(');
+                finalExpression = finalExpression.replace(/atan\(/g, 'Math.atan(');
+                finalExpression = finalExpression.replace(/log\(/g, 'Math.log10(');
+                finalExpression = finalExpression.replace(/ln\(/g, 'Math.log(');
+                finalExpression = finalExpression.replace(/√\(/g, 'Math.sqrt(');
+                finalExpression = finalExpression.replace(/abs\(/g, 'Math.abs(');
+                finalExpression = finalExpression.replace(/floor\(/g, 'Math.floor(');
+                
+                const result = eval(finalExpression);
+                displayValue = result.toString();
+                expression = '';
+                updateDisplay();
+            } catch (error) {
+                displayValue = 'Error';
+                expression = '';
+                updateDisplay();
+            }
+        }
+
+        function clearDisplay() {
+            displayValue = '0';
+            expression = '';
+            updateDisplay();
+        }
+
+        // Tab Functions
+        function switchTab(tabName) {
+            // Hide all tab contents
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+            
+            currentMode = tabName;
+        }
+
+        // Function Plotter
+        function plotFunction() {
+            const functionStr = document.getElementById('functionInput').value;
+            const xMin = parseFloat(document.getElementById('xMin').value);
+            const xMax = parseFloat(document.getElementById('xMax').value);
+            
+            if (!functionStr) return;
+            
+            const canvas = document.getElementById('plotCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid
+            drawGrid(ctx, canvas.width, canvas.height, xMin, xMax);
+            
+            // Plot function
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const step = (xMax - xMin) / canvas.width;
+            let firstPoint = true;
+            
+            for (let i = 0; i <= canvas.width; i++) {
+                const x = xMin + i * step;
+                let y;
+                
+                try {
+                    // Simple direct evaluation for common functions
+                    if (functionStr === 'x^2') {
+                        y = x * x;
+                    } else if (functionStr === '-x^2' || functionStr === '-(x^2)') {
+                        y = -(x * x);
+                    } else if (functionStr === 'exp(x)') {
+                        y = Math.exp(x);
+                    } else if (functionStr === 'sin(x)') {
+                        y = Math.sin(x);
+                    } else if (functionStr === 'cos(x)') {
+                        y = Math.cos(x);
+                    } else if (functionStr === 'abs(x)') {
+                        y = Math.abs(x);
+                    } else if (functionStr === '1/x') {
+                        y = 1 / x;
+                    } else {
+                        // Fallback to general evaluation with better parsing
+                        let expr = functionStr.replace(/x/g, x.toString());
+                        
+                        // Handle negative signs and parentheses properly
+                        expr = expr.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                        expr = expr.replace(/exp\(/g, 'Math.exp(');
+                        expr = expr.replace(/sin\(/g, 'Math.sin(');
+                        expr = expr.replace(/cos\(/g, 'Math.cos(');
+                        expr = expr.replace(/abs\(/g, 'Math.abs(');
+                        
+                        // Handle negative expressions
+                        expr = expr.replace(/\(-\(/g, '(-(');
+                        expr = expr.replace(/\)-\)/g, '))');
+                        
+                        y = eval(expr);
+                    }
+                    
+                    if (isFinite(y) && !isNaN(y)) {
+                        // Convert to canvas coordinates
+                        const xPixel = i;
+                        const yPixel = canvas.height / 2 - (y * canvas.height / 20);
+                        
+                        if (firstPoint) {
+                            ctx.moveTo(xPixel, yPixel);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(xPixel, yPixel);
+                        }
+                    } else {
+                        firstPoint = true;
+                    }
+                } catch (error) {
+                    firstPoint = true;
+                }
+            }
+            
+            ctx.stroke();
+        }
+
+        function drawGrid(ctx, width, height, xMin, xMax) {
+            // Draw axes
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            
+            // X-axis
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.stroke();
+            
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(width / 2, 0);
+            ctx.lineTo(width / 2, height);
+            ctx.stroke();
+            
+            // Grid lines
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 0.5;
+            
+            // Vertical grid lines
+            const xStep = (xMax - xMin) / 10;
+            for (let i = 0; i <= 10; i++) {
+                const x = xMin + i * xStep;
+                const xPixel = (x - xMin) / (xMax - xMin) * width;
+                ctx.beginPath();
+                ctx.moveTo(xPixel, 0);
+                ctx.lineTo(xPixel, height);
+                ctx.stroke();
+            }
+            
+            // Horizontal grid lines
+            for (let i = 0; i <= 10; i++) {
+                const yPixel = i * height / 10;
+                ctx.beginPath();
+                ctx.moveTo(0, yPixel);
+                ctx.lineTo(width, yPixel);
+                ctx.stroke();
+            }
+        }
+
+        function clearPlot() {
+            const canvas = document.getElementById('plotCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawGrid(ctx, canvas.width, canvas.height, -10, 10);
+        }
+
+        function loadExample(functionStr) {
+            document.getElementById('functionInput').value = functionStr;
+            plotFunction();
+        }
+
+        // Calculus Functions
+        function calculateIntegral() {
+            const functionStr = document.getElementById('calculusFunction').value;
+            const a = parseFloat(document.getElementById('calcXMin').value);
+            const b = parseFloat(document.getElementById('calcXMax').value);
+            
+            if (!functionStr || isNaN(a) || isNaN(b)) {
+                document.getElementById('calculusResults').innerHTML = '<div style="color: #ff4444;">Please enter a valid function and bounds.</div>';
+                return;
+            }
+            
+            // Numerical integration using Simpson's rule
+            const n = 1000; // Number of intervals
+            const h = (b - a) / n;
+            let sum = 0;
+            
+            for (let i = 0; i <= n; i++) {
+                const x = a + i * h;
+                let y;
+                
+                try {
+                    let evalStr = functionStr.replace(/x/g, x.toString());
+                    
+                    // Handle power operations properly - convert x^2 to Math.pow(x,2)
+                    evalStr = evalStr.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                    evalStr = evalStr.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                    evalStr = evalStr.replace(/(\d+\.\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                    
+                    // Handle exponential function properly
+                    evalStr = evalStr.replace(/exp\(/g, 'Math.exp(');
+                    
+                    // Replace other mathematical functions
+                    evalStr = evalStr.replace(/sin\(/g, 'Math.sin(');
+                    evalStr = evalStr.replace(/cos\(/g, 'Math.cos(');
+                    evalStr = evalStr.replace(/tan\(/g, 'Math.tan(');
+                    evalStr = evalStr.replace(/asin\(/g, 'Math.asin(');
+                    evalStr = evalStr.replace(/acos\(/g, 'Math.acos(');
+                    evalStr = evalStr.replace(/atan\(/g, 'Math.atan(');
+                    evalStr = evalStr.replace(/log\(/g, 'Math.log10(');
+                    evalStr = evalStr.replace(/ln\(/g, 'Math.log(');
+                    evalStr = evalStr.replace(/√\(/g, 'Math.sqrt(');
+                    evalStr = evalStr.replace(/abs\(/g, 'Math.abs(');
+                    evalStr = evalStr.replace(/floor\(/g, 'Math.floor(');
+                    
+                    y = eval(evalStr);
+                    
+                    if (isFinite(y)) {
+                        if (i === 0 || i === n) {
+                            sum += y;
+                        } else if (i % 2 === 1) {
+                            sum += 4 * y;
+                        } else {
+                            sum += 2 * y;
+                        }
+                    }
+                } catch (error) {
+                    // Skip invalid points
+                }
+            }
+            
+            const integral = (h / 3) * sum;
+            
+            document.getElementById('calculusResults').innerHTML = `
+                <div style="margin-bottom: 10px;"><strong>Integral Result:</strong></div>
+                <div style="font-family: monospace; font-size: 1.1em;">
+                    ∫<sub>${a}</sub><sup>${b}</sup> ${functionStr} dx = ${integral.toFixed(6)}
+                </div>
+                <div style="margin-top: 10px; color: #888; font-size: 0.9em;">
+                    Calculated using Simpson's rule with ${n} intervals
+                </div>
+            `;
+        }
+
+        function calculateDerivative() {
+            const functionStr = document.getElementById('calculusFunction').value;
+            const x = parseFloat(document.getElementById('calcXMin').value);
+            
+            if (!functionStr || isNaN(x)) {
+                document.getElementById('calculusResults').innerHTML = '<div style="color: #ff4444;">Please enter a valid function and x value.</div>';
+                return;
+            }
+            
+            // Numerical differentiation using central difference
+            const h = 0.0001; // Small step size
+            let f1, f2;
+            
+            try {
+                let evalStr1 = functionStr.replace(/x/g, (x + h).toString());
+                let evalStr2 = functionStr.replace(/x/g, (x - h).toString());
+                
+                // Fix operator precedence issues
+                evalStr1 = evalStr1.replace(/(\d+)\/([^)]*)/g, '($1)/($2)');
+                evalStr1 = evalStr1.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                evalStr2 = evalStr2.replace(/(\d+)\/([^)]*)/g, '($1)/($2)');
+                evalStr2 = evalStr2.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                
+                // Handle power operations properly - convert x^2 to Math.pow(x,2)
+                evalStr1 = evalStr1.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                evalStr1 = evalStr1.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                evalStr1 = evalStr1.replace(/(\d+\.\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                evalStr2 = evalStr2.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                evalStr2 = evalStr2.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                evalStr2 = evalStr2.replace(/(\d+\.\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                
+                // Handle exponential function properly
+                evalStr1 = evalStr1.replace(/exp\(/g, 'Math.exp(');
+                evalStr2 = evalStr2.replace(/exp\(/g, 'Math.exp(');
+                
+                // Replace mathematical functions for derivative calculation
+                const mathFunctions = [
+                    [/sin\(/g, 'Math.sin('], [/cos\(/g, 'Math.cos('], [/tan\(/g, 'Math.tan('],
+                    [/asin\(/g, 'Math.asin('], [/acos\(/g, 'Math.acos('], [/atan\(/g, 'Math.atan('],
+                    [/log\(/g, 'Math.log10('], [/ln\(/g, 'Math.log('],
+                    [/√\(/g, 'Math.sqrt('], [/abs\(/g, 'Math.abs('], [/floor\(/g, 'Math.floor(']
+                ];
+                
+                mathFunctions.forEach(([pattern, replacement]) => {
+                    evalStr1 = evalStr1.replace(pattern, replacement);
+                    evalStr2 = evalStr2.replace(pattern, replacement);
+                });
+                
+                f1 = eval(evalStr1);
+                f2 = eval(evalStr2);
+                
+                if (isFinite(f1) && isFinite(f2)) {
+                    const derivative = (f1 - f2) / (2 * h);
+                    
+                    document.getElementById('calculusResults').innerHTML = `
+                        <div style="margin-bottom: 10px;"><strong>Derivative Result:</strong></div>
+                        <div style="font-family: monospace; font-size: 1.1em;">
+                            d/dx[${functionStr}] at x = ${x} = ${derivative.toFixed(6)}
+                        </div>
+                        <div style="margin-top: 10px; color: #888; font-size: 0.9em;">
+                            Calculated using central difference method
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('calculusResults').innerHTML = '<div style="color: #ff4444;">Function evaluation failed at the given point.</div>';
+                }
+            } catch (error) {
+                document.getElementById('calculusResults').innerHTML = '<div style="color: #ff4444;">Error evaluating function: ' + error.message + '</div>';
+            }
+        }
+
+        // Unit Conversions
+        function convertLength() {
+            const input = parseFloat(document.getElementById('lengthInput').value);
+            const from = document.getElementById('lengthFrom').value;
+            const to = document.getElementById('lengthTo').value;
+            
+            if (isNaN(input)) return;
+            
+            // Convert to meters first
+            let meters = 0;
+            switch (from) {
+                case 'm': meters = input; break;
+                case 'km': meters = input * 1000; break;
+                case 'cm': meters = input / 100; break;
+                case 'mm': meters = input / 1000; break;
+                case 'ft': meters = input * 0.3048; break;
+                case 'in': meters = input * 0.0254; break;
+                case 'yd': meters = input * 0.9144; break;
+                case 'mi': meters = input * 1609.344; break;
+            }
+            
+            // Convert from meters to target unit
+            let result = 0;
+            switch (to) {
+                case 'ft': result = meters / 0.3048; break;
+                case 'm': result = meters; break;
+                case 'km': result = meters / 1000; break;
+                case 'cm': result = meters * 100; break;
+                case 'mm': result = meters * 1000; break;
+                case 'in': result = meters / 0.0254; break;
+                case 'yd': result = meters / 0.9144; break;
+                case 'mi': result = meters / 1609.344; break;
+            }
+            
+            document.getElementById('lengthResult').textContent = `${input} ${from} = ${result.toFixed(4)} ${to}`;
+        }
+
+        function convertWeight() {
+            const input = parseFloat(document.getElementById('weightInput').value);
+            const from = document.getElementById('weightFrom').value;
+            const to = document.getElementById('weightTo').value;
+            
+            if (isNaN(input)) return;
+            
+            // Convert to kg first
+            let kg = 0;
+            switch (from) {
+                case 'kg': kg = input; break;
+                case 'g': kg = input / 1000; break;
+                case 'lb': kg = input * 0.453592; break;
+                case 'oz': kg = input * 0.0283495; break;
+            }
+            
+            // Convert from kg to target unit
+            let result = 0;
+            switch (to) {
+                case 'lb': result = kg / 0.453592; break;
+                case 'kg': result = kg; break;
+                case 'g': result = kg * 1000; break;
+                case 'oz': result = kg / 0.0283495; break;
+            }
+            
+            document.getElementById('weightResult').textContent = `${input} ${from} = ${result.toFixed(4)} ${to}`;
+        }
+
+        function convertTemp() {
+            const input = parseFloat(document.getElementById('tempInput').value);
+            const from = document.getElementById('tempFrom').value;
+            const to = document.getElementById('tempTo').value;
+            
+            if (isNaN(input)) return;
+            
+            // Convert to Celsius first
+            let celsius = 0;
+            switch (from) {
+                case 'c': celsius = input; break;
+                case 'f': celsius = (input - 32) * 5/9; break;
+                case 'k': celsius = input - 273.15; break;
+            }
+            
+            // Convert from Celsius to target unit
+            let result = 0;
+            switch (to) {
+                case 'f': result = celsius * 9/5 + 32; break;
+                case 'c': result = celsius; break;
+                case 'k': result = celsius + 273.15; break;
+            }
+            
+            document.getElementById('tempResult').textContent = `${input}°${from.toUpperCase()} = ${result.toFixed(2)}°${to.toUpperCase()}`;
+        }
+
+        function convertFraction() {
+            const input = document.getElementById('fractionInput').value.trim();
+            
+            if (input.includes('/')) {
+                // Convert fraction to decimal
+                const parts = input.split('/');
+                const numerator = parseFloat(parts[0]);
+                const denominator = parseFloat(parts[1]);
+                
+                if (denominator !== 0) {
+                    const decimal = numerator / denominator;
+                    document.getElementById('fractionResult').textContent = `${input} = ${decimal.toFixed(6)}`;
+                } else {
+                    document.getElementById('fractionResult').textContent = 'Error: Division by zero';
+                }
+            } else {
+                // Convert decimal to fraction
+                const decimal = parseFloat(input);
+                if (isNaN(decimal)) {
+                    document.getElementById('fractionResult').textContent = 'Invalid input';
+                    return;
+                }
+                
+                // Simple fraction approximation
+                const tolerance = 0.0001;
+                let numerator = 1;
+                let denominator = 1;
+                
+                for (let d = 1; d <= 1000; d++) {
+                    const n = Math.round(decimal * d);
+                    if (Math.abs(n/d - decimal) < tolerance) {
+                        numerator = n;
+                        denominator = d;
+                        break;
+                    }
+                }
+                
+                document.getElementById('fractionResult').textContent = `${decimal} ≈ ${numerator}/${denominator}`;
+            }
+        }
+
+        // Triangle Calculator
+        function calculateTriangle() {
+            const a = parseFloat(document.getElementById('sideA').value) || 0;
+            const b = parseFloat(document.getElementById('sideB').value) || 0;
+            const c = parseFloat(document.getElementById('sideC').value) || 0;
+            const A = parseFloat(document.getElementById('angleA').value) || 0;
+            const B = parseFloat(document.getElementById('angleB').value) || 0;
+            const C = parseFloat(document.getElementById('angleC').value) || 0;
+            
+            let area = 0;
+            let perimeter = 0;
+            let type = 'Unknown';
+            
+            // Calculate based on available data
+            if (a > 0 && b > 0 && c > 0) {
+                // All sides given
+                perimeter = a + b + c;
+                const s = perimeter / 2;
+                area = Math.sqrt(s * (s - a) * (s - b) * (s - c));
+                
+                // Determine triangle type
+                if (a === b && b === c) {
+                    type = 'Equilateral';
+                } else if (a === b || b === c || a === c) {
+                    type = 'Isosceles';
+                } else {
+                    type = 'Scalene';
+                }
+                
+                // Check if right triangle
+                const sides = [a, b, c].sort((x, y) => x - y);
+                if (Math.abs(sides[2]**2 - (sides[0]**2 + sides[1]**2)) < 0.001) {
+                    type += ' (Right)';
+                }
+            } else if (A > 0 && B > 0 && C > 0) {
+                // All angles given
+                if (Math.abs(A + B + C - 180) < 0.001) {
+                    type = 'Valid triangle';
+                    // Need at least one side to calculate area and perimeter
+                }
+            }
+            
+            document.getElementById('triangleArea').textContent = area > 0 ? area.toFixed(4) : '-';
+            document.getElementById('trianglePerimeter').textContent = perimeter > 0 ? perimeter.toFixed(4) : '-';
+            document.getElementById('triangleType').textContent = type;
+        }
+
+        function goBack() {
+            if (window.opener) {
+                window.close();
+            } else {
+                window.history.back();
+            }
+        }
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (currentMode === 'calculator') {
+                const key = e.key;
+                
+                if (key >= '0' && key <= '9' || key === '.') {
+                    addNumber(key);
+                } else if (key === '+' || key === '-') {
+                    addOperator(key);
+                } else if (key === '*') {
+                    addOperator('*');
+                } else if (key === '/') {
+                    e.preventDefault();
+                    addOperator('/');
+                } else if (key === 'Enter' || key === '=') {
+                    calculate();
+                } else if (key === 'Escape' || key === 'c' || key === 'C') {
+                    clearDisplay();
+                } else if (key === 'Backspace') {
+                    if (displayValue.length > 1) {
+                        displayValue = displayValue.slice(0, -1);
+                        updateDisplay();
+                    } else {
+                        clearDisplay();
+                    }
+                }
+            }
+        });
+
+        // Focus management
+        document.addEventListener('click', () => {
+            document.body.focus();
+        });
+
+        // Prevent context menu
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // Matrix Functions
+        function createMatrixInputs() {
+            const size = parseInt(document.getElementById('matrixSize').value);
+            const container = document.getElementById('matrixInputs');
+            container.innerHTML = '';
+            
+            // Create matrix input grid
+            const grid = document.createElement('div');
+            grid.style.display = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+            grid.style.gap = '5px';
+            grid.style.marginBottom = '10px';
+            
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    input.className = 'conversion-input';
+                    input.style.textAlign = 'center';
+                    input.placeholder = '0';
+                    input.id = `matrix_${i}_${j}`;
+                    grid.appendChild(input);
+                }
+            }
+            
+            container.appendChild(grid);
+            
+            // Add second matrix for multiplication
+            const operation = document.getElementById('matrixOperation').value;
+            if (operation === 'multiply') {
+                const grid2 = document.createElement('div');
+                grid2.style.display = 'grid';
+                grid2.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+                grid2.style.gap = '5px';
+                grid2.style.marginTop = '10px';
+                grid2.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #00d4ff; margin-bottom: 5px;">Second Matrix:</div>';
+                
+                for (let i = 0; i < size; i++) {
+                    for (let j = 0; j < size; j++) {
+                        const input = document.createElement('input');
+                        input.type = 'number';
+                        input.className = 'conversion-input';
+                        input.style.textAlign = 'center';
+                        input.placeholder = '0';
+                        input.id = `matrix2_${i}_${j}`;
+                        grid2.appendChild(input);
+                    }
+                }
+                container.appendChild(grid2);
+            }
+        }
+
+        // Update matrix inputs when operation changes
+        document.addEventListener('DOMContentLoaded', () => {
+            const operationSelect = document.getElementById('matrixOperation');
+            if (operationSelect) {
+                operationSelect.addEventListener('change', createMatrixInputs);
+            }
+        });
+
+        function getMatrix(size) {
+            const matrix = [];
+            for (let i = 0; i < size; i++) {
+                matrix[i] = [];
+                for (let j = 0; j < size; j++) {
+                    const value = parseFloat(document.getElementById(`matrix_${i}_${j}`).value) || 0;
+                    matrix[i][j] = value;
+                }
+            }
+            return matrix;
+        }
+
+        function getMatrix2(size) {
+            const matrix = [];
+            for (let i = 0; i < size; i++) {
+                matrix[i] = [];
+                for (let j = 0; j < size; j++) {
+                    const value = parseFloat(document.getElementById(`matrix2_${i}_${j}`).value) || 0;
+                    matrix[i][j] = value;
+                }
+            }
+            return matrix;
+        }
+
+        function calculateMatrix() {
+            const size = parseInt(document.getElementById('matrixSize').value);
+            const operation = document.getElementById('matrixOperation').value;
+            const matrix = getMatrix(size);
+            
+            let result = '';
+            
+            try {
+                switch (operation) {
+                    case 'determinant':
+                        const det = calculateDeterminant(matrix);
+                        result = `Determinant = ${det.toFixed(6)}`;
+                        break;
+                    case 'inverse':
+                        const inv = calculateInverse(matrix);
+                        if (inv) {
+                            result = 'Inverse Matrix:<br>' + matrixToString(inv);
+                        } else {
+                            result = 'Matrix is not invertible (determinant = 0)';
+                        }
+                        break;
+                    case 'transpose':
+                        const trans = transposeMatrix(matrix);
+                        result = 'Transpose Matrix:<br>' + matrixToString(trans);
+                        break;
+                    case 'eigenvalues':
+                        const eigen = calculateEigenvalues(matrix);
+                        result = 'Eigenvalues:<br>' + eigen.map(v => v.toFixed(6)).join(', ');
+                        break;
+                    case 'multiply':
+                        // Check if second matrix exists
+                        const matrix2Element = document.getElementById('matrix2_0_0');
+                        if (!matrix2Element) {
+                            result = 'Error: Second matrix not found. Please select "Multiply" operation first.';
+                        } else {
+                            const matrix2 = getMatrix2(size);
+                            const mult = multiplyMatrices(matrix, matrix2);
+                            result = 'Product Matrix:<br>' + matrixToString(mult);
+                        }
+                        break;
+                }
+            } catch (error) {
+                result = 'Error: ' + error.message;
+            }
+            
+            document.getElementById('matrixResults').innerHTML = result;
+        }
+
+        function calculateDeterminant(matrix) {
+            const size = matrix.length;
+            if (size === 1) return matrix[0][0];
+            if (size === 2) {
+                return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
+            }
+            
+            let det = 0;
+            for (let j = 0; j < size; j++) {
+                const minor = [];
+                for (let i = 1; i < size; i++) {
+                    minor[i-1] = [];
+                    for (let k = 0; k < size; k++) {
+                        if (k !== j) {
+                            minor[i-1].push(matrix[i][k]);
+                        }
+                    }
+                }
+                det += matrix[0][j] * Math.pow(-1, j) * calculateDeterminant(minor);
+            }
+            return det;
+        }
+
+        function calculateInverse(matrix) {
+            const det = calculateDeterminant(matrix);
+            if (Math.abs(det) < 1e-10) return null;
+            
+            const size = matrix.length;
+            const adj = calculateAdjoint(matrix);
+            const inv = [];
+            
+            for (let i = 0; i < size; i++) {
+                inv[i] = [];
+                for (let j = 0; j < size; j++) {
+                    inv[i][j] = adj[i][j] / det;
+                }
+            }
+            return inv;
+        }
+
+        function calculateAdjoint(matrix) {
+            const size = matrix.length;
+            const adj = [];
+            
+            for (let i = 0; i < size; i++) {
+                adj[i] = [];
+                for (let j = 0; j < size; j++) {
+                    const minor = [];
+                    for (let r = 0; r < size; r++) {
+                        if (r !== i) {
+                            minor.push([]);
+                            for (let c = 0; c < size; c++) {
+                                if (c !== j) {
+                                    minor[minor.length - 1].push(matrix[r][c]);
+                                }
+                            }
+                        }
+                    }
+                    adj[i][j] = Math.pow(-1, i + j) * calculateDeterminant(minor);
+                }
+            }
+            return adj;
+        }
+
+        function transposeMatrix(matrix) {
+            const size = matrix.length;
+            const trans = [];
+            
+            for (let i = 0; i < size; i++) {
+                trans[i] = [];
+                for (let j = 0; j < size; j++) {
+                    trans[i][j] = matrix[j][i];
+                }
+            }
+            return trans;
+        }
+
+        function multiplyMatrices(a, b) {
+            const size = a.length;
+            const result = [];
+            
+            for (let i = 0; i < size; i++) {
+                result[i] = [];
+                for (let j = 0; j < size; j++) {
+                    result[i][j] = 0;
+                    for (let k = 0; k < size; k++) {
+                        result[i][j] += a[i][k] * b[k][j];
+                    }
+                }
+            }
+            return result;
+        }
+
+        function calculateEigenvalues(matrix) {
+            // Simplified eigenvalue calculation for 2x2 matrices
+            const size = matrix.length;
+            if (size === 2) {
+                const a = matrix[0][0];
+                const b = matrix[0][1];
+                const c = matrix[1][0];
+                const d = matrix[1][1];
+                
+                const trace = a + d;
+                const det = a * d - b * c;
+                const discriminant = trace * trace - 4 * det;
+                
+                if (discriminant >= 0) {
+                    const sqrtDisc = Math.sqrt(discriminant);
+                    return [(trace + sqrtDisc) / 2, (trace - sqrtDisc) / 2];
+                } else {
+                    const real = trace / 2;
+                    const imag = Math.sqrt(-discriminant) / 2;
+                    return [real, real]; // Return real part for complex eigenvalues
+                }
+            }
+            return [0, 0]; // Placeholder for larger matrices
+        }
+
+        function matrixToString(matrix) {
+            let str = '<div style="font-family: monospace; font-size: 0.9em;">';
+            for (let i = 0; i < matrix.length; i++) {
+                str += '[';
+                for (let j = 0; j < matrix[i].length; j++) {
+                    str += matrix[i][j].toFixed(4);
+                    if (j < matrix[i].length - 1) str += ' ';
+                }
+                str += ']<br>';
+            }
+            str += '</div>';
+            return str;
+        }
+
+        function clearMatrix() {
+            const size = parseInt(document.getElementById('matrixSize').value);
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    document.getElementById(`matrix_${i}_${j}`).value = '';
+                    const matrix2Input = document.getElementById(`matrix2_${i}_${j}`);
+                    if (matrix2Input) matrix2Input.value = '';
+                }
+            }
+            document.getElementById('matrixResults').innerHTML = '<div>Matrix results will appear here...</div>';
+        }
+
+        // Fractal Functions
+        function updateFractalOptions() {
+            const type = document.getElementById('fractalType').value;
+            const container = document.getElementById('fractalOptions');
+            container.innerHTML = '';
+            
+            switch (type) {
+                case 'julia':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="juliaReal" placeholder="Real part" class="conversion-input" value="-0.7" style="flex: 1;">
+                            <input type="number" id="juliaImag" placeholder="Imaginary part" class="conversion-input" value="0.27" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'koch':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="kochLevel" placeholder="Level" class="conversion-input" value="4" style="flex: 1;">
+                            <input type="number" id="kochSize" placeholder="Size" class="conversion-input" value="200" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'dragon':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="dragonLevel" placeholder="Level" class="conversion-input" value="12" style="flex: 1;">
+                            <input type="number" id="dragonSize" placeholder="Size" class="conversion-input" value="100" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'barnsley':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="barnsleyPoints" placeholder="Points" class="conversion-input" value="50000" style="flex: 1;">
+                            <input type="number" id="barnsleyScale" placeholder="Scale" class="conversion-input" value="50" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'perlin':
+                case 'simplex':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="noiseScale" placeholder="Scale" class="conversion-input" value="50" style="flex: 1;">
+                            <input type="number" id="noiseOctaves" placeholder="Octaves" class="conversion-input" value="4" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'cellular':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="cellSize" placeholder="Cell size" class="conversion-input" value="20" style="flex: 1;">
+                            <input type="number" id="cellDensity" placeholder="Density" class="conversion-input" value="0.3" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'voronoi':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="voronoiPoints" placeholder="Points" class="conversion-input" value="20" style="flex: 1;">
+                            <input type="number" id="voronoiSize" placeholder="Size" class="conversion-input" value="10" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'wave':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="waveFreq" placeholder="Frequency" class="conversion-input" value="5" style="flex: 1;">
+                            <input type="number" id="waveAmp" placeholder="Amplitude" class="conversion-input" value="50" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+                case 'spiral':
+                    container.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="spiralTurns" placeholder="Turns" class="conversion-input" value="10" style="flex: 1;">
+                            <input type="number" id="spiralDensity" placeholder="Density" class="conversion-input" value="100" style="flex: 1;">
+                        </div>
+                    `;
+                    break;
+            }
+        }
+
+        function generateFractal() {
+            const type = document.getElementById('fractalType').value;
+            const canvas = document.getElementById('fractalCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            switch (type) {
+                case 'mandelbrot':
+                    generateMandelbrot(ctx, canvas.width, canvas.height);
+                    break;
+                case 'julia':
+                    const real = parseFloat(document.getElementById('juliaReal').value) || -0.7;
+                    const imag = parseFloat(document.getElementById('juliaImag').value) || 0.27;
+                    generateJulia(ctx, canvas.width, canvas.height, real, imag);
+                    break;
+                case 'sierpinski':
+                    generateSierpinski(ctx, canvas.width, canvas.height);
+                    break;
+                case 'koch':
+                    const kochLevel = parseInt(document.getElementById('kochLevel').value) || 4;
+                    const kochSize = parseInt(document.getElementById('kochSize').value) || 200;
+                    generateKochSnowflake(ctx, canvas.width, canvas.height, kochLevel, kochSize);
+                    break;
+                case 'dragon':
+                    const dragonLevel = parseInt(document.getElementById('dragonLevel').value) || 12;
+                    const dragonSize = parseInt(document.getElementById('dragonSize').value) || 100;
+                    generateDragonCurve(ctx, canvas.width, canvas.height, dragonLevel, dragonSize);
+                    break;
+                case 'barnsley':
+                    const barnsleyPoints = parseInt(document.getElementById('barnsleyPoints').value) || 50000;
+                    const barnsleyScale = parseInt(document.getElementById('barnsleyScale').value) || 50;
+                    generateBarnsleyFern(ctx, canvas.width, canvas.height, barnsleyPoints, barnsleyScale);
+                    break;
+                case 'perlin':
+                    const scale = parseFloat(document.getElementById('noiseScale').value) || 50;
+                    const octaves = parseInt(document.getElementById('noiseOctaves').value) || 4;
+                    generatePerlinNoise(ctx, canvas.width, canvas.height, scale, octaves);
+                    break;
+                case 'simplex':
+                    const scale2 = parseFloat(document.getElementById('noiseScale').value) || 50;
+                    const octaves2 = parseInt(document.getElementById('noiseOctaves').value) || 4;
+                    generateSimplexNoise(ctx, canvas.width, canvas.height, scale2, octaves2);
+                    break;
+                case 'cellular':
+                    const cellSize = parseInt(document.getElementById('cellSize').value) || 20;
+                    const density = parseFloat(document.getElementById('cellDensity').value) || 0.3;
+                    generateCellularAutomata(ctx, canvas.width, canvas.height, cellSize, density);
+                    break;
+                case 'voronoi':
+                    const voronoiPoints = parseInt(document.getElementById('voronoiPoints').value) || 20;
+                    const voronoiSize = parseInt(document.getElementById('voronoiSize').value) || 10;
+                    generateVoronoiDiagram(ctx, canvas.width, canvas.height, voronoiPoints, voronoiSize);
+                    break;
+                case 'wave':
+                    const waveFreq = parseInt(document.getElementById('waveFreq').value) || 5;
+                    const waveAmp = parseInt(document.getElementById('waveAmp').value) || 50;
+                    generateWavePattern(ctx, canvas.width, canvas.height, waveFreq, waveAmp);
+                    break;
+                case 'spiral':
+                    const spiralTurns = parseInt(document.getElementById('spiralTurns').value) || 10;
+                    const spiralDensity = parseInt(document.getElementById('spiralDensity').value) || 100;
+                    generateSpiralPattern(ctx, canvas.width, canvas.height, spiralTurns, spiralDensity);
+                    break;
+            }
+        }
+
+        function generateMandelbrot(ctx, width, height) {
+            const maxIter = parseInt(document.getElementById('fractalIterations').value) || 100;
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    const a = (x - width / 2) / (width / 4);
+                    const b = (y - height / 2) / (height / 4);
+                    
+                    let ca = a;
+                    let cb = b;
+                    let n = 0;
+                    
+                    while (n < maxIter) {
+                        const aa = ca * ca - cb * cb;
+                        const bb = 2 * ca * cb;
+                        
+                        ca = aa + a;
+                        cb = bb + b;
+                        
+                        if (ca * ca + cb * cb > 16) break;
+                        n++;
+                    }
+                    
+                    const idx = (y * width + x) * 4;
+                    const hue = (n / maxIter) * 360;
+                    const rgb = hslToRgb(hue / 360, 1, n < maxIter ? 0.5 : 0);
+                    
+                    data[idx] = rgb[0];
+                    data[idx + 1] = rgb[1];
+                    data[idx + 2] = rgb[2];
+                    data[idx + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function generateJulia(ctx, width, height, real, imag) {
+            const maxIter = parseInt(document.getElementById('fractalIterations').value) || 100;
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    const a = (x - width / 2) / (width / 4);
+                    const b = (y - height / 2) / (height / 4);
+                    
+                    let ca = a;
+                    let cb = b;
+                    let n = 0;
+                    
+                    while (n < maxIter) {
+                        const aa = ca * ca - cb * cb;
+                        const bb = 2 * ca * cb;
+                        
+                        ca = aa + real;
+                        cb = bb + imag;
+                        
+                        if (ca * ca + cb * cb > 16) break;
+                        n++;
+                    }
+                    
+                    const idx = (y * width + x) * 4;
+                    const hue = (n / maxIter) * 360;
+                    const rgb = hslToRgb(hue / 360, 1, n < maxIter ? 0.5 : 0);
+                    
+                    data[idx] = rgb[0];
+                    data[idx + 1] = rgb[1];
+                    data[idx + 2] = rgb[2];
+                    data[idx + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function generateSierpinski(ctx, width, height) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = '#00d4ff';
+            
+            const points = [
+                {x: width / 2, y: 50},
+                {x: 50, y: height - 50},
+                {x: width - 50, y: height - 50}
+            ];
+            
+            let current = {x: width / 2, y: height / 2};
+            
+            for (let i = 0; i < 50000; i++) {
+                const target = points[Math.floor(Math.random() * 3)];
+                current.x = (current.x + target.x) / 2;
+                current.y = (current.y + target.y) / 2;
+                
+                ctx.fillRect(current.x, current.y, 1, 1);
+            }
+        }
+
+        function generatePerlinNoise(ctx, width, height, scale, octaves) {
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    let noise = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    
+                    for (let i = 0; i < octaves; i++) {
+                        noise += amplitude * simpleNoise(x * frequency / scale, y * frequency / scale);
+                        amplitude *= 0.5;
+                        frequency *= 2;
+                    }
+                    
+                    const value = Math.floor((noise + 1) * 127.5);
+                    const idx = (y * width + x) * 4;
+                    
+                    data[idx] = value;
+                    data[idx + 1] = value;
+                    data[idx + 2] = value;
+                    data[idx + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function generateSimplexNoise(ctx, width, height, scale, octaves) {
+            // Improved simplex noise implementation
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    let noise = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    
+                    for (let i = 0; i < octaves; i++) {
+                        noise += amplitude * simplexNoise(x * frequency / scale, y * frequency / scale);
+                        amplitude *= 0.5;
+                        frequency *= 2;
+                    }
+                    
+                    const value = Math.floor((noise + 1) * 127.5);
+                    const idx = (y * width + x) * 4;
+                    
+                    data[idx] = value;
+                    data[idx + 1] = value;
+                    data[idx + 2] = value;
+                    data[idx + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function simplexNoise(x, y) {
+            // Improved simplex noise algorithm
+            const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
+            const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
+            
+            const n0 = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+            const n1 = Math.sin((x + F2) * 12.9898 + (y + G2) * 78.233) * 43758.5453;
+            const n2 = Math.sin((x + 2 * F2) * 12.9898 + (y + 2 * G2) * 78.233) * 43758.5453;
+            
+            return (n0 + n1 + n2) / 3;
+        }
+
+        function generateKochSnowflake(ctx, width, height, level, size) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            
+            const centerX = width / 2;
+            const centerY = height / 2;
+            
+            // Draw three Koch curves to form a snowflake
+            for (let i = 0; i < 3; i++) {
+                const angle = (i * 2 * Math.PI) / 3;
+                const startX = centerX + Math.cos(angle) * size / 2;
+                const startY = centerY + Math.sin(angle) * size / 2;
+                const endX = centerX + Math.cos(angle + 2 * Math.PI / 3) * size / 2;
+                const endY = centerY + Math.sin(angle + 2 * Math.PI / 3) * size / 2;
+                
+                drawKochCurve(ctx, startX, startY, endX, endY, level);
+            }
+        }
+
+        function drawKochCurve(ctx, x1, y1, x2, y2, level) {
+            if (level === 0) {
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                return;
+            }
+            
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            
+            const x3 = x1 + dx / 3;
+            const y3 = y1 + dy / 3;
+            const x4 = x1 + 2 * dx / 3;
+            const y4 = y1 + 2 * dy / 3;
+            
+            const angle = Math.atan2(dy, dx) - Math.PI / 3;
+            const length = Math.sqrt(dx * dx + dy * dy) / 3;
+            const x5 = x3 + Math.cos(angle) * length;
+            const y5 = y3 + Math.sin(angle) * length;
+            
+            drawKochCurve(ctx, x1, y1, x3, y3, level - 1);
+            drawKochCurve(ctx, x3, y3, x5, y5, level - 1);
+            drawKochCurve(ctx, x5, y5, x4, y4, level - 1);
+            drawKochCurve(ctx, x4, y4, x2, y2, level - 1);
+        }
+
+        function generateDragonCurve(ctx, width, height, level, size) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 1;
+            
+            const centerX = width / 2;
+            const centerY = height / 2;
+            
+            ctx.beginPath();
+            ctx.moveTo(centerX - size / 2, centerY);
+            
+            const sequence = generateDragonSequence(level);
+            let x = centerX - size / 2;
+            let y = centerY;
+            let dx = size / Math.pow(2, level / 2);
+            let dy = 0;
+            
+            for (let i = 0; i < sequence.length; i++) {
+                if (sequence[i] === 1) {
+                    const temp = dx;
+                    dx = -dy;
+                    dy = temp;
+                } else {
+                    const temp = dx;
+                    dx = dy;
+                    dy = -temp;
+                }
+                x += dx;
+                y += dy;
+                ctx.lineTo(x, y);
+            }
+            
+            ctx.stroke();
+        }
+
+        function generateDragonSequence(level) {
+            if (level === 0) return [1];
+            const prev = generateDragonSequence(level - 1);
+            return prev.concat([1]).concat(prev.reverse().map(x => 1 - x));
+        }
+
+        function generateBarnsleyFern(ctx, width, height, points, scale) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = '#00d4ff';
+            
+            let x = 0, y = 0;
+            
+            for (let i = 0; i < points; i++) {
+                const r = Math.random();
+                let newX, newY;
+                
+                if (r < 0.01) {
+                    newX = 0;
+                    newY = 0.16 * y;
+                } else if (r < 0.86) {
+                    newX = 0.85 * x + 0.04 * y;
+                    newY = -0.04 * x + 0.85 * y + 1.6;
+                } else if (r < 0.93) {
+                    newX = 0.2 * x - 0.26 * y;
+                    newY = 0.23 * x + 0.22 * y + 1.6;
+                } else {
+                    newX = -0.15 * x + 0.28 * y;
+                    newY = 0.26 * x + 0.24 * y + 0.44;
+                }
+                
+                x = newX;
+                y = newY;
+                
+                const pixelX = width / 2 + x * scale;
+                const pixelY = height - (y * scale + height / 4);
+                
+                if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+                    ctx.fillRect(pixelX, pixelY, 1, 1);
+                }
+            }
+        }
+
+        function generateVoronoiDiagram(ctx, width, height, points, size) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Generate random points
+            const sites = [];
+            for (let i = 0; i < points; i++) {
+                sites.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    color: hslToRgb(Math.random(), 0.7, 0.5)
+                });
+            }
+            
+            // Simple Voronoi approximation
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            for (let x = 0; x < width; x += size) {
+                for (let y = 0; y < height; y += size) {
+                    let minDist = Infinity;
+                    let closestSite = null;
+                    
+                    for (const site of sites) {
+                        const dist = Math.sqrt((x - site.x) ** 2 + (y - site.y) ** 2);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestSite = site;
+                        }
+                    }
+                    
+                    if (closestSite) {
+                        const rgb = closestSite.color;
+                        
+                        for (let dx = 0; dx < size && x + dx < width; dx++) {
+                            for (let dy = 0; dy < size && y + dy < height; dy++) {
+                                const idx = ((y + dy) * width + (x + dx)) * 4;
+                                data[idx] = rgb[0];
+                                data[idx + 1] = rgb[1];
+                                data[idx + 2] = rgb[2];
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function generateWavePattern(ctx, width, height, frequency, amplitude) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            for (let x = 0; x < width; x++) {
+                const y = height / 2 + Math.sin(x * frequency / 100) * amplitude;
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Add multiple waves
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.beginPath();
+            for (let x = 0; x < width; x++) {
+                const y = height / 2 + Math.cos(x * frequency / 100) * amplitude * 0.5;
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+        }
+
+        function generateSpiralPattern(ctx, width, height, turns, density) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 1;
+            
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const maxRadius = Math.min(width, height) / 2 - 20;
+            
+            ctx.beginPath();
+            for (let i = 0; i < density; i++) {
+                const angle = (i / density) * turns * 2 * Math.PI;
+                const radius = (i / density) * maxRadius;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+        }
+
+
+
+        function generateCellularAutomata(ctx, width, height, cellSize, density) {
+            const cols = Math.floor(width / cellSize);
+            const rows = Math.floor(height / cellSize);
+            const grid = [];
+            
+            // Initialize grid
+            for (let i = 0; i < rows; i++) {
+                grid[i] = [];
+                for (let j = 0; j < cols; j++) {
+                    grid[i][j] = Math.random() < density ? 1 : 0;
+                }
+            }
+            
+            // Draw grid
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = '#00d4ff';
+            
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    if (grid[i][j]) {
+                        ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+        }
+
+        function simpleNoise(x, y) {
+            // Simple hash-based noise function
+            const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+            return (n - Math.floor(n)) * 2 - 1;
+        }
+
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        function clearFractal() {
+            const canvas = document.getElementById('fractalCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Mobile responsiveness
+        function handleResize() {
+            const container = document.querySelector('.container');
+            const calculatorSection = document.querySelector('.calculator-section');
+            const visualSection = document.querySelector('.visual-section');
+            
+            if (window.innerWidth <= 768) {
+                container.style.gridTemplateColumns = '1fr';
+                container.style.gap = '15px';
+                container.style.padding = '10px';
+                
+                if (calculatorSection) {
+                    calculatorSection.style.padding = '15px';
+                }
+                
+                if (visualSection) {
+                    visualSection.style.padding = '15px';
+                }
+                
+                // Adjust button grid for mobile
+                const buttons = document.querySelector('.buttons');
+                if (buttons) {
+                    buttons.style.gridTemplateColumns = 'repeat(4, 1fr)';
+                    buttons.style.gap = '6px';
+                }
+                
+                // Adjust display font size
+                const display = document.querySelector('.display');
+                if (display) {
+                    display.style.fontSize = '1.2rem';
+                    display.style.minHeight = '60px';
+                }
+            } else {
+                container.style.gridTemplateColumns = '1fr 1fr';
+                container.style.gap = '20px';
+                container.style.padding = '20px';
+                
+                if (calculatorSection) {
+                    calculatorSection.style.padding = '20px';
+                }
+                
+                if (visualSection) {
+                    visualSection.style.padding = '20px';
+                }
+                
+                // Restore button grid for desktop
+                const buttons = document.querySelector('.buttons');
+                if (buttons) {
+                    buttons.style.gridTemplateColumns = 'repeat(6, 1fr)';
+                    buttons.style.gap = '8px';
+                }
+                
+                // Restore display font size
+                const display = document.querySelector('.display');
+                if (display) {
+                    display.style.fontSize = '1.5rem';
+                    display.style.minHeight = '80px';
+                }
+            }
+        }
+
+        // Initialize plot canvas
+        window.addEventListener('load', () => {
+            const canvas = document.getElementById('plotCanvas');
+            const ctx = canvas.getContext('2d');
+            drawGrid(ctx, canvas.width, canvas.height, -10, 10);
+            
+            // Initialize matrix inputs
+            createMatrixInputs();
+            
+            // Initialize fractal options
+            updateFractalOptions();
+            
+            // Handle initial resize
+            handleResize();
+        });
+
+        // Listen for window resize
+        window.addEventListener('resize', handleResize);
+    </script>
+    <script src="../js/chatgpt-integration.js"></script>
+</body>
+</html>
