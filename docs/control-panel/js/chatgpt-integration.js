@@ -698,6 +698,9 @@ class ChatGPTIntegration {
         // Add user message to chat
         this.addMessage('user', message, this.fileUploads);
 
+        // Store file uploads before clearing
+        const filesToSend = [...this.fileUploads];
+
         // Clear input and file uploads
         input.value = '';
         this.fileUploads = [];
@@ -712,7 +715,7 @@ class ChatGPTIntegration {
                 await this.handleImageGenerationRequest(message);
             } else {
                 // Normal chat message
-                const response = await this.callWALLE(message);
+                const response = await this.callWALLE(message, filesToSend);
                 this.removeTypingIndicator();
                 this.addMessage('assistant', response);
             }
@@ -778,7 +781,7 @@ class ChatGPTIntegration {
     /**
      * Call WALL-E Assistant API
      */
-    async callWALLE(message) {
+    async callWALLE(message, files = []) {
         try {
             // Validate configuration
             if (!this.apiKey || !this.assistantId) {
@@ -790,8 +793,8 @@ class ChatGPTIntegration {
                 this.threadId = await this.createThread();
             }
 
-            // Add message to thread
-            await this.addMessageToThread(message);
+            // Add message to thread (with files if any)
+            await this.addMessageToThread(message, files);
 
             // Run assistant
             const runId = await this.runAssistant();
@@ -837,25 +840,104 @@ class ChatGPTIntegration {
     /**
      * Add message to thread
      */
-    async addMessageToThread(message) {
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v2'
-            },
-            body: JSON.stringify({
-                role: 'user',
-                content: message
-            })
-        });
+    async addMessageToThread(message, files = []) {
+        try {
+            // Prepare message content
+            const content = [];
+            
+            // Add text content if message exists
+            if (message && message.trim()) {
+                content.push({
+                    type: 'text',
+                    text: {
+                        value: message.trim()
+                    }
+                });
+            }
 
-        if (!response.ok) {
-            throw new Error('Failed to add message to thread');
+            // Add file content if files exist
+            if (files && files.length > 0) {
+                for (const file of files) {
+                    try {
+                        // Upload file to OpenAI
+                        const fileId = await this.uploadFile(file);
+                        
+                        // Add file reference to content
+                        content.push({
+                            type: 'file',
+                            file: {
+                                file_id: fileId
+                            }
+                        });
+                    } catch (fileError) {
+                        console.error('Failed to upload file:', fileError);
+                        // Continue with other files
+                    }
+                }
+            }
+
+            // If no content to send, return early
+            if (content.length === 0) {
+                throw new Error('No content to send');
+            }
+
+            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                },
+                body: JSON.stringify({
+                    role: 'user',
+                    content: content
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Failed to add message to thread:', response.status, errorData);
+                throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error adding message to thread:', error);
+            throw error;
         }
+    }
 
-        return await response.json();
+    /**
+     * Upload file to OpenAI
+     */
+    async uploadFile(file) {
+        try {
+            // Create FormData for file upload
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('purpose', 'assistants');
+
+            const response = await fetch('https://api.openai.com/v1/files', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('File upload failed:', response.status, errorData);
+                throw new Error(`File upload failed: ${response.status} - ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log(`File uploaded successfully: ${file.name} -> ${data.id}`);
+            return data.id;
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            throw error;
+        }
     }
 
     /**
