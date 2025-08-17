@@ -576,8 +576,12 @@ class DashboardManager {
      * Toggle WALL-E widget
      */
     toggleWallEWidget() {
-        if (window.wallE && typeof window.wallE.toggleChat === 'function') {
-            window.wallE.toggleChat();
+        // Check if we're on mobile
+        const isMobile = window.innerWidth <= 768;
+        
+        if (isMobile) {
+            // On mobile, show WALL-E in a modal/overlay
+            this.showWallEModal();
             
             // Update mobile WALL-E button state
             const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
@@ -585,8 +589,397 @@ class DashboardManager {
                 mobileWallEBtn.classList.toggle('active');
             }
         } else {
-            console.warn('WALL-E widget not available');
+            // On desktop, use the original widget
+            if (window.wallE && typeof window.wallE.toggleChat === 'function') {
+                window.wallE.toggleChat();
+            } else {
+                console.warn('WALL-E widget not available');
+            }
         }
+    }
+
+    /**
+     * Show WALL-E modal for mobile
+     */
+    showWallEModal() {
+        // Create modal if it doesn't exist
+        let modal = document.getElementById('wall-e-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'wall-e-modal';
+            modal.className = 'wall-e-modal';
+            modal.innerHTML = `
+                <div class="wall-e-modal-content">
+                    <div class="wall-e-modal-header">
+                        <h3><i class="fas fa-robot"></i> WALL-E Assistant</h3>
+                        <button class="wall-e-modal-close">&times;</button>
+                    </div>
+                    <div class="wall-e-modal-body">
+                        <div class="wall-e-chat-container">
+                            <div class="wall-e-messages" id="wall-e-messages">
+                                <div class="wall-e-welcome">
+                                    <i class="fas fa-robot"></i>
+                                    <h4>Hello! I'm WALL-E</h4>
+                                    <p>How can I help you today?</p>
+                                </div>
+                            </div>
+                            <div class="wall-e-input-area">
+                                <div class="wall-e-file-upload" id="wall-e-file-upload">
+                                    <button class="wall-e-upload-btn" id="wall-e-upload-btn">
+                                        <i class="fas fa-paperclip"></i>
+                                    </button>
+                                    <input type="file" id="wall-e-file-input" multiple style="display: none;">
+                                </div>
+                                <div class="wall-e-input-container">
+                                    <textarea id="wall-e-input" placeholder="Type your message..." rows="1"></textarea>
+                                    <button class="wall-e-send" id="wall-e-send">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Add event listeners
+            const closeBtn = modal.querySelector('.wall-e-modal-close');
+            closeBtn.addEventListener('click', () => this.hideWallEModal());
+            
+            const sendBtn = modal.querySelector('#wall-e-send');
+            const input = modal.querySelector('#wall-e-input');
+            const uploadBtn = modal.querySelector('#wall-e-upload-btn');
+            const fileInput = modal.querySelector('#wall-e-file-input');
+            
+            sendBtn.addEventListener('click', () => this.sendWallEMessage());
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendWallEMessage();
+                }
+            });
+            
+            uploadBtn.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => this.handleWallEFileUpload(e));
+            
+            // Add modal styles
+            this.addWallEModalStyles();
+        }
+        
+        // Show modal
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        
+        // Focus on input
+        setTimeout(() => {
+            const input = modal.querySelector('#wall-e-input');
+            if (input) input.focus();
+        }, 100);
+    }
+
+    /**
+     * Hide WALL-E modal
+     */
+    hideWallEModal() {
+        const modal = document.getElementById('wall-e-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+        
+        // Update mobile WALL-E button state
+        const mobileWallEBtn = document.getElementById('mobile-wall-e-btn');
+        if (mobileWallEBtn) {
+            mobileWallEBtn.classList.remove('active');
+        }
+    }
+
+    /**
+     * Send WALL-E message
+     */
+    async sendWallEMessage() {
+        const input = document.getElementById('wall-e-input');
+        const message = input.value.trim();
+        
+        if (!message) return;
+        
+        // Add user message to chat
+        this.addWallEMessage('user', message);
+        input.value = '';
+        
+        // Call WALL-E API
+        if (window.wallE && typeof window.wallE.callWALLE === 'function') {
+            try {
+                const response = await window.wallE.callWALLE(message);
+                this.addWallEMessage('assistant', response);
+            } catch (error) {
+                this.addWallEMessage('error', 'Sorry, I encountered an error. Please try again.');
+            }
+        } else {
+            this.addWallEMessage('assistant', 'Sorry, WALL-E is not available at the moment.');
+        }
+    }
+
+    /**
+     * Add message to WALL-E chat
+     */
+    addWallEMessage(type, content) {
+        const messagesContainer = document.getElementById('wall-e-messages');
+        if (!messagesContainer) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `wall-e-message ${type}`;
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'wall-e-avatar';
+        avatar.innerHTML = type === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+        
+        const textDiv = document.createElement('div');
+        textDiv.className = 'wall-e-text';
+        textDiv.textContent = content;
+        
+        messageDiv.appendChild(avatar);
+        messageDiv.appendChild(textDiv);
+        messagesContainer.appendChild(messageDiv);
+        
+        // Scroll to bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    /**
+     * Handle WALL-E file upload
+     */
+    handleWallEFileUpload(event) {
+        const files = Array.from(event.target.files);
+        // Handle file upload logic here
+        console.log('Files selected:', files);
+    }
+
+    /**
+     * Add WALL-E modal styles
+     */
+    addWallEModalStyles() {
+        if (document.getElementById('wall-e-modal-styles')) return;
+        
+        const style = document.createElement('style');
+        style.id = 'wall-e-modal-styles';
+        style.textContent = `
+            .wall-e-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 10000;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .wall-e-modal-content {
+                background: #1a1a1a;
+                border-radius: 12px;
+                width: 90vw;
+                max-width: 500px;
+                height: 80vh;
+                max-height: 600px;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            }
+            
+            .wall-e-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 16px 20px;
+                background: #007bff;
+                color: white;
+                border-radius: 12px 12px 0 0;
+            }
+            
+            .wall-e-modal-header h3 {
+                margin: 0;
+                font-size: 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            
+            .wall-e-modal-close {
+                background: none;
+                border: none;
+                color: white;
+                font-size: 24px;
+                cursor: pointer;
+                padding: 0;
+                width: 30px;
+                height: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .wall-e-modal-body {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                background: #1a1a1a;
+                border-radius: 0 0 12px 12px;
+            }
+            
+            .wall-e-chat-container {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+            }
+            
+            .wall-e-messages {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .wall-e-welcome {
+                text-align: center;
+                padding: 20px;
+                color: #888;
+            }
+            
+            .wall-e-welcome i {
+                font-size: 2rem;
+                margin-bottom: 12px;
+                color: #007bff;
+            }
+            
+            .wall-e-welcome h4 {
+                margin: 0 0 8px 0;
+                color: #fff;
+            }
+            
+            .wall-e-message {
+                display: flex;
+                gap: 8px;
+                max-width: 100%;
+            }
+            
+            .wall-e-message.user {
+                flex-direction: row-reverse;
+            }
+            
+            .wall-e-avatar {
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                font-size: 14px;
+            }
+            
+            .wall-e-message.user .wall-e-avatar {
+                background: #007bff;
+                color: white;
+            }
+            
+            .wall-e-message.assistant .wall-e-avatar {
+                background: #333;
+                color: #007bff;
+            }
+            
+            .wall-e-text {
+                padding: 10px 14px;
+                border-radius: 12px;
+                font-size: 14px;
+                line-height: 1.4;
+                max-width: calc(100% - 40px);
+            }
+            
+            .wall-e-message.user .wall-e-text {
+                background: #007bff;
+                color: white;
+                border-bottom-right-radius: 4px;
+            }
+            
+            .wall-e-message.assistant .wall-e-text {
+                background: #333;
+                color: #fff;
+                border-bottom-left-radius: 4px;
+            }
+            
+            .wall-e-input-area {
+                border-top: 1px solid #333;
+                padding: 16px;
+                background: #1a1a1a;
+                border-radius: 0 0 12px 12px;
+            }
+            
+            .wall-e-file-upload {
+                margin-bottom: 12px;
+            }
+            
+            .wall-e-upload-btn {
+                background: #333;
+                border: 1px solid #555;
+                color: #888;
+                padding: 8px 12px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            
+            .wall-e-input-container {
+                display: flex;
+                gap: 8px;
+                align-items: flex-end;
+            }
+            
+            #wall-e-input {
+                flex: 1;
+                border: 1px solid #333;
+                border-radius: 8px;
+                padding: 10px 12px;
+                background: #2a2a2a;
+                color: #fff;
+                font-size: 14px;
+                resize: none;
+                min-height: 20px;
+                max-height: 120px;
+                font-family: inherit;
+            }
+            
+            #wall-e-input:focus {
+                outline: none;
+                border-color: #007bff;
+            }
+            
+            .wall-e-send {
+                background: #007bff;
+                border: none;
+                color: white;
+                padding: 10px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                min-width: 40px;
+                min-height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .wall-e-send:hover {
+                background: #0056b3;
+            }
+        `;
+        document.head.appendChild(style);
     }
 
     /**
