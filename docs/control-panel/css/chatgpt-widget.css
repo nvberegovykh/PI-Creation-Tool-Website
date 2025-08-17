@@ -656,13 +656,21 @@
 /* Responsive Design */
 @media (max-width: 768px) {
     .chatgpt-widget {
-        display: none; /* Hide on mobile - use mobile navigation instead */
+        /* Show on mobile but adjust positioning */
+        bottom: 80px; /* Move up to avoid mobile navigation */
+        right: 10px;
+        width: calc(100vw - 20px);
+        max-width: 350px;
     }
 }
 
 @media (max-width: 480px) {
     .chatgpt-widget {
-        display: none; /* Hide on mobile - use mobile navigation instead */
+        /* Show on mobile but adjust positioning */
+        bottom: 80px; /* Move up to avoid mobile navigation */
+        right: 10px;
+        width: calc(100vw - 20px);
+        max-width: 350px;
     }
 }
 
