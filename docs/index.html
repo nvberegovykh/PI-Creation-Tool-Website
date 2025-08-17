@@ -1,356 +1,380 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>Liber Creative</title>
-    <meta
-      name="description"
-      content="Leading Innovations in Building, Engineering and Research"
-    />
-    <meta property="og:title" content="Liber Creative" />
-    <meta
-      property="og:description"
-      content="Leading Innovations in Building, Engineering and Research"
-    />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta charset="utf-8" />
-    <meta property="twitter:card" content="summary_large_image" />
-
-    <style data-tag="reset-style-sheet">
-      html {  line-height: 1.15;}body {  margin: 0;}* {  box-sizing: border-box;  border-width: 0;  border-style: solid;  -webkit-font-smoothing: antialiased;}p,li,ul,pre,div,h1,h2,h3,h4,h5,h6,figure,blockquote,figcaption {  margin: 0;  padding: 0;}button {  background-color: transparent;}button,input,optgroup,select,textarea {  font-family: inherit;  font-size: 100%;  line-height: 1.15;  margin: 0;}button,select {  text-transform: none;}button,[type="button"],[type="reset"],[type="submit"] {  -webkit-appearance: button;  color: inherit;}button::-moz-focus-inner,[type="button"]::-moz-focus-inner,[type="reset"]::-moz-focus-inner,[type="submit"]::-moz-focus-inner {  border-style: none;  padding: 0;}button:-moz-focus,[type="button"]:-moz-focus,[type="reset"]:-moz-focus,[type="submit"]:-moz-focus {  outline: 1px dotted ButtonText;}a {  color: inherit;  text-decoration: inherit;}input {  padding: 2px 4px;}img {  display: block;}details {  display: block;  margin: 0;  padding: 0;}summary::-webkit-details-marker {  display: none;}[data-thq="accordion"] [data-thq="accordion-content"] {  max-height: 0;  overflow: hidden;  transition: max-height 0.3s ease-in-out;  padding: 0;}[data-thq="accordion"] details[data-thq="accordion-trigger"][open] + [data-thq="accordion-content"] {  max-height: 300vh;}details[data-thq="accordion-trigger"][open] summary [data-thq="accordion-icon"] {  transform: rotate(180deg);}html { scroll-behavior: smooth  }
-    </style>
-    <style data-tag="default-style-sheet">
-      html {
-        font-family: "Exo 2";
-        font-size: 16px;
-      }
-
-      body {
-        font-weight: 400;
-        font-style:normal;
-        text-decoration: none;
-        text-transform: uppercase;
-        letter-spacing: normal;
-        line-height: 1.15;
-        color: var(--dl-color-theme-neutral-dark);
-        background: var(--dl-color-theme-neutral-light);
-
-        fill: var(--dl-color-theme-neutral-dark);
-      }
-    </style>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/animate.css@4.1.1/animate.css"
-    />
-    <link rel="icon" type="image/x-icon" href="/public/liber avatar.ico">
-    <link
-      rel="shortcut icon"
-      href="public/liberlogo2.png"
-      type="icon/png"
-      sizes="32x32"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Oxygen:wght@300;400;700&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/@teleporthq/teleport-custom-scripts/dist/style.css"
-    />
-  </head>
-  <body>
-    <link rel="stylesheet" href="./style.css" />
-    <div>
-      <link href="./index.css" rel="stylesheet" />
-
-      <div class="home-container">
-        <navbar-interactive-wrapper
-          class="navbar-interactive-wrapper"
-          rootclassname="navbar-interactiveundefined"
-        >
-          <!--NavbarInteractive component-->
-          <div
-            class="navbar-interactive-container navbar-interactiveroot-class-name"
-          >
-            <header
-              data-thq="thq-navbar"
-              class="navbar-interactive-navbar-interactive"
-            >
-              <div
-                data-thq="thq-navbar-nav"
-                class="navbar-interactive-desktop-menu"
-              >
-                <nav class="navbar-interactive-links1">
-                  <a
-                    href="gallery.html"
-                    class="navbar-interactive-navlink1 Content"
-                  >
-                    <fragment class="home-fragment10">
-                      <span class="home-text10">Gallery</span>
-                    </fragment>
-                  </a>
-                  <a href="index.html" class="navbar-interactive-navlink2">
-                    <img
-                      alt="logo"
-                      src="public/liberlogo1-1500h.png"
-                      class="navbar-interactive-image1"
-                    />
-                  </a>
-                  <a
-                    href="contact.html"
-                    class="navbar-interactive-navlink3 Content"
-                  >
-                    <fragment class="home-fragment11">
-                      <span class="home-text11">
-                        <span>Contact</span>
-                        <br />
-                        <br />
-                      </span>
-                    </fragment>
-                  </a>
-                </nav>
-              </div>
-              <div
-                data-thq="thq-burger-menu"
-                class="navbar-interactive-burger-menu"
-              >
-                <svg viewBox="0 0 1024 1024" class="navbar-interactive-icon1">
-                  <path
-                    d="M128 554.667h768c23.552 0 42.667-19.115 42.667-42.667s-19.115-42.667-42.667-42.667h-768c-23.552 0-42.667 19.115-42.667 42.667s19.115 42.667 42.667 42.667zM128 298.667h768c23.552 0 42.667-19.115 42.667-42.667s-19.115-42.667-42.667-42.667h-768c-23.552 0-42.667 19.115-42.667 42.667s19.115 42.667 42.667 42.667zM128 810.667h768c23.552 0 42.667-19.115 42.667-42.667s-19.115-42.667-42.667-42.667h-768c-23.552 0-42.667 19.115-42.667 42.667s19.115 42.667 42.667 42.667z"
-                  ></path>
-                </svg>
-                <img
-                  alt="logo"
-                  src="public/liberlogo1-1500h.png"
-                  class="navbar-interactive-image2"
-                />
-              </div>
-              <div
-                data-thq="thq-mobile-menu"
-                class="navbar-interactive-mobile-menu"
-              >
-                <div class="navbar-interactive-nav">
-                  <div class="navbar-interactive-top">
-                    <a href="index.html" class="navbar-interactive-navlink4">
-                      <img
-                        alt="image"
-                        src="public/liberlogo1-1500h.png"
-                        class="navbar-interactive-logo"
-                      />
-                    </a>
-                    <div
-                      data-thq="thq-close-menu"
-                      class="navbar-interactive-close-menu"
-                    >
-                      <svg
-                        viewBox="0 0 1024 1024"
-                        class="navbar-interactive-icon3"
-                      >
-                        <path
-                          d="M810 274l-238 238 238 238-60 60-238-238-238 238-60-60 238-238-238-238 60-60 238 238 238-238z"
-                        ></path>
-                      </svg>
-                    </div>
-                  </div>
-                  <nav class="navbar-interactive-links2">
-                    <a href="gallery.html" class="navbar-interactive-text10">
-                      <fragment class="home-fragment12">
-                        <span class="home-text15">
-                          <span>Gallery</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </a>
-                    <a href="contact.html" class="navbar-interactive-navlink5">
-                      <fragment class="home-fragment13">
-                        <span class="home-text18">
-                          <span>Contact</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </a>
-                  </nav>
-                </div>
-                <div style="padding-bottom:64px;">
-                  <a
-                          href="https://www.instagram.com/liber_creative/"
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          class="footer15-link2"
-                  >
-                          <img src="./public/Instagram-logo-white-PNG-large-size.png" alt="Instagram" width="64" height="64">
-                  </a>
-                </div>
-              </div>
-            </header>
-          </div>
-        </navbar-interactive-wrapper>
-        <div
-          data-thq="slider"
-          data-loop="true"
-          data-autoplay="true"
-          data-navigation="true"
-          data-pagination="false"
-          data-pause-autoplay-on-mouse-enter="true"
-          data-disable-autoplay-on-interaction="true"
-          class="home-slider swiper"
-        >
-          <div data-thq="slider-wrapper" class="swiper-wrapper">
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide1 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide2 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide3 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide4 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide5 swiper-slide"
-            ></div>
-          </div>
-          
-        </div>
-        <footer15-wrapper
-          class="footer15-wrapper"
-          rootclassname="footer15undefined"
-        >
-          <!--Footer15 component-->
-          <footer
-            class="footer15-container1 thq-section-padding footer15root-class-name"
-          >
-            <div class="footer15-max-width thq-section-max-width">
-              <div class="footer15-content">
-                <div class="footer15-actions">
-                  <div class="footer15-newsletter">
-                    <span class="thq-body-small">
-                      <fragment class="home-fragment15">
-                        <span class="home-text22">Design and Development</span><br>
-                        <span class="home-text22">for offers, questions and requests:</span>
-                      </fragment>
-                    </span>
-                    <a
-                      href="mailto:ceo.liber.creative@gmail.com?subject=Request"
-                      class="footer15-link1"
-                    >
-                      <fragment class="home-fragment14">
-                        <span class="home-text21">
-                          nvberegovykh@liberpict.com
-                        </span>
-                      </fragment>
-                    </a>
-                    <span class="thq-body-small">
-                      <fragment class="home-fragment16">
-                        <span class="home-text23">
-                          <span>products:</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </span>
-                    <a
-                      href="magenta.html"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      class="footer15-content13 thq-body-small"
-                    >
-                      <fragment class="home-fragment19">
-                        <span class="home-text28">
-                          <span class="home-text29">magenta</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </a>
-                    <a
-                      href="control-panel/index.html"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      class="footer15-content13 thq-body-small"
-                    >
-                      <fragment class="home-fragment19">
-                        <span class="home-text28">
-                          <span class="home-text29">control panel</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </a>
-                  </div>
-                  <div class="footer15-media">
-                    <div class="footer15-container2">
-                      <a href="index.html" class="footer15-navlink">
-                        <img
-                          alt="logo"
-                          src="public/liberlogo-1500h.png"
-                          class="footer15-image1"
-                        />
-                      </a>
-                      <div class="footer15-social-links">
-                        <a
-                          href="https://www.instagram.com/liber_creative/"
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          class="footer15-link2"
-                        >
-                          <img src="./public/Instagram-logo-white-PNG-large-size.png" alt="Instagram" width="64" height="64">
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="footer15-credits1">
-                <div class="footer15-row">
-                  <div class="footer15-credits2">
-                    <a href="./privacy.html" class="thq-body-small">
-                      <fragment class="home-fragment20">
-                        <span class="home-text31">Privacy Policy</span>
-                      </fragment>
-                    </a>
-                    <a href="./terms.html" class="thq-body-small">
-                      <fragment class="home-fragment18">
-                        <span class="home-text27">Terms of Use</span>
-                      </fragment>
-                    </a>
-                  </div>
-                </div>
-                <span class="footer15-content3 thq-body-small">
-                  <fragment class="home-fragment17">
-                    <span class="home-text26">© 2024 liber creative llc</span>
-                  </fragment>
-                  <fragment class="home-fragment17">
-                    <span class="home-text26">We integrate advanced AI tools into our workflow to streamline research, drafting, and documentation — always finalized and overseen by our team for accuracy and quality.</span>
-                  </fragment>
-                </span>
-              </div>
-            </div>
-          </footer>
-        </footer15-wrapper>
-      </div>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>LIBER/APPS</title>
+    <link rel="icon" type="image/png" href="images/LIBER LOGO.png">
+    <link rel="icon" type="image/svg+xml" href="images/LIBER LOGO.svg">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/apps.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="css/chatgpt-widget.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-spinner"></div>
+                    <p>Loading LIBER/APPS...</p>
     </div>
-    <script
-      src="./index.umd.js"
-    ></script>
-  </body>
+
+    <!-- Authentication Screen -->
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-container">
+            <div class="auth-header">
+                <img src="images/LIBER LOGO.svg" alt="LIBER" class="auth-logo">
+                <h1>LIBER/APPS</h1>
+                <p>Control Panel Access</p>
+            </div>
+            
+            <!-- Mobile WALL-E Toggle Button (only on mobile) -->
+            <div class="mobile-wall-e-toggle">
+                <button id="mobile-wall-e-toggle-btn" class="wall-e-toggle-btn">
+                    <img src="images/wall_e.svg" alt="WALL-E" class="toggle-icon">
+                    <span>WALL-E</span>
+                </button>
+            </div>
+            
+            <div class="auth-tabs">
+                <button class="tab-btn active" data-tab="login">Login</button>
+                <button class="tab-btn" data-tab="register">Register</button>
+            </div>
+
+                <!-- Login Form -->
+                <form id="loginForm" class="auth-form active">
+                    <div class="form-group">
+                        <label for="loginUsername">Username or Email</label>
+                        <input type="text" id="loginUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Password</label>
+                        <div class="password-input">
+                            <input type="password" id="loginPassword" required>
+                            <input type="checkbox" id="loginPasswordToggle" class="password-toggle-checkbox">
+                            <label for="loginPasswordToggle" class="password-toggle-label">
+                                <i class="fas fa-eye"></i>
+                                <span>Password invisible</span>
+                            </label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Login</button>
+                    <div class="form-footer">
+                        <a href="#" onclick="authManager.showPasswordResetForm()">Forgot Password?</a>
+                    </div>
+                </form>
+
+                <!-- Register Form -->
+                <form id="registerForm" class="auth-form">
+                    <div class="form-group">
+                        <label for="registerUsername">Username</label>
+                        <input type="text" id="registerUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerEmail">Email</label>
+                        <input type="email" id="registerEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Password</label>
+                        <div class="password-input">
+                            <input type="password" id="registerPassword" required minlength="8">
+                            <input type="checkbox" id="registerPasswordToggle" class="password-toggle-checkbox">
+                            <label for="registerPasswordToggle" class="password-toggle-label">
+                                <i class="fas fa-eye"></i>
+                                <span>Password invisible</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerConfirmPassword">Confirm Password</label>
+                        <div class="password-input">
+                            <input type="password" id="registerConfirmPassword" required minlength="8">
+                            <input type="checkbox" id="registerConfirmPasswordToggle" class="password-toggle-checkbox">
+                            <label for="registerConfirmPasswordToggle" class="password-toggle-label">
+                                <i class="fas fa-eye"></i>
+                                <span>Password invisible</span>
+                            </label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Register</button>
+                </form>
+
+                <!-- Password Reset Form -->
+                <form id="resetForm" class="auth-form">
+                    <div class="form-group">
+                        <label for="resetEmail">Email Address</label>
+                        <input type="email" id="resetEmail" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Send Reset Link</button>
+                    <div class="form-footer">
+                        <a href="#" onclick="authManager.switchTab('login')">Back to Login</a>
+                    </div>
+                </form>
+
+            <div id="auth-message" class="auth-message"></div>
+        </div>
+        
+        <!-- Legal Links -->
+        <div class="legal-links">
+            <a href="https://liberpict.com/privacy.html" target="_blank">Privacy Policy</a>
+            <span class="separator">•</span>
+            <a href="https://liberpict.com/terms.html" target="_blank">Terms of Use</a>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard hidden">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <h1><img src="images/LIBER LOGO.svg" alt="LIBER" class="header-logo"> LIBER/APPS</h1>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span id="current-user"></span>
+                    <span id="user-role"></span>
+                </div>
+                <button id="logout-btn" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="dashboard-nav">
+            <button class="nav-btn active" data-section="overview">
+                <i class="fas fa-home"></i> Overview
+            </button>
+            <button class="nav-btn" data-section="apps">
+                <i class="fas fa-th"></i> Apps
+            </button>
+            <button class="nav-btn admin-only" data-section="users">
+                <i class="fas fa-users"></i> User Management
+            </button>
+            <button class="nav-btn admin-only" data-section="settings">
+                <i class="fas fa-cog"></i> Settings
+            </button>
+        </nav>
+
+        <!-- Mobile Bottom Navigation -->
+        <nav class="mobile-bottom-nav">
+            <button class="mobile-nav-btn active" data-section="overview">
+                <i class="fas fa-home"></i>
+            </button>
+            <button class="mobile-nav-btn" data-section="apps">
+                <i class="fas fa-th"></i>
+            </button>
+            <button class="mobile-nav-btn admin-only" data-section="users">
+                <i class="fas fa-users"></i>
+            </button>
+            <button class="mobile-nav-btn admin-only" data-section="settings">
+                <i class="fas fa-cog"></i>
+            </button>
+            <button class="mobile-nav-btn wall-e-btn" id="mobile-wall-e-btn">
+                <img src="images/wall_e.svg" alt="WALL-E" class="nav-icon">
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="dashboard-content">
+            <!-- Overview Section -->
+            <section id="overview-section" class="content-section active">
+                <div class="section-header">
+                    <h2>Dashboard Overview</h2>
+                </div>
+                <div class="overview-grid">
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-th"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Available Apps</h3>
+                            <p id="apps-count">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Total Users</h3>
+                            <p id="users-count">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Last Login</h3>
+                            <p id="last-login">Loading...</p>
+                        </div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="card-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>System Status</h3>
+                            <p id="system-status">Online</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Apps Section -->
+            <section id="apps-section" class="content-section">
+                <div class="section-header">
+                    <h2>Applications</h2>
+                    <div class="search-container">
+                        <input type="text" id="app-search" placeholder="Search apps...">
+                        <i class="fas fa-search"></i>
+                    </div>
+                </div>
+                <div id="apps-grid" class="apps-grid">
+                    <!-- Apps will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Users Section -->
+            <section id="users-section" class="content-section">
+                <div class="section-header">
+                    <h2>User Management</h2>
+                    <div class="header-actions">
+                        <div class="search-container">
+                            <input type="text" id="user-search" placeholder="Search users...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <button id="add-user-btn" class="add-btn">
+                            <i class="fas fa-plus"></i> Add User
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Add User Form -->
+                <div class="add-user-form-container">
+                    <form id="add-user-form" class="add-user-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-username">Username *</label>
+                                <input type="text" id="new-username" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-email">Email *</label>
+                                <input type="email" id="new-email" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-password">Password *</label>
+                                <input type="password" id="new-password" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-role">Role</label>
+                                <select id="new-role">
+                                    <option value="user">User</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add User
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="users-stats">
+                    <span id="users-count">0 total (0 pending)</span>
+                </div>
+                
+                <div id="users-list" class="users-list">
+                    <!-- Users will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section id="settings-section" class="content-section">
+                <div class="section-header">
+                    <h2>System Settings</h2>
+                </div>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h3>Security Settings</h3>
+                        <div class="setting-item">
+                            <label>Session Timeout (minutes)</label>
+                            <input type="number" id="session-timeout" value="30" min="5" max="480">
+                        </div>
+                        <div class="setting-item">
+                            <label>Enable Two-Factor Authentication</label>
+                            <input type="checkbox" id="enable-2fa">
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>Secure Keys Configuration</h3>
+                                                 <div class="setting-item">
+                             <label>Secure Keys URL</label>
+                             <input type="url" id="secure-keys-url" placeholder="https://gist.githubusercontent.com/..." value="">
+                             <button type="button" id="test-keys-btn" class="btn btn-secondary">
+                                 <i class="fas fa-test"></i> Test Connection
+                             </button>
+                         </div>
+                        <div class="setting-item">
+                            <label>Key Cache Duration (minutes)</label>
+                            <input type="number" id="key-cache-duration" value="30" min="5" max="120">
+                        </div>
+                                                 <div class="setting-item">
+                             <button type="button" id="clear-key-cache-btn" class="btn btn-warning">
+                                 <i class="fas fa-trash"></i> Clear Key Cache
+                             </button>
+                         </div>
+                         <div class="setting-item">
+                             <button type="button" id="clear-encrypted-data-btn" class="btn btn-danger">
+                                 <i class="fas fa-exclamation-triangle"></i> Clear All Encrypted Data
+                             </button>
+                         </div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>App Settings</h3>
+                        <div class="setting-item">
+                            <label>Auto-refresh Apps List</label>
+                            <input type="checkbox" id="auto-refresh-apps" checked>
+                        </div>
+                        <div class="setting-item">
+                            <label>Show App Descriptions</label>
+                            <input type="checkbox" id="show-app-descriptions" checked>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal Title</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/crypto.js"></script>
+    <script src="js/secure-keys.js"></script>
+    <script src="js/email-service.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/apps.js"></script>
+    <script src="js/users.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/chatgpt-integration.js"></script>
+</body>
 </html>
