@@ -21,6 +21,7 @@
     --shadow-hover: 0 8px 15px rgba(0, 0, 0, 0.4);
     --border-radius: 8px;
     --transition: all 0.3s ease;
+    --icon-filter: brightness(0) invert(1);
 }
 
 body {

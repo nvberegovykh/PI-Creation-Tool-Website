@@ -128,6 +128,12 @@
     font-size: 16px;
 }
 
+.nav-btn .nav-icon {
+    width: 16px;
+    height: 16px;
+    filter: var(--icon-filter);
+}
+
 /* Dashboard Content */
 .dashboard-content {
     flex: 1;
@@ -196,6 +202,12 @@
     font-size: 24px;
     color: var(--primary-bg);
     flex-shrink: 0;
+}
+
+.card-icon .card-icon-img {
+    width: 24px;
+    height: 24px;
+    filter: brightness(0) invert(1);
 }
 
 .card-content h3 {
@@ -873,6 +885,12 @@
     height: 3px;
     background: #007bff;
     border-radius: 2px;
+}
+
+.mobile-nav-btn .nav-icon {
+    width: 20px;
+    height: 20px;
+    filter: brightness(0) invert(1);
 }
 
 /* Hide mobile nav on desktop */
