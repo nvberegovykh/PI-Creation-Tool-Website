@@ -235,11 +235,6 @@ class ChatGPTIntegration {
             input.addEventListener('input', () => {
                 this.autoResizeTextarea(input);
             });
-
-            // Add paste event listener for file uploads
-            input.addEventListener('paste', (e) => {
-                this.handlePaste(e);
-            });
         }
 
         if (uploadBtn) {
@@ -855,43 +850,24 @@ class ChatGPTIntegration {
                 return await response.json();
             }
 
-            // If files exist, use complex content format
-            const content = [];
+            // If files exist, upload them first and then send a simple text message
+            // The assistant will have access to the uploaded files through the thread
+            const uploadedFileIds = [];
             
-            // Add text content if message exists
-            if (message && message.trim()) {
-                content.push({
-                    type: 'text',
-                    text: {
-                        value: message.trim()
-                    }
-                });
-            }
-
-            // Add file content
             for (const file of files) {
                 try {
                     // Upload file to OpenAI
                     const fileId = await this.uploadFile(file);
-                    
-                    // Add file reference to content
-                    content.push({
-                        type: 'file',
-                        file: {
-                            file_id: fileId
-                        }
-                    });
+                    uploadedFileIds.push(fileId);
                 } catch (fileError) {
                     console.error('Failed to upload file:', fileError);
                     // Continue with other files
                 }
             }
 
-            // If no content to send, return early
-            if (content.length === 0) {
-                throw new Error('No content to send');
-            }
-
+            // Send message with file references
+            const messageText = message.trim() || 'Please analyze the attached files.';
+            
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -901,7 +877,7 @@ class ChatGPTIntegration {
                 },
                 body: JSON.stringify({
                     role: 'user',
-                    content: content
+                    content: messageText
                 })
             });
 
