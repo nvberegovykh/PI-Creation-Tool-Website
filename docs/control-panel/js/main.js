@@ -1,6 +1,6 @@
 /**
  * Main Application Entry Point
- * Liber Apps Control Panel
+ * LIBER/APPS
  */
 
 class LiberAppsControlPanel {
@@ -52,7 +52,7 @@ class LiberAppsControlPanel {
             // Mark as initialized
             this.isInitialized = true;
 
-            console.log('Liber Apps Control Panel initialized successfully');
+            console.log('LIBER/APPS initialized successfully');
 
         } catch (error) {
             console.error('Failed to start application:', error);
@@ -349,7 +349,7 @@ class LiberAppsControlPanel {
      */
     getAppInfo() {
         return {
-            name: 'Liber Apps Control Panel',
+            name: 'LIBER/APPS',
             version: this.getVersion(),
             description: 'A modern control panel for managing and launching applications',
             author: 'Liber Apps Team',
