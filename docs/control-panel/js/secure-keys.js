@@ -249,6 +249,16 @@ class SecureKeyManager {
         this.cachedKeys = null;
         this.lastFetch = 0;
     }
+
+    /**
+     * Get Mailgun configuration
+     */
+    async getMailgunConfig() {
+        return {
+            apiKey: 'cf734f84b041de2fb043f6e99839d97a-16bc1610-22061845',
+            domain: 'sandbox1a3904d669c448f5b5df4216d696ce00.mailgun.org'
+        };
+    }
 }
 
 // Initialize secure key manager

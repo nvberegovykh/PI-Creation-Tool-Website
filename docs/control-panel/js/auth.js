@@ -15,6 +15,7 @@ class AuthManager {
         await this.waitForCryptoManager();
         this.checkSession();
         this.setupEventListeners();
+        this.checkUrlActions(); // Check for verification and reset actions
     }
 
     /**
@@ -64,6 +65,15 @@ class AuthManager {
             registerForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 await this.handleRegister();
+            });
+        }
+
+        // Password reset form
+        const resetForm = document.getElementById('resetForm');
+        if (resetForm) {
+            resetForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this.handlePasswordReset();
             });
         }
 
@@ -119,36 +129,91 @@ class AuthManager {
         }
     }
 
+    /**
+     * Handle user login
+     */
     async handleLogin() {
         const username = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value;
 
         if (!username || !password) {
-            this.showMessage('Please fill in all fields', 'error');
+            this.showMessage('Please enter both username and password', 'error');
             return;
         }
 
-        const success = await this.login(username, password);
-        if (success) {
-            // Store user password temporarily for app authentication
-            localStorage.setItem('liber_user_password', password);
-            this.showMessage('Login successful!', 'success');
-            setTimeout(() => {
-                this.showDashboard();
-            }, 1000);
-        } else {
-            this.showMessage('Invalid credentials', 'error');
+        try {
+            // Check if it's admin login
+            const adminCredentials = await this.getAdminCredentials();
+            if (username === adminCredentials.username) {
+                const adminHash = await this.generateAdminHash(password);
+                if (adminHash === adminCredentials.passwordHash) {
+                    this.currentUser = {
+                        username: adminCredentials.username,
+                        email: adminCredentials.email,
+                        role: 'admin'
+                    };
+                    this.createSession();
+                    this.showDashboard();
+                    return;
+                }
+            }
+
+            // Check regular users
+            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const user = users.find(u => u.username === username || u.email === username);
+
+            if (!user) {
+                this.showMessage('Invalid username or password', 'error');
+                return;
+            }
+
+            // Check if email is verified
+            if (!user.isVerified) {
+                this.showMessage('Please verify your email address before logging in. Check your inbox for the verification link.', 'error');
+                return;
+            }
+
+            // Verify password
+            const isValidPassword = await window.cryptoManager.verifyPassword(password, user.passwordHash);
+            if (!isValidPassword) {
+                this.showMessage('Invalid username or password', 'error');
+                return;
+            }
+
+            // Update last login
+            user.lastLogin = new Date().toISOString();
+            const updatedUsers = users.map(u => u.id === user.id ? user : u);
+            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+
+            // Set current user
+            this.currentUser = {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role
+            };
+
+            this.createSession();
+            this.showDashboard();
+
+        } catch (error) {
+            console.error('Login error:', error);
+            this.showMessage('Login failed. Please try again.', 'error');
         }
     }
 
+    /**
+     * Handle user registration with email verification
+     */
     async handleRegister() {
         const username = document.getElementById('registerUsername').value.trim();
         const email = document.getElementById('registerEmail').value.trim();
         const password = document.getElementById('registerPassword').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
+        const confirmPassword = document.getElementById('registerConfirmPassword').value;
 
+        // Validation
         if (!username || !email || !password || !confirmPassword) {
-            this.showMessage('Please fill in all fields', 'error');
+            this.showMessage('All fields are required', 'error');
             return;
         }
 
@@ -162,14 +227,247 @@ class AuthManager {
             return;
         }
 
-        const success = await this.register(username, email, password);
-        if (success) {
-            this.showMessage('Registration request submitted. Please wait for admin approval.', 'success');
-            // Clear form
-            document.getElementById('registerForm').reset();
-        } else {
-            this.showMessage('Registration failed. Username or email may already exist.', 'error');
+        if (!this.isValidEmail(email)) {
+            this.showMessage('Please enter a valid email address', 'error');
+            return;
         }
+
+        try {
+            // Check if user already exists
+            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const existingUser = users.find(u => u.username === username || u.email === email);
+            
+            if (existingUser) {
+                this.showMessage('Username or email already exists', 'error');
+                return;
+            }
+
+            // Hash password
+            const hashedPassword = await window.cryptoManager.hashPassword(password);
+            
+            // Generate verification token
+            const verificationToken = window.emailService.generateVerificationToken();
+            
+            // Create new user
+            const newUser = {
+                id: this.generateUserId(),
+                username: username,
+                email: email,
+                passwordHash: hashedPassword,
+                role: 'user',
+                isVerified: false,
+                verificationToken: verificationToken,
+                verificationTokenCreated: Date.now(),
+                createdAt: new Date().toISOString(),
+                lastLogin: null
+            };
+
+            // Add user to storage
+            users.push(newUser);
+            localStorage.setItem('liber_users', JSON.stringify(users));
+
+            // Send verification email
+            try {
+                await window.emailService.sendVerificationEmail(email, username, verificationToken);
+                this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
+                
+                // Clear form
+                document.getElementById('registerForm').reset();
+                
+                // Switch to login tab
+                this.switchTab('login');
+            } catch (emailError) {
+                console.error('Failed to send verification email:', emailError);
+                this.showMessage('Registration successful, but verification email could not be sent. Please contact support.', 'warning');
+            }
+
+        } catch (error) {
+            console.error('Registration error:', error);
+            this.showMessage('Registration failed. Please try again.', 'error');
+        }
+    }
+
+    /**
+     * Handle password reset request
+     */
+    async handlePasswordReset() {
+        const email = document.getElementById('resetEmail').value.trim();
+
+        if (!email) {
+            this.showMessage('Please enter your email address', 'error');
+            return;
+        }
+
+        if (!this.isValidEmail(email)) {
+            this.showMessage('Please enter a valid email address', 'error');
+            return;
+        }
+
+        try {
+            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            const user = users.find(u => u.email === email);
+
+            if (!user) {
+                this.showMessage('If an account with this email exists, a reset link will be sent.', 'info');
+                return;
+            }
+
+            // Generate reset token
+            const resetToken = window.emailService.generateResetToken();
+            
+            // Update user with reset token
+            user.resetToken = resetToken;
+            user.resetTokenCreated = Date.now();
+            
+            const updatedUsers = users.map(u => u.email === email ? user : u);
+            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+
+            // Send reset email
+            await window.emailService.sendPasswordResetEmail(email, user.username, resetToken);
+            this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
+            
+            // Clear form
+            document.getElementById('resetEmail').value = '';
+
+        } catch (error) {
+            console.error('Password reset error:', error);
+            this.showMessage('Failed to send reset email. Please try again.', 'error');
+        }
+    }
+
+    /**
+     * Handle password reset with token
+     */
+    async handlePasswordResetWithToken(token, email, newPassword, confirmPassword) {
+        if (!newPassword || !confirmPassword) {
+            this.showMessage('Please enter both password fields', 'error');
+            return;
+        }
+
+        if (newPassword !== confirmPassword) {
+            this.showMessage('Passwords do not match', 'error');
+            return;
+        }
+
+        if (newPassword.length < 8) {
+            this.showMessage('Password must be at least 8 characters long', 'error');
+            return;
+        }
+
+        try {
+            // Verify reset token
+            await window.emailService.verifyResetToken(token, email);
+            
+            // Update password
+            await window.emailService.updatePassword(email, newPassword);
+            
+            this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
+            return true;
+
+        } catch (error) {
+            console.error('Password reset error:', error);
+            this.showMessage(error.message || 'Password reset failed. Please try again.', 'error');
+            return false;
+        }
+    }
+
+    /**
+     * Handle email verification
+     */
+    async handleEmailVerification(token, email) {
+        try {
+            const user = await window.emailService.verifyToken(token, email);
+            this.showMessage('Email verified successfully! You can now login to your account.', 'success');
+            return true;
+        } catch (error) {
+            console.error('Email verification error:', error);
+            this.showMessage(error.message || 'Email verification failed.', 'error');
+            return false;
+        }
+    }
+
+    /**
+     * Check URL parameters for verification and reset actions
+     */
+    checkUrlActions() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const action = urlParams.get('action');
+        const token = urlParams.get('token');
+        const email = urlParams.get('email');
+
+        if (action && token && email) {
+            if (action === 'verify') {
+                this.handleEmailVerification(token, email);
+            } else if (action === 'reset') {
+                this.showPasswordResetForm(token, email);
+            }
+            
+            // Clear URL parameters
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+
+    /**
+     * Show password reset form
+     */
+    showPasswordResetForm(token, email) {
+        // Create reset form modal
+        const modal = document.createElement('div');
+        modal.className = 'reset-modal';
+        modal.innerHTML = `
+            <div class="reset-modal-content">
+                <h2>Reset Your Password</h2>
+                <p>Please enter your new password below.</p>
+                <form id="resetPasswordForm">
+                    <div class="form-group">
+                        <label for="newPassword">New Password</label>
+                        <input type="password" id="newPassword" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmNewPassword">Confirm New Password</label>
+                        <input type="password" id="confirmNewPassword" required minlength="8">
+                    </div>
+                    <button type="submit" class="btn-primary">Update Password</button>
+                    <button type="button" class="btn-secondary" onclick="this.closest('.reset-modal').remove()">Cancel</button>
+                </form>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Handle form submission
+        document.getElementById('resetPasswordForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmNewPassword').value;
+            
+            const success = await this.handlePasswordResetWithToken(token, email, newPassword, confirmPassword);
+            if (success) {
+                modal.remove();
+            }
+        });
+    }
+
+    /**
+     * Show password reset form (for "Forgot Password?" link)
+     */
+    showPasswordResetForm() {
+        this.switchTab('reset');
+    }
+
+    /**
+     * Generate unique user ID
+     */
+    generateUserId() {
+        return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    /**
+     * Validate email format
+     */
+    isValidEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
     }
 
     async login(username, password) {
