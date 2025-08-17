@@ -831,7 +831,31 @@ class ChatGPTIntegration {
      */
     async addMessageToThread(message, files = []) {
         try {
-            // Prepare message content
+            // If no files, send simple text message
+            if (!files || files.length === 0) {
+                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'OpenAI-Beta': 'assistants=v2'
+                    },
+                    body: JSON.stringify({
+                        role: 'user',
+                        content: message.trim()
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    console.error('Failed to add message to thread:', response.status, errorData);
+                    throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
+                }
+
+                return await response.json();
+            }
+
+            // If files exist, use complex content format
             const content = [];
             
             // Add text content if message exists
@@ -844,24 +868,22 @@ class ChatGPTIntegration {
                 });
             }
 
-            // Add file content if files exist
-            if (files && files.length > 0) {
-                for (const file of files) {
-                    try {
-                        // Upload file to OpenAI
-                        const fileId = await this.uploadFile(file);
-                        
-                        // Add file reference to content
-                        content.push({
-                            type: 'file',
-                            file: {
-                                file_id: fileId
-                            }
-                        });
-                    } catch (fileError) {
-                        console.error('Failed to upload file:', fileError);
-                        // Continue with other files
-                    }
+            // Add file content
+            for (const file of files) {
+                try {
+                    // Upload file to OpenAI
+                    const fileId = await this.uploadFile(file);
+                    
+                    // Add file reference to content
+                    content.push({
+                        type: 'file',
+                        file: {
+                            file_id: fileId
+                        }
+                    });
+                } catch (fileError) {
+                    console.error('Failed to upload file:', fileError);
+                    // Continue with other files
                 }
             }
 
