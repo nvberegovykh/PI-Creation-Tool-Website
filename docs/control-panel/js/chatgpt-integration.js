@@ -27,14 +27,55 @@ class ChatGPTIntegration {
      */
     async init() {
         await this.loadConfiguration();
+        if (this.isEnabled) {
+            await this.ensureAssistantSupportsFiles();
+        }
         this.createChatInterface();
+        this.setupChatEventListeners();
         this.setupEventListeners();
-        
-        // Initialize in collapsed state
-        this.collapseChat();
-        
-        // Load chat history for current user
         this.loadChatHistory();
+        this.displayChatHistory();
+    }
+
+    /**
+     * Ensure assistant supports file attachments
+     */
+    async ensureAssistantSupportsFiles() {
+        try {
+            // Get current assistant configuration
+            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                }
+            });
+
+            if (!response.ok) {
+                console.warn('Could not fetch assistant configuration, proceeding with current setup');
+                return;
+            }
+
+            const assistant = await response.json();
+            
+            // Check if assistant uses a model that supports file attachments
+            const supportedModels = [
+                'gpt-4o',
+                'gpt-4o-mini', 
+                'gpt-4-turbo',
+                'gpt-4-turbo-preview',
+                'gpt-4-vision-preview'
+            ];
+
+            if (supportedModels.includes(assistant.model)) {
+                console.log(`✅ Assistant is using supported model: ${assistant.model}`);
+                console.log(`✅ File attachments are supported and ready to use`);
+            } else {
+                console.warn(`⚠️ Assistant is using model: ${assistant.model} which may not support file attachments`);
+                console.warn(`💡 Consider updating to gpt-4o-mini for full file support`);
+            }
+        } catch (error) {
+            console.warn('Error checking assistant configuration:', error);
+        }
     }
 
     /**
@@ -123,7 +164,15 @@ class ChatGPTIntegration {
                             <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <i class="fas fa-robot" style="display: none;"></i>
                             <h4>Wall-eeeee!</h4>
-                            <p>Any help?</p>
+                            <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
+                            <ul>
+                                <li>📁 Analyzing images, PDFs, and documents</li>
+                                <li>🎨 Generating images from descriptions</li>
+                                <li>💬 Answering questions and providing guidance</li>
+                                <li>🔧 Helping with app usage and features</li>
+                            </ul>
+                            <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
+                            <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
                             ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                         </div>
                     </div>
@@ -899,8 +948,26 @@ class ChatGPTIntegration {
                 return;
             }
 
-            // Attach files to the assistant
-            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+            // Get current assistant configuration
+            const getResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                }
+            });
+
+            if (!getResponse.ok) {
+                throw new Error(`Failed to get assistant configuration: ${getResponse.status}`);
+            }
+
+            const assistant = await getResponse.json();
+            
+            // Merge existing file_ids with new ones
+            const existingFileIds = assistant.file_ids || [];
+            const allFileIds = [...new Set([...existingFileIds, ...fileIds])];
+
+            // Update assistant with new file_ids
+            const updateResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -908,18 +975,18 @@ class ChatGPTIntegration {
                     'OpenAI-Beta': 'assistants=v2'
                 },
                 body: JSON.stringify({
-                    file_ids: fileIds
+                    file_ids: allFileIds
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.text();
-                console.error('Failed to attach files to assistant:', response.status, errorData);
-                throw new Error(`Failed to attach files to assistant: ${response.status} - ${response.statusText}`);
+            if (!updateResponse.ok) {
+                const errorData = await updateResponse.text();
+                console.error('Failed to attach files to assistant:', updateResponse.status, errorData);
+                throw new Error(`Failed to attach files to assistant: ${updateResponse.status} - ${updateResponse.statusText}`);
             }
 
             console.log(`Successfully attached ${fileIds.length} files to assistant`);
-            return await response.json();
+            return await updateResponse.json();
         } catch (error) {
             console.error('Error attaching files to assistant:', error);
             throw error;
@@ -1427,7 +1494,15 @@ class ChatGPTIntegration {
                     <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                     <i class="fas fa-robot" style="display: none;"></i>
                     <h4>Wall-eeeee!</h4>
-                    <p>Any help?</p>
+                    <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
+                    <ul>
+                        <li>📁 Analyzing images, PDFs, and documents</li>
+                        <li>🎨 Generating images from descriptions</li>
+                        <li>💬 Answering questions and providing guidance</li>
+                        <li>🔧 Helping with app usage and features</li>
+                    </ul>
+                    <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
+                    <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
                     ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                 </div>
             `;
@@ -1528,7 +1603,15 @@ class ChatGPTIntegration {
                         <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <i class="fas fa-robot" style="display: none;"></i>
                         <h4>Wall-eeeee!</h4>
-                        <p>Any help?</p>
+                        <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
+                        <ul>
+                            <li>📁 Analyzing images, PDFs, and documents</li>
+                            <li>🎨 Generating images from descriptions</li>
+                            <li>💬 Answering questions and providing guidance</li>
+                            <li>🔧 Helping with app usage and features</li>
+                        </ul>
+                        <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
+                        <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
                         ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                     </div>
                 `;
