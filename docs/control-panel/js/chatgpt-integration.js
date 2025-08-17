@@ -42,6 +42,12 @@ class ChatGPTIntegration {
         this.setupEventListeners();
         this.loadChatHistory();
         this.displayChatHistory();
+        
+        // Set initial state based on screen size
+        if (window.innerWidth <= 768) {
+            this.isExpanded = true;
+            this.updateMobileButtonState();
+        }
     }
 
     /**
@@ -478,7 +484,7 @@ class ChatGPTIntegration {
                     </div>
                 </div>
                 
-                <div class="chatgpt-body" id="chatgpt-body" style="display: none;">
+                <div class="chatgpt-body" id="chatgpt-body" style="display: ${window.innerWidth <= 768 ? 'flex' : 'none'};">
                     <div class="chatgpt-messages" id="chatgpt-messages">
                         <div class="chatgpt-welcome">
                             <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
