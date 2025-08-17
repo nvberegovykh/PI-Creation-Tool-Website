@@ -446,8 +446,7 @@ class ChatGPTIntegration {
             <div id="chatgpt-widget" class="chatgpt-widget ${this.isEnabled ? 'enabled' : 'disabled'}">
                 <div class="chatgpt-header" id="chatgpt-header">
                     <div class="chatgpt-title">
-                        <img src="images/wall_e.svg" alt="WALL-E" class="chatgpt-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                        <i class="fas fa-robot" style="display: none;"></i>
+                        <img src="images/wall_e.svg" alt="WALL-E" class="chatgpt-icon">
                         <span>WALL-E</span>
                     </div>
                     <div class="chatgpt-controls">
@@ -482,8 +481,7 @@ class ChatGPTIntegration {
                 <div class="chatgpt-body" id="chatgpt-body" style="display: none;">
                     <div class="chatgpt-messages" id="chatgpt-messages">
                         <div class="chatgpt-welcome">
-                            <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                            <i class="fas fa-robot" style="display: none;"></i>
+                            <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
                             <h4>Wall-eeeee!</h4>
                             <p>Any help?</p>
                             ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
@@ -847,7 +845,7 @@ class ChatGPTIntegration {
         modal.innerHTML = `
             <div class="modal-content image-gen-modal">
                 <div class="modal-header">
-                    <h3><img src="images/wall_e.svg" alt="WALL-E" style="width: 20px; height: 20px; margin-right: 8px;" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"><i class="fas fa-robot" style="display: none;"></i> Generate Image with WALL-E</h3>
+                    <h3><img src="images/wall_e.svg" alt="WALL-E" style="width: 20px; height: 20px; margin-right: 8px;"> Generate Image with WALL-E</h3>
                     <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -987,8 +985,7 @@ class ChatGPTIntegration {
 
         const messageHTML = `
             <div class="message-avatar">
-                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                <i class="fas fa-robot" style="display: none;"></i>
+                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon">
             </div>
             <div class="message-content">
                 <div class="message-text">
@@ -1923,8 +1920,7 @@ class ChatGPTIntegration {
             
             messageHTML = `
                 <div class="message-avatar">
-                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                    <i class="fas fa-robot" style="display: none;"></i>
+                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon">
                 </div>
                 <div class="message-content">
                     <div class="message-text">
@@ -2094,8 +2090,7 @@ class ChatGPTIntegration {
         typingDiv.id = 'typing-indicator';
         typingDiv.innerHTML = `
             <div class="message-avatar">
-                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                <i class="fas fa-robot" style="display: none;"></i>
+                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon">
             </div>
             <div class="message-content">
                 <div class="typing-indicator">
@@ -2237,8 +2232,7 @@ class ChatGPTIntegration {
             // Show welcome message if no history
             messagesContainer.innerHTML = `
                 <div class="chatgpt-welcome">
-                    <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                    <i class="fas fa-robot" style="display: none;"></i>
+                    <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
                     <h4>Wall-eeeee!</h4>
                     <p>Any help?</p>
                     ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
@@ -2297,8 +2291,7 @@ class ChatGPTIntegration {
             
             messageHTML = `
                 <div class="message-avatar">
-                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                    <i class="fas fa-robot" style="display: none;"></i>
+                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon">
                 </div>
                 <div class="message-content">
                     <div class="message-text">
@@ -2341,8 +2334,7 @@ class ChatGPTIntegration {
             if (messagesContainer) {
                 messagesContainer.innerHTML = `
                     <div class="chatgpt-welcome">
-                        <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                        <i class="fas fa-robot" style="display: none;"></i>
+                        <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
                         <h4>Wall-eeeee!</h4>
                         <p>Any help?</p>
                         ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}

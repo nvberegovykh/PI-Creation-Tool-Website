@@ -610,17 +610,17 @@ class DashboardManager {
             modal.className = 'wall-e-modal';
             modal.innerHTML = `
                 <div class="wall-e-modal-content">
-                    <div class="wall-e-modal-header">
-                        <h3><i class="fas fa-robot"></i> WALL-E Assistant</h3>
-                        <button class="wall-e-modal-close">&times;</button>
-                    </div>
+                                            <div class="wall-e-modal-header">
+                            <h3><img src="images/wall_e.svg" alt="WALL-E" class="modal-icon"> WALL-E Assistant</h3>
+                            <button class="wall-e-modal-close">&times;</button>
+                        </div>
                     <div class="wall-e-modal-body">
                         <div class="wall-e-chat-container">
                             <div class="wall-e-messages" id="wall-e-messages">
                                 <div class="wall-e-welcome">
-                                    <i class="fas fa-robot"></i>
-                                    <h4>Hello! I'm WALL-E</h4>
-                                    <p>How can I help you today?</p>
+                                    <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
+                                    <h4>Wall-eeeee!</h4>
+                                    <p>Any help?</p>
                                 </div>
                             </div>
                             <div class="wall-e-input-area">
