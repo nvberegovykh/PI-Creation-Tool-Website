@@ -35,6 +35,14 @@
     font-size: 1.8rem;
 }
 
+.header-logo {
+    width: 24px;
+    height: 24px;
+    margin-right: 8px;
+    filter: brightness(0) invert(1);
+    vertical-align: middle;
+}
+
 .header-right {
     display: flex;
     align-items: center;
@@ -116,6 +124,10 @@
 .nav-btn:hover {
     color: var(--primary-text);
     background: var(--secondary-bg);
+}
+
+.nav-btn:hover .nav-icon {
+    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
 }
 
 .nav-btn.active {
@@ -579,6 +591,11 @@
         font-size: 1.5rem;
     }
     
+    .header-logo {
+        width: 20px;
+        height: 20px;
+    }
+    
     .user-info {
         display: none;
     }
@@ -874,6 +891,10 @@
 
 .mobile-nav-btn:hover {
     color: #007bff;
+}
+
+.mobile-nav-btn:hover .nav-icon {
+    filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(175deg);
 }
 
 .mobile-nav-btn.active {
