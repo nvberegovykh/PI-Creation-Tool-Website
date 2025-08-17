@@ -153,7 +153,7 @@ class AppsManager {
                 path: 'apps/calculator/index.html',
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-16',
-                logo: 'images/LIBER LOGO.png'
+                logo: null
             },
             {
                 id: 'invoice-generator',
@@ -166,7 +166,7 @@ class AppsManager {
                 path: 'apps/invoices-app/invoices.html',
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-16',
-                logo: 'images/LIBER LOGO.png'
+                logo: null
             }
         ];
 
@@ -235,8 +235,8 @@ class AppsManager {
             <div class="app-card" data-app-id="${app.id}">
                 <div class="app-header">
                     <div class="app-icon">
-                        <img src="${app.logo}" alt="LIBER" class="app-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                        <i class="${app.icon}" style="display: none;"></i>
+                        ${app.logo ? `<img src="${app.logo}" alt="${app.name}" class="app-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">` : ''}
+                        <i class="${app.icon}" ${app.logo ? 'style="display: none;"' : ''}></i>
                     </div>
                     <div class="app-info">
                         <h3>${app.name}</h3>
