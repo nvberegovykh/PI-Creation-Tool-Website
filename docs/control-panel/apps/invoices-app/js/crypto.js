@@ -235,6 +235,15 @@ class InvoiceCryptoManager {
         return clients || [];
     }
 
+    async saveProviders(providers) {
+        return await this.secureStore('liber_providers', providers);
+    }
+
+    async loadProviders() {
+        const providers = await this.secureRetrieve('liber_providers');
+        return providers || [];
+    }
+
     async saveInvoiceCounter(counter) {
         return await this.secureStore('liber_invoice_counter', counter);
     }
@@ -278,7 +287,7 @@ class InvoiceCryptoManager {
     // Method to migrate old data format to new format
     async migrateOldData() {
         console.log('🔄 Migrating old data format...');
-        const keys = ['liber_invoices', 'liber_services', 'liber_clients', 'liber_invoice_counter'];
+        const keys = ['liber_invoices', 'liber_services', 'liber_providers', 'liber_clients', 'liber_invoice_counter'];
         
         for (const key of keys) {
             try {

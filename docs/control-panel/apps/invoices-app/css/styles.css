@@ -335,6 +335,7 @@ body {
 
 /* Services Manager */
 .services-manager,
+.providers-manager,
 .clients-manager {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid #333;
@@ -343,6 +344,7 @@ body {
 }
 
 .add-service-form,
+.add-provider-form,
 .add-client-form {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid #333;
@@ -352,6 +354,7 @@ body {
 }
 
 .services-list h3,
+.providers-list h3,
 .clients-list h3 {
     margin-bottom: 15px;
     color: #ffffff;
@@ -696,6 +699,13 @@ body {
 
 .invoice-card-body {
     margin-bottom: 20px;
+}
+
+.invoice-card-provider {
+    font-size: 14px;
+    font-weight: 500;
+    color: #00d4ff;
+    margin-bottom: 4px;
 }
 
 .invoice-card-client {

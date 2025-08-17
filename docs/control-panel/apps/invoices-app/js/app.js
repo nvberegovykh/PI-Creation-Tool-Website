@@ -2,6 +2,7 @@
 class InvoiceGenerator {
     constructor() {
         this.services = [];
+        this.providers = [];
         this.clients = [];
         this.invoices = [];
         this.invoiceCounter = 1;
@@ -97,6 +98,7 @@ class InvoiceGenerator {
     async loadEncryptedData() {
         try {
             this.services = await window.invoiceCryptoManager.loadServices();
+            this.providers = await window.invoiceCryptoManager.loadProviders();
             this.clients = await window.invoiceCryptoManager.loadClients();
             this.invoices = await window.invoiceCryptoManager.loadInvoices();
             this.invoiceCounter = await window.invoiceCryptoManager.loadInvoiceCounter();
@@ -116,6 +118,11 @@ class InvoiceGenerator {
             btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
 
+        // Provider dropdown
+        document.getElementById('providerDropdownBtn').addEventListener('click', () => {
+            this.toggleProviderDropdown();
+        });
+
         // Client dropdown
         document.getElementById('clientDropdownBtn').addEventListener('click', () => {
             this.toggleClientDropdown();
@@ -129,6 +136,11 @@ class InvoiceGenerator {
         // Save service button
         document.getElementById('saveServiceBtn').addEventListener('click', () => {
             this.saveService();
+        });
+
+        // Save provider button
+        document.getElementById('saveProviderBtn').addEventListener('click', () => {
+            this.saveProvider();
         });
 
         // Save client button
@@ -191,6 +203,7 @@ class InvoiceGenerator {
         // Close dropdown when clicking outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.input-with-dropdown')) {
+                this.closeProviderDropdown();
                 this.closeClientDropdown();
             }
         });
@@ -352,6 +365,33 @@ class InvoiceGenerator {
         this.closeClientDropdown();
     }
 
+    toggleProviderDropdown() {
+        const dropdown = document.getElementById('providerDropdown');
+        dropdown.classList.toggle('show');
+        
+        if (dropdown.classList.contains('show')) {
+            this.populateProviderDropdown();
+        }
+    }
+
+    closeProviderDropdown() {
+        document.getElementById('providerDropdown').classList.remove('show');
+    }
+
+    populateProviderDropdown() {
+        const dropdown = document.getElementById('providerDropdown');
+        dropdown.innerHTML = this.providers.map(provider => `
+            <div class="dropdown-item" onclick="app.selectProvider('${provider.name}')">
+                ${provider.name}
+            </div>
+        `).join('');
+    }
+
+    selectProvider(providerName) {
+        document.getElementById('providerName').value = providerName;
+        this.closeProviderDropdown();
+    }
+
               calculateTotal() {
          let total = 0;
          
@@ -429,6 +469,33 @@ class InvoiceGenerator {
         }
     }
 
+    async saveProvider() {
+        const name = document.getElementById('newProviderName').value.trim();
+
+        if (!name) {
+            alert('Please enter a provider name');
+            return;
+        }
+
+        if (this.providers.some(provider => provider.name.toLowerCase() === name.toLowerCase())) {
+            alert('Provider already exists');
+            return;
+        }
+
+        this.providers.push({ name });
+
+        const success = await window.invoiceCryptoManager.saveProviders(this.providers);
+        if (success) {
+            // Clear form
+            document.getElementById('newProviderName').value = '';
+
+            this.loadSavedData();
+            alert('Provider saved successfully!');
+        } else {
+            alert('Failed to save provider. Please try again.');
+        }
+    }
+
     loadSavedData() {
         // Load saved services
         const savedServicesList = document.getElementById('savedServicesList');
@@ -442,6 +509,19 @@ class InvoiceGenerator {
                     </div>
                 </div>
                 <button type="button" class="delete-btn" onclick="app.deleteService(${index})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `).join('');
+
+        // Load saved providers
+        const savedProvidersList = document.getElementById('savedProvidersList');
+        savedProvidersList.innerHTML = this.providers.map((provider, index) => `
+            <div class="saved-item">
+                <div class="saved-item-info">
+                    <div class="saved-item-name">${provider.name}</div>
+                </div>
+                <button type="button" class="delete-btn" onclick="app.deleteProvider(${index})">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
@@ -485,7 +565,25 @@ class InvoiceGenerator {
         }
     }
 
+    async deleteProvider(index) {
+        if (confirm('Are you sure you want to delete this provider?')) {
+            this.providers.splice(index, 1);
+            const success = await window.invoiceCryptoManager.saveProviders(this.providers);
+            if (success) {
+                this.loadSavedData();
+            } else {
+                alert('Failed to delete provider. Please try again.');
+            }
+        }
+    }
+
     validateInvoice() {
+        const providerName = document.getElementById('providerName').value.trim();
+        if (!providerName) {
+            alert('Please enter a provider name');
+            return false;
+        }
+
         const clientName = document.getElementById('clientName').value.trim();
         if (!clientName) {
             alert('Please enter a client name');
@@ -512,6 +610,7 @@ class InvoiceGenerator {
     }
 
     getInvoiceData() {
+        const providerName = document.getElementById('providerName').value.trim();
         const clientName = document.getElementById('clientName').value.trim();
         const invoiceDate = document.getElementById('invoiceDate').value;
         const invoiceId = document.getElementById('invoiceId').value;
@@ -541,6 +640,7 @@ class InvoiceGenerator {
                           const total = services.reduce((sum, service) => sum + service.total, 0);
 
          return {
+             providerName,
              clientName,
              invoiceDate,
              invoiceId,
@@ -589,6 +689,10 @@ class InvoiceGenerator {
                 
                 <div class="invoice-info">
                     <table>
+                        <tr>
+                            <td>Provider:</td>
+                            <td>${data.providerName}</td>
+                        </tr>
                         <tr>
                             <td>Client:</td>
                             <td>${data.clientName}</td>
@@ -662,11 +766,14 @@ class InvoiceGenerator {
         // Invoice details
         doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
-        doc.text('Client:', 20, 60);
-        doc.text(data.clientName, 50, 60);
+        doc.text('Provider:', 20, 60);
+        doc.text(data.providerName, 50, 60);
         
-        doc.text('Invoice ID:', 20, 70);
-        doc.text(data.invoiceId, 50, 70);
+        doc.text('Client:', 20, 70);
+        doc.text(data.clientName, 50, 70);
+        
+        doc.text('Invoice ID:', 20, 80);
+        doc.text(data.invoiceId, 50, 80);
         
                  // Fix timezone issue by creating date in local timezone
          const [year, month, day] = data.invoiceDate.split('-');
@@ -676,8 +783,8 @@ class InvoiceGenerator {
              month: 'long',
              day: 'numeric'
          });
-         doc.text('Date:', 20, 80);
-         doc.text(formattedDate, 50, 80);
+         doc.text('Date:', 20, 90);
+         doc.text(formattedDate, 50, 90);
         
                  // Services table
          const tableData = data.services.map(service => [
@@ -688,7 +795,7 @@ class InvoiceGenerator {
          ]);
          
          doc.autoTable({
-             startY: 100,
+             startY: 110,
              head: [['Service', 'Cost', 'Unit', 'Total']],
             body: tableData,
             theme: 'grid',
@@ -758,6 +865,7 @@ class InvoiceGenerator {
                         <div class="invoice-card-date">${formattedDate}</div>
                     </div>
                     <div class="invoice-card-body">
+                        <div class="invoice-card-provider">${invoice.providerName || 'N/A'}</div>
                         <div class="invoice-card-client">${invoice.clientName}</div>
                         <div class="invoice-card-total">$${invoice.total.toFixed(2)}</div>
                     </div>
@@ -780,7 +888,8 @@ class InvoiceGenerator {
         
         const filteredInvoices = this.invoices.filter(invoice => {
             // Search filter
-            const matchesSearch = invoice.clientName.toLowerCase().includes(searchTerm) ||
+            const matchesSearch = (invoice.providerName && invoice.providerName.toLowerCase().includes(searchTerm)) ||
+                                invoice.clientName.toLowerCase().includes(searchTerm) ||
                                 invoice.invoiceId.toLowerCase().includes(searchTerm);
             
             if (!matchesSearch) return false;
@@ -911,11 +1020,14 @@ class InvoiceGenerator {
         // Invoice details
         doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
-        doc.text('Client:', 20, 60);
-        doc.text(invoice.clientName, 50, 60);
+        doc.text('Provider:', 20, 60);
+        doc.text(invoice.providerName || 'N/A', 50, 60);
         
-        doc.text('Invoice ID:', 20, 70);
-        doc.text(invoice.invoiceId, 50, 70);
+        doc.text('Client:', 20, 70);
+        doc.text(invoice.clientName, 50, 70);
+        
+        doc.text('Invoice ID:', 20, 80);
+        doc.text(invoice.invoiceId, 50, 80);
         
         // Fix timezone issue by creating date in local timezone
         const [year, month, day] = invoice.invoiceDate.split('-');
@@ -925,8 +1037,8 @@ class InvoiceGenerator {
             month: 'long',
             day: 'numeric'
         });
-        doc.text('Date:', 20, 80);
-        doc.text(formattedDate, 50, 80);
+        doc.text('Date:', 20, 90);
+        doc.text(formattedDate, 50, 90);
         
         // Services table
         const tableData = invoice.services.map(service => [
@@ -937,7 +1049,7 @@ class InvoiceGenerator {
         ]);
         
         doc.autoTable({
-            startY: 100,
+            startY: 110,
             head: [['Service', 'Cost', 'Unit', 'Total']],
             body: tableData,
             theme: 'grid',
@@ -955,6 +1067,11 @@ class InvoiceGenerator {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.text('LIBER CREATIVE LLC © 2025', 105, finalY + 20, { align: 'center' });
+        
+        // Issued by line
+        const currentUser = localStorage.getItem('liber_current_user') || 'Unknown User';
+        doc.setFontSize(8);
+        doc.text(`Issued by: ${currentUser}`, 180, finalY + 15, { align: 'right' });
         
         // Save PDF
         const filename = `invoice_${invoice.invoiceId}.pdf`;

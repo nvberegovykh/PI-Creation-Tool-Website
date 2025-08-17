@@ -31,6 +31,7 @@
             <button class="tab-btn active" data-tab="generate">Generate Invoice</button>
             <button class="tab-btn" data-tab="issued">Issued Invoices</button>
             <button class="tab-btn" data-tab="services">Manage Services</button>
+            <button class="tab-btn" data-tab="providers">Manage Providers</button>
             <button class="tab-btn" data-tab="clients">Manage Clients</button>
         </nav>
 
@@ -40,6 +41,18 @@
                 <div class="form-section">
                     <h2>Invoice Details</h2>
                     <div class="form-row">
+                        <div class="form-group">
+                            <label for="providerName">Provider Name *</label>
+                            <div class="input-with-dropdown">
+                                <input type="text" id="providerName" placeholder="Enter provider name" required>
+                                <button type="button" class="dropdown-btn" id="providerDropdownBtn">
+                                    <i class="fas fa-chevron-down"></i>
+                                </button>
+                                <div class="dropdown-menu" id="providerDropdown">
+                                    <!-- Saved providers will be populated here -->
+                                </div>
+                            </div>
+                        </div>
                         <div class="form-group">
                             <label for="clientName">Client Name *</label>
                             <div class="input-with-dropdown">
@@ -52,12 +65,12 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div class="form-row">
                         <div class="form-group">
                             <label for="invoiceDate">Invoice Date</label>
                             <input type="date" id="invoiceDate">
                         </div>
-                    </div>
-                    <div class="form-row">
                         <div class="form-group">
                             <label for="invoiceId">Invoice ID</label>
                             <input type="text" id="invoiceId" placeholder="Auto-generated" readonly>
@@ -149,6 +162,32 @@
                     <h3>Saved Services</h3>
                     <div id="savedServicesList">
                         <!-- Saved services will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Providers Tab -->
+        <div class="tab-content" id="providers-tab">
+            <div class="providers-manager">
+                <h2>Manage Providers</h2>
+                <div class="add-provider-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="newProviderName">Provider Name</label>
+                            <input type="text" id="newProviderName" placeholder="Enter provider name">
+                        </div>
+                        <div class="form-group">
+                            <button type="button" class="btn btn-primary" id="saveProviderBtn">
+                                <i class="fas fa-save"></i> Save Provider
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="providers-list">
+                    <h3>Saved Providers</h3>
+                    <div id="savedProvidersList">
+                        <!-- Saved providers will be displayed here -->
                     </div>
                 </div>
             </div>
