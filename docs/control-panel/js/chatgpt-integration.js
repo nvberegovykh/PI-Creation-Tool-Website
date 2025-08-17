@@ -32,11 +32,17 @@ class ChatGPTIntegration {
      * Initialize WALL-E integration
      */
     async init() {
-        await this.loadConfiguration();
-        if (this.isEnabled) {
-            await this.ensureAssistantSupportsFiles();
-            await this.checkAssistantConfig(); // Check assistant configuration
+        try {
+            await this.loadConfiguration();
+            if (this.isEnabled) {
+                await this.ensureAssistantSupportsFiles();
+                await this.checkAssistantConfig(); // Check assistant configuration
+            }
+        } catch (error) {
+            console.warn('WALL-E configuration failed, but widget will still be created:', error);
         }
+        
+        // Always create the interface regardless of configuration status
         this.loadSavedThreads(); // Load saved threads
         this.createChatInterface();
         this.setupEventListeners();

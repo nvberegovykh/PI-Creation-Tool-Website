@@ -430,11 +430,14 @@ class AuthManager {
             toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
             
             newToggleBtn.addEventListener('click', async () => {
+                console.log('WALL-E toggle button clicked on login screen');
+                
                 // Wait for WALL-E widget to be initialized
                 let attempts = 0;
-                const maxAttempts = 20; // Increased attempts
+                const maxAttempts = 30; // Increased attempts
                 
                 while ((!window.wallE || !document.querySelector('.chatgpt-widget')) && attempts < maxAttempts) {
+                    console.log(`Waiting for WALL-E widget... attempt ${attempts + 1}`);
                     await new Promise(resolve => setTimeout(resolve, 100));
                     attempts++;
                 }
@@ -444,9 +447,16 @@ class AuthManager {
                     return;
                 }
                 
-                // Show WALL-E widget on login screen
-                const widget = document.querySelector('.chatgpt-widget');
+                // Force create widget if it doesn't exist
+                let widget = document.querySelector('.chatgpt-widget');
+                if (!widget && window.wallE.createChatInterface) {
+                    console.log('Forcing widget creation...');
+                    window.wallE.createChatInterface();
+                    widget = document.querySelector('.chatgpt-widget');
+                }
+                
                 if (widget) {
+                    console.log('WALL-E widget found, showing it...');
                     widget.style.display = 'block';
                     widget.style.position = 'fixed';
                     widget.style.bottom = '20px';
@@ -457,6 +467,7 @@ class AuthManager {
                     
                     // Expand the widget
                     if (window.wallE && typeof window.wallE.expandChat === 'function') {
+                        console.log('Expanding WALL-E widget...');
                         window.wallE.expandChat();
                     }
                     
@@ -465,8 +476,10 @@ class AuthManager {
                     
                     // Store state that WALL-E was activated on login screen
                     sessionStorage.setItem('wallE_activated_on_login', 'true');
+                    
+                    console.log('WALL-E widget successfully activated on login screen');
                 } else {
-                    console.error('WALL-E widget element not found');
+                    console.error('WALL-E widget element not found even after creation attempt');
                 }
             });
         }
