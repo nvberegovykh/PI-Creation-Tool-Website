@@ -1043,7 +1043,7 @@
 
 .chatgpt-thread-selector {
     position: absolute;
-    top: 100%;
+    bottom: 100%;
     right: 0;
     width: 300px;
     max-height: 400px;
@@ -1056,7 +1056,7 @@
     display: none;
     visibility: visible;
     opacity: 1;
-    margin-top: 5px;
+    margin-bottom: 5px;
 }
 
 .thread-selector-header {
@@ -1173,6 +1173,8 @@
     .chatgpt-thread-selector {
         width: 280px;
         max-height: 350px;
+        bottom: 100%;
+        right: 0;
     }
     
     .thread-item {
@@ -1188,6 +1190,7 @@
     .chatgpt-thread-selector {
         width: 260px;
         right: 10px;
+        bottom: 100%;
     }
     
     .thread-actions {
