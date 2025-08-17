@@ -146,7 +146,7 @@ class SecureKeyManager {
                                    this.cachedKeys.admin.username === 'admin_fallback' &&
                                    this.cachedKeys.system.masterKeyHash.startsWith('fallback_system_key_');
             
-            const isNowUsingGist = keysData.admin && keysData.admin.username === 'nvberegovykh' &&
+            const isNowUsingGist = keysData.admin && keysData.admin.username !== 'admin_fallback' &&
                                  !keysData.system.masterKeyHash.startsWith('fallback_system_key_');
 
             // If switching from fallback to Gist, clear old encrypted data
