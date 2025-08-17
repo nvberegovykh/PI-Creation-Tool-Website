@@ -749,6 +749,8 @@ class ChatGPTIntegration {
      * Send message to WALL-E
      */
     async sendMessage() {
+        console.log('=== SEND MESSAGE STARTED ===');
+        
         if (!this.isEnabled || !this.apiKey) {
             this.showError('WALL-E is not configured. Please check the Gist setup.');
             return;
@@ -757,16 +759,25 @@ class ChatGPTIntegration {
         const input = document.getElementById('chatgpt-input');
         const message = input.value.trim();
 
-        if (!message && this.fileUploads.length === 0) return;
+        console.log('Message from input:', message);
+        console.log('File uploads:', this.fileUploads);
+        console.log('File uploads length:', this.fileUploads.length);
+
+        if (!message && this.fileUploads.length === 0) {
+            console.log('No message and no files, returning');
+            return;
+        }
 
         // Check if this is an image generation request
         const isImageRequest = this.isImageGenerationRequest(message);
+        console.log('Is image generation request:', isImageRequest);
 
         // Add user message to chat
         this.addMessage('user', message, this.fileUploads);
 
         // Store file uploads before clearing
         const filesToSend = [...this.fileUploads];
+        console.log('Files to send:', filesToSend);
 
         // Clear input and file uploads
         input.value = '';
@@ -778,15 +789,18 @@ class ChatGPTIntegration {
 
         try {
             if (isImageRequest) {
+                console.log('Handling image generation request');
                 // Handle image generation directly
                 await this.handleImageGenerationRequest(message);
             } else {
+                console.log('Handling normal chat message with files:', filesToSend.length);
                 // Normal chat message
                 const response = await this.callWALLE(message, filesToSend);
                 this.removeTypingIndicator();
                 this.addMessage('assistant', response);
             }
         } catch (error) {
+            console.error('Error in sendMessage:', error);
             this.removeTypingIndicator();
             this.addMessage('error', `Error: ${error.message}`);
         }
@@ -909,15 +923,23 @@ class ChatGPTIntegration {
      */
     async addMessageToThread(message, files = []) {
         try {
+            console.log('=== ADDING MESSAGE TO THREAD ===');
+            console.log('Message:', message);
+            console.log('Files:', files);
+            console.log('Files length:', files.length);
+            
             let content;
             
             if (files && files.length > 0) {
+                console.log('Processing files...');
                 // Upload files first
                 const fileIds = [];
                 for (const file of files) {
                     try {
+                        console.log('Uploading file:', file.name, file.type, file.size);
                         const fileId = await this.uploadFile(file);
                         fileIds.push(fileId);
+                        console.log('File uploaded successfully:', file.name, '->', fileId);
                     } catch (fileError) {
                         console.error('Failed to upload file:', fileError);
                         // Continue with other files
@@ -928,15 +950,14 @@ class ChatGPTIntegration {
                     console.warn('No files were successfully uploaded');
                     // Fall back to text-only message
                     content = message.trim() || 'Please analyze the attached files.';
+                    console.log('Using text-only content:', content);
                 } else {
+                    console.log('Creating content array with files:', fileIds);
                     // Create content array with text and file attachments
                     content = [
                         {
                             type: 'text',
-                            text: {
-                                value: message.trim() || 'Please analyze the attached files.',
-                                annotations: []
-                            }
+                            text: message.trim() || 'Please analyze the attached files.'
                         }
                     ];
                     
@@ -949,11 +970,15 @@ class ChatGPTIntegration {
                             }
                         });
                     }
+                    console.log('Final content array:', JSON.stringify(content, null, 2));
                 }
             } else {
+                console.log('No files, using text-only message');
                 // Text-only message
                 content = message.trim() || 'Please analyze the attached files.';
             }
+
+            console.log('Sending request to OpenAI with content:', JSON.stringify(content, null, 2));
 
             const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
@@ -974,7 +999,9 @@ class ChatGPTIntegration {
                 throw new Error(`Failed to add message to thread: ${response.status} - ${response.statusText}`);
             }
 
-            return await response.json();
+            const result = await response.json();
+            console.log('Message added successfully:', result);
+            return result;
         } catch (error) {
             console.error('Error adding message to thread:', error);
             throw error;
@@ -1510,7 +1537,7 @@ class ChatGPTIntegration {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         
         // Show clear history button
-        this.updateClearHistoryButton(historyToSave.length > 0);
+        this.updateClearHistoryButton(this.chatHistory.length > 0);
     }
 
     /**
