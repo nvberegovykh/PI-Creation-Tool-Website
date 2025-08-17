@@ -1,62 +1,81 @@
 /**
- * ChatGPT Integration Module for Liber Apps Control Panel
- * Provides AI assistance across the platform with file upload support
+ * WALL-E AI Assistant Integration Module for Liber Apps Control Panel
+ * Powered by GPT-4o and OpenAI Assistant API
  */
 
 class ChatGPTIntegration {
     constructor() {
+        // Configuration will be loaded from Gist
         this.apiKey = null;
+        this.assistantId = null;
         this.isEnabled = false;
         this.chatHistory = [];
         this.currentContext = 'control-panel';
         this.fileUploads = [];
         this.maxFileSize = 25 * 1024 * 1024; // 25MB limit
-        this.supportedFileTypes = ['image/*', 'application/pdf', 'text/*'];
+        this.supportedFileTypes = ['image/*', 'application/pdf', 'text/*', 'application/json', 'application/xml', 'text/csv'];
+        this.isExpanded = false;
+        this.threadId = null;
+        this.configLoaded = false;
         this.init();
     }
 
     /**
-     * Initialize ChatGPT integration
+     * Initialize WALL-E integration
      */
-    init() {
-        this.loadSettings();
-        this.setupEventListeners();
+    async init() {
+        await this.loadConfiguration();
         this.createChatInterface();
+        this.setupEventListeners();
+        
+        // Initialize in collapsed state
+        this.collapseChat();
     }
 
     /**
-     * Load ChatGPT settings
+     * Load configuration from GitHub Gist
      */
-    loadSettings() {
-        const settings = localStorage.getItem('chatgpt-settings');
-        if (settings) {
-            const parsed = JSON.parse(settings);
-            this.apiKey = parsed.apiKey;
-            this.isEnabled = parsed.isEnabled || false;
+    async loadConfiguration() {
+        try {
+            // Gist ID - using the actual Gist created by the user
+            const gistId = '136b856c946794fad800c6363a8fa86e';
+            const filename = 'wall-e-config.json';
+            
+            // Load configuration from Gist
+            const response = await fetch(`https://api.github.com/gists/${gistId}`);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load configuration: ${response.status}`);
+            }
+            
+            const gist = await response.json();
+            const configFile = gist.files[filename];
+            
+            if (!configFile) {
+                throw new Error(`Configuration file '${filename}' not found in Gist`);
+            }
+            
+            const config = JSON.parse(configFile.content);
+            
+            // Set configuration values
+            this.apiKey = config.openai.apiKey;
+            this.assistantId = config.openai.assistantId;
+            this.isEnabled = true;
+            this.configLoaded = true;
+            
+            console.log('WALL-E configuration loaded successfully');
+            
+        } catch (error) {
+            console.error('Failed to load WALL-E configuration:', error);
+            this.showError('Failed to load WALL-E configuration. Please check the Gist setup.');
+            this.isEnabled = false;
         }
-    }
-
-    /**
-     * Save ChatGPT settings
-     */
-    saveSettings() {
-        const settings = {
-            apiKey: this.apiKey,
-            isEnabled: this.isEnabled,
-            lastUpdated: new Date().toISOString()
-        };
-        localStorage.setItem('chatgpt-settings', JSON.stringify(settings));
     }
 
     /**
      * Setup event listeners
      */
     setupEventListeners() {
-        // Listen for settings changes
-        document.addEventListener('chatgpt-settings-changed', (e) => {
-            this.loadSettings();
-        });
-
         // Listen for context changes
         document.addEventListener('app-context-changed', (e) => {
             this.updateContext(e.detail.context);
@@ -71,43 +90,47 @@ class ChatGPTIntegration {
             <div id="chatgpt-widget" class="chatgpt-widget ${this.isEnabled ? 'enabled' : 'disabled'}">
                 <div class="chatgpt-header">
                     <div class="chatgpt-title">
-                        <i class="fas fa-robot"></i>
-                        <span>AI Assistant</span>
+                        <img src="images/wall_e.svg" alt="WALL-E" class="chatgpt-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <i class="fas fa-robot" style="display: none;"></i>
+                        <span>WALL-E</span>
                     </div>
                     <div class="chatgpt-controls">
-                        <button class="chatgpt-toggle" id="chatgpt-toggle">
+                        <button class="chatgpt-toggle" id="chatgpt-toggle" title="Toggle Chat">
                             <i class="fas fa-chevron-up"></i>
-                        </button>
-                        <button class="chatgpt-settings" id="chatgpt-settings">
-                            <i class="fas fa-cog"></i>
                         </button>
                     </div>
                 </div>
-                <div class="chatgpt-body" id="chatgpt-body">
+                <div class="chatgpt-body" id="chatgpt-body" style="display: none;">
                     <div class="chatgpt-messages" id="chatgpt-messages">
                         <div class="chatgpt-welcome">
-                            <i class="fas fa-lightbulb"></i>
-                            <h4>Welcome to AI Assistant!</h4>
-                            <p>I can help you with:</p>
+                            <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <i class="fas fa-robot" style="display: none;"></i>
+                            <h4>Welcome to WALL-E!</h4>
+                            <p>I'm your AI assistant powered by GPT-4o. I can help you with:</p>
                             <ul>
                                 <li>Using this application</li>
                                 <li>Analyzing images and PDFs</li>
+                                <li>Generating images from descriptions</li>
                                 <li>Answering questions</li>
                                 <li>Providing guidance</li>
                             </ul>
-                            <p>Upload files or ask me anything!</p>
+                            <p>Upload files, ask questions, or request image generation!</p>
+                            ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                         </div>
                     </div>
                     <div class="chatgpt-input-area">
                         <div class="chatgpt-file-upload" id="chatgpt-file-upload">
                             <input type="file" id="chatgpt-file-input" multiple accept="${this.supportedFileTypes.join(',')}" style="display: none;">
-                            <button class="chatgpt-upload-btn" id="chatgpt-upload-btn">
+                            <button class="chatgpt-upload-btn" id="chatgpt-upload-btn" title="Attach files">
                                 <i class="fas fa-paperclip"></i>
+                            </button>
+                            <button class="chatgpt-image-gen-btn" id="chatgpt-image-gen-btn" title="Generate Image">
+                                <i class="fas fa-image"></i>
                             </button>
                         </div>
                         <div class="chatgpt-input-container">
-                            <textarea id="chatgpt-input" placeholder="Ask me anything..." rows="1"></textarea>
-                            <button class="chatgpt-send" id="chatgpt-send">
+                            <textarea id="chatgpt-input" placeholder="Ask WALL-E anything or request image generation..." rows="1"></textarea>
+                            <button class="chatgpt-send" id="chatgpt-send" title="Send message">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
@@ -129,22 +152,26 @@ class ChatGPTIntegration {
      */
     setupChatEventListeners() {
         const toggle = document.getElementById('chatgpt-toggle');
-        const settings = document.getElementById('chatgpt-settings');
         const send = document.getElementById('chatgpt-send');
         const input = document.getElementById('chatgpt-input');
         const uploadBtn = document.getElementById('chatgpt-upload-btn');
+        const imageGenBtn = document.getElementById('chatgpt-image-gen-btn');
         const fileInput = document.getElementById('chatgpt-file-input');
 
         if (toggle) {
-            toggle.addEventListener('click', () => this.toggleChat());
-        }
-
-        if (settings) {
-            settings.addEventListener('click', () => this.showSettings());
+            toggle.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleChat();
+            });
         }
 
         if (send) {
-            send.addEventListener('click', () => this.sendMessage());
+            send.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.sendMessage();
+            });
         }
 
         if (input) {
@@ -161,7 +188,19 @@ class ChatGPTIntegration {
         }
 
         if (uploadBtn) {
-            uploadBtn.addEventListener('click', () => fileInput.click());
+            uploadBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileInput.click();
+            });
+        }
+
+        if (imageGenBtn) {
+            imageGenBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showImageGenerationModal();
+            });
         }
 
         if (fileInput) {
@@ -170,77 +209,47 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Toggle chat visibility
+     * Show image generation modal
      */
-    toggleChat() {
-        const widget = document.getElementById('chatgpt-widget');
-        const body = document.getElementById('chatgpt-body');
-        const toggle = document.getElementById('chatgpt-toggle');
-        const icon = toggle.querySelector('i');
-
-        if (body.style.display === 'none') {
-            body.style.display = 'block';
-            icon.className = 'fas fa-chevron-up';
-            widget.classList.add('expanded');
-        } else {
-            body.style.display = 'none';
-            icon.className = 'fas fa-chevron-down';
-            widget.classList.remove('expanded');
+    showImageGenerationModal() {
+        if (!this.isEnabled) {
+            this.showError('WALL-E is not configured. Please check the Gist setup.');
+            return;
         }
-    }
 
-    /**
-     * Show settings modal
-     */
-    showSettings() {
-        const modal = this.createSettingsModal();
-        document.body.appendChild(modal);
-    }
-
-    /**
-     * Create settings modal
-     */
-    createSettingsModal() {
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         modal.innerHTML = `
-            <div class="modal-content chatgpt-settings-modal">
+            <div class="modal-content image-gen-modal">
                 <div class="modal-header">
-                    <h3><i class="fas fa-robot"></i> AI Assistant Settings</h3>
+                    <h3><img src="images/wall_e.svg" alt="WALL-E" style="width: 20px; height: 20px; margin-right: 8px;" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"><i class="fas fa-robot" style="display: none;"></i> Generate Image with WALL-E</h3>
                     <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div class="setting-group">
-                        <label for="chatgpt-api-key">OpenAI API Key:</label>
-                        <input type="password" id="chatgpt-api-key" placeholder="sk-..." value="${this.apiKey || ''}">
-                        <small>Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a></small>
+                        <label for="image-prompt">Image Description:</label>
+                        <textarea id="image-prompt" placeholder="Describe the image you want to generate..." rows="4"></textarea>
+                        <small>Be detailed and specific for better results</small>
                     </div>
                     <div class="setting-group">
-                        <label>
-                            <input type="checkbox" id="chatgpt-enabled" ${this.isEnabled ? 'checked' : ''}>
-                            Enable AI Assistant
-                        </label>
-                    </div>
-                    <div class="setting-group">
-                        <label for="chatgpt-model">Model:</label>
-                        <select id="chatgpt-model">
-                            <option value="gpt-4o">GPT-4o (Recommended)</option>
-                            <option value="gpt-4o-mini">GPT-4o Mini (Faster)</option>
-                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                        <label for="image-size">Image Size:</label>
+                        <select id="image-size">
+                            <option value="1024x1024">Square (1024x1024)</option>
+                            <option value="1792x1024">Landscape (1792x1024)</option>
+                            <option value="1024x1792">Portrait (1024x1792)</option>
                         </select>
                     </div>
                     <div class="setting-group">
-                        <label for="chatgpt-context">Context Awareness:</label>
-                        <select id="chatgpt-context">
-                            <option value="full">Full Context (Current app + page)</option>
-                            <option value="app">App Context Only</option>
-                            <option value="minimal">Minimal Context</option>
+                        <label for="image-quality">Quality:</label>
+                        <select id="image-quality">
+                            <option value="standard">Standard</option>
+                            <option value="hd">HD</option>
                         </select>
                     </div>
                 </div>
                 <div class="modal-actions">
                     <button class="btn secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
-                    <button class="btn" onclick="chatgptIntegration.saveSettingsFromModal()">Save Settings</button>
+                    <button class="btn" onclick="chatgptIntegration.generateImage()">Generate Image</button>
                 </div>
             </div>
         `;
@@ -253,59 +262,211 @@ class ChatGPTIntegration {
             if (e.target === modal) modal.remove();
         });
 
-        return modal;
+        document.body.appendChild(modal);
     }
 
     /**
-     * Save settings from modal
+     * Generate image using DALL-E
      */
-    saveSettingsFromModal() {
-        const apiKey = document.getElementById('chatgpt-api-key').value.trim();
-        const enabled = document.getElementById('chatgpt-enabled').checked;
-        const model = document.getElementById('chatgpt-model').value;
-        const context = document.getElementById('chatgpt-context').value;
+    async generateImage() {
+        if (!this.isEnabled || !this.apiKey) {
+            this.showError('WALL-E is not configured. Please check the Gist setup.');
+            return;
+        }
 
-        this.apiKey = apiKey;
-        this.isEnabled = enabled;
-        this.model = model;
-        this.contextLevel = context;
+        const prompt = document.getElementById('image-prompt').value.trim();
+        const size = document.getElementById('image-size').value;
+        const quality = document.getElementById('image-quality').value;
 
-        this.saveSettings();
-        this.updateInterface();
+        if (!prompt) {
+            this.showError('Please enter an image description.');
+            return;
+        }
 
         // Close modal
-        document.querySelector('.chatgpt-settings-modal').closest('.modal-overlay').remove();
+        const modal = document.querySelector('.image-gen-modal');
+        if (modal) {
+            modal.closest('.modal-overlay').remove();
+        }
 
-        // Show success message
-        if (window.dashboardManager) {
-            window.dashboardManager.showSuccess('AI Assistant settings saved successfully!');
+        // Add user message to chat
+        this.addMessage('user', `Generate image: ${prompt}`);
+
+        // Show typing indicator
+        this.addTypingIndicator();
+
+        try {
+            const imageUrl = await this.callDALLE(prompt, size, quality);
+            this.removeTypingIndicator();
+            
+            // Add image response
+            this.addImageMessage(imageUrl, prompt);
+        } catch (error) {
+            this.removeTypingIndicator();
+            this.addMessage('error', `Image generation failed: ${error.message}`);
         }
     }
 
     /**
-     * Update interface based on settings
+     * Call DALL-E API
      */
-    updateInterface() {
-        const widget = document.getElementById('chatgpt-widget');
-        if (widget) {
-            widget.classList.toggle('enabled', this.isEnabled);
-            widget.classList.toggle('disabled', !this.isEnabled);
+    async callDALLE(prompt, size, quality) {
+        const response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'dall-e-3',
+                prompt: prompt,
+                n: 1,
+                size: size,
+                quality: quality
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error?.message || 'Failed to generate image');
+        }
+
+        const data = await response.json();
+        return data.data[0].url;
+    }
+
+    /**
+     * Add image message to chat
+     */
+    addImageMessage(imageUrl, prompt) {
+        const messagesContainer = document.getElementById('chatgpt-messages');
+        if (!messagesContainer) return;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'chatgpt-message assistant';
+
+        const messageHTML = `
+            <div class="message-avatar">
+                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <i class="fas fa-robot" style="display: none;"></i>
+            </div>
+            <div class="message-content">
+                <div class="message-text">
+                    <p>Here's your generated image based on: "${prompt}"</p>
+                    <div class="generated-image">
+                        <img src="${imageUrl}" alt="Generated image" style="max-width: 100%; border-radius: 8px; margin-top: 8px;">
+                        <div class="image-actions">
+                            <a href="${imageUrl}" target="_blank" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-external-link-alt"></i> Open Full Size
+                            </a>
+                            <button class="btn btn-secondary btn-sm" onclick="chatgptIntegration.downloadImage('${imageUrl}', '${prompt.replace(/[^a-zA-Z0-9]/g, '_')}')">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        messageDiv.innerHTML = messageHTML;
+        messagesContainer.appendChild(messageDiv);
+
+        // Scroll to bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        // Add to history
+        this.chatHistory.push({ role: 'assistant', content: `Generated image: ${prompt}`, imageUrl, timestamp: new Date() });
+
+        // Limit history
+        if (this.chatHistory.length > 50) {
+            this.chatHistory = this.chatHistory.slice(-50);
         }
     }
 
     /**
-     * Send message to ChatGPT
+     * Download generated image
+     */
+    async downloadImage(imageUrl, filename) {
+        try {
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `wall-e-generated-${filename}.png`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            this.showError('Failed to download image');
+        }
+    }
+
+    /**
+     * Toggle chat visibility
+     */
+    toggleChat() {
+        if (this.isExpanded) {
+            this.collapseChat();
+        } else {
+            this.expandChat();
+        }
+    }
+
+    /**
+     * Expand chat
+     */
+    expandChat() {
+        const widget = document.getElementById('chatgpt-widget');
+        const body = document.getElementById('chatgpt-body');
+        const toggle = document.getElementById('chatgpt-toggle');
+        const icon = toggle.querySelector('i');
+
+        if (widget && body && toggle) {
+            body.style.display = 'flex';
+            icon.className = 'fas fa-chevron-down';
+            widget.classList.add('expanded');
+            this.isExpanded = true;
+            
+            // Focus on input
+            const input = document.getElementById('chatgpt-input');
+            if (input) {
+                setTimeout(() => input.focus(), 100);
+            }
+        }
+    }
+
+    /**
+     * Collapse chat
+     */
+    collapseChat() {
+        const widget = document.getElementById('chatgpt-widget');
+        const body = document.getElementById('chatgpt-body');
+        const toggle = document.getElementById('chatgpt-toggle');
+        const icon = toggle.querySelector('i');
+
+        if (widget && body && toggle) {
+            body.style.display = 'none';
+            icon.className = 'fas fa-chevron-up';
+            widget.classList.remove('expanded');
+            this.isExpanded = false;
+        }
+    }
+
+    /**
+     * Send message to WALL-E
      */
     async sendMessage() {
+        if (!this.isEnabled || !this.apiKey) {
+            this.showError('WALL-E is not configured. Please check the Gist setup.');
+            return;
+        }
+
         const input = document.getElementById('chatgpt-input');
         const message = input.value.trim();
 
         if (!message && this.fileUploads.length === 0) return;
-
-        if (!this.isEnabled || !this.apiKey) {
-            this.showError('Please configure your OpenAI API key in settings.');
-            return;
-        }
 
         // Add user message to chat
         this.addMessage('user', message, this.fileUploads);
@@ -319,7 +480,7 @@ class ChatGPTIntegration {
         this.addTypingIndicator();
 
         try {
-            const response = await this.callChatGPT(message);
+            const response = await this.callWALLE(message);
             this.removeTypingIndicator();
             this.addMessage('assistant', response);
         } catch (error) {
@@ -329,86 +490,162 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Call ChatGPT API
+     * Call WALL-E Assistant API
      */
-    async callChatGPT(message) {
-        const messages = this.buildMessages(message);
-        const model = this.model || 'gpt-4o';
+    async callWALLE(message) {
+        try {
+            // Create or get thread
+            if (!this.threadId) {
+                this.threadId = await this.createThread();
+            }
 
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            // Add message to thread
+            await this.addMessageToThread(message);
+
+            // Run assistant
+            const runId = await this.runAssistant();
+
+            // Wait for completion and get response
+            const response = await this.waitForResponse(runId);
+
+            return response;
+        } catch (error) {
+            console.error('WALL-E API Error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Create a new thread
+     */
+    async createThread() {
+        const response = await fetch('https://api.openai.com/v1/threads', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v1'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to create thread');
+        }
+
+        const data = await response.json();
+        return data.id;
+    }
+
+    /**
+     * Add message to thread
+     */
+    async addMessageToThread(message) {
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v1'
             },
             body: JSON.stringify({
-                model: model,
-                messages: messages,
-                max_tokens: 1000,
-                temperature: 0.7
+                role: 'user',
+                content: message
             })
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Failed to get response from ChatGPT');
+            throw new Error('Failed to add message to thread');
+        }
+
+        return await response.json();
+    }
+
+    /**
+     * Run the assistant
+     */
+    async runAssistant() {
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v1'
+            },
+            body: JSON.stringify({
+                assistant_id: this.assistantId
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to run assistant');
         }
 
         const data = await response.json();
-        return data.choices[0].message.content;
+        return data.id;
     }
 
     /**
-     * Build messages for API call
+     * Wait for assistant response
      */
-    buildMessages(userMessage) {
-        const messages = [
-            {
-                role: 'system',
-                content: this.buildSystemPrompt()
-            }
-        ];
+    async waitForResponse(runId) {
+        let attempts = 0;
+        const maxAttempts = 30; // 30 seconds timeout
 
-        // Add chat history
-        this.chatHistory.forEach(msg => {
-            if (msg.role !== 'error') {
-                messages.push({
-                    role: msg.role,
-                    content: msg.content
-                });
+        while (attempts < maxAttempts) {
+            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs/${runId}`, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v1'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to check run status');
+            }
+
+            const data = await response.json();
+
+            if (data.status === 'completed') {
+                // Get the response message
+                return await this.getLastMessage();
+            } else if (data.status === 'failed') {
+                throw new Error('Assistant run failed');
+            } else if (data.status === 'requires_action') {
+                throw new Error('Assistant requires action');
+            }
+
+            // Wait 1 second before checking again
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+        }
+
+        throw new Error('Assistant response timeout');
+    }
+
+    /**
+     * Get the last message from the thread
+     */
+    async getLastMessage() {
+        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages?limit=1`, {
+            headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'OpenAI-Beta': 'assistants=v1'
             }
         });
 
-        // Add current message
-        if (userMessage) {
-            messages.push({
-                role: 'user',
-                content: userMessage
-            });
+        if (!response.ok) {
+            throw new Error('Failed to get messages');
         }
 
-        return messages;
-    }
-
-    /**
-     * Build system prompt based on context
-     */
-    buildSystemPrompt() {
-        const context = this.getCurrentContext();
-        const appInfo = this.getAppInfo();
-
-        let prompt = `You are a helpful AI assistant integrated into the Liber Apps Control Panel. `;
-
-        if (context === 'control-panel') {
-            prompt += `You're currently in the main control panel. Help users navigate and use the available apps and features. `;
-        } else {
-            prompt += `You're currently in the ${appInfo.name} app. Help users with this specific application. `;
+        const data = await response.json();
+        if (data.data && data.data.length > 0) {
+            const message = data.data[0];
+            if (message.content && message.content.length > 0) {
+                return message.content[0].text.value;
+            }
         }
 
-        prompt += `Be concise, helpful, and user-friendly. If users upload files, analyze them and provide relevant insights. `;
-        prompt += `Current context: ${context}`;
-
-        return prompt;
+        return 'No response received';
     }
 
     /**
@@ -440,6 +677,8 @@ class ChatGPTIntegration {
      */
     addMessage(role, content, files = []) {
         const messagesContainer = document.getElementById('chatgpt-messages');
+        if (!messagesContainer) return;
+
         const messageDiv = document.createElement('div');
         messageDiv.className = `chatgpt-message ${role}`;
 
@@ -458,7 +697,8 @@ class ChatGPTIntegration {
         } else if (role === 'assistant') {
             messageHTML = `
                 <div class="message-avatar">
-                    <i class="fas fa-robot"></i>
+                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <i class="fas fa-robot" style="display: none;"></i>
                 </div>
                 <div class="message-content">
                     <div class="message-text">${this.formatResponse(content)}</div>
@@ -516,6 +756,9 @@ class ChatGPTIntegration {
         if (type.startsWith('image/')) return 'fa-image';
         if (type === 'application/pdf') return 'fa-file-pdf';
         if (type.startsWith('text/')) return 'fa-file-text';
+        if (type === 'application/json') return 'fa-file-code';
+        if (type === 'application/xml') return 'fa-file-code';
+        if (type === 'text/csv') return 'fa-file-csv';
         return 'fa-file';
     }
 
@@ -571,6 +814,8 @@ class ChatGPTIntegration {
      */
     updateFileUploadDisplay() {
         const uploadArea = document.getElementById('chatgpt-file-upload');
+        if (!uploadArea) return;
+
         const existingFiles = uploadArea.querySelectorAll('.uploaded-file');
         existingFiles.forEach(file => file.remove());
 
@@ -601,12 +846,15 @@ class ChatGPTIntegration {
      */
     addTypingIndicator() {
         const messagesContainer = document.getElementById('chatgpt-messages');
+        if (!messagesContainer) return;
+
         const typingDiv = document.createElement('div');
         typingDiv.className = 'chatgpt-message assistant typing';
         typingDiv.id = 'typing-indicator';
         typingDiv.innerHTML = `
             <div class="message-avatar">
-                <i class="fas fa-robot"></i>
+                <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <i class="fas fa-robot" style="display: none;"></i>
             </div>
             <div class="message-content">
                 <div class="typing-indicator">
@@ -666,7 +914,9 @@ class ChatGPTIntegration {
         if (window.dashboardManager) {
             window.dashboardManager.showError(message);
         } else {
-            console.error('ChatGPT Error:', message);
+            console.error('WALL-E Error:', message);
+            // Show a simple alert if dashboard manager is not available
+            alert('WALL-E Error: ' + message);
         }
     }
 
@@ -693,16 +943,19 @@ class ChatGPTIntegration {
         if (messagesContainer) {
             messagesContainer.innerHTML = `
                 <div class="chatgpt-welcome">
-                    <i class="fas fa-lightbulb"></i>
-                    <h4>Welcome to AI Assistant!</h4>
-                    <p>I can help you with:</p>
+                    <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <i class="fas fa-robot" style="display: none;"></i>
+                    <h4>Welcome to WALL-E!</h4>
+                    <p>I'm your AI assistant powered by GPT-4o. I can help you with:</p>
                     <ul>
                         <li>Using this application</li>
                         <li>Analyzing images and PDFs</li>
+                        <li>Generating images from descriptions</li>
                         <li>Answering questions</li>
                         <li>Providing guidance</li>
                     </ul>
-                    <p>Upload files or ask me anything!</p>
+                    <p>Upload files, ask questions, or request image generation!</p>
+                    ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                 </div>
             `;
         }
