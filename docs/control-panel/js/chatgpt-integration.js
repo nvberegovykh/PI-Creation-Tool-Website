@@ -19,6 +19,12 @@ class ChatGPTIntegration {
         this.configLoaded = false;
         this.currentUserId = null;
         this.maxHistoryItems = 50; // Keep last 50 messages
+        
+        // Thread management
+        this.savedThreads = [];
+        this.currentThreadName = 'New Chat';
+        this.maxThreads = 20; // Keep last 20 threads
+        
         this.init();
     }
 
@@ -29,7 +35,9 @@ class ChatGPTIntegration {
         await this.loadConfiguration();
         if (this.isEnabled) {
             await this.ensureAssistantSupportsFiles();
+            await this.checkAssistantConfig(); // Check assistant configuration
         }
+        this.loadSavedThreads(); // Load saved threads
         this.createChatInterface();
         this.setupEventListeners();
         this.loadChatHistory();
@@ -74,6 +82,299 @@ class ChatGPTIntegration {
             }
         } catch (error) {
             console.warn('Error checking assistant configuration:', error);
+        }
+    }
+
+    /**
+     * Check assistant configuration
+     */
+    async checkAssistantConfig() {
+        try {
+            console.log('Checking assistant configuration...');
+            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'OpenAI-Beta': 'assistants=v2'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.text();
+                console.error('Failed to get assistant config:', response.status, errorData);
+                return;
+            }
+
+            const assistant = await response.json();
+            console.log('Assistant Configuration:', {
+                id: assistant.id,
+                name: assistant.name,
+                model: assistant.model,
+                instructions: assistant.instructions,
+                tools: assistant.tools
+            });
+            
+            if (assistant.model !== 'gpt-4o-mini') {
+                console.warn(`⚠️ Assistant is using model: ${assistant.model}, expected: gpt-4o-mini`);
+            } else {
+                console.log('✅ Assistant is correctly configured with gpt-4o-mini');
+            }
+        } catch (error) {
+            console.error('Error checking assistant config:', error);
+        }
+    }
+
+    /**
+     * Load saved threads for current user
+     */
+    loadSavedThreads() {
+        try {
+            const userId = this.getCurrentUserId();
+            const threadsKey = `wall_e_saved_threads_${userId}`;
+            const savedThreads = localStorage.getItem(threadsKey);
+            
+            if (savedThreads) {
+                this.savedThreads = JSON.parse(savedThreads);
+                console.log(`Loaded ${this.savedThreads.length} saved threads for user: ${userId}`);
+            } else {
+                console.log(`No saved threads found for user: ${userId}`);
+            }
+        } catch (error) {
+            console.error('Failed to load saved threads:', error);
+        }
+    }
+
+    /**
+     * Save threads to localStorage
+     */
+    saveThreads() {
+        try {
+            const userId = this.getCurrentUserId();
+            const threadsKey = `wall_e_saved_threads_${userId}`;
+            
+            // Keep only last 20 threads
+            const threadsToSave = this.savedThreads.slice(-this.maxThreads);
+            
+            localStorage.setItem(threadsKey, JSON.stringify(threadsToSave));
+            console.log(`Saved ${threadsToSave.length} threads for user: ${userId}`);
+        } catch (error) {
+            console.error('Failed to save threads:', error);
+        }
+    }
+
+    /**
+     * Create a new thread
+     */
+    async createNewThread(threadName = null) {
+        try {
+            // Create new thread on OpenAI
+            const newThreadId = await this.createThread();
+            
+            // Generate thread name if not provided
+            const name = threadName || `Chat ${new Date().toLocaleString()}`;
+            
+            // Add to saved threads
+            const newThread = {
+                id: newThreadId,
+                name: name,
+                createdAt: new Date().toISOString(),
+                lastUsed: new Date().toISOString()
+            };
+            
+            this.savedThreads.push(newThread);
+            this.saveThreads();
+            
+            // Set as current thread
+            this.threadId = newThreadId;
+            this.currentThreadName = name;
+            
+            // Clear chat history for new thread
+            this.chatHistory = [];
+            this.displayChatHistory();
+            
+            // Update thread selector
+            this.updateThreadSelector();
+            
+            console.log(`Created new thread: ${name} (${newThreadId})`);
+            return newThreadId;
+        } catch (error) {
+            console.error('Failed to create new thread:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Switch to a different thread
+     */
+    async switchToThread(threadId) {
+        try {
+            const thread = this.savedThreads.find(t => t.id === threadId);
+            if (!thread) {
+                throw new Error('Thread not found');
+            }
+            
+            // Update last used timestamp
+            thread.lastUsed = new Date().toISOString();
+            this.saveThreads();
+            
+            // Set as current thread
+            this.threadId = threadId;
+            this.currentThreadName = thread.name;
+            
+            // Load chat history for this thread
+            this.loadChatHistoryForThread(threadId);
+            
+            // Update thread selector
+            this.updateThreadSelector();
+            
+            console.log(`Switched to thread: ${thread.name} (${threadId})`);
+        } catch (error) {
+            console.error('Failed to switch thread:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Load chat history for specific thread
+     */
+    loadChatHistoryForThread(threadId) {
+        try {
+            const userId = this.getCurrentUserId();
+            const historyKey = `wall_e_chat_history_${userId}_${threadId}`;
+            const savedHistory = localStorage.getItem(historyKey);
+            
+            if (savedHistory) {
+                const parsedHistory = JSON.parse(savedHistory);
+                this.chatHistory = parsedHistory.slice(-this.maxHistoryItems);
+                console.log(`Loaded ${this.chatHistory.length} messages for thread: ${threadId}`);
+            } else {
+                this.chatHistory = [];
+                console.log(`No history found for thread: ${threadId}`);
+            }
+            
+            this.displayChatHistory();
+        } catch (error) {
+            console.error('Failed to load thread history:', error);
+            this.chatHistory = [];
+            this.displayChatHistory();
+        }
+    }
+
+    /**
+     * Save chat history for current thread
+     */
+    saveChatHistoryForThread() {
+        try {
+            if (!this.threadId) return;
+            
+            const userId = this.getCurrentUserId();
+            const historyKey = `wall_e_chat_history_${userId}_${this.threadId}`;
+            
+            // Keep only last 50 messages
+            const historyToSave = this.chatHistory.slice(-this.maxHistoryItems);
+            
+            localStorage.setItem(historyKey, JSON.stringify(historyToSave));
+            console.log(`Saved ${historyToSave.length} messages for thread: ${this.threadId}`);
+            
+            // Update clear history button visibility
+            this.updateClearHistoryButton(historyToSave.length > 0);
+        } catch (error) {
+            console.error('Failed to save thread history:', error);
+        }
+    }
+
+    /**
+     * Delete a thread
+     */
+    async deleteThread(threadId) {
+        try {
+            // Remove from saved threads
+            this.savedThreads = this.savedThreads.filter(t => t.id !== threadId);
+            this.saveThreads();
+            
+            // Delete thread history
+            const userId = this.getCurrentUserId();
+            const historyKey = `wall_e_chat_history_${userId}_${threadId}`;
+            localStorage.removeItem(historyKey);
+            
+            // If this was the current thread, create a new one
+            if (this.threadId === threadId) {
+                await this.createNewThread();
+            }
+            
+            // Update thread selector
+            this.updateThreadSelector();
+            
+            console.log(`Deleted thread: ${threadId}`);
+        } catch (error) {
+            console.error('Failed to delete thread:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Rename current thread
+     */
+    renameCurrentThread(newName) {
+        try {
+            if (!this.threadId || !newName.trim()) return;
+            
+            const thread = this.savedThreads.find(t => t.id === this.threadId);
+            if (thread) {
+                thread.name = newName.trim();
+                this.currentThreadName = newName.trim();
+                this.saveThreads();
+                this.updateThreadSelector();
+                console.log(`Renamed thread to: ${newName}`);
+            }
+        } catch (error) {
+            console.error('Failed to rename thread:', error);
+        }
+    }
+
+    /**
+     * Update thread selector UI
+     */
+    updateThreadSelector() {
+        const threadSelector = document.getElementById('chatgpt-thread-selector');
+        if (!threadSelector) return;
+        
+        // Update current thread name
+        const currentThreadName = document.getElementById('chatgpt-current-thread');
+        if (currentThreadName) {
+            currentThreadName.textContent = this.currentThreadName;
+        }
+        
+        // Update thread list
+        const threadList = document.getElementById('chatgpt-thread-list');
+        if (threadList) {
+            threadList.innerHTML = '';
+            
+            this.savedThreads.forEach(thread => {
+                const threadItem = document.createElement('div');
+                threadItem.className = `thread-item ${thread.id === this.threadId ? 'active' : ''}`;
+                threadItem.innerHTML = `
+                    <div class="thread-info">
+                        <span class="thread-name">${thread.name}</span>
+                        <small class="thread-date">${new Date(thread.lastUsed).toLocaleDateString()}</small>
+                    </div>
+                    <div class="thread-actions">
+                        <button class="thread-rename" title="Rename" onclick="chatgptIntegration.renameThreadPrompt('${thread.id}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="thread-delete" title="Delete" onclick="chatgptIntegration.deleteThread('${thread.id}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+                
+                threadItem.addEventListener('click', (e) => {
+                    if (!e.target.closest('.thread-actions')) {
+                        this.switchToThread(thread.id);
+                    }
+                });
+                
+                threadList.appendChild(threadItem);
+            });
         }
     }
 
@@ -150,6 +451,12 @@ class ChatGPTIntegration {
                         <span>WALL-E</span>
                     </div>
                     <div class="chatgpt-controls">
+                        <button class="chatgpt-new-thread" id="chatgpt-new-thread" title="New Chat">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <button class="chatgpt-thread-menu" id="chatgpt-thread-menu" title="Saved Chats">
+                            <i class="fas fa-list"></i>
+                        </button>
                         <button class="chatgpt-clear-history" id="chatgpt-clear-history" title="Clear Chat History" style="display: none;">
                             <i class="fas fa-trash"></i>
                         </button>
@@ -158,6 +465,20 @@ class ChatGPTIntegration {
                         </button>
                     </div>
                 </div>
+                
+                <!-- Thread Selector Dropdown -->
+                <div class="chatgpt-thread-selector" id="chatgpt-thread-selector" style="display: none;">
+                    <div class="thread-selector-header">
+                        <span id="chatgpt-current-thread">${this.currentThreadName}</span>
+                        <button class="thread-selector-close" id="thread-selector-close">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="thread-list" id="chatgpt-thread-list">
+                        <!-- Thread items will be populated here -->
+                    </div>
+                </div>
+                
                 <div class="chatgpt-body" id="chatgpt-body" style="display: none;">
                     <div class="chatgpt-messages" id="chatgpt-messages">
                         <div class="chatgpt-welcome">
@@ -209,6 +530,10 @@ class ChatGPTIntegration {
         const uploadBtn = document.getElementById('chatgpt-upload-btn');
         const fileInput = document.getElementById('chatgpt-file-input');
         const clearHistoryBtn = document.getElementById('chatgpt-clear-history');
+        const newThreadBtn = document.getElementById('chatgpt-new-thread');
+        const threadMenuBtn = document.getElementById('chatgpt-thread-menu');
+        const threadSelector = document.getElementById('chatgpt-thread-selector');
+        const threadSelectorClose = document.getElementById('thread-selector-close');
         const widget = document.getElementById('chatgpt-widget');
         const body = document.getElementById('chatgpt-body');
 
@@ -268,6 +593,33 @@ class ChatGPTIntegration {
             });
         } else {
             console.warn('Toggle element not found');
+        }
+
+        // New thread button
+        if (newThreadBtn) {
+            newThreadBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.createNewThread();
+            });
+        }
+
+        // Thread menu button
+        if (threadMenuBtn) {
+            threadMenuBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleThreadSelector();
+            });
+        }
+
+        // Thread selector close button
+        if (threadSelectorClose) {
+            threadSelectorClose.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hideThreadSelector();
+            });
         }
 
         if (clearHistoryBtn) {
@@ -768,6 +1120,17 @@ class ChatGPTIntegration {
             return;
         }
 
+        // Create a new thread if one doesn't exist
+        if (!this.threadId) {
+            try {
+                await this.createNewThread();
+            } catch (error) {
+                console.error('Failed to create new thread:', error);
+                this.addMessage('error', `Failed to create new chat: ${error.message}`);
+                return;
+            }
+        }
+
         // Check if this is an image generation request
         const isImageRequest = this.isImageGenerationRequest(message);
         console.log('Is image generation request:', isImageRequest);
@@ -917,7 +1280,7 @@ class ChatGPTIntegration {
                     messages: [
                         {
                             role: 'system',
-                            content: 'You are WALL-E, a helpful AI assistant. Be concise and helpful.'
+                            content: 'You are WALL-E, a friendly, straight forward, peaceful and calm part of architectural team, that helps both users and our worker to reach any goals using logic, research, math and actual solutions, you have to be patient and well-thinking, sometimes it\'s better to take time to think, than find fastest but incorrect approach, your goal is to save everyone\'s time finding correct approaches. You are based on GPT-4o-mini.'
                         },
                         {
                             role: 'user',
@@ -1818,18 +2181,22 @@ class ChatGPTIntegration {
             const userId = this.getCurrentUserId();
             this.currentUserId = userId;
             
-            const historyKey = `wall_e_chat_history_${userId}`;
-            const savedHistory = localStorage.getItem(historyKey);
-            
-            if (savedHistory) {
-                const parsedHistory = JSON.parse(savedHistory);
-                this.chatHistory = parsedHistory.slice(-this.maxHistoryItems); // Keep only last 50 items
-                console.log(`Loaded ${this.chatHistory.length} chat history items for user: ${userId}`);
-                
-                // Display chat history
-                this.displayChatHistory();
+            // If we have a current thread, load its history
+            if (this.threadId) {
+                this.loadChatHistoryForThread(this.threadId);
             } else {
-                console.log(`No chat history found for user: ${userId}`);
+                // Legacy: load from old format
+                const historyKey = `wall_e_chat_history_${userId}`;
+                const savedHistory = localStorage.getItem(historyKey);
+                
+                if (savedHistory) {
+                    const parsedHistory = JSON.parse(savedHistory);
+                    this.chatHistory = parsedHistory.slice(-this.maxHistoryItems);
+                    console.log(`Loaded ${this.chatHistory.length} chat history items for user: ${userId}`);
+                    this.displayChatHistory();
+                } else {
+                    console.log(`No chat history found for user: ${userId}`);
+                }
             }
         } catch (error) {
             console.error('Failed to load chat history:', error);
@@ -1937,10 +2304,13 @@ class ChatGPTIntegration {
      */
     clearChatHistory() {
         try {
-            const userId = this.getCurrentUserId();
-            const historyKey = `wall_e_chat_history_${userId}`;
+            if (this.threadId) {
+                // Clear current thread history
+                const userId = this.getCurrentUserId();
+                const historyKey = `wall_e_chat_history_${userId}_${this.threadId}`;
+                localStorage.removeItem(historyKey);
+            }
             
-            localStorage.removeItem(historyKey);
             this.chatHistory = [];
             
             // Reset to welcome message
@@ -1957,7 +2327,7 @@ class ChatGPTIntegration {
                 `;
             }
             
-            console.log(`Cleared chat history for user: ${userId}`);
+            console.log(`Cleared chat history for thread: ${this.threadId}`);
         } catch (error) {
             console.error('Failed to clear chat history:', error);
         }
@@ -1983,21 +2353,61 @@ class ChatGPTIntegration {
      * Save chat history for current user
      */
     saveChatHistory() {
-        try {
-            const userId = this.getCurrentUserId();
-            const historyKey = `wall_e_chat_history_${userId}`;
-            
-            // Keep only last 50 messages
-            const historyToSave = this.chatHistory.slice(-this.maxHistoryItems);
-            
-            localStorage.setItem(historyKey, JSON.stringify(historyToSave));
-            console.log(`Saved ${historyToSave.length} chat history items for user: ${userId}`);
-            
-            // Update clear history button visibility
-            this.updateClearHistoryButton(historyToSave.length > 0);
-        } catch (error) {
-            console.error('Failed to save chat history:', error);
+        // Use the new thread-based save method
+        this.saveChatHistoryForThread();
+    }
+
+    /**
+     * Show rename thread prompt
+     */
+    renameThreadPrompt(threadId) {
+        const thread = this.savedThreads.find(t => t.id === threadId);
+        if (!thread) return;
+        
+        const newName = prompt('Enter new thread name:', thread.name);
+        if (newName && newName.trim() && newName.trim() !== thread.name) {
+            thread.name = newName.trim();
+            if (threadId === this.threadId) {
+                this.currentThreadName = newName.trim();
+            }
+            this.saveThreads();
+            this.updateThreadSelector();
         }
+    }
+
+    /**
+     * Toggle thread selector visibility
+     */
+    toggleThreadSelector() {
+        const threadSelector = document.getElementById('chatgpt-thread-selector');
+        if (!threadSelector) return;
+        
+        if (threadSelector.style.display === 'none') {
+            this.showThreadSelector();
+        } else {
+            this.hideThreadSelector();
+        }
+    }
+
+    /**
+     * Show thread selector
+     */
+    showThreadSelector() {
+        const threadSelector = document.getElementById('chatgpt-thread-selector');
+        if (!threadSelector) return;
+        
+        threadSelector.style.display = 'block';
+        this.updateThreadSelector();
+    }
+
+    /**
+     * Hide thread selector
+     */
+    hideThreadSelector() {
+        const threadSelector = document.getElementById('chatgpt-thread-selector');
+        if (!threadSelector) return;
+        
+        threadSelector.style.display = 'none';
     }
 }
 
