@@ -527,10 +527,16 @@ class AuthManager {
             const users = await this.getUsers();
             console.log('Users loaded:', users.length);
             
-            const user = users.find(u => u.username === username && u.status === 'approved');
+            const user = users.find(u => u.username === username);
             console.log('User found:', !!user);
             
             if (user) {
+                // Check if user is verified (for email verification) or approved (for admin approval)
+                if (!user.isVerified && user.status !== 'approved') {
+                    console.log('User not verified or approved');
+                    return false;
+                }
+                
                 const hashedPassword = await window.cryptoManager.hashPassword(password);
                 console.log('Password hash comparison:', user.passwordHash === hashedPassword);
                 

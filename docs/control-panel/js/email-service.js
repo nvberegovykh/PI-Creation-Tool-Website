@@ -7,7 +7,8 @@ class EmailService {
     constructor() {
         this.mailgunDomain = null;
         this.mailgunApiKey = null;
-        this.baseUrl = window.location.origin;
+        // Update baseUrl to point to your control panel
+        this.baseUrl = window.location.origin + window.location.pathname;
         this.init();
     }
 
@@ -103,7 +104,14 @@ class EmailService {
     }
 
     /**
-     * Send email verification
+     * Send verification email to new user
+     * 
+     * IMPORTANT: Mailgun sandbox domains can only send to authorized recipients.
+     * To add authorized recipients:
+     * 1. Go to https://app.mailgun.com/
+     * 2. Navigate to Sending → Authorized Recipients
+     * 3. Add the email address you want to send to
+     * 4. Verify the email address when you receive the confirmation
      */
     async sendVerificationEmail(email, username, token) {
         const verificationUrl = `${this.baseUrl}?action=verify&token=${token}&email=${encodeURIComponent(email)}`;
