@@ -486,3 +486,46 @@
 .reset-modal-content .btn-secondary:hover {
     background: var(--secondary-bg);
 }
+
+/* Button Styles */
+.btn-primary {
+    background: var(--accent-color);
+    color: var(--primary-bg);
+    border: none;
+    border-radius: var(--border-radius);
+    padding: 12px 24px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: var(--transition);
+    display: inline-block;
+    text-decoration: none;
+    text-align: center;
+    min-width: 120px;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-hover);
+}
+
+.btn-secondary {
+    background: var(--tertiary-bg);
+    color: var(--primary-text);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 12px 24px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: var(--transition);
+    display: inline-block;
+    text-decoration: none;
+    text-align: center;
+    min-width: 120px;
+}
+
+.btn-secondary:hover {
+    background: var(--secondary-bg);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-hover);
+}
