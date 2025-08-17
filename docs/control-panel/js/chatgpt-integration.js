@@ -17,6 +17,8 @@ class ChatGPTIntegration {
         this.isExpanded = false;
         this.threadId = null;
         this.configLoaded = false;
+        this.currentUserId = null;
+        this.maxHistoryItems = 50; // Keep last 50 messages
         this.init();
     }
 
@@ -30,6 +32,9 @@ class ChatGPTIntegration {
         
         // Initialize in collapsed state
         this.collapseChat();
+        
+        // Load chat history for current user
+        this.loadChatHistory();
     }
 
     /**
@@ -104,6 +109,9 @@ class ChatGPTIntegration {
                         <span>WALL-E</span>
                     </div>
                     <div class="chatgpt-controls">
+                        <button class="chatgpt-clear-history" id="chatgpt-clear-history" title="Clear Chat History" style="display: none;">
+                            <i class="fas fa-trash"></i>
+                        </button>
                         <button class="chatgpt-toggle" id="chatgpt-toggle" title="Toggle Chat">
                             <i class="fas fa-chevron-up"></i>
                         </button>
@@ -124,6 +132,9 @@ class ChatGPTIntegration {
                                 <li>Providing guidance</li>
                             </ul>
                             <p>Upload files, ask questions, or request image generation!</p>
+                            <p><strong>💡 Tip:</strong> You can ask me to generate images by saying "generate an image of..." or "create a picture of..."</p>
+                            <p><strong>📁 File Upload:</strong> Drag & drop files, paste images from clipboard, or use the paperclip button!</p>
+                            <p><strong>💾 Chat History:</strong> Your conversations are automatically saved and will be restored when you return.</p>
                             ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                         </div>
                     </div>
@@ -133,12 +144,9 @@ class ChatGPTIntegration {
                             <button class="chatgpt-upload-btn" id="chatgpt-upload-btn" title="Attach files">
                                 <i class="fas fa-paperclip"></i>
                             </button>
-                            <button class="chatgpt-image-gen-btn" id="chatgpt-image-gen-btn" title="Generate Image">
-                                <i class="fas fa-image"></i>
-                            </button>
                         </div>
                         <div class="chatgpt-input-container">
-                            <textarea id="chatgpt-input" placeholder="Ask WALL-E anything or request image generation..." rows="1"></textarea>
+                            <textarea id="chatgpt-input" placeholder="Ask WALL-E anything, upload files, or request image generation..." rows="1"></textarea>
                             <button class="chatgpt-send" id="chatgpt-send" title="Send message">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
@@ -165,8 +173,10 @@ class ChatGPTIntegration {
         const send = document.getElementById('chatgpt-send');
         const input = document.getElementById('chatgpt-input');
         const uploadBtn = document.getElementById('chatgpt-upload-btn');
-        const imageGenBtn = document.getElementById('chatgpt-image-gen-btn');
         const fileInput = document.getElementById('chatgpt-file-input');
+        const clearHistoryBtn = document.getElementById('chatgpt-clear-history');
+        const widget = document.getElementById('chatgpt-widget');
+        const body = document.getElementById('chatgpt-body');
 
         // Add header click listener for mobile expansion
         if (header) {
@@ -209,6 +219,14 @@ class ChatGPTIntegration {
             });
         }
 
+        if (clearHistoryBtn) {
+            clearHistoryBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.clearChatHistory();
+            });
+        }
+
         if (send) {
             send.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -228,6 +246,11 @@ class ChatGPTIntegration {
             input.addEventListener('input', () => {
                 this.autoResizeTextarea(input);
             });
+
+            // Add paste event listener for file uploads
+            input.addEventListener('paste', (e) => {
+                this.handlePaste(e);
+            });
         }
 
         if (uploadBtn) {
@@ -238,16 +261,153 @@ class ChatGPTIntegration {
             });
         }
 
-        if (imageGenBtn) {
-            imageGenBtn.addEventListener('click', (e) => {
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+        }
+
+        // Add drag and drop functionality
+        if (widget) {
+            widget.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.showImageGenerationModal();
+                this.handleDragOver(e);
+            });
+
+            widget.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.handleDragLeave(e);
+            });
+
+            widget.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.handleDrop(e);
             });
         }
 
-        if (fileInput) {
-            fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+        // Add paste event listener to the entire document for global paste
+        document.addEventListener('paste', (e) => {
+            // Only handle paste if WALL-E is expanded and focused
+            if (this.isExpanded && (e.target === input || input.contains(e.target))) {
+                this.handlePaste(e);
+            }
+        });
+    }
+
+    /**
+     * Handle paste events for file uploads
+     */
+    handlePaste(e) {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        const files = [];
+        let hasFiles = false;
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            if (item.type.indexOf('image') !== -1) {
+                const file = item.getAsFile();
+                if (file) {
+                    files.push(file);
+                    hasFiles = true;
+                }
+            } else if (item.type.indexOf('text') !== -1) {
+                // Handle text paste - let it go through normally
+                continue;
+            }
+        }
+
+        if (hasFiles) {
+            e.preventDefault();
+            this.processFiles(files);
+        }
+    }
+
+    /**
+     * Handle drag over events
+     */
+    handleDragOver(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const widget = document.getElementById('chatgpt-widget');
+        if (widget) {
+            widget.classList.add('drag-over');
+        }
+    }
+
+    /**
+     * Handle drag leave events
+     */
+    handleDragLeave(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const widget = document.getElementById('chatgpt-widget');
+        if (widget) {
+            widget.classList.remove('drag-over');
+        }
+    }
+
+    /**
+     * Handle drop events
+     */
+    handleDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const widget = document.getElementById('chatgpt-widget');
+        if (widget) {
+            widget.classList.remove('drag-over');
+        }
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) {
+            this.processFiles(files);
+        }
+    }
+
+    /**
+     * Process uploaded files
+     */
+    processFiles(files) {
+        files.forEach(file => {
+            if (file.size > this.maxFileSize) {
+                this.showError(`File ${file.name} is too large. Maximum size is 25MB.`);
+                return;
+            }
+
+            if (!this.isFileTypeSupported(file.type)) {
+                this.showError(`File type ${file.type} is not supported.`);
+                return;
+            }
+
+            this.fileUploads.push(file);
+        });
+
+        this.updateFileUploadDisplay();
+        
+        // Show success message
+        if (files.length === 1) {
+            this.showSuccess(`File "${files[0].name}" uploaded successfully!`);
+        } else {
+            this.showSuccess(`${files.length} files uploaded successfully!`);
+        }
+    }
+
+    /**
+     * Show success message
+     */
+    showSuccess(message) {
+        if (window.dashboardManager) {
+            window.dashboardManager.showSuccess(message);
+        } else {
+            console.log('WALL-E Success:', message);
+            // Show a simple alert if dashboard manager is not available
+            alert('WALL-E Success: ' + message);
         }
     }
 
@@ -258,6 +418,12 @@ class ChatGPTIntegration {
         if (!this.isEnabled) {
             this.showError('WALL-E is not configured. Please check the Gist setup.');
             return;
+        }
+
+        // Remove any existing modal
+        const existingModal = document.querySelector('.modal-overlay');
+        if (existingModal) {
+            existingModal.remove();
         }
 
         const modal = document.createElement('div');
@@ -306,6 +472,12 @@ class ChatGPTIntegration {
         });
 
         document.body.appendChild(modal);
+        
+        // Focus on the textarea
+        const textarea = modal.querySelector('#image-prompt');
+        if (textarea) {
+            setTimeout(() => textarea.focus(), 100);
+        }
     }
 
     /**
@@ -317,9 +489,18 @@ class ChatGPTIntegration {
             return;
         }
 
-        const prompt = document.getElementById('image-prompt').value.trim();
-        const size = document.getElementById('image-size').value;
-        const quality = document.getElementById('image-quality').value;
+        const promptInput = document.getElementById('image-prompt');
+        const sizeInput = document.getElementById('image-size');
+        const qualityInput = document.getElementById('image-quality');
+
+        if (!promptInput || !sizeInput || !qualityInput) {
+            this.showError('Image generation modal not found.');
+            return;
+        }
+
+        const prompt = promptInput.value.trim();
+        const size = sizeInput.value;
+        const quality = qualityInput.value;
 
         if (!prompt) {
             this.showError('Please enter an image description.');
@@ -327,9 +508,9 @@ class ChatGPTIntegration {
         }
 
         // Close modal
-        const modal = document.querySelector('.image-gen-modal');
+        const modal = document.querySelector('.modal-overlay');
         if (modal) {
-            modal.closest('.modal-overlay').remove();
+            modal.remove();
         }
 
         // Add user message to chat
@@ -511,6 +692,9 @@ class ChatGPTIntegration {
 
         if (!message && this.fileUploads.length === 0) return;
 
+        // Check if this is an image generation request
+        const isImageRequest = this.isImageGenerationRequest(message);
+
         // Add user message to chat
         this.addMessage('user', message, this.fileUploads);
 
@@ -523,12 +707,71 @@ class ChatGPTIntegration {
         this.addTypingIndicator();
 
         try {
-            const response = await this.callWALLE(message);
-            this.removeTypingIndicator();
-            this.addMessage('assistant', response);
+            if (isImageRequest) {
+                // Handle image generation directly
+                await this.handleImageGenerationRequest(message);
+            } else {
+                // Normal chat message
+                const response = await this.callWALLE(message);
+                this.removeTypingIndicator();
+                this.addMessage('assistant', response);
+            }
         } catch (error) {
             this.removeTypingIndicator();
             this.addMessage('error', `Error: ${error.message}`);
+        }
+    }
+
+    /**
+     * Check if message is an image generation request
+     */
+    isImageGenerationRequest(message) {
+        const imageKeywords = [
+            'generate an image', 'create an image', 'make an image', 'generate a picture', 
+            'create a picture', 'make a picture', 'generate image', 'create image', 
+            'make image', 'generate picture', 'create picture', 'make picture',
+            'draw', 'paint', 'visualize', 'show me', 'picture of', 'image of'
+        ];
+        
+        const lowerMessage = message.toLowerCase();
+        return imageKeywords.some(keyword => lowerMessage.includes(keyword));
+    }
+
+    /**
+     * Handle image generation request
+     */
+    async handleImageGenerationRequest(message) {
+        try {
+            // Extract the image description from the message
+            const imageKeywords = [
+                'generate an image of', 'create an image of', 'make an image of',
+                'generate a picture of', 'create a picture of', 'make a picture of',
+                'generate image of', 'create image of', 'make image of',
+                'generate picture of', 'create picture of', 'make picture of',
+                'draw', 'paint', 'visualize', 'show me', 'picture of', 'image of'
+            ];
+            
+            let prompt = message;
+            for (const keyword of imageKeywords) {
+                if (message.toLowerCase().includes(keyword)) {
+                    prompt = message.substring(message.toLowerCase().indexOf(keyword) + keyword.length).trim();
+                    break;
+                }
+            }
+            
+            if (!prompt) {
+                prompt = message; // Use the full message if no keyword found
+            }
+
+            // Generate image using DALL-E
+            const imageUrl = await this.callDALLE(prompt, '1024x1024', 'standard');
+            this.removeTypingIndicator();
+            
+            // Add image response
+            this.addImageMessage(imageUrl, prompt);
+        } catch (error) {
+            this.removeTypingIndicator();
+            this.addMessage('error', `Image generation failed: ${error.message}`);
         }
     }
 
@@ -698,7 +941,20 @@ class ChatGPTIntegration {
         if (messages.length > 0) {
             const lastMessage = messages[0];
             if (lastMessage.content && lastMessage.content.length > 0) {
-                return lastMessage.content[0].text.value;
+                const content = lastMessage.content[0];
+                
+                // Handle different content types
+                if (content.type === 'text') {
+                    return content.text.value;
+                } else if (content.type === 'image_file') {
+                    // Handle image file attachments
+                    const fileId = content.image_file.file_id;
+                    return `[Image attachment: ${fileId}]`;
+                } else if (content.type === 'file') {
+                    // Handle file attachments
+                    const fileId = content.file.file_id;
+                    return `[File attachment: ${fileId}]`;
+                }
             }
         }
 
@@ -752,13 +1008,19 @@ class ChatGPTIntegration {
                 </div>
             `;
         } else if (role === 'assistant') {
+            // Check if content contains file attachments
+            const hasFileAttachments = content.includes('[Image attachment:') || content.includes('[File attachment:');
+            
             messageHTML = `
                 <div class="message-avatar">
                     <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                     <i class="fas fa-robot" style="display: none;"></i>
                 </div>
                 <div class="message-content">
-                    <div class="message-text">${this.formatResponse(content)}</div>
+                    <div class="message-text">
+                        ${this.formatResponse(content)}
+                        ${hasFileAttachments ? '<p><em>📎 Assistant has attached files to this response</em></p>' : ''}
+                    </div>
                 </div>
             `;
         } else if (role === 'error') {
@@ -779,12 +1041,15 @@ class ChatGPTIntegration {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
         // Add to history
-        this.chatHistory.push({ role, content, timestamp: new Date() });
+        this.chatHistory.push({ role, content, files, timestamp: new Date() });
 
-        // Limit history
-        if (this.chatHistory.length > 50) {
-            this.chatHistory = this.chatHistory.slice(-50);
+        // Limit history to last 50 messages
+        if (this.chatHistory.length > this.maxHistoryItems) {
+            this.chatHistory = this.chatHistory.slice(-this.maxHistoryItems);
         }
+
+        // Save history to localStorage
+        this.saveChatHistory();
     }
 
     /**
@@ -835,22 +1100,7 @@ class ChatGPTIntegration {
      */
     handleFileUpload(event) {
         const files = Array.from(event.target.files);
-        
-        files.forEach(file => {
-            if (file.size > this.maxFileSize) {
-                this.showError(`File ${file.name} is too large. Maximum size is 25MB.`);
-                return;
-            }
-
-            if (!this.isFileTypeSupported(file.type)) {
-                this.showError(`File type ${file.type} is not supported.`);
-                return;
-            }
-
-            this.fileUploads.push(file);
-        });
-
-        this.updateFileUploadDisplay();
+        this.processFiles(files);
         event.target.value = ''; // Clear input
     }
 
@@ -992,12 +1242,61 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Clear chat history
+     * Get current user ID for history storage
      */
-    clearChatHistory() {
-        this.chatHistory = [];
+    getCurrentUserId() {
+        // Try to get user ID from various sources
+        if (window.authManager && window.authManager.currentUser) {
+            return window.authManager.currentUser.username || window.authManager.currentUser.email;
+        }
+        
+        // Fallback to session storage or generate temporary ID
+        const sessionId = sessionStorage.getItem('wall_e_session_id');
+        if (sessionId) {
+            return sessionId;
+        }
+        
+        // Generate new session ID
+        const newSessionId = 'guest_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        sessionStorage.setItem('wall_e_session_id', newSessionId);
+        return newSessionId;
+    }
+
+    /**
+     * Load chat history for current user
+     */
+    loadChatHistory() {
+        try {
+            const userId = this.getCurrentUserId();
+            this.currentUserId = userId;
+            
+            const historyKey = `wall_e_chat_history_${userId}`;
+            const savedHistory = localStorage.getItem(historyKey);
+            
+            if (savedHistory) {
+                const parsedHistory = JSON.parse(savedHistory);
+                this.chatHistory = parsedHistory.slice(-this.maxHistoryItems); // Keep only last 50 items
+                console.log(`Loaded ${this.chatHistory.length} chat history items for user: ${userId}`);
+                
+                // Display chat history
+                this.displayChatHistory();
+            } else {
+                console.log(`No chat history found for user: ${userId}`);
+            }
+        } catch (error) {
+            console.error('Failed to load chat history:', error);
+        }
+    }
+
+    /**
+     * Display chat history in the messages container
+     */
+    displayChatHistory() {
         const messagesContainer = document.getElementById('chatgpt-messages');
-        if (messagesContainer) {
+        if (!messagesContainer) return;
+
+        if (this.chatHistory.length === 0) {
+            // Show welcome message if no history
             messagesContainer.innerHTML = `
                 <div class="chatgpt-welcome">
                     <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
@@ -1012,9 +1311,164 @@ class ChatGPTIntegration {
                         <li>Providing guidance</li>
                     </ul>
                     <p>Upload files, ask questions, or request image generation!</p>
+                    <p><strong>💡 Tip:</strong> You can ask me to generate images by saying "generate an image of..." or "create a picture of..."</p>
+                    <p><strong>💾 Chat History:</strong> Your conversations are automatically saved and will be restored when you return.</p>
                     ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                 </div>
             `;
+            this.updateClearHistoryButton(false);
+            return;
+        }
+
+        // Clear welcome message
+        messagesContainer.innerHTML = '';
+
+        // Display each message from history
+        this.chatHistory.forEach(item => {
+            if (item.role === 'user') {
+                this.addMessageToDisplay('user', item.content, item.files || []);
+            } else if (item.role === 'assistant') {
+                this.addMessageToDisplay('assistant', item.content);
+            } else if (item.role === 'error') {
+                this.addMessageToDisplay('error', item.content);
+            }
+        });
+
+        // Scroll to bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        
+        // Show clear history button
+        this.updateClearHistoryButton(true);
+    }
+
+    /**
+     * Add message to display without saving to history (for loading history)
+     */
+    addMessageToDisplay(role, content, files = []) {
+        const messagesContainer = document.getElementById('chatgpt-messages');
+        if (!messagesContainer) return;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chatgpt-message ${role}`;
+
+        let messageHTML = '';
+        
+        if (role === 'user') {
+            messageHTML = `
+                <div class="message-content">
+                    <div class="message-text">${this.escapeHtml(content)}</div>
+                    ${this.renderFileAttachments(files)}
+                </div>
+                <div class="message-avatar">
+                    <i class="fas fa-user"></i>
+                </div>
+            `;
+        } else if (role === 'assistant') {
+            // Check if content contains file attachments
+            const hasFileAttachments = content.includes('[Image attachment:') || content.includes('[File attachment:');
+            
+            messageHTML = `
+                <div class="message-avatar">
+                    <img src="images/wall_e.svg" alt="WALL-E" class="avatar-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <i class="fas fa-robot" style="display: none;"></i>
+                </div>
+                <div class="message-content">
+                    <div class="message-text">
+                        ${this.formatResponse(content)}
+                        ${hasFileAttachments ? '<p><em>📎 Assistant has attached files to this response</em></p>' : ''}
+                    </div>
+                </div>
+            `;
+        } else if (role === 'error') {
+            messageHTML = `
+                <div class="message-avatar">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="message-content">
+                    <div class="message-text error">${this.escapeHtml(content)}</div>
+                </div>
+            `;
+        }
+
+        messageDiv.innerHTML = messageHTML;
+        messagesContainer.appendChild(messageDiv);
+    }
+
+    /**
+     * Clear chat history for current user
+     */
+    clearChatHistory() {
+        try {
+            const userId = this.getCurrentUserId();
+            const historyKey = `wall_e_chat_history_${userId}`;
+            
+            localStorage.removeItem(historyKey);
+            this.chatHistory = [];
+            
+            // Reset to welcome message
+            const messagesContainer = document.getElementById('chatgpt-messages');
+            if (messagesContainer) {
+                messagesContainer.innerHTML = `
+                    <div class="chatgpt-welcome">
+                        <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <i class="fas fa-robot" style="display: none;"></i>
+                        <h4>Welcome to WALL-E!</h4>
+                        <p>I'm your AI assistant powered by GPT-4o. I can help you with:</p>
+                        <ul>
+                            <li>Using this application</li>
+                            <li>Analyzing images and PDFs</li>
+                            <li>Generating images from descriptions</li>
+                            <li>Answering questions</li>
+                            <li>Providing guidance</li>
+                        </ul>
+                        <p>Upload files, ask questions, or request image generation!</p>
+                        <p><strong>💡 Tip:</strong> You can ask me to generate images by saying "generate an image of..." or "create a picture of..."</p>
+                        <p><strong>💾 Chat History:</strong> Your conversations are automatically saved and will be restored when you return.</p>
+                        ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
+                    </div>
+                `;
+            }
+            
+            console.log(`Cleared chat history for user: ${userId}`);
+        } catch (error) {
+            console.error('Failed to clear chat history:', error);
+        }
+    }
+
+    /**
+     * Update clear history button visibility
+     */
+    updateClearHistoryButton(show) {
+        const clearHistoryBtn = document.getElementById('chatgpt-clear-history');
+        if (clearHistoryBtn) {
+            if (show) {
+                clearHistoryBtn.style.display = 'flex';
+                clearHistoryBtn.classList.add('visible');
+            } else {
+                clearHistoryBtn.style.display = 'none';
+                clearHistoryBtn.classList.remove('visible');
+            }
+        }
+    }
+
+    /**
+     * Save chat history for current user
+     */
+    saveChatHistory() {
+        try {
+            const userId = this.getCurrentUserId();
+            const historyKey = `wall_e_chat_history_${userId}`;
+            
+            // Keep only last 50 messages
+            const historyToSave = this.chatHistory.slice(-this.maxHistoryItems);
+            
+            localStorage.setItem(historyKey, JSON.stringify(historyToSave));
+            console.log(`Saved ${historyToSave.length} chat history items for user: ${userId}`);
+            
+            // Update clear history button visibility
+            this.updateClearHistoryButton(historyToSave.length > 0);
+        } catch (error) {
+            console.error('Failed to save chat history:', error);
         }
     }
 }
