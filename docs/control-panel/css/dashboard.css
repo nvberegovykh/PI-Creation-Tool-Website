@@ -36,11 +36,26 @@
 }
 
 .header-logo {
-    width: 40px;
-    height: 40px;
+    width: 45px;
+    height: 45px;
     margin-right: 12px;
     vertical-align: middle;
     filter: brightness(0) invert(1);
+}
+
+/* Responsive header logo */
+@media (max-width: 768px) {
+    .header-logo {
+        width: 40px;
+        height: 40px;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-logo {
+        width: 35px;
+        height: 35px;
+    }
 }
 
 .auth-logo {

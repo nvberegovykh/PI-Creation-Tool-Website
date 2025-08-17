@@ -656,30 +656,40 @@
 /* Responsive Design */
 @media (max-width: 768px) {
     .chatgpt-widget {
-        /* Show on mobile but adjust positioning */
+        /* Hide by default on mobile login screen */
+        display: none;
+    }
+    
+    /* Show only when on dashboard and not hidden */
+    .dashboard .chatgpt-widget {
+        display: block;
         bottom: 80px; /* Move up to avoid mobile navigation */
         right: 10px;
         width: calc(100vw - 20px);
         max-width: 350px;
-        display: block; /* Visible by default on mobile */
     }
     
-    .chatgpt-widget.hidden {
+    .dashboard .chatgpt-widget.hidden {
         display: none; /* Hide when toggled off */
     }
 }
 
 @media (max-width: 480px) {
     .chatgpt-widget {
-        /* Show on mobile but adjust positioning */
+        /* Hide by default on mobile login screen */
+        display: none;
+    }
+    
+    /* Show only when on dashboard and not hidden */
+    .dashboard .chatgpt-widget {
+        display: block;
         bottom: 80px; /* Move up to avoid mobile navigation */
         right: 10px;
         width: calc(100vw - 20px);
         max-width: 350px;
-        display: block; /* Visible by default on mobile */
     }
     
-    .chatgpt-widget.hidden {
+    .dashboard .chatgpt-widget.hidden {
         display: none; /* Hide when toggled off */
     }
 }
