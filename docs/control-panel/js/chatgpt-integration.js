@@ -31,7 +31,6 @@ class ChatGPTIntegration {
             await this.ensureAssistantSupportsFiles();
         }
         this.createChatInterface();
-        this.setupChatEventListeners();
         this.setupEventListeners();
         this.loadChatHistory();
         this.displayChatHistory();
@@ -141,6 +140,7 @@ class ChatGPTIntegration {
      * Create chat interface
      */
     createChatInterface() {
+        console.log('Creating chat interface...');
         const chatHTML = `
             <div id="chatgpt-widget" class="chatgpt-widget ${this.isEnabled ? 'enabled' : 'disabled'}">
                 <div class="chatgpt-header" id="chatgpt-header">
@@ -164,15 +164,7 @@ class ChatGPTIntegration {
                             <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <i class="fas fa-robot" style="display: none;"></i>
                             <h4>Wall-eeeee!</h4>
-                            <p>Hi there! I'm WALL-E, your AI assistant powered by GPT-4o-mini. I can help you with:</p>
-                            <ul>
-                                <li>📁 Analyzing images, PDFs, and documents</li>
-                                <li>🎨 Generating images from descriptions</li>
-                                <li>💬 Answering questions and providing guidance</li>
-                                <li>🔧 Helping with app usage and features</li>
-                            </ul>
-                            <p><strong>💡 Tip:</strong> Upload files by dragging & dropping, pasting from clipboard, or using the paperclip button!</p>
-                            <p><strong>🎨 Image Generation:</strong> Ask me to "generate an image of..." anything you want!</p>
+                            <p>Any help?</p>
                             ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                         </div>
                     </div>
@@ -196,7 +188,11 @@ class ChatGPTIntegration {
 
         // Add to body if not exists
         if (!document.getElementById('chatgpt-widget')) {
+            console.log('Adding widget to body...');
             document.body.insertAdjacentHTML('beforeend', chatHTML);
+            console.log('Widget added successfully');
+        } else {
+            console.log('Widget already exists');
         }
 
         this.setupChatEventListeners();
@@ -218,43 +214,60 @@ class ChatGPTIntegration {
 
         // Add header click listener for mobile expansion
         if (header) {
+            console.log('Setting up header click listener');
             header.addEventListener('click', (e) => {
+                console.log('Header clicked');
                 // Don't trigger if clicking on toggle button or other controls
                 if (e.target.closest('.chatgpt-controls')) {
+                    console.log('Clicked on controls, ignoring');
                     return;
                 }
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleChat();
             });
+        } else {
+            console.warn('Header element not found');
         }
 
         // Add specific click listener for WALL-E icon and title
         const title = document.querySelector('.chatgpt-title');
         if (title) {
+            console.log('Setting up title click listener');
             title.addEventListener('click', (e) => {
+                console.log('Title clicked');
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleChat();
             });
+        } else {
+            console.warn('Title element not found');
         }
 
         // Add click listener for the WALL-E icon specifically
         const icon = document.querySelector('.chatgpt-icon');
         if (icon) {
+            console.log('Setting up icon click listener');
             icon.addEventListener('click', (e) => {
+                console.log('Icon clicked');
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleChat();
             });
+        } else {
+            console.warn('Icon element not found');
         }
 
         if (toggle) {
+            console.log('Setting up toggle click listener');
             toggle.addEventListener('click', (e) => {
+                console.log('Toggle clicked');
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleChat();
             });
+        } else {
+            console.warn('Toggle element not found');
         }
 
         if (clearHistoryBtn) {
@@ -682,6 +695,7 @@ class ChatGPTIntegration {
      * Toggle chat visibility
      */
     toggleChat() {
+        console.log('Toggling chat visibility:', this.isExpanded);
         if (this.isExpanded) {
             this.collapseChat();
         } else {
@@ -693,6 +707,7 @@ class ChatGPTIntegration {
      * Expand chat
      */
     expandChat() {
+        console.log('Expanding chat');
         const widget = document.getElementById('chatgpt-widget');
         const body = document.getElementById('chatgpt-body');
         const toggle = document.getElementById('chatgpt-toggle');
@@ -716,6 +731,7 @@ class ChatGPTIntegration {
      * Collapse chat
      */
     collapseChat() {
+        console.log('Collapsing chat');
         const widget = document.getElementById('chatgpt-widget');
         const body = document.getElementById('chatgpt-body');
         const toggle = document.getElementById('chatgpt-toggle');
