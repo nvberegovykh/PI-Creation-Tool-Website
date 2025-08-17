@@ -429,7 +429,21 @@ class AuthManager {
             const newToggleBtn = toggleBtn.cloneNode(true);
             toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
             
-            newToggleBtn.addEventListener('click', () => {
+            newToggleBtn.addEventListener('click', async () => {
+                // Wait for WALL-E widget to be initialized
+                let attempts = 0;
+                const maxAttempts = 20; // Increased attempts
+                
+                while ((!window.wallE || !document.querySelector('.chatgpt-widget')) && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                
+                if (!window.wallE) {
+                    console.error('WALL-E widget not available after waiting');
+                    return;
+                }
+                
                 // Show WALL-E widget on login screen
                 const widget = document.querySelector('.chatgpt-widget');
                 if (widget) {
@@ -451,6 +465,8 @@ class AuthManager {
                     
                     // Store state that WALL-E was activated on login screen
                     sessionStorage.setItem('wallE_activated_on_login', 'true');
+                } else {
+                    console.error('WALL-E widget element not found');
                 }
             });
         }
