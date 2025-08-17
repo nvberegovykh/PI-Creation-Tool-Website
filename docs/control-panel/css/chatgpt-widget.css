@@ -661,6 +661,11 @@
         right: 10px;
         width: calc(100vw - 20px);
         max-width: 350px;
+        display: block; /* Visible by default on mobile */
+    }
+    
+    .chatgpt-widget.hidden {
+        display: none; /* Hide when toggled off */
     }
 }
 
@@ -671,6 +676,11 @@
         right: 10px;
         width: calc(100vw - 20px);
         max-width: 350px;
+        display: block; /* Visible by default on mobile */
+    }
+    
+    .chatgpt-widget.hidden {
+        display: none; /* Hide when toggled off */
     }
 }
 
