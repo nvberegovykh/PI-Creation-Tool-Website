@@ -11,11 +11,60 @@ class AuthManager {
     }
 
     async init() {
-        // Wait for cryptoManager to be available
-        await this.waitForCryptoManager();
-        this.checkSession();
-        this.setupEventListeners();
-        this.checkUrlActions(); // Check for verification and reset actions
+        try {
+            // Wait for cryptoManager to be available
+            await this.waitForCryptoManager();
+            
+            // Check for existing session
+            this.checkSession();
+            
+            // Setup event listeners
+            this.setupEventListeners();
+            
+            // Check URL actions (verification, password reset)
+            this.checkUrlActions();
+            
+            // Debug user storage on init
+            console.log('=== Auto-debugging user storage on init ===');
+            await this.debugUserStorage();
+            
+        } catch (error) {
+            console.error('Auth initialization error:', error);
+        }
+    }
+
+    /**
+     * Debug user storage and show current state
+     */
+    async debugUserStorage() {
+        console.log('=== Debugging User Storage ===');
+        
+        try {
+            // Check current users in encrypted storage
+            const users = await this.getUsers();
+            console.log('Users in encrypted storage:', users.length);
+            console.log('All users:', users);
+            
+            // Check legacy storage
+            const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            console.log('Users in legacy storage:', legacyUsers.length);
+            console.log('Legacy users:', legacyUsers);
+            
+            // Check if we need to migrate
+            if (legacyUsers.length > 0 && users.length === 0) {
+                console.log('Found legacy users, attempting migration...');
+                await this.saveUsers(legacyUsers);
+                localStorage.removeItem('liber_users');
+                console.log('Migration completed');
+            }
+            
+            // Show current state after migration
+            const finalUsers = await this.getUsers();
+            console.log('Final user count:', finalUsers.length);
+            
+        } catch (error) {
+            console.error('Debug error:', error);
+        }
     }
 
     /**
@@ -1040,6 +1089,52 @@ class AuthManager {
             
         } catch (error) {
             console.error('Debug error:', error);
+        }
+    }
+
+    /**
+     * Test function to manually create a user and verify storage
+     */
+    async testCreateUser() {
+        console.log('=== Testing User Creation ===');
+        
+        try {
+            const testUser = {
+                id: 'test_user_' + Date.now(),
+                username: 'testuser',
+                email: 'test@example.com',
+                passwordHash: 'test_hash_' + Date.now(),
+                role: 'user',
+                isVerified: false,
+                status: 'pending',
+                verificationToken: 'test_token_' + Date.now(),
+                verificationTokenCreated: Date.now(),
+                createdAt: new Date().toISOString()
+            };
+            
+            console.log('Creating test user:', testUser);
+            
+            // Get current users
+            const currentUsers = await this.getUsers();
+            console.log('Current users before:', currentUsers.length);
+            
+            // Add test user
+            currentUsers.push(testUser);
+            
+            // Save users
+            const saveResult = await this.saveUsers(currentUsers);
+            console.log('Save result:', saveResult);
+            
+            // Verify user was saved
+            const savedUsers = await this.getUsers();
+            console.log('Users after save:', savedUsers.length);
+            console.log('Test user in storage:', savedUsers.find(u => u.id === testUser.id));
+            
+            return saveResult;
+            
+        } catch (error) {
+            console.error('Test create user error:', error);
+            return false;
         }
     }
 }
