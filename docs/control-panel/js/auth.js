@@ -252,8 +252,8 @@ class AuthManager {
                 }
             }
 
-            // Check regular users
-            const users = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            // Check regular users using encrypted storage
+            const users = await this.getUsers();
             const user = users.find(u => u.username === username || u.email === username);
 
             if (!user) {
@@ -277,7 +277,7 @@ class AuthManager {
             // Update last login
             user.lastLogin = new Date().toISOString();
             const updatedUsers = users.map(u => u.id === user.id ? user : u);
-            localStorage.setItem('liber_users', JSON.stringify(updatedUsers));
+            await this.saveUsers(updatedUsers);
 
             // Set current user
             this.currentUser = {
