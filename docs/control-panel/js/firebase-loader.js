@@ -2,8 +2,8 @@
 // Attempts latest first, falls back if CDN path is unavailable
 
 const FIREBASE_VERSIONS = [
-	'13.1.0',
-	'12.1.0'
+	'12.1.0',
+	'13.1.0'
 ];
 
 async function loadFirebaseVersion(version) {

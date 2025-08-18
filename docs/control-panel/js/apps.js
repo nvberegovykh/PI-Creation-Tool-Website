@@ -171,7 +171,7 @@ class AppsManager {
             ,
             {
                 id: 'secure-chat',
-                name: 'Secure Chat',
+                name: 'Connections',
                 description: 'End-to-end encrypted chat with file sharing.',
                 version: '1.0.0',
                 category: 'communication',
