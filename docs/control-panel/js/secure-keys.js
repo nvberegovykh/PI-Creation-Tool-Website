@@ -218,6 +218,13 @@ class SecureKeyManager {
     }
 
     /**
+     * Get all keys (for Firebase service)
+     */
+    async getKeys() {
+        return await this.fetchKeys();
+    }
+
+    /**
      * Generate admin password hash for comparison
      */
     async generateAdminHash(password) {

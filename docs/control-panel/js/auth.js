@@ -252,7 +252,7 @@ class AuthManager {
                 }
             }
 
-            // Try Firebase authentication first (if available)
+            // Try Firebase authentication first (REQUIRED)
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 try {
                     console.log('Attempting Firebase login...');
@@ -276,59 +276,19 @@ class AuthManager {
                         }
                     }
                 } catch (firebaseError) {
-                    console.log('Firebase login failed, trying local storage...', firebaseError.message);
+                    console.error('Firebase login failed:', firebaseError.message);
+                    this.showMessage('Login failed. Please check your credentials.', 'error');
+                    return;
                 }
             } else {
-                console.log('Firebase not available, using local storage only');
-            }
-
-            // Fallback to local storage for existing users
-            const users = await this.getUsers();
-            console.log('Total users in storage:', users.length);
-            console.log('All users:', users);
-            
-            const user = users.find(u => u.username === username || u.email === username);
-            console.log('User found:', !!user);
-            console.log('User by email only:', users.find(u => u.email === username));
-            console.log('User by username only:', users.find(u => u.username === username));
-            console.log('Searching for username/email:', username);
-
-            if (!user) {
-                this.showMessage('Invalid username or password', 'error');
+                console.error('Firebase not available - authentication requires Firebase');
+                this.showMessage('Authentication service not available. Please contact support.', 'error');
                 return;
             }
 
-            // Check if email is verified or user is approved
-            console.log('User verification status:', user.isVerified);
-            console.log('User status:', user.status);
-            
-            if (!user.isVerified && user.status !== 'approved') {
-                this.showMessage('Please verify your email address before logging in. Check your inbox for the verification link.', 'error');
-                return;
-            }
-
-            // Verify password
-            const isValidPassword = await window.cryptoManager.verifyPassword(password, user.passwordHash);
-            if (!isValidPassword) {
-                this.showMessage('Invalid username or password', 'error');
-                return;
-            }
-
-            // Update last login
-            user.lastLogin = new Date().toISOString();
-            const updatedUsers = users.map(u => u.id === user.id ? user : u);
-            await this.saveUsers(updatedUsers);
-
-            // Set current user
-            this.currentUser = {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                role: user.role
-            };
-
-            this.createSession();
-            this.showDashboard();
+            // Firebase authentication is required - no fallback to local storage
+            console.error('Firebase authentication failed - no fallback available');
+            this.showMessage('Authentication failed. Please try again.', 'error');
 
         } catch (error) {
             console.error('Login error:', error);
@@ -366,7 +326,7 @@ class AuthManager {
         }
 
         try {
-            // Try Firebase registration first (if available)
+            // Firebase registration is REQUIRED
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 try {
                     console.log('Attempting Firebase registration...');
@@ -404,75 +364,19 @@ class AuthManager {
                         return;
                     }
                 } catch (firebaseError) {
-                    console.log('Firebase registration failed, trying local storage...', firebaseError.message);
+                    console.error('Firebase registration failed:', firebaseError.message);
+                    this.showMessage('Registration failed. Please try again.', 'error');
+                    return;
                 }
             } else {
-                console.log('Firebase not available, using local storage only');
-            }
-
-            // Fallback to local storage for existing users
-            const users = await this.getUsers();
-            const existingUser = users.find(u => u.username === username || u.email === email);
-            
-            if (existingUser) {
-                // If user exists but is not verified, offer to resend verification
-                if (!existingUser.isVerified) {
-                    const resend = confirm(`User already exists but is not verified. Would you like to resend the verification email to ${existingUser.email}?`);
-                    if (resend) {
-                        await this.resendVerificationEmail(existingUser);
-                    }
-                } else {
-                    this.showMessage('Username or email already exists', 'error');
-                }
+                console.error('Firebase not available - registration requires Firebase');
+                this.showMessage('Registration service not available. Please contact support.', 'error');
                 return;
             }
 
-            // Hash password
-            const hashedPassword = await window.cryptoManager.hashPassword(password);
-            
-            // Generate verification token
-            const verificationToken = window.emailService.generateVerificationToken();
-            
-            // Create new user
-            const newUser = {
-                id: this.generateUserId(),
-                username: username,
-                email: email,
-                passwordHash: hashedPassword,
-                role: 'user',
-                isVerified: false,
-                status: 'pending', // Add status for admin panel
-                verificationToken: verificationToken,
-                verificationTokenCreated: Date.now(),
-                createdAt: new Date().toISOString(),
-                lastLogin: null
-            };
-
-            // Add user to storage
-            users.push(newUser);
-            console.log('Saving user to encrypted storage:', newUser);
-            const saveResult = await this.saveUsers(users);
-            console.log('Save result:', saveResult);
-
-            // Send verification email
-            try {
-                console.log('Sending verification email to:', email);
-                console.log('Email service available:', !!window.emailService);
-                
-                await window.emailService.sendVerificationEmail(email, username, verificationToken);
-                console.log('Verification email sent successfully');
-                
-                this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
-                
-                // Clear form
-                document.getElementById('registerForm').reset();
-                
-                // Switch to login tab
-                this.switchTab('login');
-            } catch (emailError) {
-                console.error('Failed to send verification email:', emailError);
-                this.showMessage('Registration successful, but verification email could not be sent. Please contact support.', 'warning');
-            }
+            // Firebase registration is required - no fallback to local storage
+            console.error('Firebase registration failed - no fallback available');
+            this.showMessage('Registration failed. Please try again.', 'error');
 
         } catch (error) {
             console.error('Registration error:', error);
@@ -1571,5 +1475,125 @@ window.createTestUser = async function() {
     } catch (error) {
         console.error('Error creating test user:', error);
         return false;
+    }
+};
+
+// Add comprehensive migration function
+window.migrateAllUsersToFirebase = async function() {
+    console.log('=== Migrating All Users to Firebase ===');
+    
+    try {
+        // Check if Firebase is available
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            console.error('Firebase not available - cannot migrate users');
+            return false;
+        }
+        
+        // Get existing users from local storage
+        const localUsers = await window.authManager.getUsers();
+        console.log('Found local users:', localUsers.length);
+        
+        if (localUsers.length === 0) {
+            console.log('No local users to migrate');
+            return true;
+        }
+        
+        let migratedCount = 0;
+        let failedCount = 0;
+        
+        for (const localUser of localUsers) {
+            try {
+                console.log(`Migrating user: ${localUser.email}`);
+                
+                // Check if user already exists in Firebase
+                const existingMethods = await window.firebaseService.auth.fetchSignInMethodsForEmail(localUser.email);
+                
+                if (existingMethods.length > 0) {
+                    console.log(`User ${localUser.email} already exists in Firebase`);
+                    migratedCount++;
+                    continue;
+                }
+                
+                // Create user in Firebase with temporary password
+                const tempPassword = 'TempPassword123!';
+                const userData = {
+                    username: localUser.username,
+                    email: localUser.email,
+                    role: localUser.role || 'user',
+                    isVerified: localUser.isVerified || false,
+                    status: localUser.status || 'pending',
+                    createdAt: localUser.createdAt || new Date().toISOString(),
+                    migratedFromLocalStorage: true,
+                    needsPasswordReset: true
+                };
+                
+                const firebaseUser = await window.firebaseService.createUser(localUser.email, tempPassword, userData);
+                
+                if (firebaseUser) {
+                    console.log(`✅ Successfully migrated user: ${localUser.email}`);
+                    migratedCount++;
+                } else {
+                    console.error(`❌ Failed to migrate user: ${localUser.email}`);
+                    failedCount++;
+                }
+                
+            } catch (error) {
+                console.error(`❌ Error migrating user ${localUser.email}:`, error);
+                failedCount++;
+            }
+        }
+        
+        console.log(`=== Migration Complete ===`);
+        console.log(`✅ Successfully migrated: ${migratedCount} users`);
+        console.log(`❌ Failed to migrate: ${failedCount} users`);
+        
+        if (migratedCount > 0) {
+            console.log('📧 Sending password reset emails to migrated users...');
+            await window.sendPasswordResetEmailsToMigratedUsers();
+        }
+        
+        return migratedCount > 0;
+        
+    } catch (error) {
+        console.error('Migration error:', error);
+        return false;
+    }
+};
+
+// Add function to send password reset emails to migrated users
+window.sendPasswordResetEmailsToMigratedUsers = async function() {
+    console.log('=== Sending Password Reset Emails to Migrated Users ===');
+    
+    try {
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            console.error('Firebase not available');
+            return;
+        }
+        
+        const firebaseUsers = await window.firebaseService.getAllUsers();
+        const migratedUsers = firebaseUsers.filter(user => user.migratedFromLocalStorage && user.needsPasswordReset);
+        
+        console.log(`Found ${migratedUsers.length} migrated users needing password reset`);
+        
+        for (const user of migratedUsers) {
+            try {
+                await window.firebaseService.sendPasswordResetEmail(user.email);
+                console.log(`✅ Password reset email sent to: ${user.email}`);
+                
+                // Mark as password reset sent
+                await window.firebaseService.updateUserData(user.id, {
+                    needsPasswordReset: false,
+                    passwordResetSent: new Date().toISOString()
+                });
+                
+            } catch (error) {
+                console.error(`❌ Failed to send password reset to ${user.email}:`, error);
+            }
+        }
+        
+        console.log('✅ Password reset emails sent to migrated users');
+        
+    } catch (error) {
+        console.error('Error sending password reset emails:', error);
     }
 };
