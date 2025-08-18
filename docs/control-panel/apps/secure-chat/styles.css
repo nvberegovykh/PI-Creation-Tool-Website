@@ -11,6 +11,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 @media(max-width:768px){
   .chat-app{--mobile-bar-height:60px}
   .sidebar{position:relative;top:auto;left:auto;right:auto;bottom:auto;width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a);height:var(--mobile-bar-height);transform:none;box-shadow:none;z-index:5}
+  .sidebar-header{height:var(--mobile-bar-height);padding:0 16px;display:flex;align-items:center}
   .connections-panel{position:absolute;top:var(--mobile-bar-height);left:0;right:0;background:#0f1116;border-bottom:1px solid var(--border-color,#1f222a);box-shadow:0 12px 24px rgba(0,0,0,.35);height:0;overflow:hidden;transition:height .25s ease;z-index:21;display:block}
   .sidebar.open .connections-panel{height:50vh;height:50svh;overflow:auto}
   .sidebar:not(.open) .connections-panel .search-box{display:none}
