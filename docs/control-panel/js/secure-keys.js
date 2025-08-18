@@ -181,7 +181,10 @@ class SecureKeyManager {
                keys.admin &&
                keys.system &&
                keys.admin.passwordHash &&
-               keys.system.masterKeyHash;
+               keys.system.masterKeyHash &&
+               keys.firebase && // Firebase config is required
+               keys.firebase.apiKey &&
+               keys.firebase.projectId;
     }
 
     /**

@@ -252,7 +252,33 @@ class AuthManager {
                 }
             }
 
-            // Check regular users using encrypted storage
+            // Try Firebase authentication first
+            try {
+                console.log('Attempting Firebase login...');
+                const firebaseUser = await window.firebaseService.signInUser(username, password);
+                
+                if (firebaseUser) {
+                    // Get user data from Firestore
+                    const userData = await window.firebaseService.getUserData(firebaseUser.uid);
+                    
+                    if (userData) {
+                        this.currentUser = {
+                            id: firebaseUser.uid,
+                            username: userData.username,
+                            email: userData.email,
+                            role: userData.role || 'user'
+                        };
+                        
+                        this.createSession();
+                        this.showDashboard();
+                        return;
+                    }
+                }
+            } catch (firebaseError) {
+                console.log('Firebase login failed, trying local storage...', firebaseError.message);
+            }
+
+            // Fallback to local storage for existing users
             const users = await this.getUsers();
             console.log('Total users in storage:', users.length);
             console.log('All users:', users);
@@ -336,7 +362,47 @@ class AuthManager {
         }
 
         try {
-            // Check if user already exists
+            // Try Firebase registration first
+            try {
+                console.log('Attempting Firebase registration...');
+                
+                // Check if user already exists in Firebase
+                const existingMethods = await window.firebaseService.auth.fetchSignInMethodsForEmail(email);
+                if (existingMethods.length > 0) {
+                    this.showMessage('An account with this email already exists', 'error');
+                    return;
+                }
+                
+                // Create user in Firebase
+                const userData = {
+                    username: username,
+                    email: email,
+                    role: 'user',
+                    isVerified: false,
+                    status: 'pending',
+                    createdAt: new Date().toISOString()
+                };
+                
+                const firebaseUser = await window.firebaseService.createUser(email, password, userData);
+                
+                if (firebaseUser) {
+                    // Send verification email via Firebase
+                    await window.firebaseService.sendEmailVerification();
+                    
+                    this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
+                    
+                    // Clear form
+                    document.getElementById('registerForm').reset();
+                    
+                    // Switch to login tab
+                    this.switchTab('login');
+                    return;
+                }
+            } catch (firebaseError) {
+                console.log('Firebase registration failed, trying local storage...', firebaseError.message);
+            }
+
+            // Fallback to local storage for existing users
             const users = await this.getUsers();
             const existingUser = users.find(u => u.username === username || u.email === email);
             

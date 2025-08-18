@@ -35,7 +35,17 @@ class UsersManager {
 
     async loadUsers() {
         try {
-            this.users = await window.authManager.getUsers();
+            // Try to load users from Firebase first
+            try {
+                console.log('Loading users from Firebase...');
+                this.users = await window.firebaseService.getAllUsers();
+                console.log('Firebase users loaded:', this.users.length);
+            } catch (firebaseError) {
+                console.log('Firebase users loading failed, trying local storage...', firebaseError.message);
+                // Fallback to local storage
+                this.users = await window.authManager.getUsers();
+            }
+            
             this.renderUsers();
             this.updateUserCount();
         } catch (error) {
