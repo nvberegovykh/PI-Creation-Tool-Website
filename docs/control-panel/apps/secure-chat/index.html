@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Secure Chat</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div id="chat-app" class="chat-app">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>Connections</h2>
+                <button id="new-connection-btn" class="btn">+ New</button>
+            </div>
+            <div class="search-box">
+                <input id="user-search" type="text" placeholder="Search users..." />
+            </div>
+            <ul id="connections-list" class="connections-list"></ul>
+        </aside>
+        <main class="main">
+            <div class="chat-header">
+                <div>
+                    <h3 id="active-connection-name">Select a chat</h3>
+                    <small id="active-connection-meta"></small>
+                </div>
+                <div class="header-actions">
+                    <input id="message-search" type="text" placeholder="Search messages..." />
+                </div>
+            </div>
+            <div id="messages" class="messages"></div>
+            <div class="composer">
+                <input id="file-input" type="file" multiple style="display:none" />
+                <button id="attach-btn" class="btn secondary">📎</button>
+                <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
+                <button id="send-btn" class="btn">Send</button>
+            </div>
+        </main>
+    </div>
+
+    <script src="../../js/crypto.js"></script>
+    <script src="chat-crypto.js"></script>
+    <script src="chat.js"></script>
+</body>
+</html>
+
+
