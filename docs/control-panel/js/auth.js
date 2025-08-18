@@ -1215,6 +1215,80 @@ class AuthManager {
     }
 
     /**
+     * Check and fix user verification status
+     */
+    async checkUserVerificationStatus(email) {
+        console.log('=== Checking User Verification Status ===');
+        console.log('Email:', email);
+        
+        try {
+            const users = await this.getUsers();
+            const user = users.find(u => u.email === email);
+            
+            if (user) {
+                console.log('User found:', user);
+                console.log('isVerified:', user.isVerified);
+                console.log('status:', user.status);
+                console.log('verificationToken:', user.verificationToken);
+                
+                // If user is verified but status is not approved, fix it
+                if (user.isVerified && user.status !== 'approved') {
+                    console.log('Fixing user status...');
+                    user.status = 'approved';
+                    const updatedUsers = users.map(u => u.email === email ? user : u);
+                    await this.saveUsers(updatedUsers);
+                    console.log('User status fixed to approved');
+                }
+                
+                return user;
+            } else {
+                console.log('User not found');
+                return null;
+            }
+        } catch (error) {
+            console.error('Error checking user verification status:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check and fix user verification status
+     */
+    async checkUserVerificationStatus(email) {
+        console.log('=== Checking User Verification Status ===');
+        console.log('Email:', email);
+        
+        try {
+            const users = await this.getUsers();
+            const user = users.find(u => u.email === email);
+            
+            if (user) {
+                console.log('User found:', user);
+                console.log('isVerified:', user.isVerified);
+                console.log('status:', user.status);
+                console.log('verificationToken:', user.verificationToken);
+                
+                // If user is verified but status is not approved, fix it
+                if (user.isVerified && user.status !== 'approved') {
+                    console.log('Fixing user status...');
+                    user.status = 'approved';
+                    const updatedUsers = users.map(u => u.email === email ? user : u);
+                    await this.saveUsers(updatedUsers);
+                    console.log('User status fixed to approved');
+                }
+                
+                return user;
+            } else {
+                console.log('User not found');
+                return null;
+            }
+        } catch (error) {
+            console.error('Error checking user verification status:', error);
+            return null;
+        }
+    }
+
+    /**
      * Check raw storage data to see what's actually stored
      */
     checkRawStorage() {
@@ -1234,3 +1308,40 @@ class AuthManager {
 
 // Initialize auth manager
 window.authManager = new AuthManager();
+
+// Add global debug function for easy console access
+window.debugUser = async function(email) {
+    console.log('=== Quick User Debug ===');
+    console.log('Email:', email);
+    
+    try {
+        const users = await window.authManager.getUsers();
+        const user = users.find(u => u.email === email);
+        
+        if (user) {
+            console.log('✅ User found:', user);
+            console.log('📧 Email:', user.email);
+            console.log('👤 Username:', user.username);
+            console.log('✅ Verified:', user.isVerified);
+            console.log('📋 Status:', user.status);
+            console.log('🔑 Token:', user.verificationToken);
+            console.log('📅 Created:', user.createdAt);
+            
+            if (user.isVerified && user.status !== 'approved') {
+                console.log('⚠️ User is verified but status is not approved - fixing...');
+                user.status = 'approved';
+                const updatedUsers = users.map(u => u.email === email ? user : u);
+                await window.authManager.saveUsers(updatedUsers);
+                console.log('✅ Status fixed to approved');
+            }
+            
+            return user;
+        } else {
+            console.log('❌ User not found');
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ Error:', error);
+        return null;
+    }
+};

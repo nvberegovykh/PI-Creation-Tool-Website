@@ -224,6 +224,7 @@ class EmailService {
             
             const user = users.find(u => u.email === email && u.verificationToken === token);
             console.log('User found:', !!user);
+            console.log('User data:', user);
             
             if (!user) {
                 // Try to find user by email only to see if user exists
@@ -231,6 +232,13 @@ class EmailService {
                 console.log('User by email only:', userByEmail);
                 if (userByEmail) {
                     console.log('User exists but token mismatch. Expected:', userByEmail.verificationToken, 'Received:', token);
+                    console.log('User verification status:', userByEmail.isVerified);
+                    console.log('User status:', userByEmail.status);
+                    
+                    // If user is already verified, show appropriate message
+                    if (userByEmail.isVerified) {
+                        throw new Error('Email is already verified. You can login directly.');
+                    }
                 }
                 throw new Error('Invalid or expired verification token');
             }
