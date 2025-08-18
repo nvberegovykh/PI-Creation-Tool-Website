@@ -7,7 +7,7 @@ class SecureKeyManager {
     constructor() {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2NhZDViOTYxNjc4NjlhNDUwMzJmOWY2ZjFkMTA1NmU3ODNhMTI5YTkvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2ZkMjc4NDg0NTQyY2M5NDFjOThlNTUwNGIwYzdiYjEyNGM2ZTM0YjUvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
@@ -320,7 +320,7 @@ class SecureKeyManager {
      */
     async getMailgunConfig() {
         try {
-            const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvNjBkYTlmNWFkODA4YWYxNjJkM2M1NzAwYjgzYTEyZWYvcmF3L2JlY2NjNGY2NjBiNWVhMTAzNGU1MDFlOGI3ODM3YjQ5ZDUzNWNkNGEvbWFpbGd1bi1jb25maWcuanNvbg==');
+            const gistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2ZkMjc4NDg0NTQyY2M5NDFjOThlNTUwNGIwYzdiYjEyNGM2ZTM0YjUvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
             console.log('Fetching Mailgun config from Gist...');
             const response = await fetch(gistUrl);
             if (!response.ok) {
