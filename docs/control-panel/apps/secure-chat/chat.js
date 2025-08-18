@@ -160,10 +160,22 @@
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) return;
       for (const f of files){
-        const array = new Uint8Array(await f.arrayBuffer());
         const aesKey = await this.getFallbackKey();
-        // Encrypt file content (base64 of bytes) with shared AES key
-        const cipher = await chatCrypto.encryptWithKey(btoa(String.fromCharCode(...array)), aesKey);
+        // Read file as base64 via FileReader to avoid large argument spreads
+        const base64 = await new Promise((resolve, reject)=>{
+          try{
+            const reader = new FileReader();
+            reader.onload = ()=>{
+              const result = String(reader.result || '');
+              const b64 = result.includes(',') ? result.split(',')[1] : '';
+              resolve(b64);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(f);
+          }catch(e){ reject(e); }
+        });
+        // Encrypt base64 string
+        const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const blob = new Blob([JSON.stringify(cipher)], {type:'application/octet-stream'});
         const s = this.storage; if (!s) continue;
         const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
