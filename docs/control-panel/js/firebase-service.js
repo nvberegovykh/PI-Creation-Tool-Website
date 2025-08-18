@@ -19,6 +19,14 @@ class FirebaseService {
         try {
             console.log('=== Firebase Service Initialization ===');
             
+            // Check if Firebase SDK is available
+            if (typeof firebase === 'undefined') {
+                console.error('❌ Firebase SDK not loaded!');
+                this.isInitialized = false;
+                return;
+            }
+            console.log('✅ Firebase SDK is available');
+            
             // Wait for secure keys to be loaded
             console.log('Waiting for secure keys...');
             await this.waitForSecureKeys();
