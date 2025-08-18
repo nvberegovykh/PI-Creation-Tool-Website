@@ -382,7 +382,7 @@
 
     <!-- Firebase SDK - Latest Version 12.1.0 -->
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js';
         import { 
             getAuth, 
             createUserWithEmailAndPassword, 
@@ -391,6 +391,8 @@
             sendEmailVerification, 
             onAuthStateChanged, 
             fetchSignInMethodsForEmail,
+            verifyPasswordResetCode,
+            confirmPasswordReset,
             browserLocalPersistence,
             setPersistence,
             signOut,
@@ -398,15 +400,15 @@
             deleteUser,
             reauthenticateWithCredential,
             EmailAuthProvider
-        } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js';
-        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork, updateDoc, increment, limit, startAfter, deleteDoc } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+        } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
+        import { getFirestore, enableIndexedDbPersistence, enableMultiTabIndexedDbPersistence, serverTimestamp, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork, updateDoc, increment, limit, startAfter, deleteDoc } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
         
         // Make Firebase available globally for existing code compatibility
         window.firebase = {
             initializeApp,
             auth: getAuth,
             firestore: getFirestore,
-            SDK_VERSION: '12.1.0',
+            SDK_VERSION: '13.1.0',
             // Add modular methods for compatibility
             createUserWithEmailAndPassword,
             signInWithEmailAndPassword,
@@ -414,6 +416,8 @@
             sendEmailVerification,
             onAuthStateChanged,
             fetchSignInMethodsForEmail,
+            verifyPasswordResetCode,
+            confirmPasswordReset,
             browserLocalPersistence,
             setPersistence,
             signOut,
@@ -435,7 +439,10 @@
             increment,
             limit,
             startAfter,
-            deleteDoc
+            deleteDoc,
+            enableIndexedDbPersistence,
+            enableMultiTabIndexedDbPersistence,
+            serverTimestamp
         };
         
         // Also expose modular functions directly for modern usage
@@ -449,6 +456,8 @@
             sendEmailVerification,
             onAuthStateChanged,
             fetchSignInMethodsForEmail,
+            verifyPasswordResetCode,
+            confirmPasswordReset,
             browserLocalPersistence,
             setPersistence,
             signOut,
@@ -470,10 +479,13 @@
             increment,
             limit,
             startAfter,
-            deleteDoc
+            deleteDoc,
+            enableIndexedDbPersistence,
+            enableMultiTabIndexedDbPersistence,
+            serverTimestamp
         };
         
-        console.log('✅ Firebase Modular SDK v12.1.0 loaded successfully');
+        console.log('✅ Firebase Modular SDK v13.1.0 loaded successfully');
         console.log('Available services: Auth, Firestore');
     </script>
     
@@ -494,8 +506,8 @@
                         console.error(`Module ${index + 1}:`, script.innerHTML.substring(0, 100) + '...');
                     });
                     
-                                         // Check network connectivity
-                     fetch('https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js', { method: 'HEAD' })
+                    // Check network connectivity
+                    fetch('https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js', { method: 'HEAD' })
                         .then(() => console.log('✅ Firebase CDN is accessible'))
                         .catch(() => console.error('❌ Firebase CDN is not accessible'));
                         
