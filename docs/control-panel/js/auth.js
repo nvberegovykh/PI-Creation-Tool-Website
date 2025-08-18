@@ -612,15 +612,23 @@ class AuthManager {
     /**
      * Check URL parameters for verification and reset actions
      */
-    checkUrlActions() {
+    async checkUrlActions() {
         const urlParams = new URLSearchParams(window.location.search);
         const action = urlParams.get('action');
         const token = urlParams.get('token');
         const email = urlParams.get('email');
 
         if (action && token && email) {
+            console.log('=== URL Action Detected ===');
+            console.log('Action:', action);
+            console.log('Token:', token);
+            console.log('Email:', email);
+            
             // Check if we've already processed this verification
             const processedKey = `processed_${action}_${token}_${email}`;
+            console.log('Processing key:', processedKey);
+            console.log('Already processed:', sessionStorage.getItem(processedKey));
+            
             if (sessionStorage.getItem(processedKey)) {
                 console.log('Verification already processed, skipping...');
                 // Clear URL parameters
@@ -629,10 +637,19 @@ class AuthManager {
             }
 
             if (action === 'verify') {
-                this.handleEmailVerification(token, email);
-                // Mark as processed
-                sessionStorage.setItem(processedKey, 'true');
+                console.log('Starting email verification...');
+                try {
+                    await this.handleEmailVerification(token, email);
+                    console.log('Email verification completed successfully');
+                    // Mark as processed
+                    sessionStorage.setItem(processedKey, 'true');
+                    console.log('Marked as processed in session storage');
+                } catch (error) {
+                    console.error('Email verification failed:', error);
+                    // Don't mark as processed if it failed
+                }
             } else if (action === 'reset') {
+                console.log('Starting password reset...');
                 this.showPasswordResetForm(token, email);
                 // Mark as processed
                 sessionStorage.setItem(processedKey, 'true');

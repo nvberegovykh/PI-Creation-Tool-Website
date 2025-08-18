@@ -242,8 +242,9 @@ class EmailService {
                 throw new Error('Verification token has expired');
             }
 
-            // Mark user as verified
+            // Mark user as verified and approved
             user.isVerified = true;
+            user.status = 'approved'; // Also set status to approved for admin panel
             user.verificationToken = null;
             user.verificationTokenCreated = null;
             user.verifiedAt = new Date().toISOString();
