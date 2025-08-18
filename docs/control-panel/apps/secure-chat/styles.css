@@ -40,6 +40,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .btn{background:#2563eb;border:none;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer;transition:transform .05s ease,opacity .2s ease}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:#222737}
+.btn.back{background:#151a28}
+.btn.back:hover{background:#0f172a}
 @media(max-width:1024px){.sidebar{width:min(92vw,380px)}}
 @media(max-width:768px){.chat-app{flex-direction:column}.sidebar{width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a)}.main{flex:1;min-height:0}.messages{padding:14px}.message{max-width:85%}}
 /* Prevent iOS zoom and unintended focus jump on search in header */

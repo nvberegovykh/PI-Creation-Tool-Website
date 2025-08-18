@@ -30,6 +30,45 @@
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       document.getElementById('message-search').addEventListener('input', (e)=> this.searchMessages(e.target.value.trim()));
+      // Drag & Drop upload within chat app area
+      const appEl = document.getElementById('chat-app');
+      if (appEl){
+        ['dragenter','dragover'].forEach(evt=> appEl.addEventListener(evt, (e)=>{
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        }));
+        appEl.addEventListener('drop', (e)=>{
+          e.preventDefault();
+          const dt = e.dataTransfer;
+          if (!dt) return;
+          const files = dt.files && dt.files.length ? dt.files : null;
+          if (files && files.length) this.sendFiles(files);
+        });
+      }
+      // Paste-to-upload on message input (supports images/files from clipboard)
+      const msgInput = document.getElementById('message-input');
+      if (msgInput){
+        msgInput.addEventListener('paste', async (e)=>{
+          const cd = e.clipboardData;
+          if (!cd) return;
+          const files = [];
+          if (cd.files && cd.files.length){
+            for (let i=0;i<cd.files.length;i++) files.push(cd.files[i]);
+          } else if (cd.items && cd.items.length){
+            for (let i=0;i<cd.items.length;i++){
+              const it = cd.items[i];
+              if (it && it.kind === 'file'){
+                const f = it.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+          }
+          if (files.length){
+            e.preventDefault();
+            await this.sendFiles(files);
+          }
+        });
+      }
       const sidebarHeader = document.getElementById('sidebar-header');
       if (sidebarHeader){
         sidebarHeader.addEventListener('click', ()=>{
