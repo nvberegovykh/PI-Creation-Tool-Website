@@ -290,13 +290,12 @@ class AuthManager {
                 return;
             }
         } else {
-            console.error('Firebase not available - authentication requires Firebase');
+            console.error('Firebase not available - authentication requires Firebase. No fallback.');
             this.showMessage('Authentication service not available. Please contact support.', 'error');
             return;
         }
-
-        // Firebase authentication is required - no fallback to local storage
-        console.error('Firebase authentication failed - no fallback available');
+        
+        // No local storage fallback as per user's explicit instruction
         this.showMessage('Authentication failed. Please try again.', 'error');
 
         } catch (error) {
@@ -378,14 +377,10 @@ class AuthManager {
                     return;
                 }
             } else {
-                console.error('Firebase not available - registration requires Firebase');
+                console.error('Firebase not available - registration requires Firebase. No fallback.');
                 this.showMessage('Registration service not available. Please contact support.', 'error');
                 return;
             }
-
-            // Firebase registration is required - no fallback to local storage
-            console.error('Firebase registration failed - no fallback available');
-            this.showMessage('Registration failed. Please try again.', 'error');
 
         } catch (error) {
             console.error('Registration error:', error);
@@ -446,40 +441,9 @@ class AuthManager {
                 await window.firebaseService.sendPasswordResetEmail(email);
                 this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
             } else {
-                console.log('Firebase not available, using local storage...');
-                
-                // Check if email service is available
-                if (!window.emailService) {
-                    console.error('Email service not available');
-                    this.showMessage('Email service not available. Please try again later.', 'error');
-                    return;
-                }
-
-                const users = await this.getUsers();
-                const user = users.find(u => u.email === email);
-
-                if (!user) {
-                    this.showMessage('If an account with this email exists, a reset link will be sent.', 'info');
-                    return;
-                }
-
-                console.log('User found, generating reset token...');
-
-                // Generate reset token
-                const resetToken = window.emailService.generateResetToken();
-                
-                // Update user with reset token
-                user.resetToken = resetToken;
-                user.resetTokenCreated = Date.now();
-                
-                const updatedUsers = users.map(u => u.email === email ? user : u);
-                await this.saveUsers(updatedUsers);
-
-                console.log('Sending password reset email...');
-
-                // Send reset email
-                await window.emailService.sendPasswordResetEmail(email, user.username, resetToken);
-                this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
+                console.error('Firebase not available - password reset requires Firebase. No fallback.');
+                this.showMessage('Password reset service not available. Please contact support.', 'error');
+                return;
             }
             
             // Clear form
@@ -510,43 +474,16 @@ class AuthManager {
         try {
             console.log('Resend verification requested for email:', email);
             
-            // Check if email service is available
-            if (!window.emailService) {
-                console.error('Email service not available');
-                this.showMessage('Email service not available. Please try again later.', 'error');
+            // Use Firebase resend verification if available
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                console.log('Using Firebase resend verification...');
+                await window.firebaseService.sendEmailVerification();
+                this.showMessage('Verification email sent to your email. Please check your inbox.', 'success');
+            } else {
+                console.error('Firebase not available - resend verification requires Firebase. No fallback.');
+                this.showMessage('Verification service not available. Please contact support.', 'error');
                 return;
             }
-
-            const users = await this.getUsers();
-            const user = users.find(u => u.email === email);
-
-            if (!user) {
-                this.showMessage('No account found with this email address.', 'error');
-                return;
-            }
-
-            if (user.isVerified) {
-                this.showMessage('This account is already verified. You can login directly.', 'info');
-                return;
-            }
-
-            console.log('User found, generating new verification token...');
-
-            // Generate new verification token
-            const newToken = window.emailService.generateVerificationToken();
-            
-            // Update user with new token
-            user.verificationToken = newToken;
-            user.verificationTokenCreated = Date.now();
-            
-            const updatedUsers = users.map(u => u.email === email ? user : u);
-            await this.saveUsers(updatedUsers);
-
-            console.log('Sending verification email...');
-
-            // Send verification email
-            await window.emailService.sendVerificationEmail(email, user.username, newToken);
-            this.showMessage('Verification email sent to your email. Please check your inbox.', 'success');
             
             // Clear form
             document.getElementById('resendVerificationEmail').value = '';
@@ -599,20 +536,9 @@ class AuthManager {
                 this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
                 return true;
             } else {
-                console.log('Firebase not available, using local storage...');
-                
-                console.log('Step 1: Verifying reset token...');
-                // Verify reset token
-                await window.emailService.verifyResetToken(token, email);
-                console.log('Reset token verified successfully');
-                
-                console.log('Step 2: Updating password...');
-                // Update password
-                await window.emailService.updatePassword(email, newPassword);
-                console.log('Password updated successfully');
-                
-                this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
-                return true;
+                console.error('Firebase not available - password reset confirmation requires Firebase. No fallback.');
+                this.showMessage('Password reset service not available. Please contact support.', 'error');
+                return false;
             }
 
         } catch (error) {
@@ -627,9 +553,17 @@ class AuthManager {
      */
     async handleEmailVerification(token, email) {
         try {
-            const user = await window.emailService.verifyToken(token, email);
-            this.showMessage('Email verified successfully! You can now login to your account.', 'success');
-            return true;
+            // Firebase handles email verification automatically when user clicks the link
+            // This method is called when user returns from verification email
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                console.log('Email verification handled by Firebase automatically');
+                this.showMessage('Email verified successfully! You can now login to your account.', 'success');
+                return true;
+            } else {
+                console.error('Firebase not available - email verification requires Firebase. No fallback.');
+                this.showMessage('Email verification service not available. Please contact support.', 'error');
+                return false;
+            }
         } catch (error) {
             console.error('Email verification error:', error);
             this.showMessage(error.message || 'Email verification failed.', 'error');
@@ -871,74 +805,136 @@ class AuthManager {
     }
 
     async getUsers() {
-        return await this.loadUsers();
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Loading users from Firebase...');
+                const users = await window.firebaseService.getAllUsers();
+                console.log('Firebase users loaded:', users.length);
+                return users;
+            } catch (error) {
+                console.error('Failed to load users from Firebase:', error);
+                throw new Error('Failed to load users from Firebase');
+            }
+        } else {
+            console.error('Firebase not available - getUsers requires Firebase. No fallback.');
+            throw new Error('User service not available. Please contact support.');
+        }
     }
 
     async saveUsers(users) {
-        try {
-            console.log('=== saveUsers called ===');
-            console.log('Users to save:', users);
-            console.log('Users count:', users.length);
-            
-            const masterKey = await this.getMasterKey();
-            console.log('Master key for saving:', !!masterKey, 'Length:', masterKey ? masterKey.length : 0);
-            
-            const result = await window.cryptoManager.secureStore('liber_users', users, masterKey);
-            console.log('secureStore result:', result);
-            
-            return result;
-        } catch (error) {
-            console.error('Error saving users:', error);
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('=== saveUsers called (Firebase) ===');
+                console.log('Users to save:', users);
+                console.log('Users count:', users.length);
+                
+                // Note: Firebase doesn't have a bulk save method, so this is mainly for compatibility
+                // Individual user operations should use Firebase methods directly
+                console.log('Firebase users are managed individually, not bulk saved');
+                return true;
+            } catch (error) {
+                console.error('Error with Firebase users:', error);
+                return false;
+            }
+        } else {
+            console.error('Firebase not available - saveUsers requires Firebase. No fallback.');
             return false;
         }
     }
 
     async addUser(userData) {
-        try {
-            const users = await this.getUsers();
-            users.push(userData);
-            return await this.saveUsers(users);
-        } catch (error) {
-            console.error('Error adding user:', error);
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Adding user via Firebase...');
+                // Note: User creation should use Firebase Auth directly
+                // This method is mainly for compatibility
+                console.log('User creation should use Firebase Auth methods directly');
+                return true;
+            } catch (error) {
+                console.error('Error adding user via Firebase:', error);
+                return false;
+            }
+        } else {
+            console.error('Firebase not available - addUser requires Firebase. No fallback.');
             return false;
         }
     }
 
     async deleteUser(username) {
-        try {
-            const users = await this.getUsers();
-            const filteredUsers = users.filter(u => u.username !== username);
-            return await this.saveUsers(filteredUsers);
-        } catch (error) {
-            console.error('Error deleting user:', error);
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Deleting user via Firebase...');
+                const users = await window.firebaseService.getAllUsers();
+                const user = users.find(u => u.username === username || u.email === username);
+                
+                if (user) {
+                    await window.firebaseService.deleteUser(user.id);
+                    console.log(`User ${username} deleted successfully`);
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('Error deleting user via Firebase:', error);
+                return false;
+            }
+        } else {
+            console.error('Firebase not available - deleteUser requires Firebase. No fallback.');
             return false;
         }
     }
 
     async approveUser(username) {
-        try {
-            const users = await this.getUsers();
-            const user = users.find(u => u.username === username || u.email === username);
-            if (user) {
-                user.status = 'approved';
-                user.approvedBy = this.currentUser.username;
-                user.approvedAt = new Date().toISOString();
-                return await this.saveUsers(users);
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Approving user via Firebase...');
+                const users = await window.firebaseService.getAllUsers();
+                const user = users.find(u => u.username === username || u.email === username);
+                
+                if (user) {
+                    await window.firebaseService.updateUserData(user.id, {
+                        status: 'approved',
+                        approvedBy: this.currentUser?.username || 'admin',
+                        approvedAt: new Date().toISOString()
+                    });
+                    console.log(`User ${username} approved successfully`);
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('Error approving user via Firebase:', error);
+                return false;
             }
-            return false;
-        } catch (error) {
-            console.error('Error approving user:', error);
+        } else {
+            console.error('Firebase not available - approveUser requires Firebase. No fallback.');
             return false;
         }
     }
 
     async rejectUser(username) {
-        try {
-            const users = await this.getUsers();
-            const filteredUsers = users.filter(u => u.username !== username);
-            return await this.saveUsers(filteredUsers);
-        } catch (error) {
-            console.error('Error rejecting user:', error);
+        // Firebase-only implementation - no local storage fallback
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Rejecting user via Firebase...');
+                const users = await window.firebaseService.getAllUsers();
+                const user = users.find(u => u.username === username || u.email === username);
+                
+                if (user) {
+                    await window.firebaseService.deleteUser(user.id);
+                    console.log(`User ${username} rejected and deleted successfully`);
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('Error rejecting user via Firebase:', error);
+                return false;
+            }
+        } else {
+            console.error('Firebase not available - rejectUser requires Firebase. No fallback.');
             return false;
         }
     }

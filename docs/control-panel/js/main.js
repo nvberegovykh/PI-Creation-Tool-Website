@@ -79,9 +79,9 @@ class LiberAppsControlPanel {
         // Check Firebase availability first - REQUIRED
         console.log('Checking Firebase availability...');
         
-        // Wait for Firebase to be fully initialized
+        // Wait for Firebase to be fully initialized (increased timeout for modular SDK)
         let attempts = 0;
-        const maxAttempts = 50; // 5 seconds
+        const maxAttempts = 100; // 10 seconds for modular SDK
         
         while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -90,7 +90,13 @@ class LiberAppsControlPanel {
         
         if (!window.firebaseService || !window.firebaseService.isInitialized) {
             console.error('❌ Firebase is required but not available!');
-            window.showFirebaseError();
+            console.error('Firebase service status:', {
+                serviceExists: !!window.firebaseService,
+                isInitialized: window.firebaseService?.isInitialized,
+                firebaseSDK: typeof firebase !== 'undefined'
+            });
+            // Firebase is mandatory - no fallback available
+            console.error('❌ Firebase authentication is required. Please check your connection and try again.');
             return;
         }
         

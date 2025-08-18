@@ -20,18 +20,9 @@ class FirebaseService {
         try {
             console.log('=== Firebase Service Initialization ===');
             
-            // Check if Firebase SDK is available
-            if (typeof firebase === 'undefined') {
-                console.error('❌ Firebase SDK not loaded!');
-                console.error('Firebase SDK failed to load. This could be due to:');
-                console.error('1. Network connectivity issues');
-                console.error('2. Firewall blocking Firebase URLs');
-                console.error('3. Browser security settings');
-                console.error('4. CDN availability issues');
-                console.error('5. Script loading order issues');
-                this.isInitialized = false;
-                return;
-            }
+            // Wait for Firebase SDK to be available (modular SDK loads asynchronously)
+            await this.waitForFirebaseSDK();
+            
             console.log('✅ Firebase SDK is available');
             console.log('Firebase version:', firebase.SDK_VERSION);
             
@@ -98,6 +89,23 @@ class FirebaseService {
             console.error('Error details:', error.message);
             console.error('Error stack:', error.stack);
             this.isInitialized = false;
+        }
+    }
+
+    /**
+     * Wait for Firebase SDK to be available (modular SDK loads asynchronously)
+     */
+    async waitForFirebaseSDK() {
+        let attempts = 0;
+        const maxAttempts = 100; // 10 seconds
+        
+        while (typeof firebase === 'undefined' && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (typeof firebase === 'undefined') {
+            throw new Error('Firebase SDK failed to load within 10 seconds. Please check your internet connection.');
         }
     }
 

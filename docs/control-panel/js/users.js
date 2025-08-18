@@ -56,8 +56,9 @@ class UsersManager {
                 return;
             }
         } else {
-            console.error('Firebase not available - user management requires Firebase');
-            this.showError('User management service not available');
+            console.error('Firebase not available - user management requires Firebase. No fallback.');
+            this.showError('User management service not available. Please contact support.');
+            this.users = []; // Ensure users array is empty if Firebase is not available
             return;
         }
             
