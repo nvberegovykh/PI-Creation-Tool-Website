@@ -7,7 +7,7 @@ class SecureKeyManager {
     constructor() {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2ZkMjc4NDg0NTQyY2M5NDFjOThlNTUwNGIwYzdiYjEyNGM2ZTM0YjUvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2RkNTQwMDMxMDgwMDE3MDg2NjMzNTNkYzYyMDcwN2Y5MTY1YTA1MzcvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
@@ -88,6 +88,16 @@ class SecureKeyManager {
         this.keyUrl = null; // Force re-fetch of URL
         
         console.log('Cleared all encrypted data due to key change');
+    }
+
+    /**
+     * Force refresh of keys from Gist
+     */
+    forceRefreshKeys() {
+        this.cachedKeys = null;
+        this.lastFetch = 0;
+        this.keyUrl = null;
+        console.log('Forced refresh of keys from Gist');
     }
 
     /**
