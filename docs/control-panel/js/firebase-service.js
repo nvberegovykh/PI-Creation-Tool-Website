@@ -49,15 +49,16 @@ class FirebaseService {
                 throw new Error('❌ Firebase configuration is required but not found in secure keys. Please add Firebase configuration to your Gist.');
             }
 
-            // Validate Firebase config
-            const requiredFields = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-            const missingFields = requiredFields.filter(field => !firebaseConfig[field]);
+            // Validate Firebase config - only require essential fields
+            const essentialFields = ['apiKey', 'projectId'];
+            const missingFields = essentialFields.filter(field => !firebaseConfig[field]);
             if (missingFields.length > 0) {
-                console.error('❌ Invalid Firebase config - missing fields:', missingFields);
+                console.error('❌ Invalid Firebase config - missing essential fields:', missingFields);
                 this.isInitialized = false;
                 return;
             }
             console.log('✅ Firebase config validation passed');
+            console.log('Firebase config has all essential fields:', essentialFields);
 
             // Initialize Firebase
             console.log('Initializing Firebase app...');
@@ -130,16 +131,25 @@ class FirebaseService {
      */
     async getFirebaseConfig() {
         try {
+            console.log('Fetching keys from secure key manager...');
             const keys = await window.secureKeyManager.getKeys();
+            console.log('Keys fetched successfully');
+            console.log('Keys structure:', Object.keys(keys));
             
             if (!keys.firebase) {
+                console.error('❌ Firebase configuration missing from keys');
+                console.error('Available keys:', Object.keys(keys));
                 throw new Error('❌ Firebase configuration is required but not found in secure keys. Please add Firebase configuration to your Gist.');
             }
+            
+            console.log('✅ Firebase config found in keys');
+            console.log('Firebase config fields:', Object.keys(keys.firebase));
             
             return keys.firebase;
             
         } catch (error) {
             console.error('Error getting Firebase configuration:', error);
+            console.error('Error details:', error.message);
             throw new Error('❌ Failed to load Firebase configuration from secure keys. Please check your Gist configuration.');
         }
     }
@@ -459,6 +469,90 @@ window.testFirebase = function() {
     }
     console.log('Firebase service available:', !!window.firebaseService);
     console.log('Firebase service initialized:', window.firebaseService?.isInitialized);
+    
+    // Test secure key manager
+    if (window.secureKeyManager) {
+        console.log('Secure key manager available:', !!window.secureKeyManager);
+        window.secureKeyManager.getKeys().then(keys => {
+            console.log('Keys structure:', Object.keys(keys));
+            console.log('Has Firebase config:', !!keys.firebase);
+            if (keys.firebase) {
+                console.log('Firebase config fields:', Object.keys(keys.firebase));
+                console.log('Firebase project ID:', keys.firebase.projectId);
+            }
+        }).catch(error => {
+            console.error('Error fetching keys:', error);
+        });
+    } else {
+        console.error('Secure key manager not available');
+    }
+};
+
+// Add comprehensive test function
+window.testCompleteSetup = async function() {
+    console.log('=== Testing Complete Setup ===');
+    
+    try {
+        // Test 1: Firebase SDK
+        console.log('1. Testing Firebase SDK...');
+        if (typeof firebase === 'undefined') {
+            console.error('❌ Firebase SDK not loaded');
+            return false;
+        }
+        console.log('✅ Firebase SDK loaded');
+        
+        // Test 2: Secure Key Manager
+        console.log('2. Testing Secure Key Manager...');
+        if (!window.secureKeyManager) {
+            console.error('❌ Secure Key Manager not available');
+            return false;
+        }
+        console.log('✅ Secure Key Manager available');
+        
+        // Test 3: Firebase Configuration
+        console.log('3. Testing Firebase Configuration...');
+        const keys = await window.secureKeyManager.getKeys();
+        if (!keys.firebase) {
+            console.error('❌ Firebase config not found in Gist');
+            return false;
+        }
+        console.log('✅ Firebase config found');
+        console.log('Project ID:', keys.firebase.projectId);
+        
+        // Test 4: Firebase Service
+        console.log('4. Testing Firebase Service...');
+        if (!window.firebaseService) {
+            console.error('❌ Firebase Service not available');
+            return false;
+        }
+        console.log('✅ Firebase Service available');
+        
+        // Test 5: Firebase Initialization
+        console.log('5. Testing Firebase Initialization...');
+        let attempts = 0;
+        const maxAttempts = 50;
+        while (!window.firebaseService.isInitialized && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (window.firebaseService.isInitialized) {
+            console.log('✅ Firebase Service initialized');
+            console.log('Firebase App:', window.firebaseService.app?.name);
+            console.log('Firebase Auth:', !!window.firebaseService.auth);
+            console.log('Firebase Firestore:', !!window.firebaseService.db);
+        } else {
+            console.error('❌ Firebase Service failed to initialize');
+            return false;
+        }
+        
+        console.log('🎉 All tests passed! Firebase is ready to use.');
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Test failed:', error);
+        return false;
+    }
 };
 
 // Add global migration function

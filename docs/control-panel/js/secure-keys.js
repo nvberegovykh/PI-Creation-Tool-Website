@@ -195,13 +195,25 @@ class SecureKeyManager {
             return false;
         }
         
-        // Firebase validation is optional for now
+        // Firebase validation - check if config exists and has basic fields
         if (keys.firebase) {
-            if (!keys.firebase.apiKey || !keys.firebase.projectId) {
-                console.warn('Firebase config incomplete, but continuing with basic auth');
+            console.log('✅ Firebase config found in Gist');
+            console.log('Firebase config fields:', Object.keys(keys.firebase));
+            
+            // Basic validation - just check if we have the essential fields
+            if (!keys.firebase.apiKey) {
+                console.warn('⚠️ Firebase config missing apiKey');
             }
+            if (!keys.firebase.projectId) {
+                console.warn('⚠️ Firebase config missing projectId');
+            }
+            
+            // Continue even if some fields are missing - Firebase will handle validation
+            console.log('✅ Firebase config validation passed (continuing with available fields)');
         } else {
-            console.log('No Firebase config found, using local storage only');
+            console.error('❌ Firebase configuration is required but not found in secure keys');
+            console.error('Please add Firebase configuration to your Gist file');
+            return false;
         }
         
         return true;
@@ -293,6 +305,38 @@ class SecureKeyManager {
             }
         } catch (error) {
             return { success: false, message: `Connection failed: ${error.message}. Using fallback credentials.` };
+        }
+    }
+
+    /**
+     * Debug Gist configuration
+     */
+    async debugGistConfig() {
+        console.log('=== Gist Configuration Debug ===');
+        const url = this.getKeySource();
+        console.log('Gist URL:', url);
+        
+        try {
+            const response = await fetch(url);
+            console.log('Gist response status:', response.status);
+            console.log('Gist response ok:', response.ok);
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('Gist data structure:', Object.keys(data));
+                console.log('Has Firebase config:', !!data.firebase);
+                if (data.firebase) {
+                    console.log('Firebase config fields:', Object.keys(data.firebase));
+                    console.log('Firebase project ID:', data.firebase.projectId);
+                }
+                return data;
+            } else {
+                console.error('Gist fetch failed:', response.status, response.statusText);
+                return null;
+            }
+        } catch (error) {
+            console.error('Gist fetch error:', error);
+            return null;
         }
     }
 
@@ -389,3 +433,13 @@ class SecureKeyManager {
 
 // Initialize secure key manager
 window.secureKeyManager = new SecureKeyManager();
+
+// Add global debug function
+window.debugGistConfig = function() {
+    if (window.secureKeyManager) {
+        return window.secureKeyManager.debugGistConfig();
+    } else {
+        console.error('Secure key manager not available');
+        return null;
+    }
+};
