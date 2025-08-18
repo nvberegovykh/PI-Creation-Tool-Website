@@ -380,36 +380,37 @@
         </div>
     </div>
 
-    <!-- Firebase SDK - Latest Version (10.8.0) -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    
-    <!-- Firebase SDK Fallback (CDN) -->
-    <script>
-        // Fallback to CDN if main Firebase SDK fails to load
-        if (typeof firebase === 'undefined') {
-            console.log('Main Firebase SDK failed, trying CDN fallback...');
-            const script1 = document.createElement('script');
-            script1.src = 'https://cdn.jsdelivr.net/npm/firebase@10.8.0/dist/firebase-app-compat.js';
-            document.head.appendChild(script1);
-            
-            script1.onload = function() {
-                const script2 = document.createElement('script');
-                script2.src = 'https://cdn.jsdelivr.net/npm/firebase@10.8.0/dist/firebase-auth-compat.js';
-                document.head.appendChild(script2);
-                
-                script2.onload = function() {
-                    const script3 = document.createElement('script');
-                    script3.src = 'https://cdn.jsdelivr.net/npm/firebase@10.8.0/dist/firebase-firestore-compat.js';
-                    document.head.appendChild(script3);
-                    
-                    script3.onload = function() {
-                        console.log('✅ Firebase SDK loaded via CDN fallback');
-                    };
-                };
-            };
-        }
+    <!-- Firebase SDK - Modern Modular Version -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js';
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js';
+        
+        // Make Firebase available globally for existing code
+        window.firebase = {
+            initializeApp,
+            auth: getAuth,
+            firestore: getFirestore,
+            SDK_VERSION: '10.9.0',
+            // Add compat methods for existing code
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            sendPasswordResetEmail,
+            sendEmailVerification,
+            onAuthStateChanged,
+            collection,
+            doc,
+            setDoc,
+            getDoc,
+            getDocs,
+            query,
+            where,
+            orderBy,
+            enableNetwork,
+            disableNetwork
+        };
+        
+        console.log('✅ Firebase Modular SDK loaded successfully');
     </script>
     
     <!-- Firebase SDK Error Handling -->
@@ -421,36 +422,25 @@
                     console.error('❌ Firebase SDK failed to load!');
                     console.error('Please check your internet connection and try again.');
                     
-                                         // Show error message in console only (Firebase is working, just timing issue)
-                     console.error('Firebase SDK loading delay detected - this is normal during initialization');
-                    
                     // Add diagnostic information
                     console.error('=== Firebase Loading Diagnostics ===');
                     console.error('Script loading order check:');
-                    const scripts = document.querySelectorAll('script[src*="firebase"]');
+                    const scripts = document.querySelectorAll('script[type="module"]');
                     scripts.forEach((script, index) => {
-                        console.error(`Script ${index + 1}:`, script.src);
+                        console.error(`Module ${index + 1}:`, script.innerHTML.substring(0, 100) + '...');
                     });
                     
-                                         // Check network connectivity
-                     fetch('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js', { method: 'HEAD' })
-                         .then(() => console.log('✅ Firebase CDN is accessible'))
-                         .catch(() => console.error('❌ Firebase CDN is not accessible'));
+                    // Check network connectivity
+                    fetch('https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js', { method: 'HEAD' })
+                        .then(() => console.log('✅ Firebase CDN is accessible'))
+                        .catch(() => console.error('❌ Firebase CDN is not accessible'));
                         
                 } else {
                     console.log('✅ Firebase SDK loaded successfully');
                     console.log('Firebase version:', firebase.SDK_VERSION);
                     console.log('Available Firebase services:', Object.keys(firebase));
                 }
-            }, 5000); // Wait 5 seconds for scripts to load (including fallback)
-        });
-        
-        // Additional error handling for script loading
-        window.addEventListener('error', function(e) {
-            if (e.target && e.target.src && e.target.src.includes('firebase')) {
-                console.error('❌ Firebase script failed to load:', e.target.src);
-                console.error('Error details:', e.error);
-            }
+            }, 3000); // Wait 3 seconds for modules to load
         });
     </script>
     
