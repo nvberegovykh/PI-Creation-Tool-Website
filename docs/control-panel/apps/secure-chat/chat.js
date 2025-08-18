@@ -290,7 +290,7 @@
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
           const img = document.createElement('img');
-          img.src = url; img.style.maxWidth = '260px'; img.style.borderRadius='8px'; img.alt = fileName;
+          img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
           containerEl.appendChild(img);
         } else {
           const blob = this.base64ToBlob(b64, 'application/octet-stream');
