@@ -22,10 +22,18 @@ class FirebaseService {
             // Check if Firebase SDK is available
             if (typeof firebase === 'undefined') {
                 console.error('❌ Firebase SDK not loaded!');
+                console.error('Firebase SDK failed to load. This could be due to:');
+                console.error('1. Network connectivity issues');
+                console.error('2. Firewall blocking Firebase URLs');
+                console.error('3. Browser security settings');
+                console.error('4. CDN availability issues');
+                console.error('5. Script loading order issues');
                 this.isInitialized = false;
                 return;
             }
             console.log('✅ Firebase SDK is available');
+            console.log('Firebase version:', firebase.SDK_VERSION);
+            console.log('Firebase apps count:', firebase.apps.length);
             
             // Wait for secure keys to be loaded
             console.log('Waiting for secure keys...');
@@ -38,25 +46,43 @@ class FirebaseService {
             console.log('Firebase config loaded:', !!firebaseConfig);
             
             if (!firebaseConfig) {
-                console.log('Firebase not configured - using local storage only');
+                throw new Error('❌ Firebase configuration is required but not found in secure keys. Please add Firebase configuration to your Gist.');
+            }
+
+            // Validate Firebase config
+            const requiredFields = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+            const missingFields = requiredFields.filter(field => !firebaseConfig[field]);
+            if (missingFields.length > 0) {
+                console.error('❌ Invalid Firebase config - missing fields:', missingFields);
                 this.isInitialized = false;
                 return;
             }
+            console.log('✅ Firebase config validation passed');
 
             // Initialize Firebase
             console.log('Initializing Firebase app...');
             if (!firebase.apps.length) {
                 this.app = firebase.initializeApp(firebaseConfig);
-                console.log('Firebase app created');
+                console.log('Firebase app created with name:', this.app.name);
             } else {
                 this.app = firebase.app();
-                console.log('Firebase app already exists');
+                console.log('Firebase app already exists:', this.app.name);
             }
 
             // Initialize services
             console.log('Initializing Firebase services...');
             this.auth = firebase.auth();
             this.db = firebase.firestore();
+            
+            // Enable offline persistence for Firestore
+            try {
+                await this.db.enablePersistence({
+                    synchronizeTabs: true
+                });
+                console.log('✅ Firestore offline persistence enabled');
+            } catch (error) {
+                console.warn('⚠️ Firestore offline persistence failed:', error.message);
+            }
             
             this.isInitialized = true;
             console.log('✅ Firebase initialized successfully');
@@ -66,6 +92,8 @@ class FirebaseService {
                 console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
                 if (user) {
                     console.log('Current user:', user.email);
+                    console.log('User UID:', user.uid);
+                    console.log('Email verified:', user.emailVerified);
                 }
             });
 
@@ -105,15 +133,14 @@ class FirebaseService {
             const keys = await window.secureKeyManager.getKeys();
             
             if (!keys.firebase) {
-                console.log('Firebase configuration not found in secure keys - using local storage only');
-                return null;
+                throw new Error('❌ Firebase configuration is required but not found in secure keys. Please add Firebase configuration to your Gist.');
             }
             
             return keys.firebase;
             
         } catch (error) {
             console.error('Error getting Firebase configuration:', error);
-            return null;
+            throw new Error('❌ Failed to load Firebase configuration from secure keys. Please check your Gist configuration.');
         }
     }
 
@@ -130,8 +157,17 @@ class FirebaseService {
         }
         
         if (!this.isInitialized) {
-            throw new Error('Firebase initialization timeout');
+            throw new Error('❌ Firebase is required but not initialized. Please check your configuration and internet connection.');
         }
+        
+        return true;
+    }
+    
+    /**
+     * Check if Firebase is available and initialized
+     */
+    isFirebaseAvailable() {
+        return this.isInitialized && typeof firebase !== 'undefined';
     }
 
     /**
@@ -411,6 +447,19 @@ class FirebaseService {
 
 // Create global instance
 window.firebaseService = new FirebaseService();
+
+// Add global test function
+window.testFirebase = function() {
+    console.log('=== Testing Firebase ===');
+    console.log('Firebase SDK available:', typeof firebase !== 'undefined');
+    if (typeof firebase !== 'undefined') {
+        console.log('Firebase version:', firebase.SDK_VERSION);
+        console.log('Firebase apps:', firebase.apps.length);
+        console.log('Firebase services:', Object.keys(firebase));
+    }
+    console.log('Firebase service available:', !!window.firebaseService);
+    console.log('Firebase service initialized:', window.firebaseService?.isInitialized);
+};
 
 // Add global migration function
 window.startMigration = async function() {

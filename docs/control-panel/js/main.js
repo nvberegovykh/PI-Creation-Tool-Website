@@ -76,6 +76,16 @@ class LiberAppsControlPanel {
             throw new Error('Failed to load required modules');
         }
 
+        // Check Firebase availability first - REQUIRED
+        console.log('Checking Firebase availability...');
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            console.error('❌ Firebase is required but not available!');
+            window.showFirebaseError();
+            return;
+        }
+        
+        console.log('✅ Firebase is available and initialized');
+
         // Initialize modules in order
         if (window.cryptoManager) {
             console.log('Crypto module initialized');
@@ -96,6 +106,8 @@ class LiberAppsControlPanel {
         if (window.usersManager) {
             console.log('Users module initialized');
         }
+        
+        console.log('LIBER/APPS initialized successfully');
     }
 
     /**
@@ -602,3 +614,44 @@ const additionalStyles = `
 const styleSheet = document.createElement('style');
 styleSheet.textContent = additionalStyles;
 document.head.appendChild(styleSheet);
+
+// Add Firebase error handling function
+window.showFirebaseError = function() {
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        text-align: center;
+        padding: 20px;
+    `;
+    errorDiv.innerHTML = `
+        <h1 style="color: #ff4444; margin-bottom: 20px;">❌ Firebase Required</h1>
+        <p style="font-size: 18px; margin-bottom: 15px;">This application requires Firebase to function.</p>
+        <p style="margin-bottom: 20px;">Please check:</p>
+        <ul style="text-align: left; margin-bottom: 20px;">
+            <li>Your internet connection</li>
+            <li>Firebase configuration in your Gist</li>
+            <li>Firebase Console settings</li>
+        </ul>
+        <button onclick="location.reload()" style="
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        ">Retry</button>
+    `;
+    document.body.appendChild(errorDiv);
+};
