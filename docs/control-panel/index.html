@@ -383,7 +383,7 @@
     <!-- Firebase SDK - Modern Modular Version -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js';
-        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js';
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, onAuthStateChanged, fetchSignInMethodsForEmail } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js';
         
         // Make Firebase available globally for existing code
@@ -398,6 +398,7 @@
             sendPasswordResetEmail,
             sendEmailVerification,
             onAuthStateChanged,
+            fetchSignInMethodsForEmail,
             collection,
             doc,
             setDoc,
