@@ -252,43 +252,52 @@ class AuthManager {
                 }
             }
 
-            // Try Firebase authentication first (REQUIRED)
-            if (window.firebaseService && window.firebaseService.isInitialized) {
-                try {
-                    console.log('Attempting Firebase login...');
-                    const firebaseUser = await window.firebaseService.signInUser(username, password);
+                    // Wait for Firebase to be fully initialized
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds
+        
+        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        // Try Firebase authentication first (REQUIRED)
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Attempting Firebase login...');
+                const firebaseUser = await window.firebaseService.signInUser(username, password);
+                
+                if (firebaseUser) {
+                    // Get user data from Firestore
+                    const userData = await window.firebaseService.getUserData(firebaseUser.uid);
                     
-                    if (firebaseUser) {
-                        // Get user data from Firestore
-                        const userData = await window.firebaseService.getUserData(firebaseUser.uid);
+                    if (userData) {
+                        this.currentUser = {
+                            id: firebaseUser.uid,
+                            username: userData.username,
+                            email: userData.email,
+                            role: userData.role || 'user'
+                        };
                         
-                        if (userData) {
-                            this.currentUser = {
-                                id: firebaseUser.uid,
-                                username: userData.username,
-                                email: userData.email,
-                                role: userData.role || 'user'
-                            };
-                            
-                            this.createSession();
-                            this.showDashboard();
-                            return;
-                        }
+                        this.createSession();
+                        this.showDashboard();
+                        return;
                     }
-                } catch (firebaseError) {
-                    console.error('Firebase login failed:', firebaseError.message);
-                    this.showMessage('Login failed. Please check your credentials.', 'error');
-                    return;
                 }
-            } else {
-                console.error('Firebase not available - authentication requires Firebase');
-                this.showMessage('Authentication service not available. Please contact support.', 'error');
+            } catch (firebaseError) {
+                console.error('Firebase login failed:', firebaseError.message);
+                this.showMessage('Login failed. Please check your credentials.', 'error');
                 return;
             }
+        } else {
+            console.error('Firebase not available - authentication requires Firebase');
+            this.showMessage('Authentication service not available. Please contact support.', 'error');
+            return;
+        }
 
-            // Firebase authentication is required - no fallback to local storage
-            console.error('Firebase authentication failed - no fallback available');
-            this.showMessage('Authentication failed. Please try again.', 'error');
+        // Firebase authentication is required - no fallback to local storage
+        console.error('Firebase authentication failed - no fallback available');
+        this.showMessage('Authentication failed. Please try again.', 'error');
 
         } catch (error) {
             console.error('Login error:', error);

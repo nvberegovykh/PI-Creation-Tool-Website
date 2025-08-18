@@ -78,6 +78,16 @@ class LiberAppsControlPanel {
 
         // Check Firebase availability first - REQUIRED
         console.log('Checking Firebase availability...');
+        
+        // Wait for Firebase to be fully initialized
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds
+        
+        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
         if (!window.firebaseService || !window.firebaseService.isInitialized) {
             console.error('❌ Firebase is required but not available!');
             window.showFirebaseError();

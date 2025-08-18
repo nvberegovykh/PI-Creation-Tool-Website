@@ -36,21 +36,30 @@ class UsersManager {
     async loadUsers() {
         try {
             // Firebase is REQUIRED for user management
-            if (window.firebaseService && window.firebaseService.isInitialized) {
-                try {
-                    console.log('Loading users from Firebase...');
-                    this.users = await window.firebaseService.getAllUsers();
-                    console.log('Firebase users loaded:', this.users.length);
-                } catch (firebaseError) {
-                    console.error('Firebase users loading failed:', firebaseError.message);
-                    this.showError('Failed to load users from Firebase');
-                    return;
-                }
-            } else {
-                console.error('Firebase not available - user management requires Firebase');
-                this.showError('User management service not available');
+                    // Wait for Firebase to be fully initialized
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds
+        
+        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (window.firebaseService && window.firebaseService.isInitialized) {
+            try {
+                console.log('Loading users from Firebase...');
+                this.users = await window.firebaseService.getAllUsers();
+                console.log('Firebase users loaded:', this.users.length);
+            } catch (firebaseError) {
+                console.error('Firebase users loading failed:', firebaseError.message);
+                this.showError('Failed to load users from Firebase');
                 return;
             }
+        } else {
+            console.error('Firebase not available - user management requires Firebase');
+            this.showError('User management service not available');
+            return;
+        }
             
             this.renderUsers();
             this.updateUserCount();
