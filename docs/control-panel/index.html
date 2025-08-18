@@ -380,25 +380,47 @@
         </div>
     </div>
 
-    <!-- Firebase SDK - Modern Modular Version -->
+    <!-- Firebase SDK - Latest Version 12.1.0 -->
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js';
-        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, onAuthStateChanged, fetchSignInMethodsForEmail } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js';
-        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork } from 'https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
+        import { 
+            getAuth, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword, 
+            sendPasswordResetEmail, 
+            sendEmailVerification, 
+            onAuthStateChanged, 
+            fetchSignInMethodsForEmail,
+            browserLocalPersistence,
+            setPersistence,
+            signOut,
+            updateProfile,
+            deleteUser,
+            reauthenticateWithCredential,
+            EmailAuthProvider
+        } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, enableNetwork, disableNetwork, updateDoc, increment, limit, startAfter, deleteDoc } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
         
-        // Make Firebase available globally for existing code
+        // Make Firebase available globally for existing code compatibility
         window.firebase = {
             initializeApp,
             auth: getAuth,
             firestore: getFirestore,
-            SDK_VERSION: '10.9.0',
-            // Add compat methods for existing code
+            SDK_VERSION: '12.1.0',
+            // Add modular methods for compatibility
             createUserWithEmailAndPassword,
             signInWithEmailAndPassword,
             sendPasswordResetEmail,
             sendEmailVerification,
             onAuthStateChanged,
             fetchSignInMethodsForEmail,
+            browserLocalPersistence,
+            setPersistence,
+            signOut,
+            updateProfile,
+            deleteUser,
+            reauthenticateWithCredential,
+            EmailAuthProvider,
             collection,
             doc,
             setDoc,
@@ -408,10 +430,51 @@
             where,
             orderBy,
             enableNetwork,
-            disableNetwork
+            disableNetwork,
+            updateDoc,
+            increment,
+            limit,
+            startAfter,
+            deleteDoc
         };
         
-        console.log('✅ Firebase Modular SDK loaded successfully');
+        // Also expose modular functions directly for modern usage
+        window.firebaseModular = {
+            initializeApp,
+            getAuth,
+            getFirestore,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            sendPasswordResetEmail,
+            sendEmailVerification,
+            onAuthStateChanged,
+            fetchSignInMethodsForEmail,
+            browserLocalPersistence,
+            setPersistence,
+            signOut,
+            updateProfile,
+            deleteUser,
+            reauthenticateWithCredential,
+            EmailAuthProvider,
+            collection,
+            doc,
+            setDoc,
+            getDoc,
+            getDocs,
+            query,
+            where,
+            orderBy,
+            enableNetwork,
+            disableNetwork,
+            updateDoc,
+            increment,
+            limit,
+            startAfter,
+            deleteDoc
+        };
+        
+        console.log('✅ Firebase Modular SDK v12.1.0 loaded successfully');
+        console.log('Available services: Auth, Firestore');
     </script>
     
     <!-- Firebase SDK Error Handling -->
@@ -431,8 +494,8 @@
                         console.error(`Module ${index + 1}:`, script.innerHTML.substring(0, 100) + '...');
                     });
                     
-                    // Check network connectivity
-                    fetch('https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js', { method: 'HEAD' })
+                                         // Check network connectivity
+                     fetch('https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js', { method: 'HEAD' })
                         .then(() => console.log('✅ Firebase CDN is accessible'))
                         .catch(() => console.error('❌ Firebase CDN is not accessible'));
                         
