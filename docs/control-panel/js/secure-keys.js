@@ -122,7 +122,7 @@ class SecureKeyManager {
             // Fetch from secure source with fallback to latest-raw if a specific commit 404s
             let response = await fetch(url);
             if (!response.ok) {
-                console.warn(`Failed to fetch keys from ${url}: ${response.status} ${response.statusText}`);
+                console.warn(`Failed to fetch secure keys (HTTP ${response.status}). Retrying with latest raw pointer...`);
                 // If the URL was a commit-specific raw path and returned 404, try the latest raw pointer
                 try {
                     const latestRaw = url.replace(/\/raw\/[A-Za-z0-9]+\//, '/raw/');
@@ -131,7 +131,7 @@ class SecureKeyManager {
                         response = await fetch(latestRaw + (latestRaw.includes('?') ? '&' : '?') + 't=' + Date.now());
                     }
                 } catch (e) {
-                    console.warn('Latest-raw fallback construction failed:', e?.message || e);
+                    console.warn('Latest-raw fallback construction failed');
                 }
                 if (!response.ok) {
                     console.warn('Fallback fetch failed as well. Using default credentials.');
