@@ -11,7 +11,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 @media(max-width:768px){
   .sidebar{position:relative;top:auto;left:auto;right:auto;bottom:auto;width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a);height:auto;transform:none;box-shadow:none;z-index:5}
   .connections-panel{position:absolute;top:100%;left:0;right:0;background:#0f1116;border-bottom:1px solid var(--border-color,#1f222a);box-shadow:0 12px 24px rgba(0,0,0,.35);max-height:0;overflow:hidden;transition:max-height .25s ease;z-index:21;display:block}
-  .sidebar.open .connections-panel{max-height:70vh}
+  .sidebar.open .connections-panel{max-height:50vh;max-height:50svh}
 }
 .sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-color,#1f222a);cursor:pointer}
 .sidebar.collapsed .search-box, .sidebar.collapsed #connections-list{display:none}
