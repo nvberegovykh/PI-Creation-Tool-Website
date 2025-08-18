@@ -30,32 +30,19 @@
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       document.getElementById('message-search').addEventListener('input', (e)=> this.searchMessages(e.target.value.trim()));
-      const toggleBtn = document.getElementById('toggle-connections');
-      if (toggleBtn){
-        toggleBtn.addEventListener('click', ()=>{
+      const sidebarHeader = document.getElementById('sidebar-header');
+      if (sidebarHeader){
+        sidebarHeader.addEventListener('click', ()=>{
           const sidebar = document.querySelector('.sidebar');
-          const backdrop = document.getElementById('sidebar-backdrop');
           if (!sidebar) return;
-          const willOpen = !sidebar.classList.contains('open');
-          sidebar.classList.toggle('open', willOpen);
-          if (backdrop) backdrop.style.display = willOpen ? 'block' : 'none';
-        });
-      }
-      const backdropEl = document.getElementById('sidebar-backdrop');
-      if (backdropEl){
-        backdropEl.addEventListener('click', ()=>{
-          const sidebar = document.querySelector('.sidebar');
-          if (sidebar) sidebar.classList.remove('open');
-          backdropEl.style.display = 'none';
+          sidebar.classList.toggle('open');
         });
       }
       document.addEventListener('keydown', (e)=>{
         if (e.key === 'Escape'){
           const sidebar = document.querySelector('.sidebar');
-          const backdrop = document.getElementById('sidebar-backdrop');
           if (sidebar && sidebar.classList.contains('open')){
             sidebar.classList.remove('open');
-            if (backdrop) backdrop.style.display = 'none';
           }
         }
       });
@@ -137,9 +124,7 @@
         li.addEventListener('click',()=>{
           this.setActive(c.id);
           const sidebar = document.querySelector('.sidebar');
-          const backdrop = document.getElementById('sidebar-backdrop');
           if (sidebar) sidebar.classList.remove('open');
-          if (backdrop) backdrop.style.display = 'none';
         });
         listEl.appendChild(li);
       });
