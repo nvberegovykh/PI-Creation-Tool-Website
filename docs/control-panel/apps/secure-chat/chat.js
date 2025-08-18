@@ -52,14 +52,28 @@
     async loadConnections(){
       const listEl = document.getElementById('connections-list');
       listEl.innerHTML = '';
-      const q = firebase.query(
-        firebase.collection(this.db,'chatConnections'),
-        firebase.where('participants','array-contains', this.currentUser.uid),
-        firebase.orderBy('updatedAt','desc')
-      );
-      const snap = await firebase.getDocs(q);
-      this.connections = [];
-      snap.forEach(d=> this.connections.push(d.data()));
+      let snap;
+      try{
+        const q = firebase.query(
+          firebase.collection(this.db,'chatConnections'),
+          firebase.where('participants','array-contains', this.currentUser.uid),
+          firebase.orderBy('updatedAt','desc')
+        );
+        snap = await firebase.getDocs(q);
+        this.connections = [];
+        snap.forEach(d=> this.connections.push(d.data()));
+      } catch (e){
+        // Fallback without orderBy if index missing; sort client-side
+        const q2 = firebase.query(
+          firebase.collection(this.db,'chatConnections'),
+          firebase.where('participants','array-contains', this.currentUser.uid)
+        );
+        const snap2 = await firebase.getDocs(q2);
+        const temp = [];
+        snap2.forEach(d=> temp.push(d.data()));
+        temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+        this.connections = temp;
+      }
       this.connections.forEach(c=>{
         const li = document.createElement('li');
         li.textContent = c.id.replace(this.currentUser.uid,'').replace(/_/g,'').slice(0,32);
