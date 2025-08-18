@@ -127,7 +127,7 @@ class SecureKeyManager {
                 try {
                     const latestRaw = url.replace(/\/raw\/[A-Za-z0-9]+\//, '/raw/');
                     if (latestRaw !== url) {
-                        console.log('Retrying keys fetch via latest raw pointer:', latestRaw);
+                        console.log('Retrying keys fetch via latest raw pointer');
                         response = await fetch(latestRaw + (latestRaw.includes('?') ? '&' : '?') + 't=' + Date.now());
                     }
                 } catch (e) {
@@ -142,10 +142,8 @@ class SecureKeyManager {
             const keysData = await response.json();
             
             // Debug: Log what we got from Gist
-            console.log('=== Gist Data Debug ===');
-            console.log('Keys data from Gist:', keysData);
+            console.log('=== Gist Data Debug (redacted) ===');
             console.log('Has firebase config:', !!keysData.firebase);
-            console.log('Firebase config:', keysData.firebase);
             
             // Validate keys structure
             if (!this.validateKeys(keysData)) {
@@ -221,7 +219,6 @@ class SecureKeyManager {
         // Firebase validation - check if config exists and has basic fields
         if (keys.firebase) {
             console.log('✅ Firebase config found in Gist');
-            console.log('Firebase config fields:', Object.keys(keys.firebase));
             
             // Basic validation - just check if we have the essential fields
             if (!keys.firebase.apiKey) {
@@ -335,9 +332,8 @@ class SecureKeyManager {
      * Debug Gist configuration
      */
     async debugGistConfig() {
-        console.log('=== Gist Configuration Debug ===');
+        console.log('=== Gist Configuration Debug (redacted) ===');
         const url = this.getKeySource();
-        console.log('Gist URL:', url);
         
         try {
             const response = await fetch(url);
@@ -348,10 +344,6 @@ class SecureKeyManager {
                 const data = await response.json();
                 console.log('Gist data structure:', Object.keys(data));
                 console.log('Has Firebase config:', !!data.firebase);
-                if (data.firebase) {
-                    console.log('Firebase config fields:', Object.keys(data.firebase));
-                    console.log('Firebase project ID:', data.firebase.projectId);
-                }
                 return data;
             } else {
                 console.error('Gist fetch failed:', response.status, response.statusText);
@@ -419,11 +411,11 @@ class SecureKeyManager {
      * Debug function to show Gist configuration
      */
     async debugGistConfig() {
-        console.log('=== Debugging Gist Configuration ===');
+        console.log('=== Debugging Gist Configuration (redacted) ===');
         
         try {
             const url = this.getKeySource();
-            console.log('Gist URL:', url);
+            // URL redacted in logs
             
             const response = await fetch(url);
             if (!response.ok) {
@@ -432,20 +424,16 @@ class SecureKeyManager {
             }
             
             const config = await response.json();
-            console.log('Gist configuration:', config);
+            console.log('Gist configuration loaded (redacted)');
             
             // Check admin hash
             if (config.admin && config.admin.passwordHash) {
-                const expectedHash = '597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2';
-                const actualHash = config.admin.passwordHash;
-                console.log('Expected admin hash:', expectedHash);
-                console.log('Actual admin hash:', actualHash);
-                console.log('Hash match:', expectedHash === actualHash);
+                console.log('Admin hash check performed (redacted)');
             }
             
             // Check system key
             if (config.system && config.system.masterKeyHash) {
-                console.log('System master key:', config.system.masterKeyHash);
+                console.log('System master key present (redacted)');
             }
             
         } catch (error) {
