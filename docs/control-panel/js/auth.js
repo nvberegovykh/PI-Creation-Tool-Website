@@ -1061,8 +1061,16 @@ class AuthManager {
         const users = await this.getUsers();
         console.log('Current users:', users);
         
-        // Check legacy storage
-        const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
+        // Check legacy storage (safely)
+        let legacyUsers = [];
+        try {
+            const legacyData = localStorage.getItem('liber_users');
+            if (legacyData && (legacyData.startsWith('[') || legacyData.startsWith('{'))) {
+                legacyUsers = JSON.parse(legacyData);
+            }
+        } catch (error) {
+            console.log('Legacy data parsing failed (likely encrypted):', error.message);
+        }
         console.log('Legacy users:', legacyUsers);
         
         // Test saving a user
