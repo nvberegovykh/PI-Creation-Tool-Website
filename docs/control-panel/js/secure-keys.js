@@ -224,6 +224,25 @@ class SecureKeyManager {
     }
 
     /**
+     * Generate correct admin hash for the default admin password
+     * This is the hash that should be in your Gist configuration
+     */
+    async generateCorrectAdminHash() {
+        try {
+            // The default admin password is likely 'admin' or similar
+            // You can change this to match your actual admin password
+            const adminPassword = 'admin'; // Change this to your actual admin password
+            const hash = await this.generateAdminHash(adminPassword);
+            console.log('Correct admin hash for password "' + adminPassword + '":', hash);
+            console.log('Copy this hash to your Gist configuration file');
+            return hash;
+        } catch (error) {
+            console.error('Error generating admin hash:', error);
+            return null;
+        }
+    }
+
+    /**
      * Test key connectivity
      */
     async testConnection() {
@@ -296,6 +315,44 @@ class SecureKeyManager {
         } catch (error) {
             console.error('Error loading Mailgun config from Gist:', error);
             throw new Error('Mailgun configuration not available. Please check your Gist configuration.');
+        }
+    }
+
+    /**
+     * Debug function to show Gist configuration
+     */
+    async debugGistConfig() {
+        console.log('=== Debugging Gist Configuration ===');
+        
+        try {
+            const url = this.getKeySource();
+            console.log('Gist URL:', url);
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error('Failed to fetch Gist:', response.status, response.statusText);
+                return;
+            }
+            
+            const config = await response.json();
+            console.log('Gist configuration:', config);
+            
+            // Check admin hash
+            if (config.admin && config.admin.passwordHash) {
+                const expectedHash = '597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2';
+                const actualHash = config.admin.passwordHash;
+                console.log('Expected admin hash:', expectedHash);
+                console.log('Actual admin hash:', actualHash);
+                console.log('Hash match:', expectedHash === actualHash);
+            }
+            
+            // Check system key
+            if (config.system && config.system.masterKeyHash) {
+                console.log('System master key:', config.system.masterKeyHash);
+            }
+            
+        } catch (error) {
+            console.error('Gist debug error:', error);
         }
     }
 }

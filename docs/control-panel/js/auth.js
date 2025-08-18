@@ -24,9 +24,20 @@ class AuthManager {
             // Check URL actions (verification, password reset)
             this.checkUrlActions();
             
+            // Debug Gist configuration
+            console.log('=== Auto-debugging Gist configuration ===');
+            await window.secureKeyManager.debugGistConfig();
+            
             // Debug user storage on init
             console.log('=== Auto-debugging user storage on init ===');
             await this.debugUserStorage();
+            
+            // Test user creation if no users exist
+            const users = await this.getUsers();
+            if (users.length === 0) {
+                console.log('=== Testing user creation ===');
+                await this.testCreateUser();
+            }
             
         } catch (error) {
             console.error('Auth initialization error:', error);
@@ -774,22 +785,20 @@ class AuthManager {
 
     async loadUsers() {
         try {
+            console.log('=== loadUsers called ===');
             const masterKey = await this.getMasterKey();
+            console.log('Master key obtained:', !!masterKey, 'Length:', masterKey ? masterKey.length : 0);
+            
             const users = await window.cryptoManager.secureRetrieve('liber_users', masterKey);
+            console.log('secureRetrieve result:', users);
+            console.log('Users type:', typeof users);
+            console.log('Users is array:', Array.isArray(users));
             
-            // If no users in encrypted storage, check for legacy localStorage users
-            if (!users || users.length === 0) {
-                console.log('No users in encrypted storage, checking for legacy users...');
-                const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
-                if (legacyUsers.length > 0) {
-                    console.log('Found legacy users, migrating to encrypted storage...');
-                    await this.saveUsers(legacyUsers);
-                    localStorage.removeItem('liber_users'); // Clean up legacy data
-                    return legacyUsers;
-                }
-            }
+            const result = users || [];
+            console.log('Final result:', result);
+            console.log('Result length:', result.length);
             
-            return users || [];
+            return result;
         } catch (error) {
             console.error('Error loading users:', error);
             return [];
@@ -802,11 +811,16 @@ class AuthManager {
 
     async saveUsers(users) {
         try {
-            console.log('saveUsers called with:', users.length, 'users');
+            console.log('=== saveUsers called ===');
+            console.log('Users to save:', users);
+            console.log('Users count:', users.length);
+            
             const masterKey = await this.getMasterKey();
-            console.log('Master key obtained:', !!masterKey);
+            console.log('Master key for saving:', !!masterKey, 'Length:', masterKey ? masterKey.length : 0);
+            
             const result = await window.cryptoManager.secureStore('liber_users', users, masterKey);
             console.log('secureStore result:', result);
+            
             return result;
         } catch (error) {
             console.error('Error saving users:', error);
