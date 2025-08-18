@@ -125,15 +125,15 @@
         firebase.orderBy('createdAt','asc'),
         firebase.limit(200)
       );
-      const aesKey = await this.getOrCreateSharedAesKey();
+      let aesKey;
+      try { aesKey = await this.getOrCreateSharedAesKey(); }
+      catch { aesKey = await this.getFallbackKey(); }
       const snap = await firebase.getDocs(q);
       snap.forEach(async d=>{
         const m=d.data();
         let text='';
         try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-          const parts = this.activeConnection.split('_');
-          const peerUid = parts[0] === this.currentUser.uid ? parts[1] : parts[0];
-          const fbKey = await chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+          const fbKey = await this.getFallbackKey();
           try { text = await chatCrypto.decryptWithKey(m.cipher, fbKey);} catch { text='[unable to decrypt]'; }
         }
         const el = document.createElement('div');
@@ -158,7 +158,7 @@
       if (!files || !files.length || !this.activeConnection) return;
       for (const f of files){
         const array = new Uint8Array(await f.arrayBuffer());
-        const aesKey = await this.getOrCreateSharedAesKey();
+        let aesKey; try { aesKey = await this.getOrCreateSharedAesKey(); } catch { aesKey = await this.getFallbackKey(); }
         // Encrypt file content (base64 of bytes) with shared AES key
         const cipher = await chatCrypto.encryptWithKey(btoa(String.fromCharCode(...array)), aesKey);
         const blob = new Blob([JSON.stringify(cipher)], {type:'application/octet-stream'});
@@ -208,8 +208,7 @@
       await firebase.setDoc(pubRef, { uid: myUid, publicJwk: myId.publicJwk, updatedAt: new Date().toISOString() }, { merge: true });
 
       // Determine peer uid
-      const parts = this.activeConnection.split('_');
-      const peerUid = parts[0] === myUid ? parts[1] : parts[0];
+      const peerUid = await this.getPeerUid();
 
       // Fetch peer public key
       const peerSnap = await firebase.getDoc(firebase.doc(this.db, 'userPublicKeys', peerUid));
@@ -223,6 +222,37 @@
       const aesKey = await chatCrypto.deriveSharedAesKey(myPriv, peerJwk);
       this.sharedKeyCache[this.activeConnection] = aesKey;
       return aesKey;
+    }
+
+    async getPeerUid(){
+      const conn = (this.connections||[]).find(c=> c.id === this.activeConnection);
+      if (conn && Array.isArray(conn.participants)){
+        return conn.participants.find(u=> u !== this.currentUser.uid);
+      }
+      try {
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+        if (snap.exists()){
+          const data = snap.data();
+          if (Array.isArray(data.participants)){
+            return data.participants.find(u=> u !== this.currentUser.uid);
+          }
+        }
+      } catch {}
+      const parts = (this.activeConnection||'').split('_');
+      if (parts.length === 2){
+        return parts[0] === this.currentUser.uid ? parts[1] : parts[0];
+      }
+      return '';
+    }
+
+    async getFallbackKey(){
+      const peerUid = await this.getPeerUid();
+      const connId = this.activeConnection;
+      if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
+        return window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connId);
+      }
+      const secret = `${[this.currentUser.uid, peerUid].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`;
+      return window.chatCrypto.deriveChatKey(secret);
     }
 
     async searchUsers(term){
