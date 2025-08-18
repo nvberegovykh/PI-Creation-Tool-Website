@@ -439,8 +439,14 @@
                     console.log('✅ Firebase SDK loaded successfully');
                     console.log('Firebase version:', firebase.SDK_VERSION);
                     console.log('Available Firebase services:', Object.keys(firebase));
+                    
+                    // Hide any Firebase error overlays since Firebase is working
+                    const firebaseErrorOverlay = document.querySelector('.firebase-error-overlay');
+                    if (firebaseErrorOverlay) {
+                        firebaseErrorOverlay.style.display = 'none';
+                    }
                 }
-            }, 3000); // Wait 3 seconds for modules to load
+            }, 5000); // Wait 5 seconds for modules to load
         });
     </script>
     
