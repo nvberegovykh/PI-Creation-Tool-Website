@@ -890,6 +890,7 @@
     box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
     position: relative;
     z-index: 10;
+    overflow: hidden; /* Ensure inner icon never spills outside */
 }
 
 .mobile-nav-btn.wall-e-btn:hover {
@@ -925,6 +926,16 @@
 .mobile-nav-btn i {
     font-size: 20px;
     transition: var(--transition);
+}
+
+/* Ensure the WALL-E image fits inside the circular button on all devices */
+.mobile-nav-btn.wall-e-btn .nav-icon {
+    max-width: 70%;
+    max-height: 70%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
 }
 
 .mobile-nav-btn:hover i,
