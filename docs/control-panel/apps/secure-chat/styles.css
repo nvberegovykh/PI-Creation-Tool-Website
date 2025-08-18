@@ -1,6 +1,7 @@
 .chat-app{display:flex;height:100vh;background:var(--primary-bg,#000);color:var(--primary-text,#eaeaea);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
 .sidebar{width:320px;min-width:260px;border-right:1px solid var(--border-color,#1f222a);display:flex;flex-direction:column;background:#0f1116}
 .sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-color,#1f222a)}
+.sidebar.collapsed .search-box, .sidebar.collapsed #connections-list{display:none}
 .sidebar-header h2{font-size:14px;letter-spacing:.5px;text-transform:uppercase;color:#9aa4b2}
 .search-box{padding:10px 12px}
 .search-box input{width:100%;padding:10px 12px;border:1px solid var(--border-color,#1f222a);border-radius:10px;background:#14161b;color:#eaeaea;outline:none}

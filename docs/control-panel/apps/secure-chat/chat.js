@@ -30,6 +30,11 @@
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       document.getElementById('message-search').addEventListener('input', (e)=> this.searchMessages(e.target.value.trim()));
+      const header = document.getElementById('sidebar-header');
+      if (header) header.addEventListener('click', ()=>{
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) sidebar.classList.toggle('collapsed');
+      });
     }
 
     async promptNewConnection(){
@@ -125,16 +130,14 @@
         firebase.orderBy('createdAt','asc'),
         firebase.limit(200)
       );
-      let aesKey;
-      try { aesKey = await this.getOrCreateSharedAesKey(); }
-      catch { aesKey = await this.getFallbackKey(); }
+      // Prefer universal fallback first so both sides can read before keys exchange
+      let aesKey = await this.getFallbackKey();
       const snap = await firebase.getDocs(q);
       snap.forEach(async d=>{
         const m=d.data();
         let text='';
         try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-          const fbKey = await this.getFallbackKey();
-          try { text = await chatCrypto.decryptWithKey(m.cipher, fbKey);} catch { text='[unable to decrypt]'; }
+          try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
         }
         const el = document.createElement('div');
         el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
@@ -158,7 +161,7 @@
       if (!files || !files.length || !this.activeConnection) return;
       for (const f of files){
         const array = new Uint8Array(await f.arrayBuffer());
-        let aesKey; try { aesKey = await this.getOrCreateSharedAesKey(); } catch { aesKey = await this.getFallbackKey(); }
+        const aesKey = await this.getFallbackKey();
         // Encrypt file content (base64 of bytes) with shared AES key
         const cipher = await chatCrypto.encryptWithKey(btoa(String.fromCharCode(...array)), aesKey);
         const blob = new Blob([JSON.stringify(cipher)], {type:'application/octet-stream'});
@@ -171,13 +174,7 @@
     }
 
     async saveMessage({text,fileUrl,fileName}){
-      let aesKey;
-      try { aesKey = await this.getOrCreateSharedAesKey(); }
-      catch {
-        const parts = this.activeConnection.split('_');
-        const peerUid = parts[0] === this.currentUser.uid ? parts[1] : parts[0];
-        aesKey = await chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
-      }
+      const aesKey = await this.getFallbackKey();
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'));
       await firebase.setDoc(msgRef,{
