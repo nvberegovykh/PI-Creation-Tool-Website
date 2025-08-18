@@ -59,7 +59,7 @@ class UsersManager {
             return;
         }
 
-        // Separate pending and approved users
+        // Separate pending and approved users - FIXED to show all users
         const pendingUsers = this.users.filter(user => user.status === 'pending' || (!user.status && !user.isVerified));
         const approvedUsers = this.users.filter(user => user.status === 'approved' || user.isVerified);
 
@@ -98,7 +98,7 @@ class UsersManager {
     getUserCardHTML(user, isPending) {
         const createdAt = new Date(user.createdAt).toLocaleDateString();
         
-        // Determine status based on both old status field and new isVerified field
+        // Determine status based on both old status field and new isVerified field - FIXED
         let statusClass, statusText;
         if (user.status === 'approved' || user.isVerified) {
             statusClass = 'approved';

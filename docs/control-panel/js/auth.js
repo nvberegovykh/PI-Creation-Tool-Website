@@ -619,10 +619,23 @@ class AuthManager {
         const email = urlParams.get('email');
 
         if (action && token && email) {
+            // Check if we've already processed this verification
+            const processedKey = `processed_${action}_${token}_${email}`;
+            if (sessionStorage.getItem(processedKey)) {
+                console.log('Verification already processed, skipping...');
+                // Clear URL parameters
+                window.history.replaceState({}, document.title, window.location.pathname);
+                return;
+            }
+
             if (action === 'verify') {
                 this.handleEmailVerification(token, email);
+                // Mark as processed
+                sessionStorage.setItem(processedKey, 'true');
             } else if (action === 'reset') {
                 this.showPasswordResetForm(token, email);
+                // Mark as processed
+                sessionStorage.setItem(processedKey, 'true');
             }
             
             // Clear URL parameters
