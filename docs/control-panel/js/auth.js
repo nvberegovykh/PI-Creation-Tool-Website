@@ -28,6 +28,20 @@ class AuthManager {
             console.log('=== Auto-debugging Gist configuration ===');
             await window.secureKeyManager.debugGistConfig();
             
+            // Wait for Firebase to be available
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds with 100ms intervals
+            
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
+            if (!window.firebaseService || !window.firebaseService.isInitialized) {
+                console.warn('⚠️ Firebase service not available after waiting, continuing without user data');
+                return;
+            }
+            
             // Debug user storage on init
             console.log('=== Auto-debugging user storage on init ===');
             await this.debugUserStorage();
@@ -878,11 +892,13 @@ class AuthManager {
                 return users;
             } catch (error) {
                 console.error('Failed to load users from Firebase:', error);
-                throw new Error('Failed to load users from Firebase');
+                // Return empty array instead of throwing error to prevent app crashes
+                return [];
             }
         } else {
-            console.error('Firebase not available - getUsers requires Firebase. No fallback.');
-            throw new Error('User service not available. Please contact support.');
+            console.warn('⚠️ Firebase not available - getUsers requires Firebase. No fallback.');
+            // Return empty array instead of throwing error to prevent app crashes
+            return [];
         }
     }
 
