@@ -173,7 +173,39 @@
     }
 
     async searchUsers(term){
-      // handled by input in sidebar -> already wired to create connections
+      const resultsEl = document.getElementById('user-results');
+      if (!resultsEl) return;
+      resultsEl.innerHTML = '';
+      if (!term){ resultsEl.style.display='none'; return; }
+      try{
+        if (window.firebaseService && window.firebaseService.isFirebaseAvailable()){
+          const users = await window.firebaseService.searchUsers(term.toLowerCase());
+          const filtered = (users||[]).filter(u=> u.uid !== (this.currentUser&&this.currentUser.uid));
+          if (filtered.length === 0){ resultsEl.style.display='none'; return; }
+          filtered.slice(0,20).forEach(u=>{
+            const li=document.createElement('li');
+            li.textContent = `${u.username||u.email}`;
+            li.addEventListener('click', async ()=>{
+              resultsEl.style.display='none';
+              document.getElementById('user-search').value = '';
+              // Create/open connection with selected user
+              const connId = [this.currentUser.uid, u.uid||u.id].sort().join('_');
+              const connRef = firebase.doc(this.db,'chatConnections',connId);
+              await firebase.setDoc(connRef,{
+                id: connId,
+                participants:[this.currentUser.uid, u.uid||u.id],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                lastMessage:''
+              },{merge:true});
+              await this.loadConnections();
+              this.setActive(connId, u.username||u.email);
+            });
+            resultsEl.appendChild(li);
+          });
+          resultsEl.style.display='block';
+        }
+      }catch(e){ console.warn('User search failed', e); resultsEl.style.display='none'; }
     }
 
     async searchMessages(term){
