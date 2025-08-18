@@ -42,16 +42,8 @@ class AuthManager {
                 return;
             }
             
-            // Debug user storage on init
-            console.log('=== Auto-debugging user storage on init ===');
-            await this.debugUserStorage();
-            
-            // Test user creation if no users exist
-            const users = await this.getUsers();
-            if (users.length === 0) {
-                console.log('=== Testing user creation ===');
-                await this.testCreateUser();
-            }
+            // Clean any legacy local users and disable auto test creation
+            try { localStorage.removeItem('liber_users'); } catch {}
             
         } catch (error) {
             console.error('Auth initialization error:', error);
