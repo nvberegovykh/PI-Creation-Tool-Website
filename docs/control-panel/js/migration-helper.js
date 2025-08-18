@@ -136,7 +136,7 @@ class MigrationHelper {
                     }
                     
                     // Create user in Firebase Auth
-                    const userCredential = await window.firebaseService.auth.createUserWithEmailAndPassword(
+                    const userCredential = await firebase.createUserWithEmailAndPassword(window.firebaseService.auth,
                         user.email, 
                         'TempPassword123!' // Temporary password - user will need to reset
                     );

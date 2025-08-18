@@ -1,6 +1,7 @@
 /**
  * Firebase Service for Liber Apps Control Panel
  * Handles user authentication and data storage with Firebase
+ * Updated for Firebase Modular SDK v10.9.0
  */
 
 class FirebaseService {
@@ -33,7 +34,6 @@ class FirebaseService {
             }
             console.log('✅ Firebase SDK is available');
             console.log('Firebase version:', firebase.SDK_VERSION);
-            console.log('Firebase apps count:', firebase.apps.length);
             
             // Wait for secure keys to be loaded
             console.log('Waiting for secure keys...');
@@ -60,20 +60,15 @@ class FirebaseService {
             console.log('✅ Firebase config validation passed');
             console.log('Firebase config has all essential fields:', essentialFields);
 
-            // Initialize Firebase
+            // Initialize Firebase with modular SDK
             console.log('Initializing Firebase app...');
-            if (!firebase.apps.length) {
-                this.app = firebase.initializeApp(firebaseConfig);
-                console.log('Firebase app created with name:', this.app.name);
-            } else {
-                this.app = firebase.app();
-                console.log('Firebase app already exists:', this.app.name);
-            }
+            this.app = firebase.initializeApp(firebaseConfig);
+            console.log('Firebase app created with name:', this.app.name);
 
-            // Initialize services
+            // Initialize services with modular SDK
             console.log('Initializing Firebase services...');
-            this.auth = firebase.auth();
-            this.db = firebase.firestore();
+            this.auth = firebase.auth(this.app);
+            this.db = firebase.firestore(this.app);
             
             // Enable offline persistence for Firestore
             try {
@@ -89,7 +84,7 @@ class FirebaseService {
             console.log('✅ Firebase initialized successfully');
 
             // Set up auth state listener
-            this.auth.onAuthStateChanged((user) => {
+            firebase.onAuthStateChanged(this.auth, (user) => {
                 console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
                 if (user) {
                     console.log('Current user:', user.email);
@@ -187,17 +182,18 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            // Create user in Firebase Auth
-            const userCredential = await this.auth.createUserWithEmailAndPassword(email, password);
+            // Create user in Firebase Auth using modular SDK
+            const userCredential = await firebase.createUserWithEmailAndPassword(this.auth, email, password);
             const user = userCredential.user;
             
             // Store additional user data in Firestore
-            await this.db.collection('users').doc(user.uid).set({
+            const userDocRef = firebase.doc(this.db, 'users', user.uid);
+            await firebase.setDoc(userDocRef, {
                 ...userData,
                 uid: user.uid,
                 email: user.email,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
             });
             
             console.log('User created successfully:', user.uid);
@@ -216,7 +212,7 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const userCredential = await this.auth.signInWithEmailAndPassword(email, password);
+            const userCredential = await firebase.signInWithEmailAndPassword(this.auth, email, password);
             const user = userCredential.user;
             
             console.log('User signed in successfully:', user.uid);
@@ -258,9 +254,10 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const doc = await this.db.collection('users').doc(uid).get();
-            if (doc.exists) {
-                return doc.data();
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            const docSnap = await firebase.getDoc(userDocRef);
+            if (docSnap.exists()) {
+                return docSnap.data();
             } else {
                 return null;
             }
@@ -295,7 +292,8 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const snapshot = await this.db.collection('users').get();
+            const usersCollectionRef = firebase.collection(this.db, 'users');
+            const snapshot = await firebase.getDocs(usersCollectionRef);
             const users = [];
             snapshot.forEach(doc => {
                 users.push({
@@ -342,7 +340,7 @@ class FirebaseService {
         try {
             const user = this.auth.currentUser;
             if (user && !user.emailVerified) {
-                await user.sendEmailVerification();
+                await firebase.sendEmailVerification(user);
                 console.log('Email verification sent');
             }
         } catch (error) {
@@ -358,7 +356,7 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            await this.auth.sendPasswordResetEmail(email);
+            await firebase.sendPasswordResetEmail(this.auth, email);
             console.log('Password reset email sent');
         } catch (error) {
             console.error('Error sending password reset email:', error);
@@ -464,7 +462,6 @@ window.testFirebase = function() {
     console.log('Firebase SDK available:', typeof firebase !== 'undefined');
     if (typeof firebase !== 'undefined') {
         console.log('Firebase version:', firebase.SDK_VERSION);
-        console.log('Firebase apps:', firebase.apps.length);
         console.log('Firebase services:', Object.keys(firebase));
     }
     console.log('Firebase service available:', !!window.firebaseService);
