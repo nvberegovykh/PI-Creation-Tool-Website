@@ -245,6 +245,7 @@ class FirebaseService {
                 role: userData.role || 'user',
                 isVerified: false,
                 status: 'pending',
+                usernameLower: (userData.username || '').toLowerCase(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 lastLogin: null,
@@ -336,10 +337,11 @@ class FirebaseService {
         
         try {
             const userDocRef = firebase.doc(this.db, 'users', uid);
-            await firebase.updateDoc(userDocRef, {
-                ...data,
-                updatedAt: new Date().toISOString()
-            });
+            const update = { ...data, updatedAt: new Date().toISOString() };
+            if (Object.prototype.hasOwnProperty.call(data, 'username')) {
+                update.usernameLower = (data.username || '').toLowerCase();
+            }
+            await firebase.updateDoc(userDocRef, update);
             console.log('User data updated successfully');
         } catch (error) {
             console.error('Error updating user data:', error);
@@ -591,11 +593,18 @@ class FirebaseService {
                 firebase.where('email', '>=', searchTerm),
                 firebase.where('email', '<=', searchTerm + '\uf8ff')
             );
+
+            // Exact lowercase username match for login by username
+            const exactLower = firebase.query(
+                usersCollectionRef,
+                firebase.where('usernameLower', '==', (searchTerm || '').toLowerCase())
+            );
             
             // Execute both queries
-            const [usernameSnapshot, emailSnapshot] = await Promise.all([
+            const [usernameSnapshot, emailSnapshot, exactLowerSnapshot] = await Promise.all([
                 firebase.getDocs(usernameQuery),
-                firebase.getDocs(emailQuery)
+                firebase.getDocs(emailQuery),
+                firebase.getDocs(exactLower)
             ]);
             
             const users = new Map(); // Use Map to avoid duplicates
@@ -607,6 +616,11 @@ class FirebaseService {
             
             // Process email results
             emailSnapshot.forEach(doc => {
+                users.set(doc.id, { id: doc.id, ...doc.data() });
+            });
+
+            // Process exact lowercase results
+            exactLowerSnapshot.forEach(doc => {
                 users.set(doc.id, { id: doc.id, ...doc.data() });
             });
             

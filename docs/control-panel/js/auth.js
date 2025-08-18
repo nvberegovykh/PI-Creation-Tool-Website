@@ -284,7 +284,13 @@ class AuthManager {
                 if (!username.includes('@')) {
                     try {
                         const matches = await window.firebaseService.searchUsers(username);
-                        const exact = (matches || []).find(u => (u.username || '').toLowerCase() === username.toLowerCase());
+                        // Prefer exact lowercase match first
+                        const lower = username.toLowerCase();
+                        let exact = (matches || []).find(u => (u.usernameLower || (u.username||'').toLowerCase()) === lower);
+                        if (!exact) {
+                            // Fallback to case-insensitive equality
+                            exact = (matches || []).find(u => (u.username || '').toLowerCase() === lower);
+                        }
                         if (!exact || !exact.email) {
                             this.showMessage('User credentials do not exist', 'error');
                             return;
