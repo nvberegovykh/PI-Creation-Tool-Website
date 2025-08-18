@@ -254,7 +254,14 @@ class AuthManager {
 
             // Check regular users using encrypted storage
             const users = await this.getUsers();
+            console.log('Total users in storage:', users.length);
+            console.log('All users:', users);
+            
             const user = users.find(u => u.username === username || u.email === username);
+            console.log('User found:', !!user);
+            console.log('User by email only:', users.find(u => u.email === username));
+            console.log('User by username only:', users.find(u => u.username === username));
+            console.log('Searching for username/email:', username);
 
             if (!user) {
                 this.showMessage('Invalid username or password', 'error');
@@ -724,7 +731,7 @@ class AuthManager {
             const users = await this.getUsers();
             console.log('Users loaded:', users.length);
             
-            const user = users.find(u => u.username === username);
+            const user = users.find(u => u.username === username || u.email === username);
             console.log('User found:', !!user);
             
             if (user) {
@@ -853,7 +860,7 @@ class AuthManager {
     async approveUser(username) {
         try {
             const users = await this.getUsers();
-            const user = users.find(u => u.username === username);
+            const user = users.find(u => u.username === username || u.email === username);
             if (user) {
                 user.status = 'approved';
                 user.approvedBy = this.currentUser.username;
