@@ -77,12 +77,15 @@
           sidebar.classList.toggle('open');
         });
       }
-      // Desktop: Shift+Enter to send
+      // Enter to send, Shift+Enter for newline (desktop & mobile)
       const msgInput2 = document.getElementById('message-input');
       if (msgInput2){
         msgInput2.addEventListener('keydown', (e)=>{
-          const isDesktop = window.matchMedia && window.matchMedia('(min-width: 769px)').matches;
-          if (isDesktop && e.key === 'Enter' && e.shiftKey){
+          if (e.key === 'Enter'){
+            if (e.shiftKey){
+              // allow newline
+              return;
+            }
             e.preventDefault();
             this.sendCurrent();
           }
