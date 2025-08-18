@@ -180,9 +180,7 @@ class FirebaseService {
             
             // Debug: Check if API key looks valid
             if (keys.firebase.apiKey) {
-                console.log('✅ Firebase API key found');
-                console.log('API key length:', keys.firebase.apiKey.length);
-                console.log('API key starts with:', keys.firebase.apiKey.substring(0, 10) + '...');
+                console.log('✅ Firebase API key present');
                 
                 // Basic validation - Firebase API keys are typically 39 characters
                 if (keys.firebase.apiKey.length < 30) {
@@ -725,15 +723,15 @@ class FirebaseService {
     // Duplicate deleteUser removed; use the unified method above
 
     /**
-     * Test Firebase API key validity
+     * Connectivity check without exposing key material
      */
     async testFirebaseAPIKey() {
         try {
-            console.log('🔍 Testing Firebase API key validity...');
+            console.log('🔍 Testing Firebase connectivity...');
             
             const firebaseConfig = await this.getFirebaseConfig();
             if (!firebaseConfig.apiKey) {
-                console.error('❌ No API key found in Firebase config');
+                console.error('❌ Firebase API key missing');
                 return false;
             }
             
@@ -752,12 +750,10 @@ class FirebaseService {
             });
             
             if (response.ok) {
-                console.log('✅ Firebase API key is valid');
+                console.log('✅ Firebase endpoint reachable');
                 return true;
             } else {
-                const errorData = await response.json();
-                console.error('❌ Firebase API key test failed:', errorData);
-                console.error('Status:', response.status);
+                console.warn('⚠️ Firebase connectivity test failed. Status:', response.status);
                 return false;
             }
             

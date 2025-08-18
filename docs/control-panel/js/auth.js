@@ -279,7 +279,24 @@ class AuthManager {
         if (window.firebaseService && window.firebaseService.isInitialized) {
             try {
                 console.log('Attempting Firebase login...');
-                const firebaseUser = await window.firebaseService.signInUser(username, password);
+                // Support login by username OR email
+                let identifierEmail = username;
+                if (!username.includes('@')) {
+                    try {
+                        const matches = await window.firebaseService.searchUsers(username);
+                        const exact = (matches || []).find(u => (u.username || '').toLowerCase() === username.toLowerCase());
+                        if (!exact || !exact.email) {
+                            this.showMessage('User credentials do not exist', 'error');
+                            return;
+                        }
+                        identifierEmail = exact.email;
+                    } catch (e) {
+                        console.warn('Username lookup failed:', e?.message || e);
+                        this.showMessage('User credentials do not exist', 'error');
+                        return;
+                    }
+                }
+                const firebaseUser = await window.firebaseService.signInUser(identifierEmail, password);
                 
                 if (firebaseUser) {
                     // Get user data from Firestore

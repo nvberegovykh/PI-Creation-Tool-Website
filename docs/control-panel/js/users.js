@@ -10,7 +10,28 @@ class UsersManager {
     }
 
     init() {
-        this.loadUsers();
+        // Delay loading users until an authenticated admin is present to avoid UI alerts on refresh
+        const tryLoad = async () => {
+            try {
+                if (window.firebaseService && window.firebaseService.isInitialized && window.authManager) {
+                    const cu = window.firebaseService.auth.currentUser;
+                    if (cu) {
+                        // Check admin role
+                        try {
+                            const docRef = window.firebase.doc(window.firebaseService.db, 'users', cu.uid);
+                            const snap = await window.firebase.getDoc(docRef);
+                            if (snap.exists() && (snap.data().role === 'admin')) {
+                                await this.loadUsers();
+                                return;
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+            // Retry shortly; avoid spamming errors
+            setTimeout(tryLoad, 500);
+        };
+        tryLoad();
         this.setupEventListeners();
     }
 
@@ -56,13 +77,11 @@ class UsersManager {
                     // Update user statistics
                     this.updateUserStats();
                 } catch (firebaseError) {
-                    console.error('Firebase users loading failed:', firebaseError.message);
-                    this.showError('Failed to load users from Firebase');
+                    console.warn('Firebase users loading failed (suppressed on UI):', firebaseError.message);
                     return;
                 }
             } else {
-                console.error('Firebase not available - user management requires Firebase. No fallback.');
-                this.showError('User management service not available. Please contact support.');
+                console.warn('Firebase not available yet - delaying user list load.');
                 this.users = []; // Ensure users array is empty if Firebase is not available
                 return;
             }
@@ -107,9 +126,11 @@ class UsersManager {
             return;
         }
 
-        // Separate pending and approved users - FIXED to show all users
-        const pendingUsers = this.users.filter(user => user.status === 'pending' || (!user.status && !user.isVerified));
-        const approvedUsers = this.users.filter(user => user.status === 'approved' || user.isVerified);
+        // Separate pending and approved users
+        // Pending: not verified and not explicitly approved
+        const pendingUsers = this.users.filter(user => (!user.isVerified) && (user.status !== 'approved'));
+        // Approved: verified or explicitly approved
+        const approvedUsers = this.users.filter(user => (user.isVerified) || (user.status === 'approved'));
 
         let html = '';
 
@@ -190,7 +211,13 @@ class UsersManager {
                 <div class="user-details">
                     <div class="detail-item">
                         <span class="label">Role:</span>
-                        <span class="value">${user.role}</span>
+                        <span class="value">
+                            <select class="role-select" data-uid="${user.id || user.uid}">
+                                <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm save-role-btn" data-uid="${user.id || user.uid}">Save</button>
+                        </span>
                     </div>
                     <div class="detail-item">
                         <span class="label">Created:</span>
@@ -232,6 +259,16 @@ class UsersManager {
             btn.addEventListener('click', async () => {
                 const uid = btn.dataset.uid;
                 await this.deleteUser(uid);
+            });
+        });
+
+        // Save role buttons
+        document.querySelectorAll('.save-role-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const uid = btn.dataset.uid;
+                const select = document.querySelector(`.role-select[data-uid="${uid}"]`);
+                if (!select) return;
+                await this.updateUserRole(uid, select.value);
             });
         });
     }
@@ -295,6 +332,25 @@ class UsersManager {
         } catch (error) {
             console.error('Error approving user:', error);
             this.showError('Failed to approve user');
+        }
+    }
+
+    async updateUserRole(uid, role) {
+        try {
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                const docRef = window.firebase.doc(window.firebaseService.db, 'users', uid);
+                await window.firebase.updateDoc(docRef, {
+                    role,
+                    updatedAt: new Date().toISOString()
+                });
+                this.showSuccess('Role updated');
+                await this.loadUsers();
+            } else {
+                this.showError('Firebase service not available');
+            }
+        } catch (error) {
+            console.error('Error updating user role:', error);
+            this.showError('Failed to update role');
         }
     }
 
