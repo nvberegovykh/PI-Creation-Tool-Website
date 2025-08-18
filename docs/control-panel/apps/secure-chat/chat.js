@@ -77,6 +77,17 @@
           sidebar.classList.toggle('open');
         });
       }
+      // Desktop: Shift+Enter to send
+      const msgInput2 = document.getElementById('message-input');
+      if (msgInput2){
+        msgInput2.addEventListener('keydown', (e)=>{
+          const isDesktop = window.matchMedia && window.matchMedia('(min-width: 769px)').matches;
+          if (isDesktop && e.key === 'Enter' && e.shiftKey){
+            e.preventDefault();
+            this.sendCurrent();
+          }
+        });
+      }
       document.addEventListener('keydown', (e)=>{
         if (e.key === 'Escape'){
           const sidebar = document.querySelector('.sidebar');
