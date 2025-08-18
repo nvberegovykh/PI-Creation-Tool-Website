@@ -142,15 +142,16 @@ class MigrationHelper {
                     );
                     
                     // Store user data in Firestore
-                    await window.firebaseService.db.collection('users').doc(userCredential.user.uid).set({
+                    const destDocRef = firebase.doc(window.firebaseService.db, 'users', userCredential.user.uid);
+                    await firebase.setDoc(destDocRef, {
                         uid: userCredential.user.uid,
                         username: user.username,
                         email: user.email,
                         role: user.role || 'user',
                         isVerified: user.isVerified || false,
                         status: user.status || 'pending',
-                        createdAt: user.createdAt ? new Date(user.createdAt) : firebase.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdAt: user.createdAt ? new Date(user.createdAt) : new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
                         migratedFromLocalStorage: true,
                         needsPasswordReset: true // Flag to indicate user needs to reset password
                     });
@@ -215,7 +216,7 @@ class MigrationHelper {
                     // Update user to mark password reset email as sent
                     await window.firebaseService.updateUserData(user.uid, {
                         passwordResetEmailSent: true,
-                        passwordResetEmailSentAt: firebase.firestore.FieldValue.serverTimestamp()
+                        passwordResetEmailSentAt: new Date().toISOString()
                     });
                     
                 } catch (error) {

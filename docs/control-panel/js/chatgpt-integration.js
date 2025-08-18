@@ -83,7 +83,7 @@ class ChatGPTIntegration {
      */
     async ensureAssistantSupportsFiles() {
         try {
-            // Get current assistant configuration
+            // Try v2 endpoint first (newer API)
             let response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
@@ -97,7 +97,7 @@ class ChatGPTIntegration {
                 response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
                     headers: {
                         'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v2'
+                        'OpenAI-Beta': 'assistants=v1'
                     }
                 });
             }
@@ -148,11 +148,11 @@ class ChatGPTIntegration {
 
             // If v2 fails, try v1 endpoint (fallback)
             if (!response.ok) {
-                console.log('v2 endpoint failed, trying v1 endpoint...');
+                console.log('v2 endpoint failed for config check, trying v1...');
                 response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
                     headers: {
                         'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v2'
+                        'OpenAI-Beta': 'assistants=v1'
                     }
                 });
             }

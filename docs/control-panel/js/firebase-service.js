@@ -75,12 +75,17 @@ class FirebaseService {
                 return firebase.fetchSignInMethodsForEmail(this.auth, email);
             };
             
-            // Enable offline persistence for Firestore
+            // Enable offline persistence for Firestore (modular API)
             try {
-                await this.db.enablePersistence({
-                    synchronizeTabs: true
-                });
-                console.log('✅ Firestore offline persistence enabled');
+                if (firebase.enableMultiTabIndexedDbPersistence) {
+                    await firebase.enableMultiTabIndexedDbPersistence(this.db);
+                    console.log('✅ Firestore multi-tab offline persistence enabled');
+                } else if (firebase.enableIndexedDbPersistence) {
+                    await firebase.enableIndexedDbPersistence(this.db);
+                    console.log('✅ Firestore offline persistence enabled');
+                } else {
+                    console.log('ℹ️ Firestore persistence APIs not exposed; skipping');
+                }
             } catch (error) {
                 console.warn('⚠️ Firestore offline persistence failed:', error.message);
             }
@@ -324,9 +329,10 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            await this.db.collection('users').doc(uid).update({
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.updateDoc(userDocRef, {
                 ...data,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                updatedAt: new Date().toISOString()
             });
             console.log('User data updated successfully');
         } catch (error) {
@@ -366,7 +372,8 @@ class FirebaseService {
         
         try {
             // Delete from Firestore
-            await this.db.collection('users').doc(uid).delete();
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.deleteDoc(userDocRef);
             
             // Delete from Auth (requires re-authentication)
             const user = this.auth.currentUser;
@@ -421,7 +428,7 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const email = await this.auth.verifyPasswordResetCode(code);
+            const email = await firebase.verifyPasswordResetCode(this.auth, code);
             return email;
         } catch (error) {
             console.error('Error verifying password reset code:', error);
@@ -436,7 +443,7 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            await this.auth.confirmPasswordReset(code, newPassword);
+            await firebase.confirmPasswordReset(this.auth, code, newPassword);
             console.log('Password reset confirmed');
         } catch (error) {
             console.error('Error confirming password reset:', error);
@@ -668,21 +675,22 @@ class FirebaseService {
                     
                     if (existingUser.length === 0) {
                         // Create user in Firebase
-                        const userCredential = await this.auth.createUserWithEmailAndPassword(
-                            user.email, 
-                            'tempPassword123!' // Temporary password
+                        const userCredential = await firebase.createUserWithEmailAndPassword(this.auth,
+                            user.email,
+                            'tempPassword123!'
                         );
                         
                         // Store user data in Firestore
-                        await this.db.collection('users').doc(userCredential.user.uid).set({
+                        const newUserDocRef = firebase.doc(this.db, 'users', userCredential.user.uid);
+                        await firebase.setDoc(newUserDocRef, {
                             uid: userCredential.user.uid,
                             username: user.username,
                             email: user.email,
                             role: user.role,
                             isVerified: user.isVerified || false,
                             status: user.status || 'pending',
-                            createdAt: user.createdAt ? new Date(user.createdAt) : firebase.firestore.FieldValue.serverTimestamp(),
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            createdAt: user.createdAt ? new Date(user.createdAt) : new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
                             migratedFromLocalStorage: true
                         });
                         
@@ -706,22 +714,7 @@ class FirebaseService {
         }
     }
 
-    /**
-     * Delete user (admin function)
-     */
-    async deleteUser(uid) {
-        await this.waitForInit();
-        
-        try {
-            const userDocRef = firebase.doc(this.db, 'users', uid);
-            await firebase.deleteDoc(userDocRef);
-            console.log('User deleted successfully:', uid);
-            return true;
-        } catch (error) {
-            console.error('Error deleting user:', error);
-            throw error;
-        }
-    }
+    // Duplicate deleteUser removed; use the unified method above
 
     /**
      * Test Firebase API key validity
