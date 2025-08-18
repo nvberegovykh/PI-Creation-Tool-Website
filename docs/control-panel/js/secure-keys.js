@@ -119,12 +119,24 @@ class SecureKeyManager {
                 return this.cachedKeys;
             }
 
-            // Fetch from secure source
-            const response = await fetch(url);
+            // Fetch from secure source with fallback to latest-raw if a specific commit 404s
+            let response = await fetch(url);
             if (!response.ok) {
                 console.warn(`Failed to fetch keys from ${url}: ${response.status} ${response.statusText}`);
-                console.warn('Falling back to default credentials. Please set up your Gist file.');
-                return await this.generateDefaultCredentials();
+                // If the URL was a commit-specific raw path and returned 404, try the latest raw pointer
+                try {
+                    const latestRaw = url.replace(/\/raw\/[A-Za-z0-9]+\//, '/raw/');
+                    if (latestRaw !== url) {
+                        console.log('Retrying keys fetch via latest raw pointer:', latestRaw);
+                        response = await fetch(latestRaw + (latestRaw.includes('?') ? '&' : '?') + 't=' + Date.now());
+                    }
+                } catch (e) {
+                    console.warn('Latest-raw fallback construction failed:', e?.message || e);
+                }
+                if (!response.ok) {
+                    console.warn('Fallback fetch failed as well. Using default credentials.');
+                    return await this.generateDefaultCredentials();
+                }
             }
 
             const keysData = await response.json();
