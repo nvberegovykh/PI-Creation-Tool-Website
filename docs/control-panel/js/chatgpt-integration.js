@@ -8,6 +8,8 @@ class ChatGPTIntegration {
         // Configuration will be loaded from Gist
         this.apiKey = null;
         this.assistantId = null;
+        this.proxyUrl = null; // Optional serverless proxy base URL
+        this.proxyAuth = null; // Optional proxy auth token
         this.isEnabled = false;
         this.chatHistory = [];
         this.currentContext = 'control-panel';
@@ -76,7 +78,38 @@ class ChatGPTIntegration {
         }
     }
 
+    /**
+     * Helper: base URL for OpenAI (proxy-aware)
+     */
+    getOpenAIBase() {
+        return this.proxyUrl || 'https://api.openai.com';
+    }
 
+    /**
+     * Helper: build headers, optionally JSON content-type and Assistants beta header
+     */
+    buildOpenAIHeaders({ json = true, beta = null } = {}) {
+        const headers = {};
+        if (json) headers['Content-Type'] = 'application/json';
+        if (beta) headers['OpenAI-Beta'] = beta;
+        if (!this.proxyUrl && this.apiKey) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+        }
+        if (this.proxyUrl && this.proxyAuth) {
+            headers['X-Proxy-Auth'] = this.proxyAuth;
+        }
+        return headers;
+    }
+
+    /**
+     * Helper: perform fetch to OpenAI (or proxy) with sensible defaults
+     */
+    async openaiFetch(path, { method = 'GET', headers = {}, body = undefined, beta = null, json = true } = {}) {
+        const base = this.getOpenAIBase();
+        const url = path.startsWith('http') ? path : `${base}${path}`;
+        const mergedHeaders = { ...this.buildOpenAIHeaders({ json, beta }), ...headers };
+        return fetch(url, { method, headers: mergedHeaders, body });
+    }
 
     /**
      * Ensure assistant supports file attachments
@@ -84,21 +117,17 @@ class ChatGPTIntegration {
     async ensureAssistantSupportsFiles() {
         try {
             // Try v2 endpoint first (newer API)
-            let response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                }
+            let response = await this.openaiFetch(`/v2/assistants/${this.assistantId}`, {
+                beta: 'assistants=v2',
+                json: false
             });
 
             // If v2 fails, try v1 endpoint (fallback)
             if (!response.ok) {
                 console.log('v2 endpoint failed for file support check, trying v1...');
-                response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v1'
-                    }
+                response = await this.openaiFetch(`/v1/assistants/${this.assistantId}`, {
+                    beta: 'assistants=v1',
+                    json: false
                 });
             }
 
@@ -139,21 +168,17 @@ class ChatGPTIntegration {
             console.log('Checking assistant configuration...');
             
             // Try v2 endpoint first (newer API)
-            let response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                }
+            let response = await this.openaiFetch(`/v2/assistants/${this.assistantId}`, {
+                beta: 'assistants=v2',
+                json: false
             });
 
             // If v2 fails, try v1 endpoint (fallback)
             if (!response.ok) {
                 console.log('v2 endpoint failed for config check, trying v1...');
-                response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v1'
-                    }
+                response = await this.openaiFetch(`/v1/assistants/${this.assistantId}`, {
+                    beta: 'assistants=v1',
+                    json: false
                 });
             }
 
@@ -1010,12 +1035,9 @@ class ChatGPTIntegration {
      * Call DALL-E API
      */
     async callDALLE(prompt, size, quality) {
-        const response = await fetch('https://api.openai.com/v1/images/generations', {
+        const response = await this.openaiFetch('/v1/images/generations', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
-            },
+            beta: null,
             body: JSON.stringify({
                 model: 'dall-e-3',
                 prompt: prompt,
@@ -1350,12 +1372,9 @@ class ChatGPTIntegration {
         try {
             console.log('Using chat completions API for text-only message');
             
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            const response = await this.openaiFetch('/v1/chat/completions', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
+                beta: null,
                 body: JSON.stringify({
                     model: 'gpt-4o-mini',
                     messages: [
@@ -1394,13 +1413,9 @@ class ChatGPTIntegration {
      */
     async createThread() {
         try {
-            const response = await fetch('https://api.openai.com/v1/threads', {
+            const response = await this.openaiFetch('/v1/threads', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                }
+                beta: 'assistants=v2'
             });
 
             if (!response.ok) {
@@ -1438,13 +1453,9 @@ class ChatGPTIntegration {
                 
                 console.log('Sending text-only content as string:', message.trim());
                 
-                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+                const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v2'
-                    },
+                    beta: 'assistants=v2',
                     body: JSON.stringify({
                         role: 'user',
                         content: message.trim()
@@ -1522,13 +1533,9 @@ class ChatGPTIntegration {
         if (content.length === 0) {
             console.log('No files uploaded, sending default text message');
             
-            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+            const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                },
+                beta: 'assistants=v2',
                 body: JSON.stringify({
                     role: 'user',
                     content: 'Please analyze the attached files.'
@@ -1548,13 +1555,9 @@ class ChatGPTIntegration {
         
         console.log('Sending files-only content:', JSON.stringify(content, null, 2));
         
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+        const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v2'
-            },
+            beta: 'assistants=v2',
             body: JSON.stringify({
                 role: 'user',
                 content: content
@@ -1586,13 +1589,9 @@ class ChatGPTIntegration {
             // Fall back to text-only message
             console.log('Fallback to text-only message');
             
-            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+            const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                },
+                beta: 'assistants=v2',
                 body: JSON.stringify({
                     role: 'user',
                     content: message.trim()
@@ -1639,13 +1638,9 @@ class ChatGPTIntegration {
         
         console.log('Sending message with files content:', JSON.stringify(content, null, 2));
         
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
+        const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v2'
-            },
+            beta: 'assistants=v2',
             body: JSON.stringify({
                 role: 'user',
                 content: content
@@ -1713,11 +1708,9 @@ class ChatGPTIntegration {
             formData.append('file', file);
             formData.append('purpose', 'assistants');
 
-            const response = await fetch('https://api.openai.com/v1/files', {
+            const response = await this.openaiFetch('/v1/files', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
+                json: false,
                 body: formData
             });
 
@@ -1744,12 +1737,10 @@ class ChatGPTIntegration {
             console.log('Attaching files to assistant:', fileIds);
             
             // First, get the current assistant configuration
-            const getResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+            const getResponse = await this.openaiFetch(`/v1/assistants/${this.assistantId}`, {
                 method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                }
+                beta: 'assistants=v2',
+                json: false
             });
 
             if (!getResponse.ok) {
@@ -1770,13 +1761,9 @@ class ChatGPTIntegration {
             console.log('All file IDs (merged):', allFileIds);
             
             // Update the assistant with all file IDs
-            const updateResponse = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+            const updateResponse = await this.openaiFetch(`/v1/assistants/${this.assistantId}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                },
+                beta: 'assistants=v2',
                 body: JSON.stringify({
                     file_ids: allFileIds
                 })
@@ -1803,13 +1790,9 @@ class ChatGPTIntegration {
     async runAssistant() {
         try {
             console.log('Starting assistant run...');
-            const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs`, {
+            const response = await this.openaiFetch(`/v1/threads/${this.threadId}/runs`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'OpenAI-Beta': 'assistants=v2'
-                },
+                beta: 'assistants=v2',
                 body: JSON.stringify({
                     assistant_id: this.assistantId
                 })
@@ -1841,11 +1824,9 @@ class ChatGPTIntegration {
 
         while (attempts < maxAttempts) {
             try {
-                const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/runs/${runId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'OpenAI-Beta': 'assistants=v2'
-                    }
+                const response = await this.openaiFetch(`/v1/threads/${this.threadId}/runs/${runId}`, {
+                    beta: 'assistants=v2',
+                    json: false
                 });
 
                 if (!response.ok) {
@@ -1892,11 +1873,9 @@ class ChatGPTIntegration {
      * Get the last message from the thread
      */
     async getLastMessage() {
-        const response = await fetch(`https://api.openai.com/v1/threads/${this.threadId}/messages`, {
-            headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-                'OpenAI-Beta': 'assistants=v2'
-            }
+        const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
+            beta: 'assistants=v2',
+            json: false
         });
 
         if (!response.ok) {
