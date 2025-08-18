@@ -30,11 +30,14 @@
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       document.getElementById('message-search').addEventListener('input', (e)=> this.searchMessages(e.target.value.trim()));
-      const header = document.getElementById('sidebar-header');
-      if (header) header.addEventListener('click', ()=>{
-        const sidebar = document.querySelector('.sidebar');
-        if (sidebar) sidebar.classList.toggle('collapsed');
-      });
+      const toggleBtn = document.getElementById('toggle-connections');
+      if (toggleBtn){
+        toggleBtn.addEventListener('click', ()=>{
+          const sidebar = document.querySelector('.sidebar');
+          if (!sidebar) return;
+          sidebar.classList.toggle('open');
+        });
+      }
     }
 
     async promptNewConnection(){
@@ -110,7 +113,11 @@
           if (other) label = other;
         }
         li.textContent = label;
-        li.addEventListener('click',()=> this.setActive(c.id));
+        li.addEventListener('click',()=>{
+          this.setActive(c.id);
+          const sidebar = document.querySelector('.sidebar');
+          if (sidebar) sidebar.classList.remove('open');
+        });
         listEl.appendChild(li);
       });
     }
