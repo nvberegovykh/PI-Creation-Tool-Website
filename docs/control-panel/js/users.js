@@ -60,8 +60,8 @@ class UsersManager {
         }
 
         // Separate pending and approved users
-        const pendingUsers = this.users.filter(user => user.status === 'pending');
-        const approvedUsers = this.users.filter(user => user.status === 'approved');
+        const pendingUsers = this.users.filter(user => user.status === 'pending' || (!user.status && !user.isVerified));
+        const approvedUsers = this.users.filter(user => user.status === 'approved' || user.isVerified);
 
         let html = '';
 
@@ -97,8 +97,16 @@ class UsersManager {
 
     getUserCardHTML(user, isPending) {
         const createdAt = new Date(user.createdAt).toLocaleDateString();
-        const statusClass = user.status === 'approved' ? 'approved' : 'pending';
-        const statusText = user.status === 'approved' ? 'Approved' : 'Pending';
+        
+        // Determine status based on both old status field and new isVerified field
+        let statusClass, statusText;
+        if (user.status === 'approved' || user.isVerified) {
+            statusClass = 'approved';
+            statusText = 'Approved';
+        } else {
+            statusClass = 'pending';
+            statusText = 'Pending';
+        }
         
         let actionsHTML = '';
         
@@ -303,7 +311,7 @@ class UsersManager {
         const countElement = document.getElementById('users-count');
         if (countElement) {
             const totalUsers = this.users.length;
-            const pendingUsers = this.users.filter(u => u.status === 'pending').length;
+            const pendingUsers = this.users.filter(u => u.status === 'pending' || (!u.status && !u.isVerified)).length;
             countElement.textContent = `${totalUsers} total (${pendingUsers} pending)`;
         }
     }
