@@ -7,6 +7,7 @@
       this.activeConnection = null;
       this.connections = [];
       this.sharedKeyCache = {}; // connId -> CryptoKey
+      this.me = null; // cached profile
       this.init();
     }
 
@@ -17,6 +18,7 @@
       this.db = window.firebaseService.db;
       this.storage = firebase.getStorage ? firebase.getStorage() : null;
       this.currentUser = await window.firebaseService.getCurrentUser();
+      try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
       await this.loadConnections();
     }
@@ -36,15 +38,35 @@
       const results = await window.firebaseService.searchUsers(name.toLowerCase());
       const exact = (results||[]).find(u=> (u.username||'').toLowerCase() === name.toLowerCase());
       if (!exact) return alert('User not found');
-      const connId = [this.currentUser.uid, exact.uid||exact.id].sort().join('_');
-      const connRef = firebase.doc(this.db,'chatConnections',connId);
-      await firebase.setDoc(connRef,{
-        id: connId,
-        participants:[this.currentUser.uid, exact.uid||exact.id],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastMessage:''
-      },{merge:true});
+      // Build username-based pair key
+      const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
+      const pairKey = [myName.toLowerCase(), (exact.username||'').toLowerCase()].sort().join('|');
+      // Try to find existing by pairKey
+      let existingId = null;
+      try {
+        const q = firebase.query(
+          firebase.collection(this.db,'chatConnections'),
+          firebase.where('pairKey','==', pairKey),
+          firebase.limit(1)
+        );
+        const snap = await firebase.getDocs(q);
+        snap.forEach(d=> existingId = d.id);
+      } catch {}
+
+      let connId = existingId;
+      if (!connId){
+        const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+        connId = newRef.id;
+        await firebase.setDoc(newRef,{
+          id: connId,
+          participants:[this.currentUser.uid, exact.uid||exact.id], // kept for permissions
+          participantUsernames:[myName, exact.username||exact.email],
+          pairKey,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastMessage:''
+        });
+      }
       await this.loadConnections();
       this.setActive(connId, exact.username||exact.email);
     }
@@ -76,7 +98,13 @@
       }
       this.connections.forEach(c=>{
         const li = document.createElement('li');
-        li.textContent = c.id.replace(this.currentUser.uid,'').replace(/_/g,'').slice(0,32);
+        let label = c.id;
+        const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
+        if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
+          const other = c.participantUsernames.find(n=> (n||'').toLowerCase() !== myNameLower);
+          if (other) label = other;
+        }
+        li.textContent = label;
         li.addEventListener('click',()=> this.setActive(c.id));
         listEl.appendChild(li);
       });
@@ -102,7 +130,12 @@
       snap.forEach(async d=>{
         const m=d.data();
         let text='';
-        try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{ text='[unable to decrypt]'; }
+        try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+          const parts = this.activeConnection.split('_');
+          const peerUid = parts[0] === this.currentUser.uid ? parts[1] : parts[0];
+          const fbKey = await chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+          try { text = await chatCrypto.decryptWithKey(m.cipher, fbKey);} catch { text='[unable to decrypt]'; }
+        }
         const el = document.createElement('div');
         el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
         el.innerHTML = `<div>${this.renderText(text)}</div>${m.fileName?`<div><a href="${m.fileUrl}" target="_blank">${m.fileName}</a></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
@@ -138,7 +171,13 @@
     }
 
     async saveMessage({text,fileUrl,fileName}){
-      const aesKey = await this.getOrCreateSharedAesKey();
+      let aesKey;
+      try { aesKey = await this.getOrCreateSharedAesKey(); }
+      catch {
+        const parts = this.activeConnection.split('_');
+        const peerUid = parts[0] === this.currentUser.uid ? parts[1] : parts[0];
+        aesKey = await chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+      }
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'));
       await firebase.setDoc(msgRef,{
@@ -202,16 +241,33 @@
             li.addEventListener('click', async ()=>{
               resultsEl.style.display='none';
               document.getElementById('user-search').value = '';
-              // Create/open connection with selected user
-              const connId = [this.currentUser.uid, u.uid||u.id].sort().join('_');
-              const connRef = firebase.doc(this.db,'chatConnections',connId);
-              await firebase.setDoc(connRef,{
-                id: connId,
-                participants:[this.currentUser.uid, u.uid||u.id],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                lastMessage:''
-              },{merge:true});
+              // Create/open connection by username pairKey
+              const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
+              const pairKey = [myName.toLowerCase(), (u.username||'').toLowerCase()].sort().join('|');
+              let existingId = null;
+              try {
+                const q = firebase.query(
+                  firebase.collection(this.db,'chatConnections'),
+                  firebase.where('pairKey','==', pairKey),
+                  firebase.limit(1)
+                );
+                const snap = await firebase.getDocs(q);
+                snap.forEach(d=> existingId = d.id);
+              } catch {}
+              let connId = existingId;
+              if (!connId){
+                const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+                connId = newRef.id;
+                await firebase.setDoc(newRef,{
+                  id: connId,
+                  participants:[this.currentUser.uid, u.uid||u.id],
+                  participantUsernames:[myName, u.username||u.email],
+                  pairKey,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  lastMessage:''
+                });
+              }
               await this.loadConnections();
               this.setActive(connId, u.username||u.email);
             });
