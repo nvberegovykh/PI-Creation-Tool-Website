@@ -79,15 +79,28 @@ class LiberAppsControlPanel {
         // Check Firebase availability first - REQUIRED
         console.log('Checking Firebase availability...');
         
-        // Wait for Firebase to be fully initialized (increased timeout for modular SDK)
+        // Wait for Firebase to be fully initialized (listen to event + poll)
         let attempts = 0;
-        const maxAttempts = 100; // 10 seconds for modular SDK
-        
-        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
+        const maxAttempts = 150; // 15 seconds for CDN + keys
+
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            await new Promise(resolve => {
+                const handler = () => {
+                    window.removeEventListener('firebase-ready', handler);
+                    resolve();
+                };
+                window.addEventListener('firebase-ready', handler, { once: true });
+                // Also poll as a fallback
+                (async () => {
+                    while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                        await new Promise(r => setTimeout(r, 100));
+                        attempts++;
+                    }
+                    resolve();
+                })();
+            });
         }
-        
+
         if (!window.firebaseService || !window.firebaseService.isInitialized) {
             console.error('❌ Firebase is required but not available!');
             console.error('Firebase service status:', {
@@ -95,7 +108,6 @@ class LiberAppsControlPanel {
                 isInitialized: window.firebaseService?.isInitialized,
                 firebaseSDK: typeof firebase !== 'undefined'
             });
-            // Firebase is mandatory - no fallback available
             console.error('❌ Firebase authentication is required. Please check your connection and try again.');
             return;
         }

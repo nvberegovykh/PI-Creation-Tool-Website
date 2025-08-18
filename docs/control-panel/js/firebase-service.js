@@ -93,6 +93,14 @@ class FirebaseService {
             this.isInitialized = true;
             console.log('✅ Firebase initialized successfully');
 
+            // Notify the app that Firebase is ready
+            try {
+                window.firebaseServiceReady = true;
+                window.dispatchEvent(new Event('firebase-ready'));
+            } catch (e) {
+                console.warn('Failed to dispatch firebase-ready event:', e?.message || e);
+            }
+
             // Set up auth state listener
             firebase.onAuthStateChanged(this.auth, (user) => {
                 console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
@@ -198,7 +206,7 @@ class FirebaseService {
      */
     async waitForInit() {
         let attempts = 0;
-        const maxAttempts = 50;
+        const maxAttempts = 150; // up to 15 seconds to accommodate CDN + Gist fetch
         
         while (!this.isInitialized && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
