@@ -1345,3 +1345,81 @@ window.debugUser = async function(email) {
         return null;
     }
 };
+
+// Add manual verification function
+window.manualVerify = async function(email) {
+    console.log('=== Manual Verification ===');
+    console.log('Email:', email);
+    
+    try {
+        const users = await window.authManager.getUsers();
+        const user = users.find(u => u.email === email);
+        
+        if (user) {
+            console.log('✅ User found, manually verifying...');
+            
+            // Manually set verification status
+            user.isVerified = true;
+            user.status = 'approved';
+            user.verificationToken = null;
+            user.verificationTokenCreated = null;
+            user.verifiedAt = new Date().toISOString();
+            
+            // Save the updated user
+            const updatedUsers = users.map(u => u.email === email ? user : u);
+            const saveResult = await window.authManager.saveUsers(updatedUsers);
+            
+            console.log('✅ Manual verification completed');
+            console.log('Save result:', saveResult);
+            console.log('Updated user:', user);
+            
+            return user;
+        } else {
+            console.log('❌ User not found');
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ Manual verification error:', error);
+        return null;
+    }
+};
+
+// Add test verification function to test the actual verification process
+window.testVerification = async function(email, token) {
+    console.log('=== Testing Verification Process ===');
+    console.log('Email:', email);
+    console.log('Token:', token);
+    
+    try {
+        // Test step 1: Get users
+        console.log('Step 1: Getting users...');
+        const users = await window.authManager.getUsers();
+        console.log('Users loaded:', users.length);
+        
+        // Test step 2: Find user
+        console.log('Step 2: Finding user...');
+        const user = users.find(u => u.email === email && u.verificationToken === token);
+        console.log('User found:', !!user);
+        if (user) {
+            console.log('User data:', user);
+        }
+        
+        // Test step 3: Call email service verification
+        console.log('Step 3: Calling email service verification...');
+        const verifiedUser = await window.emailService.verifyToken(token, email);
+        console.log('Verification result:', verifiedUser);
+        
+        // Test step 4: Check if user was actually saved
+        console.log('Step 4: Checking if user was saved...');
+        const updatedUsers = await window.authManager.getUsers();
+        const savedUser = updatedUsers.find(u => u.email === email);
+        console.log('Saved user:', savedUser);
+        console.log('Is verified:', savedUser?.isVerified);
+        console.log('Status:', savedUser?.status);
+        
+        return verifiedUser;
+    } catch (error) {
+        console.error('❌ Test verification error:', error);
+        return null;
+    }
+};
