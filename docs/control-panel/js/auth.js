@@ -431,38 +431,47 @@ class AuthManager {
         try {
             console.log('Password reset requested for email:', email);
             
-            // Check if email service is available
-            if (!window.emailService) {
-                console.error('Email service not available');
-                this.showMessage('Email service not available. Please try again later.', 'error');
-                return;
+            // Use Firebase password reset if available
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                console.log('Using Firebase password reset...');
+                await window.firebaseService.sendPasswordResetEmail(email);
+                this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
+            } else {
+                console.log('Firebase not available, using local storage...');
+                
+                // Check if email service is available
+                if (!window.emailService) {
+                    console.error('Email service not available');
+                    this.showMessage('Email service not available. Please try again later.', 'error');
+                    return;
+                }
+
+                const users = await this.getUsers();
+                const user = users.find(u => u.email === email);
+
+                if (!user) {
+                    this.showMessage('If an account with this email exists, a reset link will be sent.', 'info');
+                    return;
+                }
+
+                console.log('User found, generating reset token...');
+
+                // Generate reset token
+                const resetToken = window.emailService.generateResetToken();
+                
+                // Update user with reset token
+                user.resetToken = resetToken;
+                user.resetTokenCreated = Date.now();
+                
+                const updatedUsers = users.map(u => u.email === email ? user : u);
+                await this.saveUsers(updatedUsers);
+
+                console.log('Sending password reset email...');
+
+                // Send reset email
+                await window.emailService.sendPasswordResetEmail(email, user.username, resetToken);
+                this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
             }
-
-            const users = await this.getUsers();
-            const user = users.find(u => u.email === email);
-
-            if (!user) {
-                this.showMessage('If an account with this email exists, a reset link will be sent.', 'info');
-                return;
-            }
-
-            console.log('User found, generating reset token...');
-
-            // Generate reset token
-            const resetToken = window.emailService.generateResetToken();
-            
-            // Update user with reset token
-            user.resetToken = resetToken;
-            user.resetTokenCreated = Date.now();
-            
-            const updatedUsers = users.map(u => u.email === email ? user : u);
-            await this.saveUsers(updatedUsers);
-
-            console.log('Sending password reset email...');
-
-            // Send reset email
-            await window.emailService.sendPasswordResetEmail(email, user.username, resetToken);
-            this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
             
             // Clear form
             document.getElementById('resetEmail').value = '';
@@ -564,18 +573,38 @@ class AuthManager {
         }
 
         try {
-            console.log('Step 1: Verifying reset token...');
-            // Verify reset token
-            await window.emailService.verifyResetToken(token, email);
-            console.log('Reset token verified successfully');
-            
-            console.log('Step 2: Updating password...');
-            // Update password
-            await window.emailService.updatePassword(email, newPassword);
-            console.log('Password updated successfully');
-            
-            this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
-            return true;
+            // Use Firebase password reset if available
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                console.log('Using Firebase password reset...');
+                
+                console.log('Step 1: Verifying reset code...');
+                // Verify the reset code with Firebase
+                const verifiedEmail = await window.firebaseService.verifyPasswordResetCode(token);
+                console.log('Reset code verified for email:', verifiedEmail);
+                
+                console.log('Step 2: Confirming password reset...');
+                // Confirm the password reset
+                await window.firebaseService.confirmPasswordReset(token, newPassword);
+                console.log('Password reset confirmed successfully');
+                
+                this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
+                return true;
+            } else {
+                console.log('Firebase not available, using local storage...');
+                
+                console.log('Step 1: Verifying reset token...');
+                // Verify reset token
+                await window.emailService.verifyResetToken(token, email);
+                console.log('Reset token verified successfully');
+                
+                console.log('Step 2: Updating password...');
+                // Update password
+                await window.emailService.updatePassword(email, newPassword);
+                console.log('Password updated successfully');
+                
+                this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
+                return true;
+            }
 
         } catch (error) {
             console.error('Password reset error:', error);

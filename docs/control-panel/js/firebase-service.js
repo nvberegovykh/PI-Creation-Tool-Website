@@ -17,11 +17,17 @@ class FirebaseService {
      */
     async init() {
         try {
+            console.log('=== Firebase Service Initialization ===');
+            
             // Wait for secure keys to be loaded
+            console.log('Waiting for secure keys...');
             await this.waitForSecureKeys();
+            console.log('Secure keys loaded');
             
             // Get Firebase configuration from secure keys
+            console.log('Getting Firebase config...');
             const firebaseConfig = await this.getFirebaseConfig();
+            console.log('Firebase config loaded:', !!firebaseConfig);
             
             if (!firebaseConfig) {
                 console.log('Firebase not configured - using local storage only');
@@ -30,18 +36,22 @@ class FirebaseService {
             }
 
             // Initialize Firebase
+            console.log('Initializing Firebase app...');
             if (!firebase.apps.length) {
                 this.app = firebase.initializeApp(firebaseConfig);
+                console.log('Firebase app created');
             } else {
                 this.app = firebase.app();
+                console.log('Firebase app already exists');
             }
 
             // Initialize services
+            console.log('Initializing Firebase services...');
             this.auth = firebase.auth();
             this.db = firebase.firestore();
             
             this.isInitialized = true;
-            console.log('Firebase initialized successfully');
+            console.log('✅ Firebase initialized successfully');
 
             // Set up auth state listener
             this.auth.onAuthStateChanged((user) => {
@@ -52,7 +62,9 @@ class FirebaseService {
             });
 
         } catch (error) {
-            console.error('Firebase initialization error:', error);
+            console.error('❌ Firebase initialization error:', error);
+            console.error('Error details:', error.message);
+            console.error('Error stack:', error.stack);
             this.isInitialized = false;
         }
     }
