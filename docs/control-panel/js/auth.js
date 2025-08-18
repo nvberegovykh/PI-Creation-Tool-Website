@@ -39,14 +39,31 @@ class AuthManager {
     async debugUserStorage() {
         console.log('=== Debugging User Storage ===');
         
+        // First check raw storage
+        this.checkRawStorage();
+        
         try {
             // Check current users in encrypted storage
             const users = await this.getUsers();
             console.log('Users in encrypted storage:', users.length);
             console.log('All users:', users);
             
-            // Check legacy storage
-            const legacyUsers = JSON.parse(localStorage.getItem('liber_users') || '[]');
+            // Check legacy storage with proper error handling
+            let legacyUsers = [];
+            try {
+                const legacyData = localStorage.getItem('liber_users');
+                if (legacyData) {
+                    // Check if it's valid JSON
+                    if (legacyData.startsWith('[') || legacyData.startsWith('{')) {
+                        legacyUsers = JSON.parse(legacyData);
+                    } else {
+                        console.log('Legacy data is not JSON (likely encrypted):', legacyData.substring(0, 20) + '...');
+                    }
+                }
+            } catch (parseError) {
+                console.log('Legacy data parsing failed (likely encrypted data):', parseError.message);
+            }
+            
             console.log('Users in legacy storage:', legacyUsers.length);
             console.log('Legacy users:', legacyUsers);
             
@@ -1135,6 +1152,23 @@ class AuthManager {
         } catch (error) {
             console.error('Test create user error:', error);
             return false;
+        }
+    }
+
+    /**
+     * Check raw storage data to see what's actually stored
+     */
+    checkRawStorage() {
+        console.log('=== Checking Raw Storage Data ===');
+        
+        // Check all localStorage keys
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            const value = localStorage.getItem(key);
+            console.log(`Key: ${key}`);
+            console.log(`Value (first 50 chars): ${value ? value.substring(0, 50) + '...' : 'null'}`);
+            console.log(`Value length: ${value ? value.length : 0}`);
+            console.log('---');
         }
     }
 }
