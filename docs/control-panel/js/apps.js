@@ -168,6 +168,20 @@ class AppsManager {
                 lastUpdated: '2025-08-16',
                 logo: null
             }
+            ,
+            {
+                id: 'secure-chat',
+                name: 'Secure Chat',
+                description: 'End-to-end encrypted chat with file sharing.',
+                version: '1.0.0',
+                category: 'communication',
+                icon: 'fas fa-comments',
+                status: 'online',
+                path: 'apps/secure-chat/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2025-08-18',
+                logo: null
+            }
         ];
 
         // Filter out apps that don't have actual HTML files

@@ -102,6 +102,9 @@ class DashboardManager {
                     window.appsManager.loadApps();
                 }
                 break;
+            case 'profile':
+                this.loadProfile();
+                break;
             case 'users':
                 if (window.usersManager) {
                     window.usersManager.loadUsers();
@@ -252,6 +255,72 @@ class DashboardManager {
 
         // Secure keys settings
         this.setupSecureKeysHandlers();
+    }
+
+    /**
+     * Load profile info and bind actions
+     */
+    async loadProfile() {
+        try {
+            // Wait for firebase
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                const user = await window.firebaseService.getCurrentUser();
+                const data = await window.firebaseService.getUserData(user.uid) || {};
+                const emailEl = document.getElementById('profil-email');
+                const unameEl = document.getElementById('profile-username');
+                const verifiedEl = document.getElementById('profile-verified');
+                if (emailEl) emailEl.value = user.email;
+                if (unameEl) unameEl.value = data.username || '';
+                if (verifiedEl) verifiedEl.textContent = user.emailVerified ? 'Verified' : 'Not verified';
+
+                const saveBtn = document.getElementById('save-username-btn');
+                if (saveBtn) {
+                    saveBtn.onclick = async () => {
+                        try {
+                            const newName = document.getElementById('profile-username').value.trim();
+                            if (!newName) return this.showError('Username cannot be empty');
+                            await window.firebaseService.updateUserProfile(user.uid, { username: newName });
+                            this.showSuccess('Username updated');
+                        } catch (e) {
+                            this.showError('Failed to update username');
+                        }
+                    };
+                }
+
+                const rvBtn = document.getElementById('resend-verify-btn');
+                if (rvBtn) {
+                    rvBtn.onclick = async () => {
+                        try { await window.firebaseService.sendEmailVerification(); this.showSuccess('Verification email sent'); }
+                        catch { this.showError('Failed to send verification'); }
+                    };
+                }
+
+                const chBtn = document.getElementById('change-password-btn');
+                if (chBtn) {
+                    chBtn.onclick = async () => {
+                        const curr = (document.getElementById('current-password').value || '').trim();
+                        const np = (document.getElementById('new-password').value || '').trim();
+                        const cnp = (document.getElementById('confirm-new-password').value || '').trim();
+                        if (!curr || !np || !cnp) return this.showError('Please fill all fields');
+                        if (np !== cnp) return this.showError('Passwords do not match');
+                        try {
+                            // Re-authenticate
+                            const cred = firebase.EmailAuthProvider.credential(user.email, curr);
+                            await firebase.reauthenticateWithCredential(user, cred);
+                            await firebase.updatePassword(user, np);
+                            this.showSuccess('Password updated');
+                            document.getElementById('current-password').value='';
+                            document.getElementById('new-password').value='';
+                            document.getElementById('confirm-new-password').value='';
+                        } catch (e) {
+                            this.showError('Failed to update password');
+                        }
+                    };
+                }
+            }
+        } catch (e) {
+            console.error('Profile load error', e);
+        }
     }
 
     /**

@@ -21,6 +21,8 @@ class ChatGPTIntegration {
         this.configLoaded = false;
         this.currentUserId = null;
         this.maxHistoryItems = 50; // Keep last 50 messages
+        this.cryptoKey = null; // WebCrypto key for local chat encryption
+        this.cryptoReady = false;
         
         // Thread management
         this.savedThreads = [];
@@ -55,6 +57,7 @@ class ChatGPTIntegration {
         
         // Always create the interface regardless of configuration status
         try {
+            await this.initCrypto();
             this.loadSavedThreads(); // Load saved threads
             this.createChatInterface();
             this.setupEventListeners();
@@ -219,8 +222,31 @@ class ChatGPTIntegration {
             const savedThreads = localStorage.getItem(threadsKey);
             
             if (savedThreads) {
-                this.savedThreads = JSON.parse(savedThreads);
-                console.log(`Loaded ${this.savedThreads.length} saved threads for user: ${userId}`);
+                let parsed;
+                try { parsed = JSON.parse(savedThreads); } catch { parsed = null; }
+                if (parsed && parsed.enc && parsed.data) {
+                    if (this.cryptoReady) {
+                        // Decrypt asynchronously; update selector when done
+                        this.decryptString(parsed.data).then((plain) => {
+                            try {
+                                const arr = JSON.parse(plain || '[]');
+                                this.savedThreads = Array.isArray(arr) ? arr : [];
+                                console.log(`Loaded ${this.savedThreads.length} encrypted saved threads for user: ${userId}`);
+                                this.updateThreadSelector();
+                            } catch {
+                                this.savedThreads = [];
+                            }
+                        });
+                    } else {
+                        console.warn('Encrypted saved threads present but crypto not ready');
+                        this.savedThreads = [];
+                    }
+                } else if (Array.isArray(parsed)) {
+                    this.savedThreads = parsed;
+                    console.log(`Loaded ${this.savedThreads.length} saved threads for user: ${userId}`);
+                } else {
+                    this.savedThreads = [];
+                }
             } else {
                 console.log(`No saved threads found for user: ${userId}`);
             }
@@ -240,8 +266,25 @@ class ChatGPTIntegration {
             // Keep only last 20 threads
             const threadsToSave = this.savedThreads.slice(-this.maxThreads);
             
-            localStorage.setItem(threadsKey, JSON.stringify(threadsToSave));
-            console.log(`Saved ${threadsToSave.length} threads for user: ${userId}`);
+            if (this.cryptoReady) {
+                const plain = JSON.stringify(threadsToSave);
+                this.encryptString(plain).then((cipher) => {
+                    if (cipher) {
+                        const envelope = { v: 1, enc: true, data: cipher };
+                        localStorage.setItem(threadsKey, JSON.stringify(envelope));
+                        console.log(`Saved ${threadsToSave.length} encrypted threads for user: ${userId}`);
+                    } else {
+                        localStorage.setItem(threadsKey, JSON.stringify(threadsToSave));
+                        console.log(`Saved ${threadsToSave.length} (fallback plaintext) threads for user: ${userId}`);
+                    }
+                }).catch(() => {
+                    localStorage.setItem(threadsKey, JSON.stringify(threadsToSave));
+                    console.log(`Saved ${threadsToSave.length} (fallback plaintext) threads for user: ${userId}`);
+                });
+            } else {
+                localStorage.setItem(threadsKey, JSON.stringify(threadsToSave));
+                console.log(`Saved ${threadsToSave.length} threads for user: ${userId}`);
+            }
         } catch (error) {
             console.error('Failed to save threads:', error);
         }
@@ -329,9 +372,32 @@ class ChatGPTIntegration {
             const savedHistory = localStorage.getItem(historyKey);
             
             if (savedHistory) {
-                const parsedHistory = JSON.parse(savedHistory);
-                this.chatHistory = parsedHistory.slice(-this.maxHistoryItems);
-                console.log(`Loaded ${this.chatHistory.length} messages for thread: ${threadId}`);
+                let parsed;
+                try { parsed = JSON.parse(savedHistory); } catch { parsed = null; }
+                if (parsed && parsed.enc && parsed.data) {
+                    if (this.cryptoReady) {
+                        this.decryptString(parsed.data).then((plain) => {
+                            try {
+                                const arr = JSON.parse(plain || '[]');
+                                this.chatHistory = Array.isArray(arr) ? arr.slice(-this.maxHistoryItems) : [];
+                                console.log(`Loaded ${this.chatHistory.length} encrypted messages for thread: ${threadId}`);
+                                this.displayChatHistory();
+                            } catch {
+                                this.chatHistory = [];
+                                this.displayChatHistory();
+                            }
+                        });
+                        return;
+                    } else {
+                        console.warn('Encrypted chat history present but crypto not ready');
+                        this.chatHistory = [];
+                    }
+                } else if (Array.isArray(parsed)) {
+                    this.chatHistory = parsed.slice(-this.maxHistoryItems);
+                    console.log(`Loaded ${this.chatHistory.length} messages for thread: ${threadId}`);
+                } else {
+                    this.chatHistory = [];
+                }
             } else {
                 this.chatHistory = [];
                 console.log(`No history found for thread: ${threadId}`);
@@ -357,9 +423,25 @@ class ChatGPTIntegration {
             
             // Keep only last 50 messages
             const historyToSave = this.chatHistory.slice(-this.maxHistoryItems);
-            
-            localStorage.setItem(historyKey, JSON.stringify(historyToSave));
-            console.log(`Saved ${historyToSave.length} messages for thread: ${this.threadId}`);
+            if (this.cryptoReady) {
+                const plain = JSON.stringify(historyToSave);
+                this.encryptString(plain).then((cipher) => {
+                    if (cipher) {
+                        const envelope = { v: 1, enc: true, data: cipher };
+                        localStorage.setItem(historyKey, JSON.stringify(envelope));
+                        console.log(`Saved ${historyToSave.length} encrypted messages for thread: ${this.threadId}`);
+                    } else {
+                        localStorage.setItem(historyKey, JSON.stringify(historyToSave));
+                        console.log(`Saved ${historyToSave.length} (fallback plaintext) messages for thread: ${this.threadId}`);
+                    }
+                }).catch(() => {
+                    localStorage.setItem(historyKey, JSON.stringify(historyToSave));
+                    console.log(`Saved ${historyToSave.length} (fallback plaintext) messages for thread: ${this.threadId}`);
+                });
+            } else {
+                localStorage.setItem(historyKey, JSON.stringify(historyToSave));
+                console.log(`Saved ${historyToSave.length} messages for thread: ${this.threadId}`);
+            }
             
             // Update clear history button visibility
             this.updateClearHistoryButton(historyToSave.length > 0);
@@ -498,6 +580,85 @@ class ChatGPTIntegration {
             console.error('Failed to load WALL-E configuration:', error);
             this.showError(`WALL-E Configuration Error: ${error.message}`);
             this.isEnabled = false;
+        }
+    }
+
+    /**
+     * Initialize WebCrypto for encrypting chat history at rest
+     */
+    async initCrypto() {
+        try {
+            const userId = this.getCurrentUserId() || 'anonymous';
+            const deviceSalt = this.getOrCreateDeviceSalt();
+            const material = await window.crypto.subtle.importKey(
+                'raw',
+                new TextEncoder().encode(`${userId}:${deviceSalt}`),
+                { name: 'PBKDF2' },
+                false,
+                ['deriveKey']
+            );
+            this.cryptoKey = await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: new TextEncoder().encode('liber.wall_e.local_history'),
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                material,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            this.cryptoReady = true;
+            console.log('WALL-E local encryption initialized');
+        } catch (e) {
+            console.warn('Local crypto init failed; falling back to plaintext history', e);
+            this.cryptoReady = false;
+        }
+    }
+
+    getOrCreateDeviceSalt() {
+        const key = 'wall_e_device_salt_v1';
+        let salt = localStorage.getItem(key);
+        if (!salt) {
+            const arr = new Uint8Array(16);
+            window.crypto.getRandomValues(arr);
+            salt = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+            localStorage.setItem(key, salt);
+        }
+        return salt;
+    }
+
+    async encryptString(plaintext) {
+        if (!this.cryptoReady || !this.cryptoKey) return null;
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const enc = new TextEncoder();
+        const cipherBuf = await window.crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            this.cryptoKey,
+            enc.encode(plaintext)
+        );
+        const payload = new Uint8Array(iv.length + new Uint8Array(cipherBuf).length);
+        payload.set(iv, 0);
+        payload.set(new Uint8Array(cipherBuf), iv.length);
+        return btoa(String.fromCharCode(...payload));
+    }
+
+    async decryptString(b64) {
+        if (!this.cryptoReady || !this.cryptoKey) return null;
+        try {
+            const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            const iv = raw.slice(0, 12);
+            const data = raw.slice(12);
+            const plainBuf = await window.crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv },
+                this.cryptoKey,
+                data
+            );
+            return new TextDecoder().decode(plainBuf);
+        } catch (e) {
+            console.warn('Decrypt failed; possibly legacy plaintext history', e);
+            return null;
         }
     }
 
@@ -1214,7 +1375,7 @@ class ChatGPTIntegration {
         const input = document.getElementById('chatgpt-input');
         const message = input.value.trim();
 
-        console.log('Message from input:', message);
+        console.log('Message from input: [redacted]');
         console.log('File uploads:', this.fileUploads);
         console.log('File uploads length:', this.fileUploads.length);
 
@@ -1259,7 +1420,7 @@ class ChatGPTIntegration {
                 // Handle image generation directly
                 await this.handleImageGenerationRequest(message);
             } else {
-                console.log('Handling normal chat message with files:', filesToSend.length);
+                console.log('Handling normal chat message with files count:', filesToSend.length);
                 // Normal chat message
                 const response = await this.callWALLE(message, filesToSend);
                 this.removeTypingIndicator();
@@ -1399,7 +1560,7 @@ class ChatGPTIntegration {
             }
 
             const data = await response.json();
-            console.log('Chat completions response:', data);
+            console.log('Chat completions response received');
             
             return data.choices[0].message.content;
         } catch (error) {
@@ -1438,7 +1599,7 @@ class ChatGPTIntegration {
     async addMessageToThread(message, files = []) {
         try {
             console.log('=== ADDING MESSAGE TO THREAD ===');
-            console.log('Message:', message);
+            console.log('Message: [redacted]');
             console.log('Files:', files);
             console.log('Files length:', files.length);
             
@@ -1451,7 +1612,7 @@ class ChatGPTIntegration {
             if (message && (!files || files.length === 0)) {
                 console.log('SCENARIO 2: Text-only message');
                 
-                console.log('Sending text-only content as string:', message.trim());
+                console.log('Sending text-only content as string: [redacted]');
                 
                 const response = await this.openaiFetch(`/v1/threads/${this.threadId}/messages`, {
                     method: 'POST',
@@ -2248,10 +2409,33 @@ class ChatGPTIntegration {
                 const savedHistory = localStorage.getItem(historyKey);
                 
                 if (savedHistory) {
-                    const parsedHistory = JSON.parse(savedHistory);
-                    this.chatHistory = parsedHistory.slice(-this.maxHistoryItems);
-                    console.log(`Loaded ${this.chatHistory.length} chat history items for user: ${userId}`);
-                    this.displayChatHistory();
+                    let parsed;
+                    try { parsed = JSON.parse(savedHistory); } catch { parsed = null; }
+                    if (parsed && parsed.enc && parsed.data) {
+                        if (this.cryptoReady) {
+                            this.decryptString(parsed.data).then((plain) => {
+                                try {
+                                    const arr = JSON.parse(plain || '[]');
+                                    this.chatHistory = Array.isArray(arr) ? arr.slice(-this.maxHistoryItems) : [];
+                                    console.log(`Loaded ${this.chatHistory.length} encrypted legacy messages for user: ${userId}`);
+                                    this.displayChatHistory();
+                                } catch {
+                                    this.chatHistory = [];
+                                    this.displayChatHistory();
+                                }
+                            });
+                            return;
+                        } else {
+                            console.warn('Encrypted legacy history present but crypto not ready');
+                            this.chatHistory = [];
+                        }
+                    } else if (Array.isArray(parsed)) {
+                        this.chatHistory = parsed.slice(-this.maxHistoryItems);
+                        console.log(`Loaded ${this.chatHistory.length} chat history items for user: ${userId}`);
+                        this.displayChatHistory();
+                    } else {
+                        console.log('No valid legacy history found');
+                    }
                 } else {
                     console.log(`No chat history found for user: ${userId}`);
                 }

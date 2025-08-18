@@ -12,6 +12,7 @@ async function loadFirebaseVersion(version) {
 	const appMod = await import(`${base}/firebase-app.js`);
 	const authMod = await import(`${base}/firebase-auth.js`);
 	const fsMod = await import(`${base}/firebase-firestore.js`);
+	const storageMod = await import(`${base}/firebase-storage.js`);
 
 	const {
 		initializeApp
@@ -59,6 +60,14 @@ async function loadFirebaseVersion(version) {
 		deleteDoc
 	} = fsMod;
 
+	const {
+		getStorage,
+		ref,
+		uploadBytes,
+		getDownloadURL,
+		deleteObject
+	} = storageMod;
+
 	// Expose compat-style object expected by existing code
 	window.firebase = {
 		initializeApp,
@@ -100,7 +109,13 @@ async function loadFirebaseVersion(version) {
 		deleteDoc,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
-		serverTimestamp
+		serverTimestamp,
+		// Storage
+		getStorage,
+		ref,
+		uploadBytes,
+		getDownloadURL,
+		deleteObject
 	};
 
 	// Also expose modular functions directly
@@ -141,7 +156,12 @@ async function loadFirebaseVersion(version) {
 		deleteDoc,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
-		serverTimestamp
+		serverTimestamp,
+		getStorage,
+		ref,
+		uploadBytes,
+		getDownloadURL,
+		deleteObject
 	};
 
 	console.log(`✅ Firebase Modular SDK v${version} loaded successfully`);
