@@ -166,8 +166,9 @@
         const cipher = await chatCrypto.encryptWithKey(btoa(String.fromCharCode(...array)), aesKey);
         const blob = new Blob([JSON.stringify(cipher)], {type:'application/octet-stream'});
         const s = this.storage; if (!s) continue;
-        const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${f.name}.enc`);
-        await firebase.uploadBytes(r, blob);
+        const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc`);
+        await firebase.uploadBytes(r, blob, { contentType: 'application/octet-stream' });
         const url = await firebase.getDownloadURL(r);
         await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
       }
