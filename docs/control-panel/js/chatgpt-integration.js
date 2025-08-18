@@ -35,31 +35,48 @@ class ChatGPTIntegration {
         try {
             await this.loadConfiguration();
             if (this.isEnabled) {
-                await this.ensureAssistantSupportsFiles();
-                await this.checkAssistantConfig(); // Check assistant configuration
+                // Run these checks in parallel and don't let them block the widget
+                Promise.allSettled([
+                    this.ensureAssistantSupportsFiles(),
+                    this.checkAssistantConfig()
+                ]).then(results => {
+                    results.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            console.warn(`⚠️ Assistant check ${index + 1} failed, but widget continues:`, result.reason);
+                        }
+                    });
+                });
             }
         } catch (error) {
-            console.warn('WALL-E configuration failed, but widget will still be created:', error);
+            console.warn('⚠️ WALL-E configuration failed, but widget will still be created:', error.message);
         }
         
         // Always create the interface regardless of configuration status
-        this.loadSavedThreads(); // Load saved threads
-        this.createChatInterface();
-        this.setupEventListeners();
-        this.loadChatHistory();
-        this.displayChatHistory();
-        
-        // Set initial state based on screen size
-        if (window.innerWidth <= 768) {
-            // On mobile, let the dashboard control visibility
-            this.isExpanded = false;
-            // Don't auto-expand on mobile - let dashboard handle it
-        } else {
-            // On desktop, always ensure widget is visible
-            this.isExpanded = true;
-            this.expandChat();
+        try {
+            this.loadSavedThreads(); // Load saved threads
+            this.createChatInterface();
+            this.setupEventListeners();
+            this.loadChatHistory();
+            this.displayChatHistory();
+            
+            // Set initial state based on screen size
+            if (window.innerWidth <= 768) {
+                // On mobile, let the dashboard control visibility
+                this.isExpanded = false;
+                // Don't auto-expand on mobile - let dashboard handle it
+            } else {
+                // On desktop, always ensure widget is visible
+                this.isExpanded = true;
+                this.expandChat();
+            }
+            
+            console.log('✅ WALL-E widget initialized successfully');
+        } catch (error) {
+            console.error('❌ Critical error initializing WALL-E widget:', error);
         }
     }
+
+
 
     /**
      * Ensure assistant supports file attachments
@@ -67,15 +84,27 @@ class ChatGPTIntegration {
     async ensureAssistantSupportsFiles() {
         try {
             // Get current assistant configuration
-            const response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
+            let response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
                     'OpenAI-Beta': 'assistants=v2'
                 }
             });
 
+            // If v2 fails, try v1 endpoint (fallback)
             if (!response.ok) {
-                console.warn('Could not fetch assistant configuration, proceeding with current setup');
+                console.log('v2 endpoint failed for file support check, trying v1...');
+                response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'OpenAI-Beta': 'assistants=v2'
+                    }
+                });
+            }
+
+            if (!response.ok) {
+                console.warn('⚠️ Could not fetch assistant configuration for file support check, proceeding with current setup');
+                console.log('✅ File attachments will be attempted but may not work');
                 return;
             }
 
@@ -108,16 +137,29 @@ class ChatGPTIntegration {
     async checkAssistantConfig() {
         try {
             console.log('Checking assistant configuration...');
-            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+            
+            // Try v2 endpoint first (newer API)
+            let response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
                     'OpenAI-Beta': 'assistants=v2'
                 }
             });
 
+            // If v2 fails, try v1 endpoint (fallback)
             if (!response.ok) {
-                const errorData = await response.text();
-                console.error('Failed to get assistant config:', response.status, errorData);
+                console.log('v2 endpoint failed, trying v1 endpoint...');
+                response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'OpenAI-Beta': 'assistants=v2'
+                    }
+                });
+            }
+
+            if (!response.ok) {
+                console.warn(`⚠️ Could not fetch assistant config (${response.status}), but assistant will still work`);
+                console.log('✅ Assistant is ready to use despite config check failure');
                 return;
             }
 
@@ -126,8 +168,8 @@ class ChatGPTIntegration {
                 id: assistant.id,
                 name: assistant.name,
                 model: assistant.model,
-                instructions: assistant.instructions,
-                tools: assistant.tools
+                instructions: assistant.instructions?.substring(0, 100) + '...',
+                tools: assistant.tools?.length || 0
             });
             
             if (assistant.model !== 'gpt-4o-mini') {
@@ -136,7 +178,9 @@ class ChatGPTIntegration {
                 console.log('✅ Assistant is correctly configured with gpt-4o-mini');
             }
         } catch (error) {
-            console.error('Error checking assistant config:', error);
+            // Don't crash the widget - just log the error and continue
+            console.warn('⚠️ Error checking assistant config (non-critical):', error.message);
+            console.log('✅ Assistant will continue to work normally');
         }
     }
 

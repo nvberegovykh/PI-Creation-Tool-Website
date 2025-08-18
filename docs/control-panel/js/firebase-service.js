@@ -165,6 +165,20 @@ class FirebaseService {
             console.log('✅ Firebase config found in keys');
             console.log('Firebase config fields:', Object.keys(keys.firebase));
             
+            // Debug: Check if API key looks valid
+            if (keys.firebase.apiKey) {
+                console.log('✅ Firebase API key found');
+                console.log('API key length:', keys.firebase.apiKey.length);
+                console.log('API key starts with:', keys.firebase.apiKey.substring(0, 10) + '...');
+                
+                // Basic validation - Firebase API keys are typically 39 characters
+                if (keys.firebase.apiKey.length < 30) {
+                    console.warn('⚠️ Firebase API key seems too short');
+                }
+            } else {
+                console.error('❌ Firebase API key is missing');
+            }
+            
             return keys.firebase;
             
         } catch (error) {
@@ -706,6 +720,49 @@ class FirebaseService {
         } catch (error) {
             console.error('Error deleting user:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Test Firebase API key validity
+     */
+    async testFirebaseAPIKey() {
+        try {
+            console.log('🔍 Testing Firebase API key validity...');
+            
+            const firebaseConfig = await this.getFirebaseConfig();
+            if (!firebaseConfig.apiKey) {
+                console.error('❌ No API key found in Firebase config');
+                return false;
+            }
+            
+            // Test the API key by making a simple request to Firebase Auth
+            const testUrl = `https://www.googleapis.com/identitytoolkit/v3/relyingparty/verifyAssertion?key=${firebaseConfig.apiKey}`;
+            
+            const response = await fetch(testUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    identifier: 'test@example.com',
+                    continueUri: 'https://example.com'
+                })
+            });
+            
+            if (response.ok) {
+                console.log('✅ Firebase API key is valid');
+                return true;
+            } else {
+                const errorData = await response.json();
+                console.error('❌ Firebase API key test failed:', errorData);
+                console.error('Status:', response.status);
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Error testing Firebase API key:', error);
+            return false;
         }
     }
 }
