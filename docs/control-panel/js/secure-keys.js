@@ -7,7 +7,7 @@ class SecureKeyManager {
     constructor() {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3LzNjMWEzYWMxZTVlZmYxNzU5NGJlYWMzMTQ5MTlhZTIyMWU3NDc5NmQvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2NhZDViOTYxNjc4NjlhNDUwMzJmOWY2ZjFkMTA1NmU3ODNhMTI5YTkvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
@@ -117,6 +117,12 @@ class SecureKeyManager {
             }
 
             const keysData = await response.json();
+            
+            // Debug: Log what we got from Gist
+            console.log('=== Gist Data Debug ===');
+            console.log('Keys data from Gist:', keysData);
+            console.log('Has firebase config:', !!keysData.firebase);
+            console.log('Firebase config:', keysData.firebase);
             
             // Validate keys structure
             if (!this.validateKeys(keysData)) {
