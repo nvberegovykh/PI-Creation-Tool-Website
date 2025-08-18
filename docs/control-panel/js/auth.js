@@ -395,17 +395,27 @@ class AuthManager {
                         return;
                     }
                 } catch (firebaseError) {
-                    console.error('Firebase registration failed:', firebaseError.message);
+                    console.error('Firebase registration failed:', firebaseError);
+                    const code = firebaseError?.code || '';
+                    const message = firebaseError?.message || '';
                     
                     // Handle specific Firebase errors
-                    if (firebaseError.code === 'auth/email-already-in-use') {
+                    if (code === 'auth/email-already-in-use') {
                         this.showMessage('An account with this email already exists', 'error');
-                    } else if (firebaseError.code === 'auth/weak-password') {
+                    } else if (code === 'auth/weak-password') {
                         this.showMessage('Password is too weak. Please choose a stronger password.', 'error');
-                    } else if (firebaseError.code === 'auth/invalid-email') {
+                    } else if (code === 'auth/invalid-email') {
                         this.showMessage('Please enter a valid email address', 'error');
+                    } else if (code === 'auth/operation-not-allowed') {
+                        this.showMessage('Email/Password sign-up is disabled in Firebase Console. Enable it under Authentication → Sign-in method.', 'error');
+                    } else if (code === 'auth/network-request-failed') {
+                        this.showMessage('Network error while contacting Firebase. Please check your connection and try again.', 'error');
+                    } else if (code === 'auth/unauthorized-domain') {
+                        this.showMessage('Unauthorized domain for Firebase Auth. Add your domain to Firebase Authentication → Settings → Authorized domains.', 'error');
+                    } else if (code === 'auth/invalid-api-key') {
+                        this.showMessage('Invalid Firebase API key. Please verify Gist configuration matches Firebase Console.', 'error');
                     } else {
-                        this.showMessage('Registration failed. Please try again.', 'error');
+                        this.showMessage(`Registration failed: ${message || 'Unknown error'}`, 'error');
                     }
                     return;
                 }
