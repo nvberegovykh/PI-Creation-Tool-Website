@@ -555,6 +555,38 @@ window.testCompleteSetup = async function() {
     }
 };
 
+// Add simple test function that should work
+window.testFirebaseSimple = async function() {
+    console.log('=== Simple Firebase Test ===');
+    
+    try {
+        // Wait for Firebase to be ready
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            console.log('Waiting for Firebase to initialize...');
+            let attempts = 0;
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+        }
+        
+        if (!window.firebaseService || !window.firebaseService.isInitialized) {
+            console.error('❌ Firebase not ready');
+            return false;
+        }
+        
+        console.log('✅ Firebase is ready!');
+        console.log('App:', window.firebaseService.app?.name);
+        console.log('Auth:', !!window.firebaseService.auth);
+        console.log('Firestore:', !!window.firebaseService.db);
+        
+        return true;
+    } catch (error) {
+        console.error('❌ Test failed:', error);
+        return false;
+    }
+};
+
 // Add global migration function
 window.startMigration = async function() {
     console.log('=== Starting User Migration ===');
