@@ -14,18 +14,29 @@ class InvoiceGenerator {
     }
 
     async checkAuthentication() {
-        // Check if user is logged into the control panel
-        const currentUser = localStorage.getItem('liber_current_user');
-        const userPassword = localStorage.getItem('liber_user_password');
-        
-        if (!currentUser || !userPassword) {
-            this.showAuthenticationError();
-            return;
-        }
+        // Check if user is logged into the control panel via Firebase
+        if (window.authManager && window.authManager.getCurrentUser()) {
+            const currentUser = window.authManager.getCurrentUser();
+            console.log('User authenticated via Firebase:', currentUser);
+            
+            // For Firebase users, we'll use a derived key from their UID
+            const userKey = currentUser.id || currentUser.email || 'default_key';
+            window.invoiceCryptoManager.setUserKey(userKey);
+            this.userAuthenticated = true;
+        } else {
+            // Fallback to localStorage for backward compatibility
+            const currentUser = localStorage.getItem('liber_current_user');
+            const userPassword = localStorage.getItem('liber_user_password');
+            
+            if (!currentUser || !userPassword) {
+                this.showAuthenticationError();
+                return;
+            }
 
-        // Set user key for encryption
-        window.invoiceCryptoManager.setUserKey(userPassword);
-        this.userAuthenticated = true;
+            // Set user key for encryption
+            window.invoiceCryptoManager.setUserKey(userPassword);
+            this.userAuthenticated = true;
+        }
         
         // Migrate old data format if needed
         await window.invoiceCryptoManager.migrateOldData();
@@ -51,7 +62,7 @@ class InvoiceGenerator {
             ">
                 <div>
                     <h2>Authentication Required</h2>
-                    <p>Please log in to the Liber Apps Control Panel first.</p>
+                    <p>Please log in to LIBER/APPS first.</p>
                     <p>This app requires user authentication to access encrypted data.</p>
                     <button onclick="window.close()" style="
                         background: #00d4ff;
