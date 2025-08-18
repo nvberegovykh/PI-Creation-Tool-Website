@@ -24,7 +24,9 @@ class FirebaseService {
             const firebaseConfig = await this.getFirebaseConfig();
             
             if (!firebaseConfig) {
-                throw new Error('Firebase configuration not available');
+                console.log('Firebase not configured - using local storage only');
+                this.isInitialized = false;
+                return;
             }
 
             // Initialize Firebase
@@ -51,6 +53,7 @@ class FirebaseService {
 
         } catch (error) {
             console.error('Firebase initialization error:', error);
+            this.isInitialized = false;
         }
     }
 
@@ -82,7 +85,7 @@ class FirebaseService {
             const keys = await window.secureKeyManager.getKeys();
             
             if (!keys.firebase) {
-                console.error('Firebase configuration not found in secure keys');
+                console.log('Firebase configuration not found in secure keys - using local storage only');
                 return null;
             }
             
@@ -388,3 +391,45 @@ class FirebaseService {
 
 // Create global instance
 window.firebaseService = new FirebaseService();
+
+// Add global migration function
+window.startMigration = async function() {
+    console.log('=== Starting User Migration ===');
+    try {
+        if (window.migrationHelper) {
+            await window.migrationHelper.startMigration();
+        } else {
+            console.log('Migration helper not available - Firebase not configured');
+        }
+    } catch (error) {
+        console.error('Migration failed:', error);
+    }
+};
+
+// Add global cleanup function
+window.cleanupLocalStorage = async function() {
+    console.log('=== Cleaning Up Local Storage ===');
+    try {
+        if (window.migrationHelper) {
+            await window.migrationHelper.cleanupLocalStorage();
+        } else {
+            console.log('Migration helper not available');
+        }
+    } catch (error) {
+        console.error('Cleanup failed:', error);
+    }
+};
+
+// Add global password reset function
+window.sendPasswordResetEmails = async function() {
+    console.log('=== Sending Password Reset Emails ===');
+    try {
+        if (window.migrationHelper) {
+            await window.migrationHelper.sendPasswordResetEmails();
+        } else {
+            console.log('Migration helper not available');
+        }
+    } catch (error) {
+        console.error('Password reset emails failed:', error);
+    }
+};

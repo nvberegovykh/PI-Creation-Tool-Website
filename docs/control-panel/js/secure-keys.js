@@ -176,15 +176,29 @@ class SecureKeyManager {
      * Validate keys structure
      */
     validateKeys(keys) {
-        return keys && 
+        // Basic validation - admin and system keys are required
+        const basicValid = keys && 
                typeof keys === 'object' &&
                keys.admin &&
                keys.system &&
                keys.admin.passwordHash &&
-               keys.system.masterKeyHash &&
-               keys.firebase && // Firebase config is required
-               keys.firebase.apiKey &&
-               keys.firebase.projectId;
+               keys.system.masterKeyHash;
+        
+        if (!basicValid) {
+            console.warn('Basic keys validation failed');
+            return false;
+        }
+        
+        // Firebase validation is optional for now
+        if (keys.firebase) {
+            if (!keys.firebase.apiKey || !keys.firebase.projectId) {
+                console.warn('Firebase config incomplete, but continuing with basic auth');
+            }
+        } else {
+            console.log('No Firebase config found, using local storage only');
+        }
+        
+        return true;
     }
 
     /**

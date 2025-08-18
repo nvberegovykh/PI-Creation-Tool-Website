@@ -252,30 +252,34 @@ class AuthManager {
                 }
             }
 
-            // Try Firebase authentication first
-            try {
-                console.log('Attempting Firebase login...');
-                const firebaseUser = await window.firebaseService.signInUser(username, password);
-                
-                if (firebaseUser) {
-                    // Get user data from Firestore
-                    const userData = await window.firebaseService.getUserData(firebaseUser.uid);
+            // Try Firebase authentication first (if available)
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                try {
+                    console.log('Attempting Firebase login...');
+                    const firebaseUser = await window.firebaseService.signInUser(username, password);
                     
-                    if (userData) {
-                        this.currentUser = {
-                            id: firebaseUser.uid,
-                            username: userData.username,
-                            email: userData.email,
-                            role: userData.role || 'user'
-                        };
+                    if (firebaseUser) {
+                        // Get user data from Firestore
+                        const userData = await window.firebaseService.getUserData(firebaseUser.uid);
                         
-                        this.createSession();
-                        this.showDashboard();
-                        return;
+                        if (userData) {
+                            this.currentUser = {
+                                id: firebaseUser.uid,
+                                username: userData.username,
+                                email: userData.email,
+                                role: userData.role || 'user'
+                            };
+                            
+                            this.createSession();
+                            this.showDashboard();
+                            return;
+                        }
                     }
+                } catch (firebaseError) {
+                    console.log('Firebase login failed, trying local storage...', firebaseError.message);
                 }
-            } catch (firebaseError) {
-                console.log('Firebase login failed, trying local storage...', firebaseError.message);
+            } else {
+                console.log('Firebase not available, using local storage only');
             }
 
             // Fallback to local storage for existing users
@@ -362,44 +366,48 @@ class AuthManager {
         }
 
         try {
-            // Try Firebase registration first
-            try {
-                console.log('Attempting Firebase registration...');
-                
-                // Check if user already exists in Firebase
-                const existingMethods = await window.firebaseService.auth.fetchSignInMethodsForEmail(email);
-                if (existingMethods.length > 0) {
-                    this.showMessage('An account with this email already exists', 'error');
-                    return;
+            // Try Firebase registration first (if available)
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                try {
+                    console.log('Attempting Firebase registration...');
+                    
+                    // Check if user already exists in Firebase
+                    const existingMethods = await window.firebaseService.auth.fetchSignInMethodsForEmail(email);
+                    if (existingMethods.length > 0) {
+                        this.showMessage('An account with this email already exists', 'error');
+                        return;
+                    }
+                    
+                    // Create user in Firebase
+                    const userData = {
+                        username: username,
+                        email: email,
+                        role: 'user',
+                        isVerified: false,
+                        status: 'pending',
+                        createdAt: new Date().toISOString()
+                    };
+                    
+                    const firebaseUser = await window.firebaseService.createUser(email, password, userData);
+                    
+                    if (firebaseUser) {
+                        // Send verification email via Firebase
+                        await window.firebaseService.sendEmailVerification();
+                        
+                        this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
+                        
+                        // Clear form
+                        document.getElementById('registerForm').reset();
+                        
+                        // Switch to login tab
+                        this.switchTab('login');
+                        return;
+                    }
+                } catch (firebaseError) {
+                    console.log('Firebase registration failed, trying local storage...', firebaseError.message);
                 }
-                
-                // Create user in Firebase
-                const userData = {
-                    username: username,
-                    email: email,
-                    role: 'user',
-                    isVerified: false,
-                    status: 'pending',
-                    createdAt: new Date().toISOString()
-                };
-                
-                const firebaseUser = await window.firebaseService.createUser(email, password, userData);
-                
-                if (firebaseUser) {
-                    // Send verification email via Firebase
-                    await window.firebaseService.sendEmailVerification();
-                    
-                    this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
-                    
-                    // Clear form
-                    document.getElementById('registerForm').reset();
-                    
-                    // Switch to login tab
-                    this.switchTab('login');
-                    return;
-                }
-            } catch (firebaseError) {
-                console.log('Firebase registration failed, trying local storage...', firebaseError.message);
+            } else {
+                console.log('Firebase not available, using local storage only');
             }
 
             // Fallback to local storage for existing users
@@ -1529,5 +1537,39 @@ window.refreshAdminPanel = async function() {
         
     } catch (error) {
         console.error('Error refreshing admin panel:', error);
+    }
+};
+
+// Add function to create a test user
+window.createTestUser = async function() {
+    console.log('=== Creating Test User ===');
+    
+    try {
+        const testUser = {
+            id: 'test_user_' + Date.now(),
+            username: 'nvberegovykh',
+            email: 'nvberegovykh@gmail.com',
+            passwordHash: await window.cryptoManager.hashPassword('testpassword123'),
+            role: 'user',
+            isVerified: true,
+            status: 'approved',
+            createdAt: new Date().toISOString(),
+            lastLogin: null
+        };
+        
+        const users = await window.authManager.getUsers();
+        users.push(testUser);
+        
+        const saveResult = await window.authManager.saveUsers(users);
+        console.log('Test user created:', saveResult);
+        console.log('Test user credentials:');
+        console.log('- Username: nvberegovykh');
+        console.log('- Email: nvberegovykh@gmail.com');
+        console.log('- Password: testpassword123');
+        
+        return saveResult;
+    } catch (error) {
+        console.error('Error creating test user:', error);
+        return false;
     }
 };
