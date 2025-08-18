@@ -141,8 +141,13 @@
         }
         const el = document.createElement('div');
         el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-        el.innerHTML = `<div>${this.renderText(text)}</div>${m.fileName?`<div><a href="${m.fileUrl}" target="_blank">${m.fileName}</a></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+        const hasFile = !!m.fileUrl && !!m.fileName;
+        el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
         box.appendChild(el);
+        if (hasFile){
+          const preview = el.querySelector('.file-preview');
+          if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+        }
       });
       box.scrollTop = box.scrollHeight;
     }
@@ -263,6 +268,45 @@
       }
       const secret = `${[this.currentUser.uid, peerUid].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`;
       return window.chatCrypto.deriveChatKey(secret);
+    }
+
+    isImageFilename(name){
+      const n = (name||'').toLowerCase();
+      return n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.gif') || n.endsWith('.webp');
+    }
+
+    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey){
+      try {
+        const res = await fetch(fileUrl, { mode: 'cors' });
+        const payload = await res.json();
+        let b64;
+        try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
+        catch { const alt = await this.getOrCreateSharedAesKey(); b64 = await chatCrypto.decryptWithKey(payload, alt); }
+        if (this.isImageFilename(fileName)){
+          const mime = fileName.toLowerCase().endsWith('.png') ? 'image/png'
+                      : fileName.toLowerCase().endsWith('.webp') ? 'image/webp'
+                      : fileName.toLowerCase().endsWith('.gif') ? 'image/gif'
+                      : 'image/jpeg';
+          const blob = this.base64ToBlob(b64, mime);
+          const url = URL.createObjectURL(blob);
+          const img = document.createElement('img');
+          img.src = url; img.style.maxWidth = '260px'; img.style.borderRadius='8px'; img.alt = fileName;
+          containerEl.appendChild(img);
+        } else {
+          const blob = this.base64ToBlob(b64, 'application/octet-stream');
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = fileName; a.textContent = 'Download decrypted file';
+          containerEl.appendChild(a);
+        }
+      } catch (e) { /* noop */ }
+    }
+
+    base64ToBlob(b64, mime){
+      const byteString = atob(b64);
+      const len = byteString.length;
+      const bytes = new Uint8Array(len);
+      for (let i=0;i<len;i++) bytes[i] = byteString.charCodeAt(i);
+      return new Blob([bytes], {type: mime});
     }
 
     async searchUsers(term){
