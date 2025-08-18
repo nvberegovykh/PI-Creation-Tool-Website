@@ -105,6 +105,22 @@ class ChatCrypto {
         return new TextDecoder().decode(pt);
     }
 
+    // Fallback deterministic shared key when peer ECDH public key is not available yet
+    async deriveFallbackSharedAesKey(uidA, uidB, connId){
+        const a = String(uidA||'');
+        const b = String(uidB||'');
+        const sorted = [a,b].sort().join('|');
+        const secret = `${sorted}|${connId}|liber_secure_chat_fallback_v1`;
+        const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name:'PBKDF2'}, false, ['deriveKey']);
+        return crypto.subtle.deriveKey(
+            {name:'PBKDF2', salt:new TextEncoder().encode('liber_fallback_salt'), iterations:100000, hash:'SHA-256'},
+            material,
+            {name:'AES-GCM', length:256},
+            false,
+            ['encrypt','decrypt']
+        );
+    }
+
     // Device-scoped encryption for private key persistence (PBKDF2 → AES-GCM)
     async encryptJsonForDevice(obj, uid){
         const saltKey = 'secure_chat_device_salt_v1';
