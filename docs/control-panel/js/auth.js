@@ -268,8 +268,11 @@ class AuthManager {
                 return;
             }
 
-            // Check if email is verified
-            if (!user.isVerified) {
+            // Check if email is verified or user is approved
+            console.log('User verification status:', user.isVerified);
+            console.log('User status:', user.status);
+            
+            if (!user.isVerified && user.status !== 'approved') {
                 this.showMessage('Please verify your email address before logging in. Check your inbox for the verification link.', 'error');
                 return;
             }
@@ -562,27 +565,36 @@ class AuthManager {
      * Handle password reset with token
      */
     async handlePasswordResetWithToken(token, email, newPassword, confirmPassword) {
+        console.log('=== Password Reset Process ===');
+        console.log('Email:', email);
+        console.log('Token:', token);
+        console.log('New password length:', newPassword.length);
+        
         if (!newPassword || !confirmPassword) {
             this.showMessage('Please enter both password fields', 'error');
-            return;
+            return false;
         }
 
         if (newPassword !== confirmPassword) {
             this.showMessage('Passwords do not match', 'error');
-            return;
+            return false;
         }
 
         if (newPassword.length < 8) {
             this.showMessage('Password must be at least 8 characters long', 'error');
-            return;
+            return false;
         }
 
         try {
+            console.log('Step 1: Verifying reset token...');
             // Verify reset token
             await window.emailService.verifyResetToken(token, email);
+            console.log('Reset token verified successfully');
             
+            console.log('Step 2: Updating password...');
             // Update password
             await window.emailService.updatePassword(email, newPassword);
+            console.log('Password updated successfully');
             
             this.showMessage('Password updated successfully! You can now login with your new password.', 'success');
             return true;
@@ -1421,5 +1433,35 @@ window.testVerification = async function(email, token) {
     } catch (error) {
         console.error('❌ Test verification error:', error);
         return null;
+    }
+};
+
+// Add function to refresh admin panel and check user status
+window.refreshAdminPanel = async function() {
+    console.log('=== Refreshing Admin Panel ===');
+    
+    try {
+        // Refresh users in admin panel
+        if (window.usersManager) {
+            await window.usersManager.loadUsers();
+            console.log('Admin panel refreshed');
+        } else {
+            console.log('Users manager not available');
+        }
+        
+        // Check current user status
+        const users = await window.authManager.getUsers();
+        const user = users.find(u => u.email === 'emelianen63@gmail.com');
+        if (user) {
+            console.log('Current user status:');
+            console.log('- Email:', user.email);
+            console.log('- Username:', user.username);
+            console.log('- isVerified:', user.isVerified);
+            console.log('- status:', user.status);
+            console.log('- verificationToken:', user.verificationToken);
+        }
+        
+    } catch (error) {
+        console.error('Error refreshing admin panel:', error);
     }
 };
