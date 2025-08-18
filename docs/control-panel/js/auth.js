@@ -334,6 +334,15 @@ class AuthManager {
         }
 
         try {
+            // Wait for Firebase to be fully initialized
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+            
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
             // Firebase registration is REQUIRED
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 try {
@@ -373,7 +382,17 @@ class AuthManager {
                     }
                 } catch (firebaseError) {
                     console.error('Firebase registration failed:', firebaseError.message);
-                    this.showMessage('Registration failed. Please try again.', 'error');
+                    
+                    // Handle specific Firebase errors
+                    if (firebaseError.code === 'auth/email-already-in-use') {
+                        this.showMessage('An account with this email already exists', 'error');
+                    } else if (firebaseError.code === 'auth/weak-password') {
+                        this.showMessage('Password is too weak. Please choose a stronger password.', 'error');
+                    } else if (firebaseError.code === 'auth/invalid-email') {
+                        this.showMessage('Please enter a valid email address', 'error');
+                    } else {
+                        this.showMessage('Registration failed. Please try again.', 'error');
+                    }
                     return;
                 }
             } else {
@@ -435,6 +454,15 @@ class AuthManager {
         try {
             console.log('Password reset requested for email:', email);
             
+            // Wait for Firebase to be fully initialized
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+            
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
             // Use Firebase password reset if available
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 console.log('Using Firebase password reset...');
@@ -451,7 +479,15 @@ class AuthManager {
 
         } catch (error) {
             console.error('Password reset error:', error);
-            this.showMessage('Failed to send reset email. Please try again.', 'error');
+            
+            // Handle specific Firebase errors
+            if (error.code === 'auth/user-not-found') {
+                this.showMessage('No account found with this email address', 'error');
+            } else if (error.code === 'auth/invalid-email') {
+                this.showMessage('Please enter a valid email address', 'error');
+            } else {
+                this.showMessage('Failed to send reset email. Please try again.', 'error');
+            }
         }
     }
 
@@ -474,11 +510,39 @@ class AuthManager {
         try {
             console.log('Resend verification requested for email:', email);
             
+            // Wait for Firebase to be fully initialized
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+            
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
             // Use Firebase resend verification if available
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 console.log('Using Firebase resend verification...');
-                await window.firebaseService.sendEmailVerification();
-                this.showMessage('Verification email sent to your email. Please check your inbox.', 'success');
+                
+                // First, try to sign in the user to get the current user object
+                try {
+                    // Check if user exists
+                    const existingMethods = await window.firebaseService.auth.fetchSignInMethodsForEmail(email);
+                    if (existingMethods.length === 0) {
+                        this.showMessage('No account found with this email address', 'error');
+                        return;
+                    }
+                    
+                    // For resend verification, we need to sign in the user first
+                    // This is a limitation of Firebase - we need the user to be signed in
+                    this.showMessage('Please sign in to your account first, then use the resend verification option.', 'info');
+                    this.switchTab('login');
+                    return;
+                    
+                } catch (firebaseError) {
+                    console.error('Firebase resend verification failed:', firebaseError.message);
+                    this.showMessage('Failed to send verification email. Please try again.', 'error');
+                    return;
+                }
             } else {
                 console.error('Firebase not available - resend verification requires Firebase. No fallback.');
                 this.showMessage('Verification service not available. Please contact support.', 'error');
@@ -953,7 +1017,13 @@ class AuthManager {
         if (this.currentUser && this.currentUser.id) {
             // Use user ID as the "password" for app encryption
             localStorage.setItem('liber_user_password', this.currentUser.id);
+        } else if (this.currentUser && this.currentUser.username) {
+            // Fallback for non-Firebase users
+            localStorage.setItem('liber_user_password', this.currentUser.username);
         }
+        
+        // Update user info in dashboard
+        this.updateUserInfo();
     }
 
     checkSession() {
@@ -977,7 +1047,17 @@ class AuthManager {
         }
     }
 
-    logout() {
+    async logout() {
+        try {
+            // Sign out from Firebase if available
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                await window.firebaseService.signOutUser();
+                console.log('Firebase sign out successful');
+            }
+        } catch (error) {
+            console.error('Firebase sign out error:', error);
+        }
+        
         this.currentUser = null;
         localStorage.removeItem('liber_session');
         localStorage.removeItem('liber_current_user');
@@ -1030,6 +1110,22 @@ class AuthManager {
 
     getCurrentUser() {
         return this.currentUser;
+    }
+
+    /**
+     * Update user info in dashboard header
+     */
+    updateUserInfo() {
+        const currentUserElement = document.getElementById('current-user');
+        const userRoleElement = document.getElementById('user-role');
+        
+        if (currentUserElement && this.currentUser) {
+            currentUserElement.textContent = this.currentUser.username || this.currentUser.email;
+        }
+        
+        if (userRoleElement && this.currentUser) {
+            userRoleElement.textContent = `(${this.currentUser.role})`;
+        }
     }
 
     isAdmin() {

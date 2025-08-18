@@ -36,37 +36,59 @@ class UsersManager {
     async loadUsers() {
         try {
             // Firebase is REQUIRED for user management
-                    // Wait for Firebase to be fully initialized
-        let attempts = 0;
-        const maxAttempts = 50; // 5 seconds
-        
-        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
-        }
-        
-        if (window.firebaseService && window.firebaseService.isInitialized) {
-            try {
-                console.log('Loading users from Firebase...');
-                this.users = await window.firebaseService.getAllUsers();
-                console.log('Firebase users loaded:', this.users.length);
-            } catch (firebaseError) {
-                console.error('Firebase users loading failed:', firebaseError.message);
-                this.showError('Failed to load users from Firebase');
+            // Wait for Firebase to be fully initialized
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds
+            
+            while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                try {
+                    console.log('Loading users from Firebase...');
+                    // Get users with pagination and stats
+                    const result = await window.firebaseService.getUsersWithPagination(50);
+                    this.users = result.users;
+                    console.log('Firebase users loaded:', this.users.length);
+                    
+                    // Update user statistics
+                    this.updateUserStats();
+                } catch (firebaseError) {
+                    console.error('Firebase users loading failed:', firebaseError.message);
+                    this.showError('Failed to load users from Firebase');
+                    return;
+                }
+            } else {
+                console.error('Firebase not available - user management requires Firebase. No fallback.');
+                this.showError('User management service not available. Please contact support.');
+                this.users = []; // Ensure users array is empty if Firebase is not available
                 return;
             }
-        } else {
-            console.error('Firebase not available - user management requires Firebase. No fallback.');
-            this.showError('User management service not available. Please contact support.');
-            this.users = []; // Ensure users array is empty if Firebase is not available
-            return;
-        }
-            
+                
             this.renderUsers();
             this.updateUserCount();
         } catch (error) {
             console.error('Error loading users:', error);
             this.showError('Failed to load users');
+        }
+    }
+
+    /**
+     * Update user statistics
+     */
+    async updateUserStats() {
+        try {
+            if (window.firebaseService && window.firebaseService.isInitialized) {
+                const stats = await window.firebaseService.getUserStats();
+                const statsElement = document.getElementById('users-count');
+                if (statsElement) {
+                    statsElement.textContent = `${stats.total} total (${stats.pending} pending)`;
+                }
+            }
+        } catch (error) {
+            console.error('Error updating user stats:', error);
         }
     }
 
@@ -138,16 +160,16 @@ class UsersManager {
         
         if (isPending) {
             actionsHTML = `
-                <button class="btn btn-success btn-sm approve-btn" data-username="${user.username}">
+                <button class="btn btn-success btn-sm approve-btn" data-uid="${user.id || user.uid}">
                     <i class="fas fa-check"></i> Approve
                 </button>
-                <button class="btn btn-danger btn-sm reject-btn" data-username="${user.username}">
+                <button class="btn btn-danger btn-sm reject-btn" data-uid="${user.id || user.uid}">
                     <i class="fas fa-times"></i> Reject
                 </button>
             `;
         } else {
             actionsHTML = `
-                <button class="btn btn-danger btn-sm delete-btn" data-username="${user.username}">
+                <button class="btn btn-danger btn-sm delete-btn" data-uid="${user.id || user.uid}">
                     <i class="fas fa-trash"></i> Delete
                 </button>
             `;
@@ -192,24 +214,24 @@ class UsersManager {
         // Approve buttons
         document.querySelectorAll('.approve-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                const username = btn.dataset.username;
-                await this.approveUser(username);
+                const uid = btn.dataset.uid;
+                await this.approveUser(uid);
             });
         });
 
         // Reject buttons
         document.querySelectorAll('.reject-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                const username = btn.dataset.username;
-                await this.rejectUser(username);
+                const uid = btn.dataset.uid;
+                await this.rejectUser(uid);
             });
         });
 
         // Delete buttons
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                const username = btn.dataset.username;
-                await this.deleteUser(username);
+                const uid = btn.dataset.uid;
+                await this.deleteUser(uid);
             });
         });
     }
@@ -257,18 +279,18 @@ class UsersManager {
         }
     }
 
-    async approveUser(username) {
-        if (!confirm(`Are you sure you want to approve ${username}?`)) {
+    async approveUser(uid) {
+        if (!confirm(`Are you sure you want to approve this user?`)) {
             return;
         }
 
         try {
-            const success = await window.authManager.approveUser(username);
-            if (success) {
-                this.showSuccess(`User ${username} approved successfully`);
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                await window.firebaseService.approveUser(uid);
+                this.showSuccess('User approved successfully');
                 await this.loadUsers();
             } else {
-                this.showError('Failed to approve user');
+                this.showError('Firebase service not available');
             }
         } catch (error) {
             console.error('Error approving user:', error);
@@ -276,18 +298,18 @@ class UsersManager {
         }
     }
 
-    async rejectUser(username) {
-        if (!confirm(`Are you sure you want to reject ${username}? This action cannot be undone.`)) {
+    async rejectUser(uid) {
+        if (!confirm(`Are you sure you want to reject this user? This action cannot be undone.`)) {
             return;
         }
 
         try {
-            const success = await window.authManager.rejectUser(username);
-            if (success) {
-                this.showSuccess(`User ${username} rejected successfully`);
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                await window.firebaseService.rejectUser(uid);
+                this.showSuccess('User rejected successfully');
                 await this.loadUsers();
             } else {
-                this.showError('Failed to reject user');
+                this.showError('Firebase service not available');
             }
         } catch (error) {
             console.error('Error rejecting user:', error);
@@ -295,23 +317,24 @@ class UsersManager {
         }
     }
 
-    async deleteUser(username) {
-        if (username === window.authManager.getCurrentUser().username) {
+    async deleteUser(uid) {
+        const currentUser = window.authManager.getCurrentUser();
+        if (currentUser && (currentUser.id === uid || currentUser.uid === uid)) {
             this.showError('You cannot delete your own account');
             return;
         }
 
-        if (!confirm(`Are you sure you want to delete ${username}? This action cannot be undone.`)) {
+        if (!confirm(`Are you sure you want to delete this user? This action cannot be undone.`)) {
             return;
         }
 
         try {
-            const success = await window.authManager.deleteUser(username);
-            if (success) {
-                this.showSuccess(`User ${username} deleted successfully`);
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                await window.firebaseService.deleteUser(uid);
+                this.showSuccess('User deleted successfully');
                 await this.loadUsers();
             } else {
-                this.showError('Failed to delete user');
+                this.showError('Firebase service not available');
             }
         } catch (error) {
             console.error('Error deleting user:', error);
@@ -319,7 +342,31 @@ class UsersManager {
         }
     }
 
-    filterUsers(searchTerm) {
+    async filterUsers(searchTerm) {
+        if (!searchTerm || searchTerm.length < 2) {
+            // If search term is too short, show all users
+            await this.loadUsers();
+            return;
+        }
+
+        try {
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                const searchResults = await window.firebaseService.searchUsers(searchTerm);
+                this.users = searchResults;
+                this.renderUsers();
+                this.updateUserCount();
+            } else {
+                // Fallback to client-side filtering
+                this.filterUsersClientSide(searchTerm);
+            }
+        } catch (error) {
+            console.error('Error searching users:', error);
+            // Fallback to client-side filtering
+            this.filterUsersClientSide(searchTerm);
+        }
+    }
+
+    filterUsersClientSide(searchTerm) {
         const userCards = document.querySelectorAll('.user-card');
         userCards.forEach(card => {
             const username = card.querySelector('h4').textContent.toLowerCase();

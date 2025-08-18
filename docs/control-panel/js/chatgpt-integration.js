@@ -67,7 +67,7 @@ class ChatGPTIntegration {
     async ensureAssistantSupportsFiles() {
         try {
             // Get current assistant configuration
-            const response = await fetch(`https://api.openai.com/v1/assistants/${this.assistantId}`, {
+            const response = await fetch(`https://api.openai.com/v2/assistants/${this.assistantId}`, {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
                     'OpenAI-Beta': 'assistants=v2'

@@ -1,7 +1,8 @@
 /**
  * Firebase Service for Liber Apps Control Panel
  * Handles user authentication and data storage with Firebase
- * Updated for Firebase Modular SDK v10.9.0
+ * Updated for Firebase Modular SDK v12.1.0
+ * Full Firebase Database integration
  */
 
 class FirebaseService {
@@ -61,6 +62,14 @@ class FirebaseService {
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
             
+            // Set up persistence for better offline support
+            try {
+                await firebase.setPersistence(this.auth, firebase.browserLocalPersistence);
+                console.log('✅ Auth persistence set to local storage');
+            } catch (error) {
+                console.warn('⚠️ Auth persistence setup failed:', error.message);
+            }
+            
             // Add missing methods to auth object for compatibility
             this.auth.fetchSignInMethodsForEmail = (email) => {
                 return firebase.fetchSignInMethodsForEmail(this.auth, email);
@@ -86,6 +95,9 @@ class FirebaseService {
                     console.log('Current user:', user.email);
                     console.log('User UID:', user.uid);
                     console.log('Email verified:', user.emailVerified);
+                    
+                    // Update user data in Firestore if needed
+                    this.updateUserLastLogin(user.uid);
                 }
             });
 
@@ -205,9 +217,17 @@ class FirebaseService {
                 ...userData,
                 uid: user.uid,
                 email: user.email,
+                role: userData.role || 'user',
+                isVerified: false,
+                status: 'pending',
                 createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString(),
+                lastLogin: null,
+                loginCount: 0
             });
+            
+            // Send email verification
+            await firebase.sendEmailVerification(user);
             
             console.log('User created successfully:', user.uid);
             return user;
@@ -228,6 +248,9 @@ class FirebaseService {
             const userCredential = await firebase.signInWithEmailAndPassword(this.auth, email, password);
             const user = userCredential.user;
             
+            // Update last login and login count
+            await this.updateUserLastLogin(user.uid);
+            
             console.log('User signed in successfully:', user.uid);
             return user;
             
@@ -244,7 +267,7 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            await this.auth.signOut();
+            await firebase.signOut(this.auth);
             console.log('User signed out successfully');
         } catch (error) {
             console.error('Error signing out user:', error);
@@ -408,6 +431,210 @@ class FirebaseService {
     }
 
     /**
+     * Update user's last login timestamp and increment login count
+     */
+    async updateUserLastLogin(uid) {
+        try {
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.updateDoc(userDocRef, {
+                lastLogin: new Date().toISOString(),
+                loginCount: firebase.increment(1),
+                updatedAt: new Date().toISOString()
+            });
+            console.log('User last login updated:', uid);
+        } catch (error) {
+            console.error('Error updating user last login:', error);
+        }
+    }
+
+    /**
+     * Approve user (admin function)
+     */
+    async approveUser(uid) {
+        await this.waitForInit();
+        
+        try {
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.updateDoc(userDocRef, {
+                status: 'approved',
+                isVerified: true,
+                updatedAt: new Date().toISOString()
+            });
+            console.log('User approved:', uid);
+        } catch (error) {
+            console.error('Error approving user:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Reject user (admin function)
+     */
+    async rejectUser(uid) {
+        await this.waitForInit();
+        
+        try {
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.updateDoc(userDocRef, {
+                status: 'rejected',
+                updatedAt: new Date().toISOString()
+            });
+            console.log('User rejected:', uid);
+        } catch (error) {
+            console.error('Error rejecting user:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Update user profile
+     */
+    async updateUserProfile(uid, profileData) {
+        await this.waitForInit();
+        
+        try {
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.updateDoc(userDocRef, {
+                ...profileData,
+                updatedAt: new Date().toISOString()
+            });
+            console.log('User profile updated:', uid);
+        } catch (error) {
+            console.error('Error updating user profile:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get user statistics
+     */
+    async getUserStats() {
+        await this.waitForInit();
+        
+        try {
+            const usersCollectionRef = firebase.collection(this.db, 'users');
+            const snapshot = await firebase.getDocs(usersCollectionRef);
+            
+            const stats = {
+                total: 0,
+                pending: 0,
+                approved: 0,
+                rejected: 0,
+                verified: 0,
+                unverified: 0
+            };
+            
+            snapshot.forEach(doc => {
+                const userData = doc.data();
+                stats.total++;
+                
+                if (userData.status === 'pending') stats.pending++;
+                else if (userData.status === 'approved') stats.approved++;
+                else if (userData.status === 'rejected') stats.rejected++;
+                
+                if (userData.isVerified) stats.verified++;
+                else stats.unverified++;
+            });
+            
+            return stats;
+        } catch (error) {
+            console.error('Error getting user stats:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Search users by username or email
+     */
+    async searchUsers(searchTerm) {
+        await this.waitForInit();
+        
+        try {
+            const usersCollectionRef = firebase.collection(this.db, 'users');
+            
+            // Create queries for username and email search
+            const usernameQuery = firebase.query(
+                usersCollectionRef,
+                firebase.where('username', '>=', searchTerm),
+                firebase.where('username', '<=', searchTerm + '\uf8ff')
+            );
+            
+            const emailQuery = firebase.query(
+                usersCollectionRef,
+                firebase.where('email', '>=', searchTerm),
+                firebase.where('email', '<=', searchTerm + '\uf8ff')
+            );
+            
+            // Execute both queries
+            const [usernameSnapshot, emailSnapshot] = await Promise.all([
+                firebase.getDocs(usernameQuery),
+                firebase.getDocs(emailQuery)
+            ]);
+            
+            const users = new Map(); // Use Map to avoid duplicates
+            
+            // Process username results
+            usernameSnapshot.forEach(doc => {
+                users.set(doc.id, { id: doc.id, ...doc.data() });
+            });
+            
+            // Process email results
+            emailSnapshot.forEach(doc => {
+                users.set(doc.id, { id: doc.id, ...doc.data() });
+            });
+            
+            return Array.from(users.values());
+        } catch (error) {
+            console.error('Error searching users:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get users with pagination
+     */
+    async getUsersWithPagination(limit = 20, startAfter = null) {
+        await this.waitForInit();
+        
+        try {
+            const usersCollectionRef = firebase.collection(this.db, 'users');
+            let query = firebase.query(
+                usersCollectionRef,
+                firebase.orderBy('createdAt', 'desc'),
+                firebase.limit(limit)
+            );
+            
+            if (startAfter) {
+                query = firebase.query(
+                    usersCollectionRef,
+                    firebase.orderBy('createdAt', 'desc'),
+                    firebase.startAfter(startAfter),
+                    firebase.limit(limit)
+                );
+            }
+            
+            const snapshot = await firebase.getDocs(query);
+            const users = [];
+            
+            snapshot.forEach(doc => {
+                users.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+            
+            return {
+                users,
+                lastDoc: snapshot.docs[snapshot.docs.length - 1],
+                hasMore: snapshot.docs.length === limit
+            };
+        } catch (error) {
+            console.error('Error getting users with pagination:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Migrate existing users from localStorage to Firebase
      */
     async migrateUsers() {
@@ -464,6 +691,23 @@ class FirebaseService {
             throw error;
         }
     }
+
+    /**
+     * Delete user (admin function)
+     */
+    async deleteUser(uid) {
+        await this.waitForInit();
+        
+        try {
+            const userDocRef = firebase.doc(this.db, 'users', uid);
+            await firebase.deleteDoc(userDocRef);
+            console.log('User deleted successfully:', uid);
+            return true;
+        } catch (error) {
+            console.error('Error deleting user:', error);
+            throw error;
+        }
+    }
 }
 
 // Create global instance
@@ -500,7 +744,7 @@ window.testFirebase = function() {
 
 // Add comprehensive test function
 window.testCompleteSetup = async function() {
-    console.log('=== Testing Complete Setup ===');
+    console.log('=== Testing Complete Firebase Setup ===');
     
     try {
         // Test 1: Firebase SDK
@@ -510,6 +754,7 @@ window.testCompleteSetup = async function() {
             return false;
         }
         console.log('✅ Firebase SDK loaded');
+        console.log('Firebase version:', firebase.SDK_VERSION);
         
         // Test 2: Secure Key Manager
         console.log('2. Testing Secure Key Manager...');
@@ -528,6 +773,7 @@ window.testCompleteSetup = async function() {
         }
         console.log('✅ Firebase config found');
         console.log('Project ID:', keys.firebase.projectId);
+        console.log('Config fields:', Object.keys(keys.firebase));
         
         // Test 4: Firebase Service
         console.log('4. Testing Firebase Service...');
@@ -556,7 +802,35 @@ window.testCompleteSetup = async function() {
             return false;
         }
         
-        console.log('🎉 All tests passed! Firebase is ready to use.');
+        // Test 6: Firebase Database Operations
+        console.log('6. Testing Firebase Database Operations...');
+        try {
+            // Test user stats
+            const stats = await window.firebaseService.getUserStats();
+            console.log('✅ User stats retrieved:', stats);
+            
+            // Test user collection access
+            const users = await window.firebaseService.getAllUsers();
+            console.log('✅ Users collection accessed:', users.length, 'users');
+            
+            console.log('✅ All database operations working');
+        } catch (dbError) {
+            console.error('❌ Database operations failed:', dbError);
+            return false;
+        }
+        
+        // Test 7: Firebase Auth Operations
+        console.log('7. Testing Firebase Auth Operations...');
+        try {
+            const currentUser = window.firebaseService.auth.currentUser;
+            console.log('✅ Auth service accessible');
+            console.log('Current user:', currentUser ? currentUser.email : 'None');
+        } catch (authError) {
+            console.error('❌ Auth operations failed:', authError);
+            return false;
+        }
+        
+        console.log('🎉 All Firebase tests passed! System is ready to use.');
         return true;
         
     } catch (error) {

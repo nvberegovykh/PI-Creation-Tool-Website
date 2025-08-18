@@ -179,11 +179,16 @@ class DashboardManager {
      */
     async getUsersCount() {
         try {
-            const users = await authManager.getUsers();
-            return users.length + 1; // +1 for admin
+            if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
+                const stats = await window.firebaseService.getUserStats();
+                return `${stats.total} (${stats.pending} pending)`;
+            } else {
+                const users = await authManager.getUsers();
+                return users.length + 1; // +1 for admin
+            }
         } catch (error) {
             console.error('Error getting users count:', error);
-            return 0;
+            return '0';
         }
     }
 
