@@ -61,6 +61,11 @@ class FirebaseService {
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
             
+            // Add missing methods to auth object for compatibility
+            this.auth.fetchSignInMethodsForEmail = (email) => {
+                return firebase.fetchSignInMethodsForEmail(this.auth, email);
+            };
+            
             // Enable offline persistence for Firestore
             try {
                 await this.db.enablePersistence({

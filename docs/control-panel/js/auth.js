@@ -948,6 +948,12 @@ class AuthManager {
         
         localStorage.setItem('liber_session', JSON.stringify(session));
         localStorage.setItem('liber_current_user', JSON.stringify(this.currentUser));
+        
+        // For Firebase users, set a derived password for app compatibility
+        if (this.currentUser && this.currentUser.id) {
+            // Use user ID as the "password" for app encryption
+            localStorage.setItem('liber_user_password', this.currentUser.id);
+        }
     }
 
     checkSession() {
