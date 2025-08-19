@@ -31,10 +31,11 @@
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       const userSearch = document.getElementById('user-search');
       if (userSearch){
-        userSearch.addEventListener('focus', ()=>{
-          const sidebar = document.querySelector('.sidebar');
-          if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open');
-        });
+        const openSidebar = ()=>{ const sidebar = document.querySelector('.sidebar'); if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open'); };
+        userSearch.addEventListener('focus', openSidebar);
+        userSearch.addEventListener('click', openSidebar);
+        userSearch.addEventListener('input', openSidebar);
+        userSearch.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ const s=document.querySelector('.sidebar'); if(s) s.classList.remove('open'); }});
       }
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());

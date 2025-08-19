@@ -84,6 +84,19 @@ class DashboardManager {
                 saveBtn.onclick = async ()=>{
                     const newMood = (document.getElementById('space-mood').value||'').trim();
                     await window.firebaseService.updateUserProfile(user.uid, { mood: newMood });
+                    const avInput = document.getElementById('space-avatar-input');
+                    if (avInput && avInput.files && avInput.files[0] && firebase.getStorage){
+                        try{
+                            const s = firebase.getStorage();
+                            const file = avInput.files[0];
+                            const path = `avatars/${user.uid}.jpg`;
+                            const r = firebase.ref(s, path);
+                            await firebase.uploadBytes(r, file);
+                            const url = await firebase.getDownloadURL(r);
+                            await window.firebaseService.updateUserProfile(user.uid, { avatarUrl: url });
+                            if (avatarEl) avatarEl.src = url;
+                        }catch(e){ /* ignore avatar errors */ }
+                    }
                     this.showSuccess('Profile saved');
                 };
             }
@@ -132,7 +145,8 @@ class DashboardManager {
             } catch {
                 const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
                 snap = await firebase.getDocs(q2);
-                snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0));
+                // Normalize to similar interface
+                snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
             }
             snap.forEach(d=>{
                 const p = d.data();

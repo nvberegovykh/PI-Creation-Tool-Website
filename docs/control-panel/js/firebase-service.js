@@ -246,6 +246,7 @@ class FirebaseService {
                 isVerified: false,
                 status: 'pending',
                 usernameLower: (userData.username || '').toLowerCase(),
+                emailLower: (user.email || '').toLowerCase(),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 lastLogin: null,
@@ -340,6 +341,9 @@ class FirebaseService {
             const update = { ...data, updatedAt: new Date().toISOString() };
             if (Object.prototype.hasOwnProperty.call(data, 'username')) {
                 update.usernameLower = (data.username || '').toLowerCase();
+            }
+            if (Object.prototype.hasOwnProperty.call(data, 'email')) {
+                update.emailLower = (data.email || '').toLowerCase();
             }
             await firebase.updateDoc(userDocRef, update);
             console.log('User data updated successfully');
@@ -580,50 +584,28 @@ class FirebaseService {
         
         try {
             const usersCollectionRef = firebase.collection(this.db, 'users');
-            
-            // Create queries for username and email search
-            const usernameQuery = firebase.query(
+
+            const term = (searchTerm || '').toLowerCase();
+            // Prefix queries for case-insensitive matching
+            const qUsernameLower = firebase.query(
                 usersCollectionRef,
-                firebase.where('username', '>=', searchTerm),
-                firebase.where('username', '<=', searchTerm + '\uf8ff')
+                firebase.where('usernameLower', '>=', term),
+                firebase.where('usernameLower', '<=', term + '\uf8ff')
             );
-            
-            const emailQuery = firebase.query(
+            const qEmailLower = firebase.query(
                 usersCollectionRef,
-                firebase.where('email', '>=', searchTerm),
-                firebase.where('email', '<=', searchTerm + '\uf8ff')
+                firebase.where('emailLower', '>=', term),
+                firebase.where('emailLower', '<=', term + '\uf8ff')
             );
 
-            // Exact lowercase username match for login by username
-            const exactLower = firebase.query(
-                usersCollectionRef,
-                firebase.where('usernameLower', '==', (searchTerm || '').toLowerCase())
-            );
-            
-            // Execute both queries
-            const [usernameSnapshot, emailSnapshot, exactLowerSnapshot] = await Promise.all([
-                firebase.getDocs(usernameQuery),
-                firebase.getDocs(emailQuery),
-                firebase.getDocs(exactLower)
+            const [snapU, snapE] = await Promise.all([
+                firebase.getDocs(qUsernameLower),
+                firebase.getDocs(qEmailLower)
             ]);
-            
-            const users = new Map(); // Use Map to avoid duplicates
-            
-            // Process username results
-            usernameSnapshot.forEach(doc => {
-                users.set(doc.id, { id: doc.id, ...doc.data() });
-            });
-            
-            // Process email results
-            emailSnapshot.forEach(doc => {
-                users.set(doc.id, { id: doc.id, ...doc.data() });
-            });
 
-            // Process exact lowercase results
-            exactLowerSnapshot.forEach(doc => {
-                users.set(doc.id, { id: doc.id, ...doc.data() });
-            });
-            
+            const users = new Map();
+            snapU.forEach(doc => users.set(doc.id, { id: doc.id, ...doc.data() }));
+            snapE.forEach(doc => users.set(doc.id, { id: doc.id, ...doc.data() }));
             return Array.from(users.values());
         } catch (error) {
             console.error('Error searching users:', error);
