@@ -5,7 +5,7 @@
 
 class DashboardManager {
     constructor() {
-        this.currentSection = 'overview';
+        this.currentSection = 'apps';
         this.init();
     }
 
@@ -14,7 +14,7 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
-        this.loadOverview();
+        this.switchSection('apps');
         this.updateNavigation();
         this.handleWallETransitionToDashboard();
     }
@@ -51,18 +51,99 @@ class DashboardManager {
 
         // Logout button
         const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) {
-            // Remove any existing event listeners by cloning
-            const newLogoutBtn = logoutBtn.cloneNode(true);
-            logoutBtn.parentNode.replaceChild(newLogoutBtn, logoutBtn);
-            
-            newLogoutBtn.addEventListener('click', () => {
-                authManager.logout();
-            });
+        if (logoutBtn && logoutBtn.parentNode) logoutBtn.parentNode.removeChild(logoutBtn);
+        const spaceLogoutBtn = document.getElementById('space-logout-btn');
+        if (spaceLogoutBtn) {
+            const btn = spaceLogoutBtn.cloneNode(true);
+            spaceLogoutBtn.parentNode.replaceChild(btn, spaceLogoutBtn);
+            btn.addEventListener('click', () => authManager.logout());
         }
 
         // Settings form handlers
         this.setupSettingsHandlers();
+    }
+    /**
+     * Load Personal Space
+     */
+    async loadSpace(){
+        try{
+            if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            const user = await window.firebaseService.getCurrentUser();
+            const data = await window.firebaseService.getUserData(user.uid) || {};
+            const unameEl = document.getElementById('space-username');
+            const moodEl = document.getElementById('space-mood');
+            const avatarEl = document.getElementById('space-avatar');
+            const feedTitle = document.getElementById('space-feed-title');
+            if (unameEl) unameEl.value = data.username || user.email || '';
+            if (moodEl) moodEl.value = data.mood || '';
+            if (avatarEl) avatarEl.src = data.avatarUrl || '';
+            if (feedTitle) feedTitle.textContent = 'My Feed';
+
+            const saveBtn = document.getElementById('space-save-profile');
+            if (saveBtn){
+                saveBtn.onclick = async ()=>{
+                    const newMood = (document.getElementById('space-mood').value||'').trim();
+                    await window.firebaseService.updateUserProfile(user.uid, { mood: newMood });
+                    this.showSuccess('Profile saved');
+                };
+            }
+
+            const postBtn = document.getElementById('space-post-btn');
+            if (postBtn){
+                postBtn.onclick = async ()=>{
+                    const text = (document.getElementById('space-post-text').value||'').trim();
+                    if (!text) return;
+                    // Minimal post structure (text only for now)
+                    const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, createdAt: new Date().toISOString() });
+                    document.getElementById('space-post-text').value='';
+                    this.showSuccess('Posted');
+                    this.loadFeed(user.uid);
+                };
+            }
+
+            const spaceSearch = document.getElementById('space-search');
+            if (spaceSearch){
+                spaceSearch.oninput = async (e)=>{
+                    const term = (e.target.value||'').trim().toLowerCase();
+                    if (!term){ this.loadFeed(user.uid); return; }
+                    // Search users to view another feed (basic)
+                    const users = await window.firebaseService.searchUsers(term);
+                    const other = users.find(u=> (u.username||u.email||'').toLowerCase().includes(term) && (u.uid||u.id) !== user.uid);
+                    if (other){ this.loadFeed(other.uid||other.id, other.username||other.email); }
+                };
+            }
+
+            // Initial feed load
+            this.loadFeed(user.uid);
+        }catch(e){ console.error('loadSpace error', e); }
+    }
+
+    async loadFeed(uid, titleName){
+        const feed = document.getElementById('space-feed');
+        const feedTitle = document.getElementById('space-feed-title');
+        if (!feed) return;
+        feed.innerHTML = '';
+        try{
+            let snap;
+            try {
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                snap = await firebase.getDocs(q);
+            } catch {
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
+                snap = await firebase.getDocs(q2);
+                snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0));
+            }
+            snap.forEach(d=>{
+                const p = d.data();
+                const div = document.createElement('div');
+                div.className = 'post-item';
+                div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                div.textContent = p.text || '';
+                feed.appendChild(div);
+            });
+            if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Feed` : 'My Feed';
+        }catch(e){ /* ignore */ }
     }
 
     /**
@@ -88,19 +169,21 @@ class DashboardManager {
         // Update content sections
         const contentSections = document.querySelectorAll('.content-section');
         contentSections.forEach(sectionEl => sectionEl.classList.remove('active'));
-        document.getElementById(`${section}-section`).classList.add('active');
+        const target = document.getElementById(`${section}-section`);
+        if (target) target.classList.add('active');
 
         this.currentSection = section;
 
         // Load section-specific content
         switch (section) {
-            case 'overview':
-                this.loadOverview();
-                break;
+            
             case 'apps':
                 if (window.appsManager) {
                     window.appsManager.loadApps();
                 }
+                break;
+            case 'space':
+                this.loadSpace();
                 break;
             case 'profile':
                 this.loadProfile();

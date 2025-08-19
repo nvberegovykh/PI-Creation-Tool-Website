@@ -29,7 +29,18 @@
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
-      document.getElementById('message-search').addEventListener('input', (e)=> this.searchMessages(e.target.value.trim()));
+      const userSearch = document.getElementById('user-search');
+      if (userSearch){
+        userSearch.addEventListener('focus', ()=>{
+          const sidebar = document.querySelector('.sidebar');
+          if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open');
+        });
+      }
+      // Call and recording buttons (placeholders)
+      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());
+      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.startVideoCall());
+      const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
+      const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       // Drag & Drop upload within chat app area
       const appEl = document.getElementById('chat-app');
       if (appEl){
@@ -71,10 +82,13 @@
       }
       const sidebarHeader = document.getElementById('sidebar-header');
       if (sidebarHeader){
-        sidebarHeader.addEventListener('click', ()=>{
+        sidebarHeader.addEventListener('click', (ev)=>{
+          // Avoid toggling when interacting with controls inside header
+          const tgt = ev.target;
+          if (tgt && (tgt.tagName === 'A' || tgt.tagName === 'BUTTON' || tgt.closest('button') || tgt.closest('a'))) return;
           const sidebar = document.querySelector('.sidebar');
           if (!sidebar) return;
-          sidebar.classList.toggle('open');
+          if (sidebar.classList.contains('open')) sidebar.classList.remove('open'); else sidebar.classList.add('open');
         });
       }
       // Enter to send, Shift+Enter for newline (desktop & mobile)
@@ -102,42 +116,41 @@
     }
 
     async promptNewConnection(){
-      const name = prompt('Enter username to connect');
-      if (!name) return;
-      const results = await window.firebaseService.searchUsers(name.toLowerCase());
-      const exact = (results||[]).find(u=> (u.username||'').toLowerCase() === name.toLowerCase());
-      if (!exact) return alert('User not found');
-      // Build username-based pair key
-      const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
-      const pairKey = [myName.toLowerCase(), (exact.username||'').toLowerCase()].sort().join('|');
-      // Try to find existing by pairKey
-      let existingId = null;
-      try {
-        const q = firebase.query(
-          firebase.collection(this.db,'chatConnections'),
-          firebase.where('pairKey','==', pairKey),
-          firebase.limit(1)
-        );
-        const snap = await firebase.getDocs(q);
-        snap.forEach(d=> existingId = d.id);
-      } catch {}
-
-      let connId = existingId;
-      if (!connId){
-        const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-        connId = newRef.id;
-        await firebase.setDoc(newRef,{
-          id: connId,
-          participants:[this.currentUser.uid, exact.uid||exact.id], // kept for permissions
-          participantUsernames:[myName, exact.username||exact.email],
-          pairKey,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          lastMessage:''
-        });
+      // Enter group selection mode
+      this.isGroupMode = true;
+      this.groupSelection = new Map(); // uid -> {uid, username, email}
+      const panel = document.getElementById('group-builder');
+      const chips = document.getElementById('group-selected');
+      const createBtn = document.getElementById('create-group-btn');
+      if (panel) panel.style.display = 'block';
+      if (chips) chips.innerHTML = '';
+      if (createBtn){
+        createBtn.onclick = async ()=>{
+          const members = Array.from(this.groupSelection.values());
+          if (members.length === 0){ this.isGroupMode = false; if (panel) panel.style.display='none'; return; }
+          const participantUids = [this.currentUser.uid, ...members.map(m=> m.uid||m.id)];
+          const participantNames = [ (this.me&&this.me.username) || (this.currentUser.email||'me'), ...members.map(m=> m.username||m.email) ];
+          const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+          const connId = newRef.id;
+          await firebase.setDoc(newRef,{
+            id: connId,
+            participants: participantUids,
+            participantUsernames: participantNames,
+            pairKey: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastMessage:''
+          });
+          this.isGroupMode = false;
+          if (panel) panel.style.display='none';
+          await this.loadConnections();
+          this.setActive(connId, participantNames.filter(n=> n !== ((this.me&&this.me.username)||this.currentUser.email)).join(', '));
+        };
       }
-      await this.loadConnections();
-      this.setActive(connId, exact.username||exact.email);
+      // Ensure panel is open on mobile
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open');
+      const search = document.getElementById('user-search'); if (search) search.focus();
     }
 
     async loadConnections(){
@@ -378,66 +391,105 @@
     }
 
     async searchUsers(term){
+      const wrapper = document.getElementById('search-results');
+      const userGroup = document.getElementById('user-results-group');
       const resultsEl = document.getElementById('user-results');
-      if (!resultsEl) return;
+      const msgGroup = document.getElementById('message-results-group');
+      const msgResults = document.getElementById('message-results');
+      if (!wrapper || !resultsEl || !msgResults) return;
       resultsEl.innerHTML = '';
-      if (!term){ resultsEl.style.display='none'; return; }
+      msgResults.innerHTML = '';
+      if (!term){ wrapper.style.display='none'; if (userGroup) userGroup.style.display='none'; if (msgGroup) msgGroup.style.display='none'; return; }
       try{
         if (window.firebaseService && window.firebaseService.isFirebaseAvailable()){
           const users = await window.firebaseService.searchUsers(term.toLowerCase());
           const filtered = (users||[]).filter(u=> u.uid !== (this.currentUser&&this.currentUser.uid));
-          if (filtered.length === 0){ resultsEl.style.display='none'; return; }
-          filtered.slice(0,20).forEach(u=>{
-            const li=document.createElement('li');
-            li.textContent = `${u.username||u.email}`;
-            li.addEventListener('click', async ()=>{
-              resultsEl.style.display='none';
-              document.getElementById('user-search').value = '';
-              // Create/open connection by username pairKey
-              const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
-              const pairKey = [myName.toLowerCase(), (u.username||'').toLowerCase()].sort().join('|');
-              let existingId = null;
-              try {
-                const q = firebase.query(
-                  firebase.collection(this.db,'chatConnections'),
-                  firebase.where('pairKey','==', pairKey),
-                  firebase.limit(1)
-                );
-                const snap = await firebase.getDocs(q);
-                snap.forEach(d=> existingId = d.id);
-              } catch {}
-              let connId = existingId;
-              if (!connId){
-                const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-                connId = newRef.id;
-                await firebase.setDoc(newRef,{
-                  id: connId,
-                  participants:[this.currentUser.uid, u.uid||u.id],
-                  participantUsernames:[myName, u.username||u.email],
-                  pairKey,
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  lastMessage:''
-                });
-              }
-              await this.loadConnections();
-              this.setActive(connId, u.username||u.email);
+          if (filtered.length > 0){
+            if (userGroup) userGroup.style.display='block';
+            filtered.slice(0,20).forEach(u=>{
+              const li=document.createElement('li');
+              li.textContent = `${u.username||u.email}`;
+              li.addEventListener('click', async ()=>{
+                const search = document.getElementById('user-search');
+                if (this.isGroupMode){
+                  // Add chip
+                  const chips = document.getElementById('group-selected');
+                  if (chips && !this.groupSelection.has(u.uid||u.id)){
+                    this.groupSelection.set(u.uid||u.id, u);
+                    const chip = document.createElement('span');
+                    chip.className = 'chip';
+                    chip.textContent = u.username||u.email;
+                    chip.addEventListener('click', ()=>{
+                      this.groupSelection.delete(u.uid||u.id);
+                      chip.remove();
+                    });
+                    chips.appendChild(chip);
+                  }
+                  if (search) search.value='';
+                  wrapper.style.display='none';
+                  return;
+                }
+                wrapper.style.display='none';
+                if (search) search.value = '';
+                const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
+                const pairKey = [myName.toLowerCase(), (u.username||'').toLowerCase()].sort().join('|');
+                let existingId = null;
+                try {
+                  const q = firebase.query(
+                    firebase.collection(this.db,'chatConnections'),
+                    firebase.where('pairKey','==', pairKey),
+                    firebase.limit(1)
+                  );
+                  const snap = await firebase.getDocs(q);
+                  snap.forEach(d=> existingId = d.id);
+                } catch {}
+                let connId = existingId;
+                if (!connId){
+                  const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+                  connId = newRef.id;
+                  await firebase.setDoc(newRef,{
+                    id: connId,
+                    participants:[this.currentUser.uid, u.uid||u.id],
+                    participantUsernames:[myName, u.username||u.email],
+                    pairKey,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    lastMessage:''
+                  });
+                }
+                await this.loadConnections();
+                this.setActive(connId, u.username||u.email);
+              });
+              resultsEl.appendChild(li);
             });
-            resultsEl.appendChild(li);
-          });
-          resultsEl.style.display='block';
+          } else if (userGroup) { userGroup.style.display='none'; }
+          // Messages search within current view
+          const termLower = term.toLowerCase();
+          const allMessages = Array.from(document.querySelectorAll('.messages .message'));
+          const matches = allMessages.filter(m => m.textContent.toLowerCase().includes(termLower));
+          if (matches.length>0){
+            if (msgGroup) msgGroup.style.display='block';
+            matches.slice(0,20).forEach(m=>{
+              const li=document.createElement('li');
+              li.textContent = m.textContent.slice(0,120);
+              li.addEventListener('click', ()=>{
+                wrapper.style.display='none';
+                const box=document.getElementById('messages');
+                if (box){ box.scrollTop = m.offsetTop - 40; }
+              });
+              msgResults.appendChild(li);
+            });
+          } else if (msgGroup) { msgGroup.style.display='none'; }
+          wrapper.style.display = (filtered.length>0 || matches.length>0) ? 'block':'none';
         }
-      }catch(e){ console.warn('User search failed', e); resultsEl.style.display='none'; }
+      }catch(e){ console.warn('Search failed', e); if (wrapper) wrapper.style.display='none'; }
     }
 
-    async searchMessages(term){
-      term = term.toLowerCase();
-      const items = document.querySelectorAll('.messages .message');
-      items.forEach(i=>{
-        const vis = i.textContent.toLowerCase().includes(term);
-        i.style.opacity = vis? '1':'0.3';
-      });
-    }
+    // Placeholders
+    async startVoiceCall(){}
+    async startVideoCall(){}
+    async recordVoiceMessage(){}
+    async recordVideoMessage(){}
   }
 
   window.secureChatApp = new SecureChatApp();

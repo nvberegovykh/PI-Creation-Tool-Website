@@ -140,29 +140,15 @@
 
     <!-- Main Dashboard -->
     <div id="dashboard" class="dashboard hidden">
-        <!-- Header -->
-        <header class="dashboard-header">
-            <div class="header-left">
-                <h1><img src="images/LIBER LOGO.svg" alt="LIBER" class="header-logo"> LIBER/APPS</h1>
-            </div>
-            <div class="header-right">
-                <div class="user-info">
-                    <span id="current-user"></span>
-                    <span id="user-role"></span>
-                </div>
-                <button id="logout-btn" class="logout-btn">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
-            </div>
-        </header>
+        <!-- Header removed per spec -->
 
         <!-- Navigation -->
         <nav class="dashboard-nav">
-            <button class="nav-btn active" data-section="overview">
-                <i class="fas fa-home"></i> Overview
-            </button>
-            <button class="nav-btn" data-section="apps">
+            <button class="nav-btn active" data-section="apps">
                 <i class="fas fa-th"></i> Apps
+            </button>
+            <button class="nav-btn" data-section="space">
+                <i class="fas fa-id-badge"></i> Personal Space
             </button>
             <button class="nav-btn" data-section="profile">
                 <i class="fas fa-user"></i> My Profile
@@ -177,11 +163,11 @@
 
         <!-- Mobile Bottom Navigation -->
         <nav class="mobile-bottom-nav">
-            <button class="mobile-nav-btn active" data-section="overview">
-                <i class="fas fa-home"></i>
-            </button>
-            <button class="mobile-nav-btn" data-section="apps">
+            <button class="mobile-nav-btn active" data-section="apps">
                 <i class="fas fa-th"></i>
+            </button>
+            <button class="mobile-nav-btn" data-section="space">
+                <i class="fas fa-id-badge"></i>
             </button>
             <button class="mobile-nav-btn" data-section="profile">
                 <i class="fas fa-user"></i>
@@ -199,50 +185,7 @@
 
         <!-- Main Content -->
         <main class="dashboard-content">
-            <!-- Overview Section -->
-            <section id="overview-section" class="content-section active">
-                <div class="section-header">
-                    <h2>Dashboard Overview</h2>
-                </div>
-                <div class="overview-grid">
-                    <div class="overview-card">
-                        <div class="card-icon">
-                            <i class="fas fa-th"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Available Apps</h3>
-                            <p id="apps-count">Loading...</p>
-                        </div>
-                    </div>
-                    <div class="overview-card">
-                        <div class="card-icon">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Total Users</h3>
-                            <p id="users-count">Loading...</p>
-                        </div>
-                    </div>
-                    <div class="overview-card">
-                        <div class="card-icon">
-                            <i class="fas fa-clock"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Last Login</h3>
-                            <p id="last-login">Loading...</p>
-                        </div>
-                    </div>
-                    <div class="overview-card">
-                        <div class="card-icon">
-                            <i class="fas fa-shield-alt"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>System Status</h3>
-                            <p id="system-status">Online</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+            <!-- Overview Section removed; Apps is default -->
 
             <!-- Apps Section -->
             <section id="apps-section" class="content-section">
@@ -255,6 +198,61 @@
                 </div>
                 <div id="apps-grid" class="apps-grid">
                     <!-- Apps will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Personal Space Section -->
+            <section id="space-section" class="content-section">
+                <div class="section-header">
+                    <h2>Personal Space</h2>
+                    <div class="header-actions">
+                        <div class="search-container">
+                            <input type="text" id="space-search" placeholder="Search people...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <button id="space-logout-btn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                    </div>
+                </div>
+                <div class="settings-grid">
+                    <div class="settings-card" id="space-profile-card">
+                        <h3>Profile</h3>
+                        <div class="setting-item">
+                            <label>Avatar</label>
+                            <div>
+                                <img id="space-avatar" src="" alt="Avatar" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:#222" />
+                                <input type="file" id="space-avatar-input" accept="image/*" style="margin-left:12px">
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label>Username</label>
+                            <input type="text" id="space-username" disabled>
+                        </div>
+                        <div class="setting-item">
+                            <label>Mood</label>
+                            <input type="text" id="space-mood" placeholder="Your mood...">
+                        </div>
+                        <div class="setting-item">
+                            <button id="space-save-profile" class="btn btn-primary">Save</button>
+                        </div>
+                    </div>
+                    <div class="settings-card" id="space-compose-card">
+                        <h3>Create Post</h3>
+                        <div class="setting-item">
+                            <label>Content</label>
+                            <textarea id="space-post-text" rows="3" placeholder="What's on your mind?" style="width:100%"></textarea>
+                        </div>
+                        <div class="setting-item">
+                            <label>Media</label>
+                            <input type="file" id="space-post-media" accept="image/*,video/*,audio/*" multiple>
+                        </div>
+                        <div class="setting-item">
+                            <button id="space-post-btn" class="btn btn-primary">Post</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-card" id="space-feed-card" style="margin-top:20px">
+                    <h3 id="space-feed-title">My Feed</h3>
+                    <div id="space-feed"></div>
                 </div>
             </section>
 

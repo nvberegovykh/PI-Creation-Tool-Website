@@ -15,32 +15,47 @@
     <div id="chat-app" class="chat-app">
         <aside class="sidebar">
             <div class="sidebar-header" id="sidebar-header">
-                <h2>Connections</h2>
-                <button id="new-connection-btn" class="btn">+ New</button>
+                <div class="left-actions">
+                    <a href="../../index.html" id="back-btn" class="icon-btn" aria-label="Back to apps">←</a>
+                    <h2>Connections</h2>
+                </div>
+                <button id="new-connection-btn" class="btn">+ Group</button>
             </div>
             <div class="connections-panel" id="connections-panel">
                 <div class="search-box">
-                    <input id="user-search" type="text" placeholder="Search users..." />
-                    <ul id="user-results" class="connections-list" style="display:none"></ul>
+                    <input id="user-search" type="text" placeholder="Search users or messages..." />
+                    <div id="search-results" class="search-results" style="display:none">
+                        <div class="results-group" id="user-results-group" style="display:none">
+                            <div class="results-separator">Users</div>
+                            <ul id="user-results" class="connections-list"></ul>
+                        </div>
+                        <div class="results-group" id="message-results-group" style="display:none">
+                            <div class="results-separator">Messages</div>
+                            <ul id="message-results" class="connections-list"></ul>
+                        </div>
+                    </div>
+                    <div id="group-builder" class="group-builder" style="display:none">
+                        <div id="group-selected" class="chips"></div>
+                        <button id="create-group-btn" class="btn" type="button">Create group</button>
+                    </div>
                 </div>
                 <ul id="connections-list" class="connections-list"></ul>
             </div>
         </aside>
         <main class="main">
             <div class="chat-header">
-                <div>
-                    <h3 id="active-connection-name"></h3>
-                    <small id="active-connection-meta"></small>
-                </div>
                 <div class="header-actions">
-                    <a href="../../index.html" class="btn secondary back" style="margin-right:8px;text-decoration:none">← Back to Control Panel</a>
-                    <input id="message-search" type="text" placeholder="Search messages..." />
+                    <button id="voice-call-btn" class="icon-btn" title="Voice call">📞</button>
+                    <button id="video-call-btn" class="icon-btn" title="Video call">🎥</button>
                 </div>
             </div>
             <div id="messages" class="messages"></div>
+            <div id="dialogue-title-bar" class="dialogue-title-bar"><span id="active-connection-name" class="title">—</span></div>
             <div class="composer">
                 <input id="file-input" type="file" multiple style="display:none" />
-                <button id="attach-btn" class="btn secondary">📎</button>
+                <button id="attach-btn" class="icon-btn" title="Attach files">📎</button>
+                <button id="record-audio-btn" class="icon-btn" title="Record voice (1 min)">🎤</button>
+                <button id="record-video-btn" class="icon-btn" title="Record video (30s)">📹</button>
                 <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
                 <button id="send-btn" class="btn">Send</button>
             </div>
