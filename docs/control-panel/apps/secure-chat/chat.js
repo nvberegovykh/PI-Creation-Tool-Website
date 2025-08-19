@@ -34,8 +34,15 @@
         const openSidebar = ()=>{ const sidebar = document.querySelector('.sidebar'); if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open'); };
         userSearch.addEventListener('focus', openSidebar);
         userSearch.addEventListener('click', openSidebar);
-        userSearch.addEventListener('input', openSidebar);
+        // iOS Safari sometimes needs a short delay to compute layout; force open on input with rAF
+        userSearch.addEventListener('input', ()=>{ requestAnimationFrame(()=> openSidebar()); });
         userSearch.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ const s=document.querySelector('.sidebar'); if(s) s.classList.remove('open'); }});
+        // Prevent header container from swallowing the tap
+        const header = document.getElementById('sidebar-header');
+        if (header){
+          header.style.pointerEvents = 'auto';
+          userSearch.style.pointerEvents = 'auto';
+        }
       }
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());
@@ -289,7 +296,42 @@
         lastMessage: text.slice(0,200),
         updatedAt: new Date().toISOString()
       });
+      // Notify recipients (best-effort)
+      this.notifyParticipants(text);
       await this.loadMessages();
+    }
+
+    async notifyParticipants(plaintext){
+      try{
+        // Local device notification
+        if ('Notification' in window){
+          if (Notification.permission === 'granted'){
+            new Notification('New message', { body: plaintext.slice(0,80) });
+          } else if (Notification.permission !== 'denied'){
+            // Request once
+            Notification.requestPermission().then(p=>{ if(p==='granted'){ new Notification('New message', { body: plaintext.slice(0,80) }); } });
+          }
+        }
+      }catch(_){}
+
+      // Email notification (serverless via Mailgun from client config). Only send to peer(s), not self
+      try{
+        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+        const data = connSnap.exists()? connSnap.data():null;
+        const participantUids = (data && Array.isArray(data.participants)) ? data.participants : [];
+        for (const uid of participantUids){
+          if (uid === this.currentUser.uid) continue;
+          try{
+            const u = await window.firebaseService.getUserData(uid);
+            const email = u && u.email;
+            if (email && window.emailService && typeof window.emailService.sendEmail === 'function'){
+              const safeText = plaintext.replace(/[<>]/g,'');
+              const html = `<p>You have a new message</p><p>${safeText}</p>`;
+              window.emailService.sendEmail(email, 'New message on LIBER/Connections', html).catch(()=>{});
+            }
+          }catch(_){/* ignore per-user errors */}
+        }
+      }catch(_){/* ignore email errors */}
     }
 
     async getOrCreateSharedAesKey(){

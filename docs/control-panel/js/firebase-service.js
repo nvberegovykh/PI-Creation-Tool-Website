@@ -587,26 +587,39 @@ class FirebaseService {
 
             const term = (searchTerm || '').toLowerCase();
             // Prefix queries for case-insensitive matching
-            const qUsernameLower = firebase.query(
-                usersCollectionRef,
-                firebase.where('usernameLower', '>=', term),
-                firebase.where('usernameLower', '<=', term + '\uf8ff')
-            );
-            const qEmailLower = firebase.query(
-                usersCollectionRef,
-                firebase.where('emailLower', '>=', term),
-                firebase.where('emailLower', '<=', term + '\uf8ff')
-            );
-
-            const [snapU, snapE] = await Promise.all([
-                firebase.getDocs(qUsernameLower),
-                firebase.getDocs(qEmailLower)
-            ]);
-
-            const users = new Map();
-            snapU.forEach(doc => users.set(doc.id, { id: doc.id, ...doc.data() }));
-            snapE.forEach(doc => users.set(doc.id, { id: doc.id, ...doc.data() }));
-            return Array.from(users.values());
+            let results = [];
+            try {
+                const qUsernameLower = firebase.query(
+                    usersCollectionRef,
+                    firebase.where('usernameLower', '>=', term),
+                    firebase.where('usernameLower', '<=', term + '\\uf8ff')
+                );
+                const qEmailLower = firebase.query(
+                    usersCollectionRef,
+                    firebase.where('emailLower', '>=', term),
+                    firebase.where('emailLower', '<=', term + '\\uf8ff')
+                );
+                const [snapU, snapE] = await Promise.all([
+                    firebase.getDocs(qUsernameLower),
+                    firebase.getDocs(qEmailLower)
+                ]);
+                const set = new Map();
+                snapU.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
+                snapE.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
+                results = Array.from(set.values());
+            } catch (e) {
+                // Client-side fallback if composite queries are restricted
+                const snapAll = await firebase.getDocs(usersCollectionRef);
+                const matches = [];
+                snapAll.forEach(doc => {
+                    const d = doc.data() || {};
+                    const u = (d.usernameLower || (d.username||'').toLowerCase());
+                    const em = (d.emailLower || (d.email||'').toLowerCase());
+                    if ((u && u.startsWith(term)) || (em && em.startsWith(term))) matches.push({ id: doc.id, ...d });
+                });
+                results = matches;
+            }
+            return results;
         } catch (error) {
             console.error('Error searching users:', error);
             throw error;

@@ -12,8 +12,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   .chat-app{--mobile-bar-height:56px;--mobile-search-height:56px}
   .sidebar{position:relative;top:auto;left:auto;right:auto;bottom:auto;width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a);height:var(--mobile-bar-height);transform:none;box-shadow:none;z-index:5}
   .sidebar-header{height:var(--mobile-bar-height);padding:0 12px;display:flex;align-items:center}
-  .connections-panel{position:absolute;top:var(--mobile-bar-height);left:0;right:0;background:#0f1116;border-bottom:1px solid var(--border-color,#1f222a);box-shadow:0 12px 24px rgba(0,0,0,.35);height:var(--mobile-search-height);overflow:hidden;transition:max-height .25s ease,height .25s ease;z-index:21;display:block}
-  .sidebar.open .connections-panel{height:50vh;height:50svh;overflow:auto}
+  .connections-panel{position:absolute;top:var(--mobile-bar-height);left:0;right:0;background:#0f1116;border-bottom:1px solid var(--border-color,#1f222a);box-shadow:0 12px 24px rgba(0,0,0,.35);height:auto;max-height:var(--mobile-search-height);overflow:hidden;transition:max-height .25s ease;z-index:21;display:block}
+  .sidebar.open .connections-panel{max-height:50vh;max-height:50svh;overflow:auto}
   /* ensure header tap works in webview */
   #sidebar-header *{pointer-events:auto}
   .sidebar:not(.open) .connections-panel .connections-list{display:none}
@@ -23,6 +23,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .sidebar-header .left-actions{display:flex;align-items:center;gap:10px}
 .icon-btn{background:transparent;border:none;color:#eaeaea;cursor:pointer;font-size:18px;line-height:1;padding:8px;border-radius:8px}
 .icon-btn:hover{background:#151822}
+.icon-btn i{color:#fff;font-size:18px}
 .sidebar.collapsed .search-box, .sidebar.collapsed #connections-list{display:none}
 .sidebar-header h2{font-size:14px;letter-spacing:.5px;text-transform:uppercase;color:#9aa4b2;margin:0}
 .search-box{padding:10px 12px}
@@ -34,7 +35,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{background:#14161b;color:#eaeaea;border:1px solid #1f222a;border-radius:12px;padding:6px 10px;font-size:12px;cursor:pointer}
 @media(max-width:768px){
-  .connections-panel .search-box{position:sticky;top:0;background:#0f1116;z-index:1}
+  .connections-panel .search-box{position:sticky;top:0;background:#0f1116;z-index:1;padding-bottom:6px;margin-bottom:4px}
   .connections-panel .connections-list{max-height:unset}
 }
 .connections-list li{padding:12px 16px;border-bottom:1px solid var(--border-color,#1f222a);cursor:pointer;transition:background .2s ease}
