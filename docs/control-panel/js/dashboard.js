@@ -17,6 +17,8 @@ class DashboardManager {
         this.switchSection('apps');
         this.updateNavigation();
         this.handleWallETransitionToDashboard();
+        // Service worker registration (best-effort)
+        if ('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
     }
 
     /**
@@ -76,7 +78,7 @@ class DashboardManager {
             const feedTitle = document.getElementById('space-feed-title');
             if (unameEl) unameEl.value = data.username || user.email || '';
             if (moodEl) moodEl.value = data.mood || '';
-            if (avatarEl) avatarEl.src = data.avatarUrl || '';
+            if (avatarEl) avatarEl.src = data.avatarUrl || 'images/default-bird.png';
             if (feedTitle) feedTitle.textContent = 'My Feed';
 
             const saveBtn = document.getElementById('space-save-profile');
@@ -89,9 +91,10 @@ class DashboardManager {
                         try{
                             const s = firebase.getStorage();
                             const file = avInput.files[0];
-                            const path = `avatars/${user.uid}.jpg`;
+                            const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+                            const path = `avatars/${user.uid}/avatar.${ext}`;
                             const r = firebase.ref(s, path);
-                            await firebase.uploadBytes(r, file);
+                            await firebase.uploadBytes(r, file, { contentType: file.type || 'image/jpeg' });
                             const url = await firebase.getDownloadURL(r);
                             await window.firebaseService.updateUserProfile(user.uid, { avatarUrl: url });
                             if (avatarEl) avatarEl.src = url;
@@ -230,32 +233,8 @@ class DashboardManager {
      * Load overview data
      */
     async loadOverview() {
-        try {
-            // Update apps count
-            const appsCount = await this.getAppsCount();
-            document.getElementById('apps-count').textContent = appsCount;
-
-            // Update users count
-            const usersCount = await this.getUsersCount();
-            document.getElementById('users-count').textContent = usersCount;
-
-            // Update last login
-            const currentUser = authManager.getCurrentUser();
-            if (currentUser && currentUser.lastLogin) {
-                const lastLogin = new Date(currentUser.lastLogin);
-                document.getElementById('last-login').textContent = this.formatDate(lastLogin);
-            } else {
-                document.getElementById('last-login').textContent = 'Never';
-            }
-
-            // Update system status
-            document.getElementById('system-status').textContent = 'Online';
-            document.getElementById('system-status').className = 'status-online';
-
-        } catch (error) {
-            console.error('Error loading overview:', error);
-            this.showError('Failed to load overview data');
-        }
+        // Overview removed – no-op to avoid errors
+        return;
     }
 
     /**

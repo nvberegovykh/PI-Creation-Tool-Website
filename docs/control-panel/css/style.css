@@ -1,3 +1,8 @@
+/* Personal Space avatar sizing */
+#space-profile-card #space-avatar{ width:100%; max-width:480px; height:auto; aspect-ratio:1/1; border-radius:8px; display:block }
+@media(min-width:769px){
+  #space-profile-card #space-avatar{ width:280px; height:auto }
+}
 /* Global Styles */
 * {
     margin: 0;

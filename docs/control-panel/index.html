@@ -428,6 +428,9 @@
 
     <!-- Firebase SDK Loader (latest-first with fallback) -->
     <script type="module" src="js/firebase-loader.js"></script>
+    <script>
+        if ('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+    </script>
     
     <!-- Firebase SDK Error Handling -->
     <script>

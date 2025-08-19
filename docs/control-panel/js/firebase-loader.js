@@ -13,6 +13,7 @@ async function loadFirebaseVersion(version) {
 	const authMod = await import(`${base}/firebase-auth.js`);
 	const fsMod = await import(`${base}/firebase-firestore.js`);
 	const storageMod = await import(`${base}/firebase-storage.js`);
+	let msgMod = null; try { msgMod = await import(`${base}/firebase-messaging.js`); } catch(_) { msgMod = null; }
 
 	const {
 		initializeApp
@@ -57,7 +58,8 @@ async function loadFirebaseVersion(version) {
 		increment,
 		limit,
 		startAfter,
-		deleteDoc
+		deleteDoc,
+		onSnapshot
 	} = fsMod;
 
 	const {
@@ -67,6 +69,8 @@ async function loadFirebaseVersion(version) {
 		getDownloadURL,
 		deleteObject
 	} = storageMod;
+
+	const messagingFns = msgMod ? (function(){ const { getMessaging, getToken, onMessage, isSupported } = msgMod; return { getMessaging, getToken, onMessage, isSupported }; })() : {};
 
 	// Expose compat-style object expected by existing code
 	window.firebase = {
@@ -107,6 +111,7 @@ async function loadFirebaseVersion(version) {
 		limit,
 		startAfter,
 		deleteDoc,
+		onSnapshot,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
 		serverTimestamp,
@@ -154,6 +159,7 @@ async function loadFirebaseVersion(version) {
 		limit,
 		startAfter,
 		deleteDoc,
+		onSnapshot,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
 		serverTimestamp,
@@ -161,7 +167,9 @@ async function loadFirebaseVersion(version) {
 		ref,
 		uploadBytes,
 		getDownloadURL,
-		deleteObject
+		deleteObject,
+		// Messaging (optional)
+		...(messagingFns || {})
 	};
 
 	console.log(`✅ Firebase Modular SDK v${version} loaded successfully`);

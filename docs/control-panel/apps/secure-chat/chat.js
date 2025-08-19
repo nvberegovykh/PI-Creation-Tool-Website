@@ -25,7 +25,11 @@
 
     bindUI(){
       document.getElementById('new-connection-btn').addEventListener('click', ()=> this.promptNewConnection());
-      document.getElementById('send-btn').addEventListener('click', ()=> this.sendCurrent());
+      const actionBtn = document.getElementById('action-btn');
+      actionBtn.addEventListener('click', ()=> this.handleActionButton());
+      actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
+      actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
+      ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
@@ -43,6 +47,11 @@
           header.style.pointerEvents = 'auto';
           userSearch.style.pointerEvents = 'auto';
         }
+      }
+
+      // Register service worker once (best-effort)
+      if ('serviceWorker' in navigator){
+        navigator.serviceWorker.register('/sw.js').catch(()=>{});
       }
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());
@@ -102,6 +111,7 @@
       // Enter to send, Shift+Enter for newline (desktop & mobile)
       const msgInput2 = document.getElementById('message-input');
       if (msgInput2){
+        msgInput2.addEventListener('input', ()=> this.refreshActionButton());
         msgInput2.addEventListener('keydown', (e)=>{
           if (e.key === 'Enter'){
             if (e.shiftKey){
@@ -121,6 +131,56 @@
           }
         }
       });
+    }
+
+    refreshActionButton(){
+      const input = document.getElementById('message-input');
+      const actionBtn = document.getElementById('action-btn');
+      const hasContent = !!(input && input.value.trim().length);
+      if (hasContent){
+        actionBtn.title = 'Send';
+        actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
+        actionBtn.style.background = '#2563eb';
+        actionBtn.style.borderRadius = '12px';
+        actionBtn.style.color = '#fff';
+      } else {
+        actionBtn.title = 'Voice message';
+        actionBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+        actionBtn.style.background = 'transparent';
+        actionBtn.style.color = '';
+      }
+    }
+
+    handleActionButton(){
+      const input = document.getElementById('message-input');
+      if (input && input.value.trim().length){
+        this.sendCurrent();
+      } else {
+        // short click toggles to video icon then back to mic
+        const btn = document.getElementById('action-btn');
+        if (!this._lastActionToggle || (Date.now() - this._lastActionToggle) > 1200){
+          btn.innerHTML = '<i class="fas fa-video"></i>';
+          btn.title = 'Video message';
+          this._lastActionToggle = Date.now();
+          setTimeout(()=> this.refreshActionButton(), 1200);
+        } else {
+          this.refreshActionButton();
+        }
+      }
+    }
+
+    handleActionPressStart(e){
+      const input = document.getElementById('message-input');
+      if (input && input.value.trim().length) return; // only record when empty
+      this._pressTimer = setTimeout(()=>{
+        // TODO: start recording audio up to 60s (placeholder)
+        console.log('Start recording (placeholder)');
+      }, 400);
+    }
+
+    handleActionPressEnd(){
+      if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
+      // TODO: stop recording if active and send
     }
 
     async promptNewConnection(){
@@ -214,31 +274,67 @@
       const box = document.getElementById('messages');
       box.innerHTML='';
       if (!this.activeConnection) return;
-      const q = firebase.query(
-        firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
-        firebase.orderBy('createdAt','asc'),
-        firebase.limit(200)
-      );
-      // Prefer universal fallback first so both sides can read before keys exchange
-      let aesKey = await this.getFallbackKey();
-      const snap = await firebase.getDocs(q);
-      snap.forEach(async d=>{
-        const m=d.data();
-        let text='';
-        try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-          try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+      try{
+        if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
+        const q = firebase.query(
+          firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+          firebase.orderBy('createdAt','asc'),
+          firebase.limit(200)
+        );
+        const handleSnap = async (snap)=>{
+          box.innerHTML='';
+          let aesKey = await this.getFallbackKey();
+          snap.forEach(async d=>{
+            const m=d.data();
+            let text='';
+            try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+              try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+            }
+            const el = document.createElement('div');
+            el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            const hasFile = !!m.fileUrl && !!m.fileName;
+            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+            box.appendChild(el);
+            if (hasFile){
+              const preview = el.querySelector('.file-preview');
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+            }
+          });
+          box.scrollTop = box.scrollHeight;
+        };
+        if (firebase.onSnapshot){
+          this._unsubMessages = firebase.onSnapshot(q, handleSnap);
+        } else {
+          this._msgPoll && clearInterval(this._msgPoll);
+          this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); handleSnap(s); }, 2500);
+          const snap = await firebase.getDocs(q); handleSnap(snap);
         }
-        const el = document.createElement('div');
-        el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-        const hasFile = !!m.fileUrl && !!m.fileName;
-        el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
-        box.appendChild(el);
-        if (hasFile){
-          const preview = el.querySelector('.file-preview');
-          if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
-        }
-      });
-      box.scrollTop = box.scrollHeight;
+      }catch{
+        const q = firebase.query(
+          firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+          firebase.orderBy('createdAt','asc'),
+          firebase.limit(200)
+        );
+        const snap = await firebase.getDocs(q);
+        let aesKey = await this.getFallbackKey();
+        snap.forEach(async d=>{
+          const m=d.data();
+          let text='';
+          try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+            try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+          }
+          const el = document.createElement('div');
+          el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+          const hasFile = !!m.fileUrl && !!m.fileName;
+          el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+          box.appendChild(el);
+          if (hasFile){
+            const preview = el.querySelector('.file-preview');
+            if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+          }
+        });
+        box.scrollTop = box.scrollHeight;
+      }
     }
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
@@ -270,11 +366,12 @@
         });
         // Encrypt base64 string
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-        const blob = new Blob([JSON.stringify(cipher)], {type:'application/octet-stream'});
+        // Store encrypted JSON payload with .json extension to aid CORS/content-type and preview
+        const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
         const s = this.storage; if (!s) continue;
         const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-        const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc`);
-        await firebase.uploadBytes(r, blob, { contentType: 'application/octet-stream' });
+        const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
+        await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
         const url = await firebase.getDownloadURL(r);
         await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
       }
@@ -402,7 +499,8 @@
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey){
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
-        const payload = await res.json();
+        const ct = res.headers.get('content-type')||'';
+        const payload = ct.includes('application/json') ? await res.json() : JSON.parse(await res.text());
         let b64;
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch { const alt = await this.getOrCreateSharedAesKey(); b64 = await chatCrypto.decryptWithKey(payload, alt); }
@@ -468,8 +566,8 @@
                     });
                     chips.appendChild(chip);
                   }
-                  if (search) search.value='';
-                  wrapper.style.display='none';
+                  // stay in selection mode, keep results open and continue typing
+                  if (search) { search.focus(); search.select(); }
                   return;
                 }
                 wrapper.style.display='none';
@@ -531,8 +629,45 @@
     // Placeholders
     async startVoiceCall(){}
     async startVideoCall(){}
-    async recordVoiceMessage(){}
-    async recordVideoMessage(){}
+    async recordVoiceMessage(){
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        await this.captureMedia(stream, { mimeType: 'audio/webm' }, 60_000, 'voice.webm');
+      }catch(e){ console.warn('Voice record unavailable', e); }
+    }
+    async recordVideoMessage(){
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        await this.captureMedia(stream, { mimeType: 'video/webm;codecs=vp9' }, 30_000, 'video.webm');
+      }catch(e){ console.warn('Video record unavailable', e); }
+    }
+
+    async captureMedia(stream, options, maxMs, filename){
+      return new Promise((resolve)=>{
+        const rec = new MediaRecorder(stream, options);
+        const chunks = [];
+        let stopped = false;
+        const stopAll = ()=>{ if (stopped) return; stopped = true; rec.stop(); stream.getTracks().forEach(t=> t.stop()); };
+        rec.ondataavailable = (e)=>{ if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = async ()=>{
+          try{
+            const blob = new Blob(chunks, { type: options.mimeType || 'application/octet-stream' });
+            const buf = await blob.arrayBuffer();
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const aesKey = await this.getFallbackKey();
+            const cipher = await chatCrypto.encryptWithKey(b64, aesKey);
+            const s = this.storage; if (!s) return resolve();
+            const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${filename}.enc.json`);
+            await firebase.uploadBytes(r, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
+            const url = await firebase.getDownloadURL(r);
+            await this.saveMessage({text:`[file] ${filename}`, fileUrl:url, fileName:filename});
+          }catch(_){}
+          resolve();
+        };
+        rec.start();
+        setTimeout(stopAll, maxMs);
+      });
+    }
   }
 
   window.secureChatApp = new SecureChatApp();

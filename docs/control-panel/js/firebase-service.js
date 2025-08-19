@@ -15,6 +15,32 @@ class FirebaseService {
     }
 
     /**
+     * Register Firebase Messaging (Web) using VAPID key from secure keys
+     */
+    async registerMessaging(user){
+        try{
+            const keys = await window.secureKeyManager.getKeys();
+            const vapid = keys && keys.messaging && keys.messaging.vapidPublicKey;
+            if (!vapid) return;
+            if (!firebase.getStorage || !window.firebaseModular || !window.firebaseModular.getMessaging) return;
+            if (window.firebaseModular.isSupported && !(await window.firebaseModular.isSupported())) return;
+            const messaging = window.firebaseModular.getMessaging(this.app);
+            // Request notification permission
+            if ('Notification' in window && Notification.permission !== 'granted'){
+                try { await Notification.requestPermission(); } catch(_) {}
+            }
+            // Requires a service worker at /sw.js
+            const token = await window.firebaseModular.getToken(messaging, { vapidKey: vapid, serviceWorkerRegistration: await navigator.serviceWorker.getRegistration() });
+            if (!token) return;
+            // Store token under user doc for later server-side delivery if needed
+            try{
+                const userDocRef = firebase.doc(this.db, 'users', user.uid);
+                await firebase.updateDoc(userDocRef, { fcmToken: token, fcmUpdatedAt: new Date().toISOString() });
+            }catch(_){/* ignore */}
+        }catch(_){/* ignore */}
+    }
+
+    /**
      * Initialize Firebase
      */
     async init() {
@@ -111,6 +137,9 @@ class FirebaseService {
                     
                     // Update user data in Firestore if needed
                     this.updateUserLastLogin(user.uid);
+
+                    // Register messaging for push/web notifications (best-effort)
+                    this.registerMessaging(user).catch(()=>{});
                 }
             });
 
@@ -604,6 +633,7 @@ class FirebaseService {
                     firebase.getDocs(qEmailLower)
                 ]);
                 const set = new Map();
+                const fuzz = (s)=> (s||'').toLowerCase();
                 snapU.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
                 snapE.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
                 results = Array.from(set.values());
@@ -615,7 +645,12 @@ class FirebaseService {
                     const d = doc.data() || {};
                     const u = (d.usernameLower || (d.username||'').toLowerCase());
                     const em = (d.emailLower || (d.email||'').toLowerCase());
-                    if ((u && u.startsWith(term)) || (em && em.startsWith(term))) matches.push({ id: doc.id, ...d });
+                    // Allow contains or ordered subsequence fuzzy match
+                    const contains = (s)=> s && s.includes(term);
+                    const isSubseq = (s)=>{
+                        let i=0; for (const ch of s){ if (ch===term[i]) i++; if (i===term.length) return true; } return term.length===0;
+                    };
+                    if (contains(u) || contains(em) || isSubseq(u) || isSubseq(em)) matches.push({ id: doc.id, ...d });
                 });
                 results = matches;
             }
