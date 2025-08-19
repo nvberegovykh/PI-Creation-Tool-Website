@@ -11,6 +11,22 @@
       this.init();
     }
 
+    async getIceServers(){
+      try{
+        if (window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function'){
+          const keys = await window.secureKeyManager.getKeys();
+          const turn = keys && keys.turn;
+          if (turn && Array.isArray(turn.uris) && turn.username && turn.credential){
+            return [
+              { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] },
+              { urls: turn.uris, username: turn.username, credential: turn.credential }
+            ];
+          }
+        }
+      }catch(_){ /* ignore */ }
+      return [ { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] } ];
+    }
+
     async init() {
       // Wait for firebase
       let attempts = 0; while((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 150){ await new Promise(r=>setTimeout(r,100)); attempts++; }
@@ -293,8 +309,18 @@
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
             const hasFile = !!m.fileUrl && !!m.fileName;
-            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+            // Render call invites as buttons
+            let bodyHtml = this.renderText(text);
+            const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+            if (callMatch){
+              const kind = callMatch[1]; const callId = callMatch[2];
+              const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
+              bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
+            }
+            el.innerHTML = `<div>${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${new Date(m.createdAt).toLocaleString()}</div>`;
             box.appendChild(el);
+            const joinBtn = el.querySelector('button[data-call-id]');
+            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
               if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
@@ -626,9 +652,75 @@
       }catch(e){ console.warn('Search failed', e); if (wrapper) wrapper.style.display='none'; }
     }
 
-    // Placeholders
-    async startVoiceCall(){}
-    async startVideoCall(){}
+    // Placeholders / basic signaling for calls
+    async startVoiceCall(){ await this.startCall({ video:false }); }
+    async startVideoCall(){ await this.startCall({ video:true }); }
+
+    async startCall({ video }){
+      try{
+        const callId = `${this.activeConnection}_${Date.now()}`;
+        const config = { audio: true, video: !!video };
+        const stream = await navigator.mediaDevices.getUserMedia(config);
+        const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
+        stream.getTracks().forEach(t=> pc.addTrack(t, stream));
+        const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
+        if (lv){ lv.srcObject = stream; }
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; } };
+        if (ov){ ov.classList.remove('hidden'); }
+        const offersRef = firebase.collection(this.db,'calls',callId,'offers');
+        const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', candidate:e.candidate.toJSON() }); }};
+        const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+        await firebase.setDoc(firebase.doc(offersRef,'offer'), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
+        await this.saveMessage({ text:`[call:${video?'video':'voice'}:${callId}]` });
+        // Listen for answer
+        if (firebase.onSnapshot){
+          firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers','answer'), async (doc)=>{
+            if (doc.exists()){
+              const data = doc.data();
+              await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp:data.sdp }));
+            }
+          });
+          firebase.onSnapshot(candsRef, (snap)=>{
+            snap.forEach(d=>{ const v=d.data(); if(v.type==='answer' && v.candidate){ pc.addIceCandidate(new RTCIceCandidate(v.candidate)); }});
+          });
+        }
+        const endBtn = document.getElementById('end-call-btn');
+        const micBtn = document.getElementById('toggle-mic-btn');
+        const camBtn = document.getElementById('toggle-camera-btn');
+        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); }; }
+        if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
+        if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
+      }catch(e){ console.warn('Call start failed', e); }
+    }
+
+    async answerCall(callId, { video }){
+      try{
+        const config = { audio:true, video: !!video };
+        const stream = await navigator.mediaDevices.getUserMedia(config);
+        const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
+        stream.getTracks().forEach(t=> pc.addTrack(t, stream));
+        const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
+        if (lv){ lv.srcObject = stream; }
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; } };
+        if (ov){ ov.classList.remove('hidden'); }
+        const answersRef = firebase.collection(this.db,'calls',callId,'answers');
+        const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'answer', candidate:e.candidate.toJSON() }); }};
+        const offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers','offer'));
+        if (!offerDoc.exists()) return;
+        const offer = offerDoc.data();
+        await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
+        const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
+        await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString() });
+        const endBtn = document.getElementById('end-call-btn');
+        const micBtn = document.getElementById('toggle-mic-btn');
+        const camBtn = document.getElementById('toggle-camera-btn');
+        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); }; }
+        if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
+        if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
+      }catch(e){ console.warn('Answer call failed', e); }
+    }
     async recordVoiceMessage(){
       try{
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

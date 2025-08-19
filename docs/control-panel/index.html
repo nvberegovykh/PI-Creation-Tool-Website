@@ -213,13 +213,14 @@
                         <button id="space-logout-btn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
                     </div>
                 </div>
+                <ul id="space-search-results" class="users-list simple" style="display:none"></ul>
                 <div class="settings-grid">
                     <div class="settings-card" id="space-profile-card">
                         <h3>Profile</h3>
                         <div class="setting-item">
                             <label>Avatar</label>
                             <div>
-                                <img id="space-avatar" src="" alt="Avatar" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:#222" />
+                                <img id="space-avatar" src="images/default-bird.svg" alt="Avatar" style="width:64px;height:64px;border-radius:8px;object-fit:cover;background:#222" />
                                 <input type="file" id="space-avatar-input" accept="image/*" style="margin-left:12px">
                             </div>
                         </div>
@@ -253,6 +254,7 @@
                 <div class="settings-card" id="space-feed-card" style="margin-top:20px">
                     <h3 id="space-feed-title">My Feed</h3>
                     <div id="space-feed"></div>
+                    <div id="space-suggestions" style="margin-top:16px"></div>
                 </div>
             </section>
 

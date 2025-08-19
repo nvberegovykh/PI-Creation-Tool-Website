@@ -360,6 +360,116 @@ class FirebaseService {
     }
 
     /**
+     * Follow / Unfollow and feed helpers
+     */
+    async followUser(followerUid, targetUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'subscriptions', followerUid, 'following', targetUid);
+        await firebase.setDoc(ref, { uid: targetUid, followedAt: new Date().toISOString() });
+    }
+
+    async unfollowUser(followerUid, targetUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'subscriptions', followerUid, 'following', targetUid);
+        await firebase.deleteDoc(ref);
+    }
+
+    async getFollowingIds(followerUid){
+        await this.waitForInit();
+        const col = firebase.collection(this.db, 'subscriptions', followerUid, 'following');
+        const snap = await firebase.getDocs(col);
+        const ids = [];
+        snap.forEach(d=> ids.push(d.id));
+        return ids;
+    }
+
+    async getFeedPosts(meUid, followingIds = [], limitPerAuthor = 10){
+        await this.waitForInit();
+        const posts = [];
+        // Always include my posts first
+        try{
+            const qMine = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', meUid), firebase.orderBy('createdAt','desc'), firebase.limit(limitPerAuthor));
+            const sMine = await firebase.getDocs(qMine);
+            sMine.forEach(d=> posts.push(d.data()));
+        }catch{
+            const q2 = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', meUid));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> posts.push(d.data()));
+        }
+        // Fetch followed authors, up to a reasonable number per batch due to Firestore limits
+        for (const uid of (followingIds||[]).slice(0,20)){
+            try{
+                const q = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(5));
+                const s = await firebase.getDocs(q); s.forEach(d=> posts.push(d.data()));
+            }catch{
+                const q3 = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', uid));
+                const s3 = await firebase.getDocs(q3); s3.forEach(d=> posts.push(d.data()));
+            }
+        }
+        posts.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+        return posts.slice(0,50);
+    }
+
+    /**
+     * Post interactions: likes and comments
+     */
+    async likePost(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'likes', userUid);
+        await firebase.setDoc(ref, { uid: userUid, likedAt: new Date().toISOString() });
+    }
+
+    async unlikePost(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'likes', userUid);
+        await firebase.deleteDoc(ref);
+    }
+
+    async hasLiked(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'likes', userUid);
+        const snap = await firebase.getDoc(ref);
+        return snap.exists();
+    }
+
+    async getPostStats(postId){
+        await this.waitForInit();
+        const likesCol = firebase.collection(this.db, 'posts', postId, 'likes');
+        const likeSnap = await firebase.getDocs(likesCol);
+        return { likes: likeSnap.size };
+    }
+
+    async addComment(postId, userUid, text){
+        await this.waitForInit();
+        const ref = firebase.doc(firebase.collection(this.db, 'posts', postId, 'comments'));
+        await firebase.setDoc(ref, { id: ref.id, authorId: userUid, text, createdAt: new Date().toISOString() });
+        return ref.id;
+    }
+
+    async getComments(postId, limitN = 10){
+        await this.waitForInit();
+        const q = firebase.query(firebase.collection(this.db, 'posts', postId, 'comments'), firebase.orderBy('createdAt', 'desc'), firebase.limit(limitN));
+        const snap = await firebase.getDocs(q);
+        const out = []; snap.forEach(d=> out.push(d.data()));
+        return out;
+    }
+
+    async getTrendingPosts(excludeUid, limitN = 10){
+        await this.waitForInit();
+        // Fallback simple: fetch recent posts and sort by like count client-side
+        const q = firebase.query(firebase.collection(this.db,'posts'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+        const snap = await firebase.getDocs(q);
+        const items = [];
+        for (const d of snap.docs){
+            const p = d.data();
+            if (p.authorId === excludeUid) continue;
+            const stats = await this.getPostStats(p.id);
+            items.push({ ...p, _likes: stats.likes });
+        }
+        items.sort((a,b)=> (b._likes||0) - (a._likes||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+        return items.slice(0, limitN);
+    }
+
+    /**
      * Update user data in Firestore
      */
     async updateUserData(uid, data) {
@@ -618,6 +728,25 @@ class FirebaseService {
             // Prefix queries for case-insensitive matching
             let results = [];
             try {
+                // Try exact equality first for usernameLower/emailLower
+                const exactUser = firebase.query(
+                    usersCollectionRef,
+                    firebase.where('usernameLower', '==', term)
+                );
+                const exactEmail = firebase.query(
+                    usersCollectionRef,
+                    firebase.where('emailLower', '==', term)
+                );
+                const [exU, exE] = await Promise.all([
+                    firebase.getDocs(exactUser),
+                    firebase.getDocs(exactEmail)
+                ]);
+                const exactSet = new Map();
+                exU.forEach(doc => exactSet.set(doc.id, { id: doc.id, ...doc.data() }));
+                exE.forEach(doc => exactSet.set(doc.id, { id: doc.id, ...doc.data() }));
+                if (exactSet.size > 0) {
+                    return Array.from(exactSet.values());
+                }
                 const qUsernameLower = firebase.query(
                     usersCollectionRef,
                     firebase.where('usernameLower', '>=', term),

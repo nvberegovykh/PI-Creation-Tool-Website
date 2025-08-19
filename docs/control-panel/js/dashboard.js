@@ -9,6 +9,20 @@ class DashboardManager {
         this.init();
     }
 
+    renderPostMedia(url){
+        const lower = (url||'').toLowerCase();
+        if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.gif') || lower.endsWith('.webp')){
+            return `<div style="margin-top:8px"><img src="${url}" alt="media" style="max-width:100%;border-radius:8px" /></div>`;
+        }
+        if (lower.endsWith('.mp4') || lower.endsWith('.webm')){
+            return `<div style="margin-top:8px"><video src="${url}" style="max-width:100%;border-radius:8px" controls playsinline></video></div>`;
+        }
+        if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')){
+            return `<div style="margin-top:8px"><audio src="${url}" style="width:100%" controls></audio></div>`;
+        }
+        return `<div style="margin-top:8px"><a href="${url}" target="_blank" rel="noopener noreferrer">Open attachment</a></div>`;
+    }
+
     /**
      * Initialize the dashboard
      */
@@ -108,11 +122,33 @@ class DashboardManager {
             if (postBtn){
                 postBtn.onclick = async ()=>{
                     const text = (document.getElementById('space-post-text').value||'').trim();
-                    if (!text) return;
-                    // Minimal post structure (text only for now)
+                    const mediaInput = document.getElementById('space-post-media');
+                    let mediaUrl = '';
+                    if (mediaInput && mediaInput.files && mediaInput.files[0] && firebase.getStorage){
+                        try{
+                            const file = mediaInput.files[0];
+                            const s = firebase.getStorage();
+                            const postIdRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                            const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+                            const path = `posts/${user.uid}/${postIdRef.id}/media.${ext}`;
+                            const r = firebase.ref(s, path);
+                            await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
+                            mediaUrl = await firebase.getDownloadURL(r);
+                            // We will reuse the generated postIdRef for the post document below
+                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, createdAt: new Date().toISOString() };
+                            await firebase.setDoc(postIdRef, payload);
+                            document.getElementById('space-post-text').value='';
+                            mediaInput.value='';
+                            this.showSuccess('Posted');
+                            this.loadFeed(user.uid);
+                            return;
+                        }catch(e){ /* fallback to text-only below */ }
+                    }
+                    if (!text){ this.showError('Add some text or attach media'); return; }
                     const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
                     await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, createdAt: new Date().toISOString() });
                     document.getElementById('space-post-text').value='';
+                    if (mediaInput) mediaInput.value='';
                     this.showSuccess('Posted');
                     this.loadFeed(user.uid);
                 };
@@ -122,12 +158,32 @@ class DashboardManager {
             if (spaceSearch){
                 spaceSearch.oninput = async (e)=>{
                     const term = (e.target.value||'').trim().toLowerCase();
-                    if (!term){ this.loadFeed(user.uid); return; }
-                    // Search users to view another feed (basic)
+                    const resultsEl = document.getElementById('space-search-results');
+                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } this.loadFeed(user.uid); return; }
                     const users = await window.firebaseService.searchUsers(term);
-                    const other = users.find(u=> (u.username||u.email||'').toLowerCase().includes(term) && (u.uid||u.id) !== user.uid);
-                    if (other){ this.loadFeed(other.uid||other.id, other.username||other.email); }
+                    if (resultsEl){
+                        resultsEl.innerHTML = '';
+                        (users||[]).slice(0,10).forEach(u=>{
+                            const li = document.createElement('li');
+                            li.textContent = u.username || u.email;
+                            li.style.cursor = 'pointer';
+                            li.onclick = ()=>{ this.loadFeed(u.uid||u.id, u.username||u.email); resultsEl.style.display='none'; };
+                            resultsEl.appendChild(li);
+                        });
+                        resultsEl.style.display = (users && users.length) ? 'block':'none';
+                    }
                 };
+            }
+
+            // Follow/unfollow bar
+            const feedCard = document.getElementById('space-feed-card');
+            if (feedCard && !document.getElementById('follow-bar')){
+                const followBar = document.createElement('div');
+                followBar.id = 'follow-bar';
+                followBar.style.marginBottom = '10px';
+                followBar.innerHTML = `<button id="follow-btn" class="btn btn-primary" style="display:none">Follow</button>
+                                       <button id="unfollow-btn" class="btn btn-secondary" style="display:none">Unfollow</button>`;
+                feedCard.insertBefore(followBar, feedCard.firstChild);
             }
 
             // Initial feed load
@@ -141,6 +197,19 @@ class DashboardManager {
         if (!feed) return;
         feed.innerHTML = '';
         try{
+            const meUser = await window.firebaseService.getCurrentUser();
+            const following = await window.firebaseService.getFollowingIds(meUser.uid);
+            const fb = document.getElementById('follow-btn');
+            const ub = document.getElementById('unfollow-btn');
+            if (fb && ub){
+                if (uid !== meUser.uid){
+                    const isFollowing = following.includes(uid);
+                    fb.style.display = isFollowing? 'none':'inline-block';
+                    ub.style.display = isFollowing? 'inline-block':'none';
+                    fb.onclick = async ()=>{ await window.firebaseService.followUser(meUser.uid, uid); this.loadFeed(uid, titleName); };
+                    ub.onclick = async ()=>{ await window.firebaseService.unfollowUser(meUser.uid, uid); this.loadFeed(uid, titleName); };
+                } else { fb.style.display='none'; ub.style.display='none'; }
+            }
             let snap;
             try {
                 const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
@@ -156,9 +225,82 @@ class DashboardManager {
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                div.textContent = p.text || '';
+                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px\">
+                                   <button class=\"btn btn-secondary like-btn\">Like</button>
+                                   <button class=\"btn btn-secondary comment-btn\">Comment</button>
+                                   <span class=\"likes-count\"></span>
+                                 </div>`;
                 feed.appendChild(div);
             });
+            // Bind like/comment actions
+            const me2 = await window.firebaseService.getCurrentUser();
+            document.querySelectorAll('.post-actions').forEach(async (pa)=>{
+                const postId = pa.getAttribute('data-post-id');
+                const likeBtn = pa.querySelector('.like-btn');
+                const commentBtn = pa.querySelector('.comment-btn');
+                const likesCount = pa.querySelector('.likes-count');
+                const stats = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${stats.likes||0} likes`;
+                if (await window.firebaseService.hasLiked(postId, me2.uid)){ likeBtn.textContent = 'Unlike'; }
+                likeBtn.onclick = async ()=>{
+                    const liked = await window.firebaseService.hasLiked(postId, me2.uid);
+                    if (liked){ await window.firebaseService.unlikePost(postId, me2.uid); likeBtn.textContent = 'Like'; }
+                    else { await window.firebaseService.likePost(postId, me2.uid); likeBtn.textContent = 'Unlike'; }
+                    const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
+                };
+                commentBtn.onclick = async ()=>{
+                    const text = prompt('Write a comment'); if (!text) return;
+                    await window.firebaseService.addComment(postId, me2.uid, text);
+                    alert('Comment added');
+                };
+            });
+            if (uid === meUser.uid){
+                try{
+                    const posts = await window.firebaseService.getFeedPosts(meUser.uid, following, 10);
+                    feed.innerHTML = '';
+                    posts.forEach(p=>{
+                        const div = document.createElement('div');
+                        div.className = 'post-item';
+                        div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                        const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                        div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                         <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px\">
+                                           <button class=\"btn btn-secondary like-btn\">Like</button>
+                                           <button class=\"btn btn-secondary comment-btn\">Comment</button>
+                                           <span class=\"likes-count\"></span>
+                                         </div>`;
+                        feed.appendChild(div);
+                    });
+                    // bind actions
+                    document.querySelectorAll('.post-actions').forEach(async (pa)=>{
+                        const postId = pa.getAttribute('data-post-id');
+                        const likeBtn = pa.querySelector('.like-btn');
+                        const commentBtn = pa.querySelector('.comment-btn');
+                        const likesCount = pa.querySelector('.likes-count');
+                        const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
+                        if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.textContent = 'Unlike'; }
+                        likeBtn.onclick = async ()=>{
+                            const liked = await window.firebaseService.hasLiked(postId, meUser.uid);
+                            if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.textContent = 'Like'; }
+                            else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.textContent = 'Unlike'; }
+                            const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
+                        };
+                        commentBtn.onclick = async ()=>{ const t = prompt('Write a comment'); if(!t) return; await window.firebaseService.addComment(postId, meUser.uid, t); alert('Comment added'); };
+                    });
+                }catch(_){ /* ignore */ }
+            }
+            // Suggestions (simple): recent posts by others
+            const sugg = document.getElementById('space-suggestions');
+            if (sugg){
+                try{
+                    const qAny = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.orderBy('createdAt','desc'), firebase.limit(10));
+                    const s2 = await firebase.getDocs(qAny);
+                    const cards = [];
+                    s2.forEach(dd=>{ const pp = dd.data(); if (pp.authorId !== uid){ cards.push(`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(pp.text||'').replace(/</g,'&lt;')}</div>`); } });
+                    sugg.innerHTML = cards.length ? `<h4>Suggestions</h4>${cards.join('')}` : '';
+                }catch(_){ sugg.innerHTML = ''; }
+            }
             if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Feed` : 'My Feed';
         }catch(e){ /* ignore */ }
     }

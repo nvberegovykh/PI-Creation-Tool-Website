@@ -57,6 +57,18 @@
                 <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
                 <button id="action-btn" class="icon-btn" title="Send"><i class="fas fa-microphone"></i></button>
             </div>
+            <!-- Call overlay -->
+            <div id="call-overlay" class="call-overlay hidden">
+                <div class="call-videos">
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <video id="localVideo" autoplay playsinline muted></video>
+                </div>
+                <div class="call-controls">
+                    <button id="toggle-mic-btn" class="btn secondary">Mic</button>
+                    <button id="toggle-camera-btn" class="btn secondary">Camera</button>
+                    <button id="end-call-btn" class="btn secondary">End</button>
+                </div>
+            </div>
         </main>
     </div>
 
