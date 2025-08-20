@@ -854,6 +854,17 @@ Do you want to proceed?`);
                     };
                 }
 
+                // Add Link Google Account button if missing
+                const profileCard = document.querySelector('#profile-section .settings-card');
+                if (profileCard && !document.getElementById('link-google-btn')){
+                    const wrap = document.createElement('div');
+                    wrap.className = 'setting-item';
+                    wrap.innerHTML = '<label>Google</label><button id="link-google-btn" class="btn btn-secondary">Link Google Account</button>';
+                    profileCard.appendChild(wrap);
+                    const linkBtn = document.getElementById('link-google-btn');
+                    if (linkBtn){ linkBtn.onclick = ()=>{ if (window.authManager && typeof window.authManager.linkGoogleAccount==='function'){ window.authManager.linkGoogleAccount(); } }; }
+                }
+
                 const chBtn = document.getElementById('change-password-btn');
                 if (chBtn) {
                     chBtn.onclick = async () => {

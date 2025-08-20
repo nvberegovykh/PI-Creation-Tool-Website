@@ -233,18 +233,18 @@ class AuthManager {
      * Handle user login
      */
     async handleLogin() {
-        const username = document.getElementById('loginUsername').value.trim();
+        const email = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value;
 
-        if (!username || !password) {
-            this.showMessage('Please enter both username and password', 'error');
+        if (!email || !password) {
+            this.showMessage('Please enter both email and password', 'error');
             return;
         }
 
         try {
             // Check if it's admin login
             const adminCredentials = await this.getAdminCredentials();
-            if (username === adminCredentials.username) {
+            if (email === adminCredentials.username) {
                 const adminHash = await this.generateAdminHash(password);
                 if (adminHash === adminCredentials.passwordHash) {
                     this.currentUser = {
@@ -270,31 +270,12 @@ class AuthManager {
         // Try Firebase authentication first (REQUIRED)
         if (window.firebaseService && window.firebaseService.isInitialized) {
             try {
-                console.log('Attempting Firebase login...');
-                // Support login by username OR email
-                let identifierEmail = username;
-                if (!username.includes('@')) {
-                    try {
-                        const matches = await window.firebaseService.searchUsers(username);
-                        // Prefer exact lowercase match first
-                        const lower = username.toLowerCase();
-                        let exact = (matches || []).find(u => (u.usernameLower || (u.username||'').toLowerCase()) === lower);
-                        if (!exact) {
-                            // Fallback to case-insensitive equality
-                            exact = (matches || []).find(u => (u.username || '').toLowerCase() === lower);
-                        }
-                        if (!exact || !exact.email) {
-                            this.showMessage('User credentials do not exist', 'error');
-                            return;
-                        }
-                        identifierEmail = exact.email;
-                    } catch (e) {
-                        console.warn('Username lookup failed:', e?.message || e);
-                        this.showMessage('User credentials do not exist', 'error');
-                        return;
-                    }
+                console.log('Attempting Firebase login (email/password)...');
+                if (!this.isValidEmail(email)){
+                    this.showMessage('Please enter a valid email address', 'error');
+                    return;
                 }
-                const firebaseUser = await window.firebaseService.signInUser(identifierEmail, password);
+                const firebaseUser = await window.firebaseService.signInUser(email, password);
                 
                 if (firebaseUser) {
                     // Get user data from Firestore
@@ -443,6 +424,30 @@ class AuthManager {
         } catch (error) {
             console.error('Registration error:', error);
             this.showMessage('Registration failed. Please try again.', 'error');
+        }
+    }
+
+    /**
+     * Link Google account to current user (My Profile)
+     */
+    async linkGoogleAccount(){
+        try{
+            if (!(window.firebaseService && window.firebaseService.isInitialized)){
+                return this.showMessage('Auth not ready', 'error');
+            }
+            const auth = window.firebaseService.auth;
+            const user = auth.currentUser;
+            if (!user){ return this.showMessage('Please login first', 'error'); }
+            const provider = new firebase.GoogleAuthProvider();
+            await firebase.linkWithPopup(user, provider);
+            this.showMessage('Google account linked', 'success');
+        }catch(e){
+            const code = e?.code||'';
+            if (code === 'auth/credential-already-in-use'){
+                this.showMessage('This Google account is already linked to another user.', 'error');
+            }else{
+                this.showMessage('Failed to link Google account', 'error');
+            }
         }
     }
 
