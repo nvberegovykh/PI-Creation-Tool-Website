@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>Advanced Calculator - Liber Apps</title>
     <link rel="icon" type="image/png" href="../images/LIBER LOGO.png">
     <link rel="icon" type="image/svg+xml" href="../images/LIBER LOGO.svg">
@@ -15,12 +15,13 @@
             box-sizing: border-box;
         }
 
+        html, body { height:100%; overflow:hidden; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #000000;
             color: #ffffff;
             min-height: 100vh;
-            padding: 20px;
+            padding: 0;
         }
 
         .container {
@@ -31,6 +32,8 @@
             gap: 20px;
             min-height: 100vh;
             align-items: center;
+            padding: 20px;
+            overflow:auto;
         }
 
         .calculator-section {
@@ -197,6 +200,7 @@
             border-radius: 8px;
             padding: 20px;
             margin-top: 20px;
+            overflow:auto;
         }
 
         .conversion-section {
@@ -204,6 +208,7 @@
             grid-template-columns: 1fr 1fr;
             gap: 15px;
             margin-top: 20px;
+            overflow:auto;
         }
 
         .conversion-group {
@@ -234,6 +239,7 @@
             border-radius: 8px;
             padding: 20px;
             margin-top: 20px;
+            overflow:auto;
         }
 
         .triangle-inputs {
@@ -289,6 +295,7 @@
         }
 
         @media (max-width: 768px) {
+            .container { padding: 12px; }
             .buttons {
                 grid-template-columns: repeat(4, 1fr);
             }
@@ -302,6 +309,7 @@
                 font-size: 1.2rem;
                 padding: 15px;
             }
+            .back-btn{ top: 10px; left: 10px; padding:8px 12px }
         }
     </style>
 </head>

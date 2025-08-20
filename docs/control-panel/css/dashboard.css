@@ -969,3 +969,22 @@
         display: none;
     }
 }
+
+@media (max-width: 768px) {
+	#profile-section .settings-grid,
+	#space-section .settings-grid,
+	#waveconnect-section .settings-grid {
+		grid-template-columns: 1fr;
+		padding: 0 12px;
+	}
+	#profile-section .settings-card,
+	#space-section .settings-card,
+	#waveconnect-section .settings-card {
+		padding: 12px;
+	}
+	#profile-section .section-header,
+	#space-section .section-header,
+	#waveconnect-section .section-header {
+		padding: 8px 12px;
+	}
+}

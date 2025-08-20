@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
             <title>LIBER/APPS</title>
     <link rel="icon" type="image/png" href="images/LIBER LOGO.png">
     <link rel="icon" type="image/svg+xml" href="images/LIBER LOGO.svg">
@@ -150,6 +150,9 @@
             <button class="nav-btn" data-section="space">
                 <i class="fas fa-id-badge"></i> Personal Space
             </button>
+            <button class="nav-btn" data-section="waveconnect">
+                <i class="fas fa-music"></i> WaveConnect
+            </button>
             <button class="nav-btn" data-section="profile">
                 <i class="fas fa-user"></i> My Profile
             </button>
@@ -168,6 +171,9 @@
             </button>
             <button class="mobile-nav-btn" data-section="space">
                 <i class="fas fa-id-badge"></i>
+            </button>
+            <button class="mobile-nav-btn" data-section="waveconnect">
+                <i class="fas fa-music"></i>
             </button>
             <button class="mobile-nav-btn" data-section="profile">
                 <i class="fas fa-user"></i>
@@ -219,9 +225,13 @@
                         <h3>Profile</h3>
                         <div class="setting-item">
                             <label>Avatar</label>
-                            <div>
-                                <img id="space-avatar" src="images/default-bird.svg" alt="Avatar" style="width:64px;height:64px;border-radius:8px;object-fit:cover;background:#222" />
-                                <input type="file" id="space-avatar-input" accept="image/*" style="margin-left:12px">
+                            <div class="avatar-field">
+                                <div class="avatar-preview">
+                                    <img id="space-avatar" src="images/default-bird.svg" alt="Avatar">
+                                </div>
+                                <div class="avatar-actions">
+                                    <input type="file" id="space-avatar-input" accept="image/*">
+                                </div>
                             </div>
                         </div>
                         <div class="setting-item">
@@ -235,6 +245,7 @@
                         <div class="setting-item">
                             <button id="space-save-profile" class="btn btn-primary">Save</button>
                         </div>
+                        
                     </div>
                     <div class="settings-card" id="space-compose-card">
                         <h3>Create Post</h3>
@@ -255,6 +266,86 @@
                     <h3 id="space-feed-title">My Feed</h3>
                     <div id="space-feed"></div>
                     <div id="space-suggestions" style="margin-top:16px"></div>
+                </div>
+            </section>
+
+            <!-- WaveConnect Section (Audio + Video Tabs) -->
+            <section id="waveconnect-section" class="content-section">
+                <div class="section-header">
+                    <h2>WaveConnect</h2>
+                    <div class="tabs" style="display:flex;gap:8px;align-items:center">
+                        <button id="wave-tab-audio" class="btn btn-secondary active"><i class="fas fa-music"></i> Audio</button>
+                        <button id="wave-tab-video" class="btn btn-secondary"><i class="fas fa-video"></i> Video</button>
+                    </div>
+                </div>
+
+                <!-- Audio Pane -->
+                <div id="wave-audio-pane">
+                    <div class="section-header" style="margin-top:8px">
+                        <div class="search-container">
+                            <input type="text" id="wave-search" placeholder="Search audio...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <h3>Upload MP3 (max 25 MB)</h3>
+                            <div class="setting-item">
+                                <label>Title</label>
+                                <input type="text" id="wave-title" placeholder="Track title">
+                            </div>
+                            <div class="setting-item">
+                                <label>File</label>
+                                <input type="file" id="wave-file" accept="audio/mpeg">
+                            </div>
+                            <div class="setting-item">
+                                <button id="wave-upload-btn" class="btn btn-primary">Upload</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <h3>My Library</h3>
+                        <div id="wave-library"></div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <h3>Search Results</h3>
+                        <div id="wave-results"></div>
+                    </div>
+                </div>
+
+                <!-- Video Pane -->
+                <div id="wave-video-pane" style="display:none">
+                    <div class="section-header" style="margin-top:8px">
+                        <div class="search-container">
+                            <input type="text" id="video-search" placeholder="Search videos...">
+                            <i class="fas fa-search"></i>
+                        </div>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <h3>Upload Video (up to 5 hours)</h3>
+                            <div class="setting-item">
+                                <label>Title</label>
+                                <input type="text" id="video-title" placeholder="Video title">
+                            </div>
+                            <div class="setting-item">
+                                <label>File</label>
+                                <input type="file" id="video-file" accept="video/*">
+                            </div>
+                            <div class="setting-item">
+                                <button id="video-upload-btn" class="btn btn-primary">Upload</button>
+                            </div>
+                            <div class="setting-item"><progress id="video-progress" value="0" max="100" style="width:100%"></progress></div>
+                        </div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <h3>My Videos</h3>
+                        <div id="video-library"></div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <h3>Suggestions</h3>
+                        <div id="video-suggestions"></div>
+                    </div>
                 </div>
             </section>
 
@@ -279,6 +370,10 @@
                             <label>Verification</label>
                             <span id="profile-verified">-</span>
                             <button id="resend-verify-btn" class="btn btn-secondary" style="margin-left:8px">Resend Verification</button>
+                        </div>
+                        <div class="setting-item">
+                            <label>Force Reload</label>
+                            <button id="profile-force-reload-btn" class="btn btn-warning">Force Reload</button>
                         </div>
                     </div>
                     <div class="settings-card">
@@ -311,6 +406,9 @@
                         </div>
                         <button id="add-user-btn" class="add-btn">
                             <i class="fas fa-plus"></i> Add User
+                        </button>
+                        <button id="force-reload-all-btn" class="add-btn admin-only" title="Force Reload All Users">
+                            <i class="fas fa-rotate"></i> Force Reload All
                         </button>
                     </div>
                 </div>

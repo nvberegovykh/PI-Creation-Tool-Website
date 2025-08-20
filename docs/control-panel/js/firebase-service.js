@@ -453,6 +453,31 @@ class FirebaseService {
         return out;
     }
 
+    async updatePost(postId, updates){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId);
+        const payload = { ...updates, updatedAt: new Date().toISOString() };
+        await firebase.updateDoc(ref, payload);
+    }
+
+    async deletePost(postId){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId);
+        await firebase.deleteDoc(ref);
+    }
+
+    async updateComment(postId, commentId, newText){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'comments', commentId);
+        await firebase.updateDoc(ref, { text: newText, updatedAt: new Date().toISOString() });
+    }
+
+    async deleteComment(postId, commentId){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'comments', commentId);
+        await firebase.deleteDoc(ref);
+    }
+
     async getTrendingPosts(excludeUid, limitN = 10){
         await this.waitForInit();
         // Fallback simple: fetch recent posts and sort by like count client-side

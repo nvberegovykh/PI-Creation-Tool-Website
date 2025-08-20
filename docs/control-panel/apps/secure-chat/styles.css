@@ -32,6 +32,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .search-box input{width:100%;padding:10px 12px;border:1px solid var(--border-color,#1f222a);border-radius:10px;background:#14161b;color:#eaeaea;outline:none;font-size:16px}
 .connections-panel{display:flex;flex-direction:column;min-height:0;height:100%}
 .connections-list{list-style:none;margin:0;padding:8px 0;overflow:auto;-webkit-overflow-scrolling:touch;flex:1;overscroll-behavior:contain;max-height:100%}
+.connections-list::-webkit-scrollbar{width:0;height:0}
 /* Group builder */
 .group-builder{padding:8px 12px;border-top:1px solid #1f222a;display:flex;align-items:center;gap:8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -54,7 +55,11 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-videos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center}
 .call-videos video{background:#111;border-radius:8px;max-width:45vw;max-height:45vh}
 .call-controls{margin-top:12px}
+.call-participants{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; justify-content:center }
+.call-participants .avatar{ width:40px; height:40px; border-radius:50%; background:#222; overflow:hidden }
+.call-participants .avatar img{ width:100%; height:100%; object-fit:cover }
 .messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.messages::-webkit-scrollbar{width:0;height:0}
 .message{max-width:72%;padding:12px 14px;border-radius:14px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere}
 .message,.connections-list li{word-break:break-word;overflow-wrap:anywhere}
 .message img,.message .file-link{max-width:100%}
@@ -68,6 +73,11 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:#222737}
 .btn.back{display:none}
+/* Recording indicator */
+.recording-indicator{ position:absolute; left:50%; transform:translateX(-50%); bottom:62px; z-index:30 }
+.recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }
+.recording-indicator .record-dot i{ color:#fff; font-size:20px }
+.recording-indicator.hidden{ display:none }
 @media(max-width:1024px){.sidebar{width:min(92vw,380px)}}
 @media(max-width:768px){.chat-app{flex-direction:column}.sidebar{width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a)}.main{flex:1;min-height:0}.messages{padding:10px}.message{max-width:85%}.dialogue-title-bar{position:sticky;bottom:0}}
 

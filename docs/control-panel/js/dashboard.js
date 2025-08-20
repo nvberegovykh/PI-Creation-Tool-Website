@@ -77,6 +77,23 @@ class DashboardManager {
 
         // Settings form handlers
         this.setupSettingsHandlers();
+
+        // Force reload all (admin only)
+        const frAll = document.getElementById('force-reload-all-btn');
+        if (frAll){
+            frAll.onclick = async ()=>{
+                const currentUser = await window.firebaseService.getCurrentUser();
+                const me = await window.firebaseService.getUserData(currentUser.uid) || {};
+                if ((me.role||'user') !== 'admin'){ return this.showError('Admin only'); }
+                const ok = await this.showConfirm('Force sign-out and reload for all users? This will invalidate caches on next load.');
+                if (!ok) return;
+                try{
+                    const ref = firebase.doc(window.firebaseService.db, 'admin', 'broadcast');
+                    await firebase.setDoc(ref, { action: 'forceReload', at: new Date().toISOString(), nonce: Math.random().toString(36).slice(2) }, { merge: true });
+                    this.showSuccess('Broadcast sent');
+                }catch(_){ this.showError('Failed to broadcast'); }
+            };
+        }
     }
     /**
      * Load Personal Space
@@ -227,12 +244,15 @@ class DashboardManager {
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
-                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px\">
-                                   <button class=\"btn btn-secondary like-btn\">Like</button>
-                                   <button class=\"btn btn-secondary comment-btn\">Comment</button>
-                                   <span class=\"likes-count\"></span>
-                                 </div>`;
+                div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:10px;align-items:center">
+                                   <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
+                                   <span class="likes-count"></span>
+                                   <i class="fas fa-comment comment-btn" style="cursor:pointer"></i>
+                                   <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
+                                   <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
+                                 </div>
+                                 <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feed.appendChild(div);
             });
             // Bind like/comment actions
@@ -241,20 +261,76 @@ class DashboardManager {
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
                 const commentBtn = pa.querySelector('.comment-btn');
+                const editBtn = pa.querySelector('.edit-post-btn');
+                const delBtn = pa.querySelector('.delete-post-btn');
                 const likesCount = pa.querySelector('.likes-count');
                 const stats = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${stats.likes||0} likes`;
-                if (await window.firebaseService.hasLiked(postId, me2.uid)){ likeBtn.textContent = 'Unlike'; }
+                if (await window.firebaseService.hasLiked(postId, me2.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
                 likeBtn.onclick = async ()=>{
                     const liked = await window.firebaseService.hasLiked(postId, me2.uid);
-                    if (liked){ await window.firebaseService.unlikePost(postId, me2.uid); likeBtn.textContent = 'Like'; }
-                    else { await window.firebaseService.likePost(postId, me2.uid); likeBtn.textContent = 'Unlike'; }
+                    if (liked){ await window.firebaseService.unlikePost(postId, me2.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
+                    else { await window.firebaseService.likePost(postId, me2.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
                     const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
                 };
                 commentBtn.onclick = async ()=>{
-                    const text = prompt('Write a comment'); if (!text) return;
-                    await window.firebaseService.addComment(postId, me2.uid, text);
-                    alert('Comment added');
+                    const tree = document.getElementById(`comments-${postId}`);
+                    if (!tree) return;
+                    if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                    tree.innerHTML = '';
+                    const comments = await window.firebaseService.getComments(postId, 50);
+                    comments.reverse().forEach(c=>{
+                        const item = document.createElement('div');
+                        item.className = 'comment-item';
+                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>
+                        <div class="comment-actions" data-comment-id="${c.id}" data-author="${c.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                          <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
+                          <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
+                        </div>`;
+                        tree.appendChild(item);
+                    });
+                    // bind comment edit/delete
+                    tree.querySelectorAll('.comment-actions').forEach(act=>{
+                        const cid = act.getAttribute('data-comment-id');
+                        const author = act.getAttribute('data-author');
+                        const canEdit = author === me2.uid;
+                        const eb = act.querySelector('.edit-comment-btn');
+                        const db = act.querySelector('.delete-comment-btn');
+                        if (!canEdit){ eb.style.display='none'; db.style.display='none'; }
+                        if (canEdit){
+                            eb.onclick = async ()=>{
+                                const newText = prompt('Edit comment:');
+                                if (newText===null) return;
+                                await window.firebaseService.updateComment(postId, cid, newText.trim());
+                                this.loadFeed(uid, titleName);
+                            };
+                            db.onclick = async ()=>{
+                                if (!confirm('Delete this comment?')) return;
+                                await window.firebaseService.deleteComment(postId, cid);
+                                this.loadFeed(uid, titleName);
+                            };
+                        }
+                    });
                 };
+                // bind post edit/delete (owner only)
+                const postAuthor = pa.getAttribute('data-author');
+                const canEditPost = postAuthor === me2.uid;
+                if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
+                if (canEditPost){
+                    if (editBtn){ editBtn.onclick = async ()=>{
+                        const container = pa.closest('.post-item');
+                        const textDiv = container && container.querySelector('.post-text');
+                        const current = textDiv ? textDiv.textContent : '';
+                        const newText = prompt('Edit post:', current);
+                        if (newText===null) return;
+                        await window.firebaseService.updatePost(postId, { text: newText.trim() });
+                        this.loadFeed(uid, titleName);
+                    }; }
+                    if (delBtn){ delBtn.onclick = async ()=>{
+                        if (!confirm('Delete this post?')) return;
+                        await window.firebaseService.deletePost(postId);
+                        this.loadFeed(uid, titleName);
+                    }; }
+                }
             });
             if (uid === meUser.uid){
                 try{
@@ -265,13 +341,16 @@ class DashboardManager {
                         div.className = 'post-item';
                         div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                         const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
-                        div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                         <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px\">
-                                           <button class=\"btn btn-secondary like-btn\">Like</button>
-                                           <button class=\"btn btn-secondary comment-btn\">Comment</button>
-                                           <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>
-                                           <span class=\"likes-count\"></span>
-                                         </div>`;
+                        div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                         <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:10px;align-items:center">
+                                           <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
+                                           <span class="likes-count"></span>
+                                           <i class="fas fa-comment comment-btn" style="cursor:pointer"></i>
+                                           <button class="btn btn-secondary visibility-btn">${p.visibility==='public'?'Make Private':'Make Public'}</button>
+                                           <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
+                                           <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
+                                         </div>
+                                         <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                         feed.appendChild(div);
                     });
                     // bind actions
@@ -280,16 +359,55 @@ class DashboardManager {
                         const likeBtn = pa.querySelector('.like-btn');
                         const commentBtn = pa.querySelector('.comment-btn');
                         const visBtn = pa.querySelector('.visibility-btn');
+                        const editBtn = pa.querySelector('.edit-post-btn');
+                        const delBtn = pa.querySelector('.delete-post-btn');
                         const likesCount = pa.querySelector('.likes-count');
                         const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
-                        if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.textContent = 'Unlike'; }
+                        if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
                         likeBtn.onclick = async ()=>{
                             const liked = await window.firebaseService.hasLiked(postId, meUser.uid);
-                            if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.textContent = 'Like'; }
-                            else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.textContent = 'Unlike'; }
+                            if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
+                            else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
                             const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
                         };
-                        commentBtn.onclick = async ()=>{ const t = prompt('Write a comment'); if(!t) return; await window.firebaseService.addComment(postId, meUser.uid, t); alert('Comment added'); };
+                        commentBtn.onclick = async ()=>{
+                            const tree = document.getElementById(`comments-${postId}`);
+                            if (!tree) return;
+                            if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                            tree.innerHTML = '';
+                            const comments = await window.firebaseService.getComments(postId, 50);
+                            comments.reverse().forEach(c=>{
+                                const item = document.createElement('div');
+                                item.className = 'comment-item';
+                                item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>
+                                <div class="comment-actions" data-comment-id="${c.id}" data-author="${c.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                                  <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
+                                  <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
+                                </div>`;
+                                tree.appendChild(item);
+                            });
+                            tree.querySelectorAll('.comment-actions').forEach(act=>{
+                                const cid = act.getAttribute('data-comment-id');
+                                const author = act.getAttribute('data-author');
+                                const canEdit = author === meUser.uid;
+                                const eb = act.querySelector('.edit-comment-btn');
+                                const db = act.querySelector('.delete-comment-btn');
+                                if (!canEdit){ eb.style.display='none'; db.style.display='none'; }
+                                if (canEdit){
+                                    eb.onclick = async ()=>{
+                                        const newText = prompt('Edit comment:');
+                                        if (newText===null) return;
+                                        await window.firebaseService.updateComment(postId, cid, newText.trim());
+                                        this.loadFeed(uid, titleName);
+                                    };
+                                    db.onclick = async ()=>{
+                                        if (!confirm('Delete this comment?')) return;
+                                        await window.firebaseService.deleteComment(postId, cid);
+                                        this.loadFeed(uid, titleName);
+                                    };
+                                }
+                            });
+                        };
                         if (visBtn){
                             visBtn.onclick = async ()=>{
                                 try{
@@ -301,6 +419,26 @@ class DashboardManager {
                                     visBtn.textContent = next==='public' ? 'Make Private' : 'Make Public';
                                 }catch(_){ }
                             };
+                        }
+                        // post edit/delete for owner only
+                        const postAuthor = pa.getAttribute('data-author');
+                        const canEditPost = postAuthor === meUser.uid;
+                        if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
+                        if (canEditPost){
+                            if (editBtn){ editBtn.onclick = async ()=>{
+                                const container = pa.closest('.post-item');
+                                const textDiv = container && container.querySelector('.post-text');
+                                const current = textDiv ? textDiv.textContent : '';
+                                const newText = prompt('Edit post:', current);
+                                if (newText===null) return;
+                                await window.firebaseService.updatePost(postId, { text: newText.trim() });
+                                this.loadFeed(uid, titleName);
+                            }; }
+                            if (delBtn){ delBtn.onclick = async ()=>{
+                                if (!confirm('Delete this post?')) return;
+                                await window.firebaseService.deletePost(postId);
+                                this.loadFeed(uid, titleName);
+                            }; }
                         }
                     });
                 }catch(_){ /* ignore */ }
@@ -359,6 +497,23 @@ class DashboardManager {
             case 'space':
                 this.loadSpace();
                 break;
+            case 'waveconnect':
+                this.loadWaveConnect();
+                // Setup tabs
+                const tA = document.getElementById('wave-tab-audio');
+                const tV = document.getElementById('wave-tab-video');
+                const pA = document.getElementById('wave-audio-pane');
+                const pV = document.getElementById('wave-video-pane');
+                if (tA && tV && pA && pV && !tA._bound){
+                    tA._bound = tV._bound = true;
+                    const activate = (isVideo)=>{
+                        if (isVideo){ tV.classList.add('active'); tA.classList.remove('active'); pV.style.display='block'; pA.style.display='none'; this.loadVideoHost(); }
+                        else { tA.classList.add('active'); tV.classList.remove('active'); pA.style.display='block'; pV.style.display='none'; this.loadWaveConnect(); }
+                    };
+                    tA.onclick = ()=> activate(false);
+                    tV.onclick = ()=> activate(true);
+                }
+                break;
             case 'profile':
                 this.loadProfile();
                 break;
@@ -371,6 +526,164 @@ class DashboardManager {
                 this.loadSettings();
                 break;
         }
+    }
+
+    async loadWaveConnect(){
+        try{
+            const me = await window.firebaseService.getCurrentUser();
+            const lib = document.getElementById('wave-library');
+            const res = document.getElementById('wave-results');
+            const upBtn = document.getElementById('wave-upload-btn');
+            if (upBtn && !upBtn._bound){
+                upBtn._bound = true;
+                upBtn.onclick = async ()=>{
+                    try{
+                        const file = document.getElementById('wave-file').files[0];
+                        if (!file){ return this.showError('Select an MP3 file'); }
+                        if (file.type !== 'audio/mpeg' || file.size > 25*1024*1024){ return this.showError('MP3 only, up to 25 MB'); }
+                        const title = (document.getElementById('wave-title').value||file.name).trim();
+                        const s = firebase.getStorage();
+                        const ref = firebase.ref(s, `wave/${me.uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
+                        await firebase.uploadBytes(ref, file, { contentType: 'audio/mpeg' });
+                        const url = await firebase.getDownloadURL(ref);
+                        const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString() });
+                        this.showSuccess('Uploaded');
+                        this.renderWaveLibrary(me.uid);
+                    }catch(e){ this.showError('Upload failed'); }
+                };
+            }
+            const search = document.getElementById('wave-search');
+            if (search && !search._bound){
+                search._bound = true;
+                search.oninput = async (e)=>{
+                    const qStr = (e.target.value||'').toLowerCase();
+                    if (!res) return;
+                    res.innerHTML='';
+                    if (!qStr) return;
+                    const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'wave'));
+                    snap.forEach(d=>{ const w=d.data(); if ((w.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderWaveItem(w)); } });
+                };
+            }
+            await this.renderWaveLibrary(me.uid);
+        }catch(_){ }
+    }
+
+    async renderWaveLibrary(uid){
+        const lib = document.getElementById('wave-library'); if (!lib) return;
+        lib.innerHTML = '';
+        try{
+            const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('owner','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+            const snap = await firebase.getDocs(q);
+            snap.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
+        }catch{
+            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('owner','==', uid));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
+        }
+    }
+
+    renderWaveItem(w){
+        const div = document.createElement('div');
+        div.className = 'wave-item';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;gap:10px;align-items:center;justify-content:space-between';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><i class="fas fa-music"></i><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div></div><audio src="${w.url}" controls style="max-width:260px"></audio><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button>`;
+        div.querySelector('.share-btn').onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: w.title||'Audio', mediaUrl: w.url, mediaType:'audio', visibility:'private', createdAt: new Date().toISOString() });
+                this.showSuccess('Shared to your feed (private)');
+            }catch(_){ this.showError('Share failed'); }
+        };
+        return div;
+    }
+
+    async loadVideoHost(){
+        try{
+            const me = await window.firebaseService.getCurrentUser();
+            const lib = document.getElementById('video-library');
+            const sug = document.getElementById('video-suggestions');
+            const upBtn = document.getElementById('video-upload-btn');
+            const prog = document.getElementById('video-progress');
+            if (upBtn && !upBtn._bound){
+                upBtn._bound = true;
+                upBtn.onclick = async ()=>{
+                    try{
+                        const f = document.getElementById('video-file').files[0];
+                        if (!f){ return this.showError('Select a video'); }
+                        // 5 hours approximate cap enforced by size (assume <= 4GB for safety depending on codec)
+                        if (f.size > 4*1024*1024*1024){ return this.showError('Max 4 GB'); }
+                        const title = (document.getElementById('video-title').value||f.name).trim();
+                        const s = firebase.getStorage();
+                        const r = firebase.ref(s, `videos/${me.uid}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
+                        const task = firebase.uploadBytesResumable(r, f, { contentType: f.type||'video/mp4' });
+                        task.on('state_changed', (snap)=>{ if (prog) prog.value = Math.round((snap.bytesTransferred/snap.totalBytes)*100); });
+                        await task;
+                        const url = await firebase.getDownloadURL(r);
+                        const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), visibility: 'public' });
+                        this.showSuccess('Video uploaded');
+                        this.renderVideoLibrary(me.uid);
+                    }catch(e){ this.showError('Upload failed'); }
+                };
+            }
+
+            const search = document.getElementById('video-search');
+            if (search && !search._bound){
+                search._bound = true;
+                search.oninput = async (e)=>{
+                    const qStr = (e.target.value||'').toLowerCase();
+                    const res = document.getElementById('video-suggestions'); if (!res) return;
+                    res.innerHTML='';
+                    const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+                    snap.forEach(d=>{ const v=d.data(); if ((v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
+                };
+            }
+
+            await this.renderVideoLibrary(me.uid);
+            await this.renderVideoSuggestions(me.uid);
+        }catch(_){ }
+    }
+
+    async renderVideoLibrary(uid){
+        const lib = document.getElementById('video-library'); if (!lib) return;
+        lib.innerHTML = '';
+        try{
+            const q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+            const snap = await firebase.getDocs(q);
+            snap.forEach(d=> lib.appendChild(this.renderVideoItem(d.data())));
+        }catch{
+            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> lib.appendChild(this.renderVideoItem(d.data())));
+        }
+    }
+
+    async renderVideoSuggestions(uid){
+        const sug = document.getElementById('video-suggestions'); if (!sug) return;
+        sug.innerHTML = '';
+        try{
+            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid) list.push(v); });
+            list.slice(0,10).forEach(v=> sug.appendChild(this.renderVideoItem(v)) );
+        }catch(_){ }
+    }
+
+    renderVideoItem(v){
+        const div = document.createElement('div');
+        div.className = 'video-item';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
+        div.innerHTML = `<div style="font-weight:600;margin-bottom:6px">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>
+                         <video src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px"></video>
+                         <button class="btn btn-secondary share-video-btn" style="position:absolute;top:10px;right:10px"><i class="fas fa-share"></i></button>`;
+        div.querySelector('.share-video-btn').onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: v.title||'Video', mediaUrl: v.url, mediaType:'video', visibility:'private', createdAt: new Date().toISOString() });
+                this.showSuccess('Shared to your feed (private)');
+            }catch(_){ this.showError('Share failed'); }
+        };
+        return div;
     }
 
     /**
@@ -489,10 +802,10 @@ class DashboardManager {
         // Secure keys settings
         this.setupSecureKeysHandlers();
 
-        // Force reload handler
-        const forceBtn = document.getElementById('force-reload-btn');
-        if (forceBtn){
-            forceBtn.onclick = async ()=>{
+        // Profile Force reload handler (user only)
+        const profileForceBtn = document.getElementById('profile-force-reload-btn');
+        if (profileForceBtn){
+            profileForceBtn.onclick = async ()=>{
                 const ok = await this.showConfirm(
 `You will log out and force reload the LIBER App.
 This will clear cached files (including Service Worker caches) to align with the most recent version of the app and reload all pages.

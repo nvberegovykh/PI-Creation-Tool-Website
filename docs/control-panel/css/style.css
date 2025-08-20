@@ -1,8 +1,15 @@
 /* Personal Space avatar sizing */
-#space-profile-card #space-avatar{ width:100%; height:auto; aspect-ratio:1/1; border-radius:8px; display:block }
+#space-profile-card .avatar-field{ display:flex; align-items:center; gap:16px; flex-wrap:wrap }
+#space-profile-card .avatar-preview{ flex:1 1 300px }
+#space-profile-card #space-avatar{ width:100%; height:auto; aspect-ratio:1/1; border-radius:12px; object-fit:cover; display:block }
+#space-profile-card .avatar-actions{ flex:0 0 auto }
 @media(min-width:1024px){
-  #space-profile-card #space-avatar{ width:50%; height:auto }
+  #space-profile-card .avatar-preview{ flex-basis:50% }
 }
+
+/* Comment tree visuals */
+.comment-tree{ border-left:2px solid #333; margin-left:8px; padding-left:12px }
+.comment-item{ margin:8px 0 }
 /* Global Styles */
 * {
     margin: 0;
@@ -34,8 +41,42 @@ body {
     background: var(--primary-bg);
     color: var(--primary-text);
     line-height: 1.6;
-    overflow-x: hidden;
+    overflow: hidden;
+    overscroll-behavior: none;
     min-height: 100vh;
+}
+
+/* Hide scrollbars globally while preserving scroll */
+* {
+    -ms-overflow-style: none; /* IE and old Edge */
+    scrollbar-width: none; /* Firefox */
+}
+*::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+}
+
+/* Fit media/content by width to avoid horizontal scroll */
+img, video, canvas, svg, iframe {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+th, td {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+pre, code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 /* Loading Screen */

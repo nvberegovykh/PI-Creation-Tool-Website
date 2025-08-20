@@ -188,9 +188,13 @@
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
       if (input && input.value.trim().length) return; // only record when empty
-      this._pressTimer = setTimeout(()=>{
-        // TODO: start recording audio up to 60s (placeholder)
-        console.log('Start recording (placeholder)');
+      const indicator = document.getElementById('recording-indicator');
+      this._pressTimer = setTimeout(async()=>{
+        try{
+          if (indicator) { indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-microphone'; }
+          await this.recordVoiceMessage();
+        }catch(err){ alert('Recording failed'); }
+        finally{ if (indicator) indicator.classList.add('hidden'); }
       }, 400);
     }
 
@@ -317,13 +321,55 @@
               const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
               bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
             }
-            el.innerHTML = `<div>${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${new Date(m.createdAt).toLocaleString()}</div>`;
+            const canModify = m.sender === this.currentUser.uid;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${new Date(m.createdAt).toLocaleString()}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
               if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+            }
+            // Bind edit/delete/replace for own messages
+            if (canModify){
+              const actions = el.querySelector('.msg-actions');
+              if (actions){
+                const mid = actions.getAttribute('data-mid');
+                const icons = actions.querySelectorAll('i');
+                const editIcon = icons[0];
+                const delIcon = icons[1];
+                const repIcon = icons[2];
+                editIcon.onclick = async ()=>{
+                  const current = el.querySelector('.msg-text')?.textContent || '';
+                  const next = prompt('Edit message:', current);
+                  if (next===null) return;
+                  const key = await this.getFallbackKey();
+                  const cipher2 = await chatCrypto.encryptWithKey(next, key);
+                  await firebase.updateDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid),{ cipher: cipher2, updatedAt: new Date().toISOString() });
+                };
+                delIcon.onclick = async ()=>{
+                  if (!confirm('Delete this message?')) return;
+                  await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid));
+                };
+                repIcon.onclick = async ()=>{
+                  const picker = document.createElement('input'); picker.type='file'; picker.accept='*/*'; picker.style.display='none'; document.body.appendChild(picker);
+                  picker.onchange = async ()=>{
+                    try{
+                      const f = picker.files[0]; if (!f) return;
+                      const aesKey2 = await this.getFallbackKey();
+                      const base64 = await new Promise((resolve, reject)=>{ const r = new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
+                      const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2);
+                      const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'});
+                      const sref = firebase.ref(this.storage, `chat/${this.activeConnection}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`);
+                      await firebase.uploadBytes(sref, blob, { contentType: 'application/json' });
+                      const url = await firebase.getDownloadURL(sref);
+                      await firebase.updateDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid),{ fileUrl:url, fileName:f.name, updatedAt: new Date().toISOString() });
+                    }catch(_){ alert('Failed to replace file'); }
+                    finally{ document.body.removeChild(picker); }
+                  };
+                  picker.click();
+                };
+              }
             }
           });
           box.scrollTop = box.scrollHeight;
@@ -409,6 +455,7 @@
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'));
       await firebase.setDoc(msgRef,{
         id: msgRef.id,
+        connId: this.activeConnection,
         sender: this.currentUser.uid,
         cipher,
         fileUrl: fileUrl||null,
@@ -540,6 +587,12 @@
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
           containerEl.appendChild(img);
+        } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
+          const blob = this.base64ToBlob(b64, 'application/pdf');
+          const url = URL.createObjectURL(blob);
+          const frame = document.createElement('iframe');
+          frame.src = url; frame.style.width = '100%'; frame.style.height = '380px'; frame.style.border = 'none';
+          containerEl.appendChild(frame);
         } else {
           const blob = this.base64ToBlob(b64, 'application/octet-stream');
           const url = URL.createObjectURL(blob);
@@ -730,7 +783,10 @@
     async recordVideoMessage(){
       try{
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const indicator = document.getElementById('recording-indicator');
+        if (indicator){ indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-video'; }
         await this.captureMedia(stream, { mimeType: 'video/webm;codecs=vp9' }, 30_000, 'video.webm');
+        if (indicator){ indicator.classList.add('hidden'); }
       }catch(e){ console.warn('Video record unavailable', e); }
     }
 

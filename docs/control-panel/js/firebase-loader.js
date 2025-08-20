@@ -66,6 +66,7 @@ async function loadFirebaseVersion(version) {
 		getStorage,
 		ref,
 		uploadBytes,
+		uploadBytesResumable,
 		getDownloadURL,
 		deleteObject
 	} = storageMod;
@@ -119,6 +120,7 @@ async function loadFirebaseVersion(version) {
 		getStorage,
 		ref,
 		uploadBytes,
+		uploadBytesResumable,
 		getDownloadURL,
 		deleteObject
 	};
@@ -166,6 +168,7 @@ async function loadFirebaseVersion(version) {
 		getStorage,
 		ref,
 		uploadBytes,
+		uploadBytesResumable,
 		getDownloadURL,
 		deleteObject,
 		// Messaging (optional)

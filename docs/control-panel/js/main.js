@@ -136,6 +136,21 @@ class LiberAppsControlPanel {
         }
         
         console.log('LIBER/APPS initialized successfully');
+
+        // Listen for admin force reload broadcast
+        try{
+            if (window.firebaseService && window.firebaseService.db && typeof firebase.onSnapshot === 'function'){
+                const bRef = firebase.doc(window.firebaseService.db, 'admin', 'broadcast');
+                firebase.onSnapshot(bRef, (snap)=>{
+                    try{
+                        const d = snap.exists()? snap.data():null;
+                        if (d && d.action === 'forceReload' && window.dashboardManager && typeof window.dashboardManager.forceHardReload === 'function'){
+                            window.dashboardManager.forceHardReload();
+                        }
+                    }catch(_){ }
+                });
+            }
+        }catch(_){ }
     }
 
     /**

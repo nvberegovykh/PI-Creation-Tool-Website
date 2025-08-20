@@ -181,12 +181,27 @@ class AppsManager {
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-18',
                 logo: null
+            },
+            {
+                id: 'waveconnect',
+                name: 'WaveConnect',
+                description: 'Audio library and uploads synced with your Personal Space feed.',
+                version: '1.0.0',
+                category: 'media',
+                icon: 'fas fa-music',
+                status: 'online',
+                path: '#waveconnect',
+                author: 'Liber Apps',
+                lastUpdated: '2025-08-19',
+                logo: null
             }
         ];
 
         // Filter out apps that don't have actual HTML files
         const validApps = [];
         for (const app of availableApps) {
+            // Keep internal anchor apps without fetching
+            if (app.path && app.path.startsWith('#')) { validApps.push(app); continue; }
             try {
                 const response = await fetch(app.path);
                 if (response.ok) {
@@ -229,7 +244,7 @@ class AppsManager {
 
         appsGrid.innerHTML = this.filteredApps.map(app => this.getAppCardHTML(app)).join('');
         
-        // Add click handlers to app cards
+        // Add click handlers to app cards (internal anchors handled by switchSection)
         this.setupAppCardEventListeners();
     }
 
@@ -347,6 +362,12 @@ class AppsManager {
         }
 
         try {
+            // Internal anchors switch sections instead of opening new windows
+            if (app.path && app.path.startsWith('#')){
+                const section = app.path.replace('#','');
+                if (window.dashboardManager){ window.dashboardManager.switchSection(section); this.showSuccess(`Opening ${app.name}...`); }
+                return;
+            }
             // Get the current pathname to determine the base path
             const currentPath = window.location.pathname;
             const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
