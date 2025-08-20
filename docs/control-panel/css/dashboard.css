@@ -187,6 +187,18 @@
     min-height: 0;
 }
 
+/* Add extra bottom padding on mobile so content is not hidden behind bottom nav */
+@media (max-width: 767px) {
+    .content-section.active,
+    #apps-section,
+    #waveconnect-section,
+    #space-section,
+    #profile-section,
+    #feed-section {
+        padding-bottom: calc(110px + env(safe-area-inset-bottom));
+    }
+}
+
 /* Ensure grids/cards can shrink and scroll internally when content grows */
 #space-section .settings-grid,
 #waveconnect-section .settings-grid,
