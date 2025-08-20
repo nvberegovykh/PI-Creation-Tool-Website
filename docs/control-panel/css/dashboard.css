@@ -156,7 +156,8 @@
 .dashboard-content {
     flex: 1;
     padding: 30px;
-    overflow: hidden;
+    overflow: hidden; /* page-level locked */
+    overflow-x: hidden;
 }
 
 .content-section {
@@ -167,9 +168,26 @@
 .content-section.active {
     display: block;
     height: 100%;
-    overflow-y: auto;
+    overflow-y: auto; /* enable internal vertical scroll */
+    overflow-x: hidden; /* prevent horizontal scroll bleed */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+}
+
+/* Ensure grids/cards can shrink and scroll internally when content grows */
+#space-section .settings-grid,
+#waveconnect-section .settings-grid,
+#apps-section .settings-grid,
+#profile-section .settings-grid {
+    min-height: 0;
+    max-height: calc(100vh - 180px);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.settings-card {
+    min-height: 0;
+    overflow-x: hidden;
 }
 
 .section-header {

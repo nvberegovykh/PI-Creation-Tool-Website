@@ -21,6 +21,9 @@ async function loadFirebaseVersion(version) {
 
 	const {
 		getAuth,
+		GoogleAuthProvider,
+		signInWithPopup,
+		linkWithPopup,
 		createUserWithEmailAndPassword,
 		signInWithEmailAndPassword,
 		sendPasswordResetEmail,
@@ -81,6 +84,9 @@ async function loadFirebaseVersion(version) {
 		SDK_VERSION: version,
 		// Auth
 		createUserWithEmailAndPassword,
+		GoogleAuthProvider,
+		signInWithPopup,
+		linkWithPopup,
 		signInWithEmailAndPassword,
 		sendPasswordResetEmail,
 		sendEmailVerification,
@@ -131,6 +137,9 @@ async function loadFirebaseVersion(version) {
 		getAuth,
 		getFirestore,
 		createUserWithEmailAndPassword,
+		GoogleAuthProvider,
+		signInWithPopup,
+		linkWithPopup,
 		signInWithEmailAndPassword,
 		sendPasswordResetEmail,
 		sendEmailVerification,

@@ -46,6 +46,16 @@ body {
     min-height: 100vh;
 }
 
+/* Hide global scrollbars but allow internal containers to scroll */
+* { -ms-overflow-style: none; scrollbar-width: none; }
+*::-webkit-scrollbar { width:0; height:0; }
+
+/* Common internal scroll containers */
+.content-section, .settings-grid, .settings-card, .connections-list, .messages, #apps-grid, #space-feed, #video-library, #wave-library {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
 /* Hide scrollbars globally while preserving scroll */
 * {
     -ms-overflow-style: none; /* IE and old Edge */
