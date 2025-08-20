@@ -473,6 +473,19 @@ class DashboardManager {
 
         // Secure keys settings
         this.setupSecureKeysHandlers();
+
+        // Force reload handler
+        const forceBtn = document.getElementById('force-reload-btn');
+        if (forceBtn){
+            forceBtn.onclick = async ()=>{
+                const ok = await this.showConfirm(
+`You will log out and force reload the LIBER App.
+This will clear cached files (including Service Worker caches) to align with the most recent version of the app and reload all pages.
+Do you want to proceed?`);
+                if (!ok) return;
+                await this.forceHardReload();
+            };
+        }
     }
 
     /**
@@ -822,6 +835,60 @@ class DashboardManager {
                 notification.remove();
             }
         }, 5000);
+    }
+
+    async showConfirm(message){
+        return new Promise((resolve)=>{
+            // Simple modal
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10000';
+            modal.innerHTML = `
+                <div style="background:#0f1116;border:1px solid #333;border-radius:12px;padding:20px;max-width:420px;width:90%;color:#eaeaea;box-shadow:0 10px 30px rgba(0,0,0,.5)">
+                    <div style="margin-bottom:14px;white-space:pre-wrap">${message.replace(/</g,'&lt;')}</div>
+                    <div style="display:flex;gap:10px;justify-content:flex-end">
+                        <button id="confirm-no" class="btn btn-secondary">No</button>
+                        <button id="confirm-yes" class="btn btn-primary">Yes</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            modal.querySelector('#confirm-no').onclick = ()=>{ modal.remove(); resolve(false); };
+            modal.querySelector('#confirm-yes').onclick = ()=>{ modal.remove(); resolve(true); };
+        });
+    }
+
+    async forceHardReload(){
+        try {
+            if (window.authManager) await window.authManager.logout();
+        } catch(_) {}
+
+        // Preserve secure keys URL if present
+        let keysUrl = null;
+        try { keysUrl = localStorage.getItem('liber_keys_url'); } catch(_){ keysUrl = null; }
+
+        // Unregister all service workers
+        try{
+            if ('serviceWorker' in navigator){
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const r of regs){ try { await r.unregister(); } catch(_){} }
+            }
+        }catch(_){ }
+
+        // Clear Cache Storage
+        try{
+            if (window.caches && caches.keys){
+                const names = await caches.keys();
+                await Promise.all(names.map(n=> caches.delete(n)));
+            }
+        }catch(_){ }
+
+        // Clear local/session storage (restore keys URL afterwards)
+        try { sessionStorage.clear(); } catch(_){}
+        try { localStorage.clear(); } catch(_){}
+        try { if (keysUrl) localStorage.setItem('liber_keys_url', keysUrl); } catch(_){}
+
+        // Bypass cache on reload
+        const href = window.location.pathname + '?reload=' + Date.now();
+        window.location.replace(href);
     }
 
     /**
