@@ -204,9 +204,105 @@ class DashboardManager {
                 feedCard.insertBefore(followBar, feedCard.firstChild);
             }
 
-            // Initial feed load
-            this.loadFeed(user.uid);
+            // Initial feed load: show my posts in Personal Space
+            this.loadMyPosts(user.uid);
         }catch(e){ console.error('loadSpace error', e); }
+    }
+
+    async loadMyPosts(uid){
+        const feed = document.getElementById('space-feed'); if (!feed) return;
+        const feedTitle = document.getElementById('space-feed-title');
+        feed.innerHTML='';
+        try{
+            // Try ordered query for my posts (both public and private)
+            let snap;
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                snap = await firebase.getDocs(q);
+            }catch{
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
+                snap = await firebase.getDocs(q2);
+                snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
+            }
+            snap.forEach(d=>{
+                const p = d.data();
+                const div = document.createElement('div');
+                div.className = 'post-item';
+                div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;gap:10px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
+                feed.appendChild(div);
+            });
+            // Bind actions for my posts
+            const meUser = await window.firebaseService.getCurrentUser();
+            document.querySelectorAll('#space-section .post-actions').forEach(async (pa)=>{
+                const postId = pa.getAttribute('data-post-id');
+                const likeBtn = pa.querySelector('.like-btn');
+                const commentBtn = pa.querySelector('.comment-btn');
+                const visBtn = pa.querySelector('.visibility-btn');
+                const likesCount = pa.querySelector('.likes-count');
+                const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
+                if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
+                likeBtn.onclick = async ()=>{
+                    const liked = await window.firebaseService.hasLiked(postId, meUser.uid);
+                    if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
+                    else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
+                    const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
+                };
+                commentBtn.onclick = async ()=>{
+                    const tree = document.getElementById(`comments-${postId}`);
+                    if (!tree) return;
+                    if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                    tree.innerHTML = '';
+                    const comments = await window.firebaseService.getComments(postId, 50);
+                    comments.reverse().forEach(c=>{
+                        const item = document.createElement('div');
+                        item.className = 'comment-item';
+                        item.innerHTML = `<div><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>`;
+                        tree.appendChild(item);
+                    });
+                };
+                if (visBtn){
+                    visBtn.onclick = async ()=>{
+                        try{
+                            const ref = firebase.doc(window.firebaseService.db, 'posts', postId);
+                            const doc = await firebase.getDoc(ref);
+                            const p = doc.data()||{};
+                            const next = p.visibility==='public' ? 'private' : 'public';
+                            await firebase.updateDoc(ref, { visibility: next, updatedAt: new Date().toISOString() });
+                            visBtn.textContent = next==='public' ? 'Make Private' : 'Make Public';
+                        }catch(_){ }
+                    };
+                }
+            });
+            if (feedTitle) feedTitle.textContent = 'My Feed';
+        }catch(_){ }
+    }
+
+    async loadGlobalFeed(){
+        try{
+            const feedEl = document.getElementById('global-feed');
+            const suggEl = document.getElementById('global-suggestions');
+            if (!feedEl) return;
+            feedEl.innerHTML = '';
+            // Recent public posts
+            const snap = await firebase.getDocs(firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('visibility','==','public')));
+            const list = []; snap.forEach(d=> list.push(d.data()));
+            list.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+            list.slice(0,20).forEach(p=>{
+                const div = document.createElement('div');
+                div.className = 'post-item';
+                div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
+                feedEl.appendChild(div);
+            });
+            if (suggEl){
+                const trending = await window.firebaseService.getTrendingPosts('', 10);
+                suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
+            }
+        }catch(_){ }
     }
 
     async loadFeed(uid, titleName){
@@ -496,6 +592,9 @@ class DashboardManager {
                 break;
             case 'space':
                 this.loadSpace();
+                break;
+            case 'feed':
+                this.loadGlobalFeed();
                 break;
             case 'waveconnect':
                 this.loadWaveConnect();

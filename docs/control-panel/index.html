@@ -153,6 +153,9 @@
             <button class="nav-btn" data-section="space">
                 <i class="fas fa-id-badge"></i> Personal Space
             </button>
+            <button class="nav-btn" data-section="feed">
+                <i class="fas fa-stream"></i> Feed
+            </button>
             <button class="nav-btn" data-section="waveconnect">
                 <i class="fas fa-music"></i> WaveConnect
             </button>
@@ -174,6 +177,9 @@
             </button>
             <button class="mobile-nav-btn" data-section="space">
                 <i class="fas fa-id-badge"></i>
+            </button>
+            <button class="mobile-nav-btn" data-section="feed">
+                <i class="fas fa-stream"></i>
             </button>
             <button class="mobile-nav-btn" data-section="waveconnect">
                 <i class="fas fa-music"></i>
@@ -220,6 +226,17 @@
                             <i class="fas fa-search"></i>
                         </div>
                         <button id="space-logout-btn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                    </div>
+                </div>
+                <div id="space-view-banner" class="settings-card" style="display:none;margin-bottom:16px">
+                    <div style="display:flex;gap:12px;align-items:center">
+                        <img id="view-user-avatar" src="images/default-bird.svg" alt="Avatar" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
+                        <div style="flex:1">
+                            <div id="view-user-name" style="font-weight:700"></div>
+                            <div id="view-user-mood" style="opacity:.8"></div>
+                        </div>
+                        <button id="view-follow-btn" class="btn btn-primary" style="display:none">Follow</button>
+                        <button id="view-unfollow-btn" class="btn btn-secondary" style="display:none">Unfollow</button>
                     </div>
                 </div>
                 <ul id="space-search-results" class="users-list simple" style="display:none"></ul>
@@ -269,6 +286,21 @@
                     <h3 id="space-feed-title">My Feed</h3>
                     <div id="space-feed"></div>
                     <div id="space-suggestions" style="margin-top:16px"></div>
+                </div>
+            </section>
+
+            <!-- Feed Section -->
+            <section id="feed-section" class="content-section">
+                <div class="section-header">
+                    <h2>Feed</h2>
+                </div>
+                <div class="settings-card">
+                    <h3>Latest</h3>
+                    <div id="global-feed"></div>
+                </div>
+                <div class="settings-card" style="margin-top:16px">
+                    <h3>Suggestions</h3>
+                    <div id="global-suggestions"></div>
                 </div>
             </section>
 
