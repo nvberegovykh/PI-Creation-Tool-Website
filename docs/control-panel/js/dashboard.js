@@ -158,7 +158,7 @@ class DashboardManager {
                             document.getElementById('space-post-text').value='';
                             mediaInput.value='';
                             this.showSuccess('Posted');
-                            this.loadFeed(user.uid);
+                            this.loadMyPosts(user.uid);
                             return;
                         }catch(e){ /* fallback to text-only below */ }
                     }
@@ -168,7 +168,7 @@ class DashboardManager {
                     document.getElementById('space-post-text').value='';
                     if (mediaInput) mediaInput.value='';
                     this.showSuccess('Posted');
-                    this.loadFeed(user.uid);
+                    this.loadMyPosts(user.uid);
                 };
             }
 
@@ -177,7 +177,7 @@ class DashboardManager {
                 spaceSearch.oninput = async (e)=>{
                     const term = (e.target.value||'').trim().toLowerCase();
                     const resultsEl = document.getElementById('space-search-results');
-                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } this.loadFeed(user.uid); return; }
+                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } this.loadMyPosts(user.uid); return; }
                     const users = await window.firebaseService.searchUsers(term);
                     if (resultsEl){
                         resultsEl.innerHTML = '';
@@ -185,7 +185,7 @@ class DashboardManager {
                             const li = document.createElement('li');
                             li.textContent = u.username || u.email;
                             li.style.cursor = 'pointer';
-                            li.onclick = ()=>{ this.loadFeed(u.uid||u.id, u.username||u.email); resultsEl.style.display='none'; };
+                            li.onclick = ()=>{ this.openUserSpace(u.uid||u.id, u.username||u.email); resultsEl.style.display='none'; };
                             resultsEl.appendChild(li);
                         });
                         resultsEl.style.display = (users && users.length) ? 'block':'none';
@@ -552,6 +552,64 @@ class DashboardManager {
             }
             if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Feed` : 'My Feed';
         }catch(e){ /* ignore */ }
+    }
+
+    async openUserSpace(uid, displayName){
+        try{
+            // Show banner with basic info and follow controls
+            const banner = document.getElementById('space-view-banner');
+            const nameEl = document.getElementById('view-user-name');
+            const moodEl = document.getElementById('view-user-mood');
+            const avatarEl = document.getElementById('view-user-avatar');
+            const fBtn = document.getElementById('view-follow-btn');
+            const ufBtn = document.getElementById('view-unfollow-btn');
+
+            if (banner){ banner.style.display='block'; }
+            if (nameEl){ nameEl.textContent = displayName || ''; }
+            try{
+                const profile = await window.firebaseService.getUserData(uid);
+                if (moodEl) moodEl.textContent = (profile && profile.mood) ? profile.mood : '';
+                if (avatarEl && profile && profile.avatarUrl) avatarEl.src = profile.avatarUrl;
+            }catch(_){ }
+
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const following = await window.firebaseService.getFollowingIds(me.uid);
+                const isFollowing = (following||[]).includes(uid);
+                if (fBtn && ufBtn){
+                    fBtn.style.display = isFollowing ? 'none' : 'inline-block';
+                    ufBtn.style.display = isFollowing ? 'inline-block' : 'none';
+                    fBtn.onclick = async ()=>{ await window.firebaseService.followUser(me.uid, uid); this.openUserSpace(uid, displayName); };
+                    ufBtn.onclick = async ()=>{ await window.firebaseService.unfollowUser(me.uid, uid); this.openUserSpace(uid, displayName); };
+                }
+            }catch(_){ }
+
+            // Load only public posts of selected user
+            const feed = document.getElementById('space-feed');
+            const feedTitle = document.getElementById('space-feed-title');
+            if (feed) feed.innerHTML='';
+            if (feedTitle) feedTitle.textContent = `${displayName||'User'}'s Feed`;
+            try{
+                let snap;
+                try{
+                    const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                    snap = await firebase.getDocs(q);
+                }catch{
+                    const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'));
+                    snap = await firebase.getDocs(q2);
+                    snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
+                }
+                snap.forEach(d=>{
+                    const p = d.data();
+                    const div = document.createElement('div');
+                    div.className = 'post-item';
+                    div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                    const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                    div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
+                    if (feed) feed.appendChild(div);
+                });
+            }catch(_){ }
+        }catch(_){ }
     }
 
     /**

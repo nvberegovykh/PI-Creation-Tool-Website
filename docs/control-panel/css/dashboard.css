@@ -189,14 +189,21 @@
 
 /* Add extra bottom padding on mobile so content is not hidden behind bottom nav */
 @media (max-width: 767px) {
+    .dashboard-content { padding-bottom: 140px; }
     .content-section.active,
     #apps-section,
     #waveconnect-section,
     #space-section,
     #profile-section,
     #feed-section {
-        padding-bottom: calc(110px + env(safe-area-inset-bottom));
+        padding-bottom: calc(150px + env(safe-area-inset-bottom));
     }
+}
+
+/* If there are many icons in the bottom nav, allow horizontal scroll instead of hiding buttons */
+@media (max-width: 767px) {
+    .mobile-bottom-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .mobile-bottom-nav::-webkit-scrollbar { display: none; }
 }
 
 /* Ensure grids/cards can shrink and scroll internally when content grows */
