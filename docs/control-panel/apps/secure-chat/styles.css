@@ -24,6 +24,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .icon-btn{background:transparent;border:none;color:#eaeaea;cursor:pointer;font-size:18px;line-height:1;padding:8px;border-radius:8px}
 .icon-btn:hover{background:#151822}
 .icon-btn i{color:#fff;font-size:18px}
+.icon-btn, .btn, .composer textarea, .search-box input{ -webkit-user-select:none; user-select:none }
+.messages .message{ -webkit-user-select:text; user-select:text }
 .sidebar.collapsed .search-box, .sidebar.collapsed #connections-list{display:none}
 .sidebar-header h2{font-size:14px;letter-spacing:.5px;text-transform:uppercase;color:#9aa4b2;margin:0}
 .search-box{padding:10px 12px}

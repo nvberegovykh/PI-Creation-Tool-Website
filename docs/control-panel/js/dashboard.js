@@ -123,6 +123,7 @@ class DashboardManager {
                 postBtn.onclick = async ()=>{
                     const text = (document.getElementById('space-post-text').value||'').trim();
                     const mediaInput = document.getElementById('space-post-media');
+                    const visibility = 'private';
                     let mediaUrl = '';
                     if (mediaInput && mediaInput.files && mediaInput.files[0] && firebase.getStorage){
                         try{
@@ -135,7 +136,7 @@ class DashboardManager {
                             await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
                             mediaUrl = await firebase.getDownloadURL(r);
                             // We will reuse the generated postIdRef for the post document below
-                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, createdAt: new Date().toISOString() };
+                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, visibility, createdAt: new Date().toISOString() };
                             await firebase.setDoc(postIdRef, payload);
                             document.getElementById('space-post-text').value='';
                             mediaInput.value='';
@@ -146,7 +147,7 @@ class DashboardManager {
                     }
                     if (!text){ this.showError('Add some text or attach media'); return; }
                     const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, createdAt: new Date().toISOString() });
+                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, visibility, createdAt: new Date().toISOString() });
                     document.getElementById('space-post-text').value='';
                     if (mediaInput) mediaInput.value='';
                     this.showSuccess('Posted');
@@ -212,7 +213,7 @@ class DashboardManager {
             }
             let snap;
             try {
-                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
                 snap = await firebase.getDocs(q);
             } catch {
                 const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
@@ -268,6 +269,7 @@ class DashboardManager {
                                          <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px\">
                                            <button class=\"btn btn-secondary like-btn\">Like</button>
                                            <button class=\"btn btn-secondary comment-btn\">Comment</button>
+                                           <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>
                                            <span class=\"likes-count\"></span>
                                          </div>`;
                         feed.appendChild(div);
@@ -277,6 +279,7 @@ class DashboardManager {
                         const postId = pa.getAttribute('data-post-id');
                         const likeBtn = pa.querySelector('.like-btn');
                         const commentBtn = pa.querySelector('.comment-btn');
+                        const visBtn = pa.querySelector('.visibility-btn');
                         const likesCount = pa.querySelector('.likes-count');
                         const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
                         if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.textContent = 'Unlike'; }
@@ -287,6 +290,18 @@ class DashboardManager {
                             const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
                         };
                         commentBtn.onclick = async ()=>{ const t = prompt('Write a comment'); if(!t) return; await window.firebaseService.addComment(postId, meUser.uid, t); alert('Comment added'); };
+                        if (visBtn){
+                            visBtn.onclick = async ()=>{
+                                try{
+                                    const ref = firebase.doc(window.firebaseService.db, 'posts', postId);
+                                    const doc = await firebase.getDoc(ref);
+                                    const p = doc.data()||{};
+                                    const next = p.visibility==='public' ? 'private' : 'public';
+                                    await firebase.updateDoc(ref, { visibility: next, updatedAt: new Date().toISOString() });
+                                    visBtn.textContent = next==='public' ? 'Make Private' : 'Make Public';
+                                }catch(_){ }
+                            };
+                        }
                     });
                 }catch(_){ /* ignore */ }
             }

@@ -669,7 +669,7 @@
         if (ov){ ov.classList.remove('hidden'); }
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
-        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', candidate:e.candidate.toJSON() }); }};
+        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
         const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
         await firebase.setDoc(firebase.doc(offersRef,'offer'), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
         await this.saveMessage({ text:`[call:${video?'video':'voice'}:${callId}]` });
@@ -706,13 +706,13 @@
         if (ov){ ov.classList.remove('hidden'); }
         const answersRef = firebase.collection(this.db,'calls',callId,'answers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
-        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'answer', candidate:e.candidate.toJSON() }); }};
+        pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'answer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
         const offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers','offer'));
         if (!offerDoc.exists()) return;
         const offer = offerDoc.data();
         await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
         const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
-        await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString() });
+        await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
         const endBtn = document.getElementById('end-call-btn');
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
