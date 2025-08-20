@@ -427,6 +427,37 @@ class AuthManager {
         }
     }
 
+    // Google Sign-In for login screen
+    async googleSignIn(){
+        try{
+            if (!(window.firebaseService && window.firebaseService.isInitialized)){
+                return this.showMessage('Auth not ready', 'error');
+            }
+            const provider = new firebase.GoogleAuthProvider();
+            const result = await firebase.signInWithPopup(window.firebaseService.auth, provider);
+            const user = result.user;
+            if (user){
+                // Ensure a Firestore user doc exists; create if missing
+                const data = await window.firebaseService.getUserData(user.uid);
+                if (!data){
+                    await window.firebaseService.updateUserProfile(user.uid, {
+                        username: (user.displayName||user.email||'').split('@')[0],
+                        email: user.email,
+                        role: 'user',
+                        isVerified: true,
+                        status: 'approved'
+                    });
+                }
+                this.currentUser = { id: user.uid, username: (data&&data.username)||user.displayName||'', email: user.email, role: (data&&data.role)||'user' };
+                this.createSession();
+                this.showDashboard();
+            }
+        }catch(e){
+            console.error('Google sign-in failed', e);
+            this.showMessage('Google sign-in failed', 'error');
+        }
+    }
+
     /**
      * Link Google account to current user (My Profile)
      */
