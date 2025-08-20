@@ -59,6 +59,14 @@
                 <div id="recording-indicator" class="recording-indicator hidden">
                     <div class="record-dot"><i class="fas fa-microphone"></i></div>
                 </div>
+                <!-- Recording review UI -->
+                <div id="recording-review" class="recording-review hidden">
+                    <div id="recording-player"></div>
+                    <div class="review-actions">
+                        <button id="send-recording-btn" class="btn">Send</button>
+                        <button id="discard-recording-btn" class="btn secondary">Discard</button>
+                    </div>
+                </div>
             </div>
             <!-- Call overlay -->
             <div id="call-overlay" class="call-overlay hidden">
@@ -69,10 +77,12 @@
                 <div class="call-controls">
                     <button id="toggle-mic-btn" class="btn secondary">Mic</button>
                     <button id="toggle-camera-btn" class="btn secondary">Camera</button>
+                    <button id="hide-call-btn" class="btn secondary">Hide</button>
                     <button id="end-call-btn" class="btn secondary">End</button>
                 </div>
                 <div id="call-participants" class="call-participants"></div>
             </div>
+            <button id="show-call-btn" class="btn secondary" style="position:fixed;bottom:80px;right:18px;z-index:90;display:none">Show call</button>
         </main>
     </div>
 

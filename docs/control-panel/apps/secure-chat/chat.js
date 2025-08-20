@@ -151,11 +151,19 @@
 
     refreshActionButton(){
       const input = document.getElementById('message-input');
+      const review = document.getElementById('recording-review');
       const actionBtn = document.getElementById('action-btn');
+      const inReview = review && !review.classList.contains('hidden');
       const hasContent = !!(input && input.value.trim().length);
       if (hasContent){
         actionBtn.title = 'Send';
         actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
+        actionBtn.style.background = '#2563eb';
+        actionBtn.style.borderRadius = '12px';
+        actionBtn.style.color = '#fff';
+      } else if (inReview){
+        actionBtn.title = 'Send';
+        actionBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
         actionBtn.style.background = '#2563eb';
         actionBtn.style.borderRadius = '12px';
         actionBtn.style.color = '#fff';
@@ -169,6 +177,11 @@
 
     handleActionButton(){
       const input = document.getElementById('message-input');
+      const review = document.getElementById('recording-review');
+      if (review && !review.classList.contains('hidden')){
+        const sendBtn = document.getElementById('send-recording-btn');
+        if (sendBtn){ sendBtn.click(); return; }
+      }
       if (input && input.value.trim().length){
         this.sendCurrent();
       } else {
@@ -200,7 +213,9 @@
 
     handleActionPressEnd(){
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
-      // TODO: stop recording if active and send
+      try{ if (this._recStop) this._recStop(); }catch(_){ }
+      const indicator = document.getElementById('recording-indicator'); if (indicator) indicator.classList.add('hidden');
+      this.refreshActionButton();
     }
 
     async promptNewConnection(){
@@ -741,9 +756,13 @@
         const endBtn = document.getElementById('end-call-btn');
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
-        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); }; }
+        const hideBtn = document.getElementById('hide-call-btn');
+        const showBtn = document.getElementById('show-call-btn');
+        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
         if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
         if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
+        if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
+        if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
       }catch(e){ console.warn('Call start failed', e); }
     }
 
@@ -769,9 +788,13 @@
         const endBtn = document.getElementById('end-call-btn');
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
-        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); }; }
+        const hideBtn = document.getElementById('hide-call-btn');
+        const showBtn = document.getElementById('show-call-btn');
+        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
         if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
         if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
+        if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
+        if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
       }catch(e){ console.warn('Answer call failed', e); }
     }
     async recordVoiceMessage(){
@@ -795,21 +818,17 @@
         const rec = new MediaRecorder(stream, options);
         const chunks = [];
         let stopped = false;
-        const stopAll = ()=>{ if (stopped) return; stopped = true; rec.stop(); stream.getTracks().forEach(t=> t.stop()); };
+        const stopAll = ()=>{ if (stopped) return; stopped = true; try{ rec.stop(); }catch(_){} try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){} };
+        this._activeRecorder = rec; this._activeStream = stream; this._recStop = stopAll;
         rec.ondataavailable = (e)=>{ if (e.data && e.data.size) chunks.push(e.data); };
         rec.onstop = async ()=>{
           try{
             const blob = new Blob(chunks, { type: options.mimeType || 'application/octet-stream' });
-            const buf = await blob.arrayBuffer();
-            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-            const aesKey = await this.getFallbackKey();
-            const cipher = await chatCrypto.encryptWithKey(b64, aesKey);
-            const s = this.storage; if (!s) return resolve();
-            const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${filename}.enc.json`);
-            await firebase.uploadBytes(r, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
-            const url = await firebase.getDownloadURL(r);
-            await this.saveMessage({text:`[file] ${filename}`, fileUrl:url, fileName:filename});
-          }catch(_){}
+            // stage for review
+            this._pendingRecording = { blob, type: (options.mimeType||'application/octet-stream'), filename };
+            this.showRecordingReview(blob, filename);
+          }catch(_){ }
+          this._activeRecorder = null; this._activeStream = null; this._recStop = null;
           resolve();
         };
         rec.start();
@@ -820,5 +839,6 @@
 
   window.secureChatApp = new SecureChatApp();
 })();
-
-
+ 
+// Review helpers
+SecureChatApp.prototype.showRecordingReview = SecureChatApp.prototype.showRecordingReview || function(){};

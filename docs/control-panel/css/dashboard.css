@@ -156,7 +156,7 @@
 .dashboard-content {
     flex: 1;
     padding: 30px;
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 .content-section {
@@ -166,6 +166,10 @@
 
 .content-section.active {
     display: block;
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
 }
 
 .section-header {
@@ -962,6 +966,7 @@
     /* Add bottom padding to content to account for mobile nav */
     .dashboard-content {
         padding-bottom: 90px;
+        overflow: hidden;
     }
     
     /* Hide desktop navigation on mobile */
