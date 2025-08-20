@@ -20,6 +20,9 @@ class DashboardManager {
         if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')){
             return `<div style="margin-top:8px"><audio src="${url}" style="width:100%" controls></audio></div>`;
         }
+        if (lower.endsWith('.pdf')){
+            return `<div style=\"margin-top:8px\"><iframe src=\"${url}\" style=\"width:100%;height:420px;border:none\"></iframe></div>`;
+        }
         return `<div style="margin-top:8px"><a href="${url}" target="_blank" rel="noopener noreferrer">Open attachment</a></div>`;
     }
 
