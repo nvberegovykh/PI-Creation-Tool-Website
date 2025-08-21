@@ -8,7 +8,12 @@ class SecureKeyManager {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
         // New rotated commit URL
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2xpYmVyLXNlY3VyZS1rZXlzLmpzb24=');
+        this.gistId = this.decodeUrl('ZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGM=');
+        this.gistUsername = 'nvberegovykh';
+        this.gistFilename = 'liber-secure-keys.json';
+        this.lastCommitHash = null;
+        this.commitCacheExpiry = 5 * 60 * 1000; // 5 mins
+        this.lastCommitFetch = 0;
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
@@ -106,13 +111,15 @@ class SecureKeyManager {
      */
     async fetchKeys() {
         try {
-            const response = await fetch(this.keyUrl);
+            // Get latest commit hash dynamically
+            const rawUrl = await this.getLatestRawUrl();
+            if (window.__DEBUG_KEYS__) console.log('Fetching from dynamic URL:', rawUrl.substring(0, 50) + '... (redacted)');
+            
+            const response = await fetch(rawUrl);
             if (!response.ok) {
-                if (response.status === 404) {
-                    console.warn('Gist not found (404). Using default fallback credentials.');
-                    return await this.generateDefaultCredentials();
-                }
-                throw new Error(`Gist fetch failed: ${response.status}`);
+                const errMsg = `Gist fetch failed: ${response.status} ${response.statusText}`;
+                if (window.__DEBUG_KEYS__) console.error(errMsg);
+                throw new Error(errMsg);
             }
             const keysData = await response.json();
             
@@ -123,6 +130,7 @@ class SecureKeyManager {
             
             this.cachedKeys = keysData;
             this.lastFetch = Date.now();
+            if (window.__DEBUG_KEYS__) console.log('Keys loaded (redacted):', Object.keys(keysData));
             return keysData;
         } catch (error) {
             console.error('Secure keys load failed:', error);
@@ -130,6 +138,24 @@ class SecureKeyManager {
             document.body.innerHTML = '<div style="color:red;text-align:center;padding:20px;">Failed to load secure config from Gist. Check URL/network and reload.</div>';
             throw error;
         }
+    }
+
+    async getLatestRawUrl() {
+        if (this.lastCommitHash && Date.now() - this.lastCommitFetch < this.commitCacheExpiry) {
+            return `https://gist.githubusercontent.com/${this.gistUsername}/${this.gistId}/raw/${this.lastCommitHash}/${this.gistFilename}`;
+        }
+        
+        // Fetch metadata to get latest commit
+        const apiUrl = `https://api.github.com/gists/${this.gistId}`;
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error(`Gist API failed: ${response.status}`);
+        
+        const data = await response.json();
+        this.lastCommitHash = data.history[0].version; // Latest commit hash
+        this.lastCommitFetch = Date.now();
+        if (window.__DEBUG_KEYS__) console.log('Fetched latest Gist commit:', this.lastCommitHash);
+        
+        return `https://gist.githubusercontent.com/${this.gistUsername}/${this.gistId}/raw/${this.lastCommitHash}/${this.gistFilename}`;
     }
 
     /**
