@@ -8,7 +8,7 @@ class SecureKeyManager {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
         // New rotated commit URL
-        this.gistId = this.decodeUrl('ZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGM=');
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3LzQ1ZjZiYTE3YWU3NjkxYmY1MzkzMTJhZjlkYmZjZGQwODE1M2JjNjAvbGliZXItc2VjdXJlLWtleXMuanNvbg==');
         this.gistUsername = 'nvberegovykh';
         this.gistFilename = 'liber-secure-keys.json';
         this.lastCommitHash = null;
