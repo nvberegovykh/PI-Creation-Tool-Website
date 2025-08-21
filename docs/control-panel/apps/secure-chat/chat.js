@@ -45,17 +45,24 @@
       this.db = window.firebaseService.db;
       this.storage = firebase.getStorage ? firebase.getStorage() : null;
 
-      // Add auth readiness retry
+      // Enhanced auth readiness with token refresh
       attempts = 0;
       while (attempts < 50) {
-        this.currentUser = await window.firebaseService.getCurrentUser();
-        if (this.currentUser) break;
-        await new Promise(r => setTimeout(r, 100));
+        try {
+          await window.firebaseService.auth.currentUser?.getIdToken(true); // Force refresh token
+          this.currentUser = await window.firebaseService.getCurrentUser();
+          if (this.currentUser) break;
+        } catch (err) {
+          console.warn('Auth refresh attempt failed:', err);
+        }
+        await new Promise(r => setTimeout(r, 200));
         attempts++;
       }
       if (!this.currentUser) {
-        console.error('Firebase auth not ready after retries');
-        return; // Or show error UI
+        console.error('Firebase auth not ready after retries - check network or WebView config');
+        // Show UI error
+        document.body.innerHTML += '<div style="color:red;padding:20px">Auth failed - please reload or check connection</div>';
+        return;
       }
 
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
@@ -439,7 +446,22 @@
           }
         } else {
           // Fallback without await: leave id; optional async resolve (non-blocking)
-          (async()=>{ try{ const others=(c.participants||[]).filter(u=> u!==this.currentUser.uid); if(others.length){ const d=await window.firebaseService.getUserData(others[0]); const name=(d&&d.username)||d?.email; if(name){ li.textContent = name; } } }catch(_){ } })();
+          (async()=>{ 
+            try{ 
+              const others=(c.participants||[]).filter(u=> u!==this.currentUser.uid); 
+              if(others.length){ 
+                const d=await window.firebaseService.getUserData(others[0]); 
+                const name=(d&&d.username)||d?.email||others[0]; 
+                if(name){ li.textContent = name; 
+                  // Update Firestore if missing
+                  if (!c.participantUsernames || c.participantUsernames.length !== c.participants.length) {
+                    const enriched = c.participants.map(uid => uid === this.currentUser.uid ? (this.me?.username || 'me') : (uid === others[0] ? name : uid));
+                    await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id), { participantUsernames: enriched });
+                  }
+                } 
+              } 
+            }catch(_){ } 
+          })();
         }
         li.textContent = label;
         // Admin badge in header when active

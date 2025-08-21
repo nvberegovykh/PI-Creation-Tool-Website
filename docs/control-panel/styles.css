@@ -66,3 +66,16 @@
   cursor: pointer;
 }
 
+/* Fix black space - reduce margin/padding above bottom nav */
+.dashboard-bottom-nav {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Wider password input on desktop */
+@media (min-width: 769px) {
+  .password-input {
+    width: 300px !important; /* Adjust as needed */
+  }
+}
+
