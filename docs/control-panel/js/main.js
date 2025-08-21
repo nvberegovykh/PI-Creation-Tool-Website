@@ -54,9 +54,16 @@ class LiberAppsControlPanel {
 
             console.log('LIBER/APPS initialized successfully');
 
-        } catch (error) {
-            console.error('Failed to start application:', error);
-            this.showError('Failed to start application');
+        } catch (e) {
+            console.error('App start failed:', e);
+            document.body.innerHTML = `
+              <div style="color: #ff4444; text-align: center; padding: 40px; background: #111; border-radius: 12px; max-width: 600px; margin: 20% auto;">
+                <h2>Failed to Load LIBER/APPS</h2>
+                <p>${e.message}</p>
+                <p>Check your network connection and try reloading. If issues persist, clear cache or contact support.</p>
+                <button onclick="location.reload()" style="padding: 10px 20px; background: #00d4ff; border: none; border-radius: 6px; color: #000; cursor: pointer;">Reload</button>
+              </div>
+            `;
         }
     }
 
@@ -65,7 +72,7 @@ class LiberAppsControlPanel {
      */
     async initializeModules() {
         // Wait for all modules to be available
-        const maxWaitTime = 5000; // 5 seconds
+        const maxWaitTime = 30000; // 30 seconds
         const startTime = Date.now();
 
         while (!this.areModulesReady() && (Date.now() - startTime) < maxWaitTime) {
@@ -73,7 +80,7 @@ class LiberAppsControlPanel {
         }
 
         if (!this.areModulesReady()) {
-            throw new Error('Failed to load required modules');
+            throw new Error('Failed to load required modules after extended wait');
         }
 
         // Check Firebase availability first - REQUIRED

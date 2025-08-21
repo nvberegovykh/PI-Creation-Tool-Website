@@ -1319,8 +1319,8 @@ class DashboardManager {
                 const stats = await window.firebaseService.getUserStats();
                 return `${stats.total} (${stats.pending} pending)`;
             } else {
-            const users = await authManager.getUsers();
-            return users.length + 1; // +1 for admin
+                const users = await authManager.getUsers();
+                return users.length + 1; // +1 for admin
             }
         } catch (error) {
             console.error('Error getting users count:', error);
@@ -2492,6 +2492,7 @@ Do you want to proceed?`);
         const pid = item.dataset.postId;
         if (!pid) return;
         
+        // Like
         const likeBtn = item.querySelector('.like-btn');
         const likeSpan = likeBtn?.querySelector('span');
         const likeIcon = likeBtn?.querySelector('i');
@@ -2513,6 +2514,7 @@ Do you want to proceed?`);
           };
         }
         
+        // Comment
         const commentBtn = item.querySelector('.comment-btn');
         const commentSpan = commentBtn?.querySelector('span');
         if (commentBtn) {
@@ -2520,11 +2522,19 @@ Do you want to proceed?`);
             commentSpan.textContent = snap.size;
           });
           commentBtn.onclick = () => {
-            // Stub: Open comment modal
-            alert('Comment functionality coming soon');
+            // Simple modal stub - expand as needed
+            const comment = prompt('Add comment:');
+            if (comment) {
+              firebase.addDoc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'comments'), {
+                userId: this.currentUser.uid,
+                text: comment,
+                createdAt: new Date().toISOString()
+              });
+            }
           };
         }
         
+        // Repost
         const repostBtn = item.querySelector('.repost-btn');
         const repostSpan = repostBtn?.querySelector('span');
         const repostIcon = repostBtn?.querySelector('i');
