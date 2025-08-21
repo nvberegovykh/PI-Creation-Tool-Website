@@ -9,21 +9,113 @@ class DashboardManager {
         this.init();
     }
 
-    renderPostMedia(url){
-        const lower = (url||'').toLowerCase();
-        if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.gif') || lower.endsWith('.webp')){
-            return `<div style="margin-top:8px"><img src="${url}" alt="media" style="max-width:100%;border-radius:8px" /></div>`;
+    renderPostMedia(media){
+        const urls = Array.isArray(media) ? media : (media ? [media] : []);
+        if (!urls.length) return '';
+        const renderOne = (url)=>{
+            const lower = (url||'').toLowerCase();
+            const isImg = ['.png','.jpg','.jpeg','.gif','.webp','.avif'].some(ext=> lower.endsWith(ext));
+            const isVid = ['.mp4','.webm','.mov','.mkv'].some(ext=> lower.endsWith(ext));
+            const isAud = ['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some(ext=> lower.endsWith(ext));
+            if (isImg){
+                return `<img src="${url}" alt="media" style="max-width:100%;height:auto;border-radius:12px" />`;
+            }
+            if (isVid){
+                return `<div class="player-card"><video src="${url}" class="player-media" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+            }
+            if (isAud){
+                return `<div class="player-card"><audio src="${url}" class="player-media" preload="metadata" ></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+            }
+            if (lower.endsWith('.pdf')){
+                return `<iframe src="${url}" style="width:100%;height:420px;border:none"></iframe>`;
+            }
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer">Open attachment</a>`;
+        };
+        if (urls.length === 1){
+            return `<div style="margin-top:8px">${renderOne(urls[0])}</div>`;
         }
-        if (lower.endsWith('.mp4') || lower.endsWith('.webm')){
-            return `<div style="margin-top:8px"><video src="${url}" style="max-width:100%;border-radius:8px" controls playsinline></video></div>`;
-        }
-        if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')){
-            return `<div style="margin-top:8px"><audio src="${url}" style="width:100%" controls></audio></div>`;
-        }
-        if (lower.endsWith('.pdf')){
-            return `<div style=\"margin-top:8px\"><iframe src=\"${url}\" style=\"width:100%;height:420px;border:none\"></iframe></div>`;
-        }
-        return `<div style="margin-top:8px"><a href="${url}" target="_blank" rel="noopener noreferrer">Open attachment</a></div>`;
+        // simple gallery
+        const items = urls.map(u=> `<div style="flex:0 0 auto;max-width:100%;">${renderOne(u)}</div>`).join('');
+        return `<div style="margin-top:8px;overflow:auto;-webkit-overflow-scrolling:touch"><div style="display:flex;gap:8px">${items}</div></div>`;
+    }
+
+    showMiniPlayer(mediaEl, meta={}){
+        try{
+            if (this._currentPlayer && this._currentPlayer !== mediaEl){ try{ this._currentPlayer.pause(); }catch(_){} }
+            this._currentPlayer = mediaEl;
+            const mini = document.getElementById('mini-player'); if (!mini) return;
+            const mTitle = document.getElementById('mini-title');
+            const mBy = document.getElementById('mini-by');
+            const mCover = mini.querySelector('.cover');
+            const playBtn = document.getElementById('mini-play');
+            const closeBtn = document.getElementById('mini-close');
+            if (mTitle) mTitle.textContent = meta.title || 'Now playing';
+            if (mBy) mBy.textContent = meta.by || '';
+            if (mCover && meta.cover) mCover.src = meta.cover;
+            mini.classList.add('show');
+            if (playBtn){ playBtn.onclick = ()=>{ if (mediaEl.paused){ mediaEl.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { mediaEl.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ mediaEl.pause(); }catch(_){} }; }
+        }catch(_){ }
+    }
+
+    // Activate custom players inside a container (audio/video unified controls)
+    activatePlayers(root=document){
+        try{
+            root.querySelectorAll('.player-card').forEach(card=>{
+                const media = card.querySelector('.player-media');
+                const btn = card.querySelector('.btn-icon');
+                const fill = card.querySelector('.progress .fill');
+                let knob = card.querySelector('.progress .knob');
+                if (!knob){ const k = document.createElement('div'); k.className='knob'; const bar = card.querySelector('.progress'); if (bar){ bar.appendChild(k); knob = k; } }
+                const time = card.querySelector('.time');
+                const fmt = (s)=>{ const m=Math.floor(s/60); const ss=Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${ss}`; };
+                const sync = ()=>{ if (!media.duration) return; const p=(media.currentTime/media.duration)*100; if (fill) fill.style.width = `${p}%`; if (knob){ knob.style.left = `${p}%`; } if (time) time.textContent = `${fmt(media.currentTime)} / ${fmt(media.duration)}`; };
+                if (btn){ btn.onclick = ()=>{ if (media.paused){ media.play(); btn.innerHTML='<i class="fas fa-pause"></i>'; } else { media.pause(); btn.innerHTML='<i class="fas fa-play"></i>'; } }; }
+                media.addEventListener('timeupdate', sync);
+                media.addEventListener('loadedmetadata', sync);
+                const bar = card.querySelector('.progress');
+                if (bar){
+                    const seekTo = (clientX)=>{
+                        const rect = bar.getBoundingClientRect();
+                        const ratio = Math.min(1, Math.max(0, (clientX-rect.left)/rect.width));
+                        if (media.duration) media.currentTime = ratio * media.duration;
+                    };
+                    bar.addEventListener('click', (e)=> seekTo(e.clientX));
+                    let dragging = false;
+                    bar.addEventListener('pointerdown', (e)=>{ dragging = true; bar.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+                    bar.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+                    bar.addEventListener('pointerup', (e)=>{ dragging = false; bar.releasePointerCapture(e.pointerId); });
+                }
+                // keyboard shortcuts when focused
+                card.tabIndex = 0;
+                card.onkeydown = (e)=>{
+                    if (e.code === 'Space'){ e.preventDefault(); btn && btn.click(); }
+                    if (e.code === 'ArrowLeft'){ media.currentTime = Math.max(0, media.currentTime - 5); }
+                    if (e.code === 'ArrowRight'){ media.currentTime = Math.min(media.duration||0, media.currentTime + 5); }
+                };
+
+                // hook up mini player when playing
+                const mini = document.getElementById('mini-player');
+                const mTitle = document.getElementById('mini-title');
+                const mBy = document.getElementById('mini-by');
+                const mCover = mini && mini.querySelector('.cover');
+                const playBtn = document.getElementById('mini-play');
+                const closeBtn = document.getElementById('mini-close');
+                const showMini = ()=>{
+                    if (!mini) return;
+                    mini.classList.add('show');
+                    const parent = card.closest('.post-item');
+                    if (parent){
+                        const t = parent.querySelector('.post-text');
+                        mTitle && (mTitle.textContent = (t && t.textContent) ? t.textContent.slice(0,50) : 'Now playing');
+                    }
+                    if (mBy){ const by = card.closest('.post-item')?.querySelector('.byline')?.textContent || ''; mBy.textContent = by; }
+                };
+                media.addEventListener('play', showMini);
+                if (playBtn){ playBtn.onclick = ()=>{ if (media.paused){ media.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { media.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
+                if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ media.pause(); }catch(_){} }; }
+            });
+        }catch(_){ }
     }
 
     /**
@@ -145,18 +237,22 @@ class DashboardManager {
                     const mediaInput = document.getElementById('space-post-media');
                     const visibility = 'private';
                     let mediaUrl = '';
-                    if (mediaInput && mediaInput.files && mediaInput.files[0] && firebase.getStorage){
+                    let media = [];
+                    if (mediaInput && mediaInput.files && mediaInput.files.length && firebase.getStorage){
                         try{
-                            const file = mediaInput.files[0];
                             const s = firebase.getStorage();
                             const postIdRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                            const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-                            const path = `posts/${user.uid}/${postIdRef.id}/media.${ext}`;
-                            const r = firebase.ref(s, path);
-                            await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
-                            mediaUrl = await firebase.getDownloadURL(r);
-                            // We will reuse the generated postIdRef for the post document below
-                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, visibility, createdAt: new Date().toISOString() };
+                            for (let i=0;i<Math.min(mediaInput.files.length, 5); i++){
+                                const file = mediaInput.files[i];
+                                const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+                                const path = `posts/${user.uid}/${postIdRef.id}/media_${i}.${ext}`;
+                                const r = firebase.ref(s, path);
+                                await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
+                                const url = await firebase.getDownloadURL(r);
+                                media.push(url);
+                            }
+                            mediaUrl = media[0] || '';
+                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, media, visibility, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp() };
                             await firebase.setDoc(postIdRef, payload);
                             document.getElementById('space-post-text').value='';
                             mediaInput.value='';
@@ -167,12 +263,44 @@ class DashboardManager {
                     }
                     if (!text){ this.showError('Add some text or attach media'); return; }
                     const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, visibility, createdAt: new Date().toISOString() });
+                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, visibility, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp() });
                     document.getElementById('space-post-text').value='';
                     if (mediaInput) mediaInput.value='';
                     this.showSuccess('Posted');
                     this.loadMyPosts(user.uid);
                 };
+                // media preview chips
+                const mediaInput = document.getElementById('space-post-media');
+                const previews = document.getElementById('space-media-previews');
+                if (mediaInput && previews && !mediaInput._previewsBound){
+                    mediaInput._previewsBound = true;
+                    mediaInput.addEventListener('change', ()=>{
+                        previews.innerHTML='';
+                        const files = Array.from(mediaInput.files||[]).slice(0,5);
+                        files.forEach((f, idx)=>{
+                            const chip = document.createElement('div'); chip.className='chip';
+                            const remove = document.createElement('div'); remove.className='remove'; remove.innerHTML='<i class="fas fa-times"></i>';
+                            remove.onclick = ()=>{
+                                const dt = new DataTransfer();
+                                Array.from(mediaInput.files).forEach((ff,i)=>{ if (i!==idx) dt.items.add(ff); });
+                                mediaInput.files = dt.files; chip.remove();
+                            };
+                            chip.appendChild(remove);
+                            if (f.type.startsWith('image/')){
+                                const img = document.createElement('img'); img.src = URL.createObjectURL(f); chip.appendChild(img);
+                            } else if (f.type.startsWith('video/')){
+                                const v = document.createElement('video'); v.src = URL.createObjectURL(f); v.muted=true; chip.appendChild(v);
+                            } else if (f.type.startsWith('audio/')){
+                                const i = document.createElement('i'); i.className='fas fa-music'; chip.appendChild(i);
+                                const span = document.createElement('span'); span.textContent = f.name; chip.appendChild(span);
+                            } else {
+                                const i = document.createElement('i'); i.className='fas fa-paperclip'; chip.appendChild(i);
+                                const span = document.createElement('span'); span.textContent = f.name; chip.appendChild(span);
+                            }
+                            previews.appendChild(chip);
+                        });
+                    });
+                }
             }
 
             const spaceSearch = document.getElementById('space-search');
@@ -209,6 +337,7 @@ class DashboardManager {
 
             // Initial feed load: show my posts in Personal Space
             this.loadMyPosts(user.uid);
+            this.loadConnectionsForSpace();
         }catch(e){ console.error('loadSpace error', e); }
     }
 
@@ -220,22 +349,41 @@ class DashboardManager {
             // Try ordered query for my posts (both public and private)
             let snap;
             try{
-                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db,'posts'),
+                    firebase.where('authorId','==', uid),
+                    firebase.orderBy('createdAtTS','desc'),
+                    firebase.limit(50)
+                );
                 snap = await firebase.getDocs(q);
             }catch{
                 const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
                 snap = await firebase.getDocs(q2);
-                snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
+                snap = { docs: snap.docs.sort((a,b)=> (b.data()?.createdAtTS?.toMillis?.()||0) - (a.data()?.createdAtTS?.toMillis?.()||0) || new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
             }
             snap.forEach(d=>{
                 const p = d.data();
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
-                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;gap:10px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
+                const by = p.authorName ? `<div class=\"byline\" style=\"display:flex;align-items:center;gap:8px;margin:4px 0\"><img src=\"${p.coverUrl||p.thumbnailUrl||'images/default-bird.png'}\" alt=\"cover\" style=\"width:20px;height:20px;border-radius:50%;object-fit:cover\"><span style=\"font-size:12px;color:#aaa\">by ${(p.authorName||'').replace(/</g,'&lt;')}</span></div>` : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
+                // double-tap like on post content
+                const contentArea = div.querySelector('.post-text') || div;
+                let lastTap = 0;
+                contentArea.addEventListener('touchend', async ()=>{
+                    const now = Date.now();
+                    if (now - lastTap < 350){
+                        const likeBtn = div.querySelector('.like-btn');
+                        likeBtn && likeBtn.click();
+                        const pulse = document.createElement('i'); pulse.className='fas fa-heart dbl-like-pulse'; div.appendChild(pulse); setTimeout(()=> pulse.remove(), 700);
+                    }
+                    lastTap = now;
+                }, { passive: true });
+                this.activatePlayers(div);
             });
             // Bind actions for my posts
             const meUser = await window.firebaseService.getCurrentUser();
@@ -243,27 +391,94 @@ class DashboardManager {
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
                 const commentBtn = pa.querySelector('.comment-btn');
+                const repostBtn = pa.querySelector('.repost-btn');
                 const visBtn = pa.querySelector('.visibility-btn');
                 const likesCount = pa.querySelector('.likes-count');
-                const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
+                const rCount = pa.querySelector('.reposts-count');
+                const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0}`; if (rCount) rCount.textContent = `${s.reposts||0}`;
+                if (repostBtn){ if (await window.firebaseService.hasReposted(postId, meUser.uid)){ repostBtn.classList.add('active'); } }
                 if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
                 likeBtn.onclick = async ()=>{
                     const liked = await window.firebaseService.hasLiked(postId, meUser.uid);
                     if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
                     else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
-                    const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
+                    const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0}`; if (rCount) rCount.textContent = `${s2.reposts||0}`;
                 };
+                if (repostBtn){
+                    repostBtn.onclick = async ()=>{
+                        try{
+                            const me = await window.firebaseService.getCurrentUser();
+                            const stats = await window.firebaseService.getPostStats(postId);
+                            // naive toggle: if I already reposted, unRepost; else repost
+                            // we don't have hasReposted; attempt delete then add fallback
+                            try{ await window.firebaseService.unRepost(postId, me.uid); }catch(_){ await window.firebaseService.repost(postId, me.uid); }
+                            const s3 = await window.firebaseService.getPostStats(postId); if (rCount) rCount.textContent = `${s3.reposts||0}`;
+                        }catch(_){ }
+                    };
+                }
                 commentBtn.onclick = async ()=>{
                     const tree = document.getElementById(`comments-${postId}`);
                     if (!tree) return;
                     if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                     tree.innerHTML = '';
-                    const comments = await window.firebaseService.getComments(postId, 50);
-                    comments.reverse().forEach(c=>{
+                    const comments = await window.firebaseService.getComments(postId, 100);
+                    // Build threaded structure
+                    const map = new Map();
+                    comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
+                    const roots = [];
+                    comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
+                    const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>`;
-                        tree.appendChild(item);
+                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                        <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                          <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
+                          <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
+                          <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
+                        </div>`;
+                        container.appendChild(item);
+                        // Reply input (hidden until click)
+                        const replyBox = document.createElement('div');
+                        replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
+                        replyBox.innerHTML = `<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">`;
+                        item.appendChild(replyBox);
+                        item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
+                        const inp = replyBox.querySelector('.reply-input');
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                        if (node.children && node.children.length){
+                            const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
+                            node.children.forEach(ch=> renderNode(ch, sub));
+                        }
+                    };
+                    roots.reverse().forEach(n=> renderNode(n, tree));
+                    // Inline add comment (top-level)
+                    const addWrap = document.createElement('div');
+                    addWrap.style.cssText = 'margin-top:8px';
+                    addWrap.innerHTML = `<input type="text" class="reply-input" id="add-comment-${postId}" placeholder="Add a comment..." style="width:100%">`;
+                    tree.appendChild(addWrap);
+                    const addInp = document.getElementById(`add-comment-${postId}`);
+                    if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
+                    // bind comment edit/delete
+                    tree.querySelectorAll('.comment-actions').forEach(act=>{
+                        const cid = act.getAttribute('data-comment-id');
+                        const author = act.getAttribute('data-author');
+                        const canEdit = author === meUser.uid;
+                        const eb = act.querySelector('.edit-comment-btn');
+                        const db = act.querySelector('.delete-comment-btn');
+                        if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
+                        if (canEdit){
+                            if (eb){ eb.onclick = async ()=>{
+                                const newText = prompt('Edit comment:');
+                                if (newText===null) return;
+                                await window.firebaseService.updateComment(postId, cid, newText.trim());
+                                this.loadFeed(uid, titleName);
+                            }; }
+                            if (db){ db.onclick = async ()=>{
+                                if (!confirm('Delete this comment?')) return;
+                                await window.firebaseService.deleteComment(postId, cid);
+                                this.loadFeed(uid, titleName);
+                            }; }
+                        }
                     });
                 };
                 if (visBtn){
@@ -283,6 +498,38 @@ class DashboardManager {
         }catch(_){ }
     }
 
+    async loadConnectionsForSpace(){
+        try{
+            if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            const me = await window.firebaseService.getCurrentUser(); if (!me) return;
+            const list = document.getElementById('space-connections-list'); if (!list) return;
+            list.innerHTML = '';
+            let snap;
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('participants','array-contains', me.uid), firebase.orderBy('updatedAt','desc'), firebase.limit(50));
+                snap = await firebase.getDocs(q);
+            }catch{
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('participants','array-contains', me.uid));
+                snap = await firebase.getDocs(q2);
+            }
+            const myData = await window.firebaseService.getUserData(me.uid) || {};
+            const myNameLower = (myData.username||'').toLowerCase();
+            snap.forEach(d=>{
+                const c = d.data();
+                const li = document.createElement('li');
+                let label = c.id;
+                if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
+                    const other = c.participantUsernames.find(n=> (n||'').toLowerCase() !== myNameLower);
+                    if (other) label = other;
+                }
+                li.textContent = label;
+                li.style.cursor = 'pointer';
+                li.onclick = ()=>{ window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(c.id)}`; };
+                list.appendChild(li);
+            });
+        }catch(_){ }
+    }
+
     async loadGlobalFeed(){
         try{
             const feedEl = document.getElementById('global-feed');
@@ -290,14 +537,17 @@ class DashboardManager {
             if (!feedEl) return;
             feedEl.innerHTML = '';
             // Recent public posts
-            const snap = await firebase.getDocs(firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('visibility','==','public')));
+            const snap = await firebase.getDocs(firebase.query(
+                firebase.collection(window.firebaseService.db,'posts'),
+                firebase.where('visibility','==','public')
+            ));
             const list = []; snap.forEach(d=> list.push(d.data()));
-            list.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+            list.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
             list.slice(0,20).forEach(p=>{
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
                 feedEl.appendChild(div);
             });
@@ -329,25 +579,34 @@ class DashboardManager {
             }
             let snap;
             try {
-                const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db,'posts'),
+                    firebase.where('authorId','==', uid),
+                    firebase.where('visibility','==','public'),
+                    firebase.orderBy('createdAtTS','desc'),
+                    firebase.limit(50)
+                );
                 snap = await firebase.getDocs(q);
             } catch {
                 const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
                 snap = await firebase.getDocs(q2);
                 // Normalize to similar interface
-                snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
+                snap = { docs: snap.docs.sort((a,b)=> (b.data()?.createdAtTS?.toMillis?.()||0) - (a.data()?.createdAtTS?.toMillis?.()||0) || new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
             }
             snap.forEach(d=>{
                 const p = d.data();
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
-                div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:10px;align-items:center">
-                                   <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
+                                   <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
-                                   <i class="fas fa-comment comment-btn" style="cursor:pointer"></i>
+                                   <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
+                                   <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
+                                   <span class="reposts-count"></span>
+                                   <i class="fas fa-ellipsis-h post-menu" title="More" style="cursor:pointer"></i>
                                    <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
                                    <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
                                  </div>
@@ -360,59 +619,101 @@ class DashboardManager {
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
                 const commentBtn = pa.querySelector('.comment-btn');
+                const repostBtn = pa.querySelector('.repost-btn');
                 const editBtn = pa.querySelector('.edit-post-btn');
                 const delBtn = pa.querySelector('.delete-post-btn');
+                const menuBtn = pa.querySelector('.post-menu');
                 const likesCount = pa.querySelector('.likes-count');
-                const stats = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${stats.likes||0} likes`;
+                const rCount = pa.querySelector('.reposts-count');
+                const stats = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${stats.likes||0}`; if (rCount) rCount.textContent = `${stats.reposts||0}`;
                 if (await window.firebaseService.hasLiked(postId, me2.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
                 likeBtn.onclick = async ()=>{
                     const liked = await window.firebaseService.hasLiked(postId, me2.uid);
                     if (liked){ await window.firebaseService.unlikePost(postId, me2.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
                     else { await window.firebaseService.likePost(postId, me2.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
-                    const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
+                    const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0}`; if (rCount) rCount.textContent = `${s.reposts||0}`;
                 };
+                if (repostBtn){
+                    repostBtn.onclick = async ()=>{
+                        try{
+                            const me = await window.firebaseService.getCurrentUser();
+                            const already = await window.firebaseService.hasReposted(postId, me.uid);
+                            if (already){ await window.firebaseService.unRepost(postId, me.uid); repostBtn.classList.remove('active'); }
+                            else { await window.firebaseService.repost(postId, me.uid); repostBtn.classList.add('active'); }
+                            const s3 = await window.firebaseService.getPostStats(postId); if (rCount) rCount.textContent = `${s3.reposts||0}`;
+                        }catch(_){ }
+                    };
+                }
+                if (menuBtn){
+                    menuBtn.onclick = async ()=>{
+                        try{
+                            const loc = `${location.origin}${location.pathname}#post-${postId}`;
+                            await navigator.clipboard.writeText(loc);
+                            this.showSuccess('Post link copied');
+                        }catch(_){ this.showError('Failed to copy'); }
+                    };
+                }
                 commentBtn.onclick = async ()=>{
                     const tree = document.getElementById(`comments-${postId}`);
                     if (!tree) return;
                     if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                     tree.innerHTML = '';
-                    const comments = await window.firebaseService.getComments(postId, 50);
-                    comments.reverse().forEach(c=>{
+                    const comments = await window.firebaseService.getComments(postId, 100);
+                    // Build threaded structure
+                    const map = new Map();
+                    comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
+                    const roots = [];
+                    comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
+                    const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>
-                        <div class="comment-actions" data-comment-id="${c.id}" data-author="${c.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                        <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                          <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                           <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
                           <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
                         </div>`;
-                        tree.appendChild(item);
-                    });
+                        container.appendChild(item);
+                        // Reply input (hidden until click)
+                        const replyBox = document.createElement('div');
+                        replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
+                        replyBox.innerHTML = `<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">`;
+                        item.appendChild(replyBox);
+                        item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
+                        const inp = replyBox.querySelector('.reply-input');
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                        if (node.children && node.children.length){
+                            const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
+                            node.children.forEach(ch=> renderNode(ch, sub));
+                        }
+                    };
+                    roots.reverse().forEach(n=> renderNode(n, tree));
                     // bind comment edit/delete
                     tree.querySelectorAll('.comment-actions').forEach(act=>{
                         const cid = act.getAttribute('data-comment-id');
                         const author = act.getAttribute('data-author');
-                        const canEdit = author === me2.uid;
+                        const canEdit = author === meUser.uid;
                         const eb = act.querySelector('.edit-comment-btn');
                         const db = act.querySelector('.delete-comment-btn');
-                        if (!canEdit){ eb.style.display='none'; db.style.display='none'; }
+                        if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
                         if (canEdit){
-                            eb.onclick = async ()=>{
+                            if (eb){ eb.onclick = async ()=>{
                                 const newText = prompt('Edit comment:');
                                 if (newText===null) return;
                                 await window.firebaseService.updateComment(postId, cid, newText.trim());
                                 this.loadFeed(uid, titleName);
-                            };
-                            db.onclick = async ()=>{
+                            }; }
+                            if (db){ db.onclick = async ()=>{
                                 if (!confirm('Delete this comment?')) return;
                                 await window.firebaseService.deleteComment(postId, cid);
                                 this.loadFeed(uid, titleName);
-                            };
+                            }; }
                         }
                     });
                 };
                 // bind post edit/delete (owner only)
                 const postAuthor = pa.getAttribute('data-author');
-                const canEditPost = postAuthor === me2.uid;
+                const canEditPost = postAuthor === meUser.uid;
                 if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
                 if (canEditPost){
                     if (editBtn){ editBtn.onclick = async ()=>{
@@ -439,8 +740,8 @@ class DashboardManager {
                         const div = document.createElement('div');
                         div.className = 'post-item';
                         div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                        const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
-                        div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                        const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                        div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                          <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:10px;align-items:center">
                                            <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
                                            <span class="likes-count"></span>
@@ -474,36 +775,61 @@ class DashboardManager {
                             if (!tree) return;
                             if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                             tree.innerHTML = '';
-                            const comments = await window.firebaseService.getComments(postId, 50);
-                            comments.reverse().forEach(c=>{
+                            const comments = await window.firebaseService.getComments(postId, 100);
+                            // Build threaded structure
+                            const map = new Map();
+                            comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
+                            const roots = [];
+                            comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
+                            const renderNode = (node, container)=>{
                                 const item = document.createElement('div');
                                 item.className = 'comment-item';
-                                item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(c.text||'').replace(/</g,'&lt;')}</div>
-                                <div class="comment-actions" data-comment-id="${c.id}" data-author="${c.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                                item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                                <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
+                                  <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                                   <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
                                   <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
                                 </div>`;
-                                tree.appendChild(item);
-                            });
+                                container.appendChild(item);
+                                // Reply input (hidden until click)
+                                const replyBox = document.createElement('div');
+                                replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
+                                replyBox.innerHTML = `<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">`;
+                                item.appendChild(replyBox);
+                                item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
+                                const inp = replyBox.querySelector('.reply-input');
+                                if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                                if (node.children && node.children.length){
+                                    const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
+                                    node.children.forEach(ch=> renderNode(ch, sub));
+                                }
+                            };
+                            roots.reverse().forEach(n=> renderNode(n, tree));
+                            const addWrap = document.createElement('div'); addWrap.style.cssText='margin-top:8px';
+                            addWrap.innerHTML = `<input type="text" class="reply-input" id="add-comment-${postId}" placeholder="Add a comment..." style="width:100%">`;
+                            tree.appendChild(addWrap);
+                            const addInp = document.getElementById(`add-comment-${postId}`);
+                            if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
+                            // bind comment edit/delete
                             tree.querySelectorAll('.comment-actions').forEach(act=>{
                                 const cid = act.getAttribute('data-comment-id');
                                 const author = act.getAttribute('data-author');
                                 const canEdit = author === meUser.uid;
                                 const eb = act.querySelector('.edit-comment-btn');
                                 const db = act.querySelector('.delete-comment-btn');
-                                if (!canEdit){ eb.style.display='none'; db.style.display='none'; }
+                                if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
                                 if (canEdit){
-                                    eb.onclick = async ()=>{
+                                    if (eb){ eb.onclick = async ()=>{
                                         const newText = prompt('Edit comment:');
                                         if (newText===null) return;
                                         await window.firebaseService.updateComment(postId, cid, newText.trim());
                                         this.loadFeed(uid, titleName);
-                                    };
-                                    db.onclick = async ()=>{
+                                    }; }
+                                    if (db){ db.onclick = async ()=>{
                                         if (!confirm('Delete this comment?')) return;
                                         await window.firebaseService.deleteComment(postId, cid);
                                         this.loadFeed(uid, titleName);
-                                    };
+                                    }; }
                                 }
                             });
                         };
@@ -595,19 +921,25 @@ class DashboardManager {
             try{
                 let snap;
                 try{
-                    const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+                    const q = firebase.query(
+                        firebase.collection(window.firebaseService.db,'posts'),
+                        firebase.where('authorId','==', uid),
+                        firebase.where('visibility','==','public'),
+                        firebase.orderBy('createdAtTS','desc'),
+                        firebase.limit(50)
+                    );
                     snap = await firebase.getDocs(q);
                 }catch{
                     const q2 = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid), firebase.where('visibility','==','public'));
                     snap = await firebase.getDocs(q2);
-                    snap = { docs: snap.docs.sort((a,b)=> new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
+                    snap = { docs: snap.docs.sort((a,b)=> (b.data()?.createdAtTS?.toMillis?.()||0) - (a.data()?.createdAtTS?.toMillis?.()||0) || new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
                 }
                 snap.forEach(d=>{
                     const p = d.data();
                     const div = document.createElement('div');
                     div.className = 'post-item';
                     div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                    const media = p.mediaUrl ? this.renderPostMedia(p.mediaUrl) : '';
+                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                     div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
                     if (feed) feed.appendChild(div);
                 });
@@ -706,8 +1038,10 @@ class DashboardManager {
                         const ref = firebase.ref(s, `wave/${me.uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
                         await firebase.uploadBytes(ref, file, { contentType: 'audio/mpeg' });
                         const url = await firebase.getDownloadURL(ref);
+                        let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
+                        let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
-                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString() });
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
                     }catch(e){ this.showError('Upload failed'); }
@@ -746,15 +1080,30 @@ class DashboardManager {
         const div = document.createElement('div');
         div.className = 'wave-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;gap:10px;align-items:center;justify-content:space-between';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><i class="fas fa-music"></i><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div></div><audio src="${w.url}" controls style="max-width:260px"></audio><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button>`;
+        const cover = w.coverUrl || 'images/default-bird.png';
+        const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="max-width:260px"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
                 const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: w.title||'Audio', mediaUrl: w.url, mediaType:'audio', visibility:'private', createdAt: new Date().toISOString() });
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (w.title||'Audio'), mediaUrl: w.url, mediaType:'audio', visibility:'private', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (w.authorName||''), coverUrl: (w.coverUrl||'') });
                 this.showSuccess('Shared to your feed (private)');
             }catch(_){ this.showError('Share failed'); }
         };
+        const repostBtn = div.querySelector('.repost-btn');
+        if (repostBtn){ repostBtn.onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (w.title||'Audio'), mediaUrl: w.url, mediaType:'audio', visibility:'public', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (w.authorName||''), coverUrl: (w.coverUrl||'') });
+                this.showSuccess('Reposted to your feed');
+            }catch(_){ this.showError('Repost failed'); }
+        }; }
+        const a = div.querySelector('.liber-lib-audio');
+        if (a){
+            a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
+        }
         return div;
     }
 
@@ -780,8 +1129,11 @@ class DashboardManager {
                         task.on('state_changed', (snap)=>{ if (prog) prog.value = Math.round((snap.bytesTransferred/snap.totalBytes)*100); });
                         await task;
                         const url = await firebase.getDownloadURL(r);
+                        const meProfile = await window.firebaseService.getUserData(me.uid);
+                        const authorName = (meProfile && meProfile.username) || me.email || 'Unknown';
+                        const thumbnailUrl = (meProfile && meProfile.avatarUrl) || '';
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
-                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), visibility: 'public' });
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: 'public', authorId: me.uid, authorName, thumbnailUrl });
                         this.showSuccess('Video uploaded');
                         this.renderVideoLibrary(me.uid);
                     }catch(e){ this.showError('Upload failed'); }
@@ -809,7 +1161,12 @@ class DashboardManager {
         const lib = document.getElementById('video-library'); if (!lib) return;
         lib.innerHTML = '';
         try{
-            const q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+            let q;
+            try{
+                q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(50));
+            }catch(_){
+                q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
+            }
             const snap = await firebase.getDocs(q);
             snap.forEach(d=> lib.appendChild(this.renderVideoItem(d.data())));
         }catch{
@@ -832,17 +1189,30 @@ class DashboardManager {
         const div = document.createElement('div');
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
-        div.innerHTML = `<div style="font-weight:600;margin-bottom:6px">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>
-                         <video src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px"></video>
-                         <button class="btn btn-secondary share-video-btn" style="position:absolute;top:10px;right:10px"><i class="fas fa-share"></i></button>`;
+        const thumb = v.thumbnailUrl || 'images/default-bird.png';
+        const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
+                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px"></video>
+                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
                 const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: v.title||'Video', mediaUrl: v.url, mediaType:'video', visibility:'private', createdAt: new Date().toISOString() });
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (v.title||'Video'), mediaUrl: v.url, mediaType:'video', visibility:'private', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (v.authorName||''), thumbnailUrl: (v.thumbnailUrl||'') });
                 this.showSuccess('Shared to your feed (private)');
             }catch(_){ this.showError('Share failed'); }
         };
+        const rv = div.querySelector('.repost-video-btn');
+        if (rv){ rv.onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (v.title||'Video'), mediaUrl: v.url, mediaType:'video', visibility:'public', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (v.authorName||''), thumbnailUrl: (v.thumbnailUrl||'') });
+                this.showSuccess('Reposted to your feed');
+            }catch(_){ this.showError('Repost failed'); }
+        }; }
+        const vEl = div.querySelector('.liber-lib-video');
+        if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
         return div;
     }
 

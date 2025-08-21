@@ -19,7 +19,10 @@
                     <a href="../../index.html" id="back-btn" class="icon-btn" aria-label="Back to apps"><i class="fas fa-arrow-left"></i></a>
                     <h2>Connections</h2>
                 </div>
-                <button id="new-connection-btn" class="btn">+ Group</button>
+                <div class="header-actions">
+                    <button id="fix-duplicates-btn" class="icon-btn" title="Fix duplicate chats"><i class="fas fa-wand-magic-sparkles"></i></button>
+                    <button id="new-connection-btn" class="btn">+ Group</button>
+                </div>
             </div>
             <div class="connections-panel" id="connections-panel">
                 <div class="search-box">
@@ -47,6 +50,7 @@
                 <div class="header-actions">
                     <button id="voice-call-btn" class="icon-btn" title="Voice call"><i class="fas fa-phone"></i></button>
                     <button id="video-call-btn" class="icon-btn" title="Video call"><i class="fas fa-video"></i></button>
+                    <button id="group-menu-btn" class="icon-btn" title="Group settings"><i class="fas fa-users-gear"></i></button>
                 </div>
             </div>
             <div id="messages" class="messages"></div>
@@ -54,6 +58,7 @@
             <div class="composer">
                 <input id="file-input" type="file" multiple style="display:none" />
                 <button id="attach-btn" class="icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
+                <button id="sticker-btn" class="icon-btn" title="Stickers"><i class="fas fa-note-sticky"></i></button>
                 <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
                 <button id="action-btn" class="icon-btn" title="Send"><i class="fas fa-microphone"></i></button>
                 <div id="recording-indicator" class="recording-indicator hidden">
@@ -63,6 +68,7 @@
                 <div id="recording-review" class="recording-review hidden">
                     <div id="recording-player"></div>
                     <div class="review-actions">
+                        <button id="switch-camera-btn" class="btn secondary" style="display:none">Switch Camera</button>
                         <button id="send-recording-btn" class="btn">Send</button>
                         <button id="discard-recording-btn" class="btn secondary">Discard</button>
                     </div>

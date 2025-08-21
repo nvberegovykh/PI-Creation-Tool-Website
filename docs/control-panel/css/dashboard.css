@@ -6,6 +6,17 @@
     flex-direction: column;
 }
 
+/* Ensure internal sections scroll while the page remains locked */
+.dashboard-content { min-height: 0; overflow: hidden; }
+.content-section { min-height: 0; }
+#apps-section,
+#space-section,
+#feed-section,
+#waveconnect-section,
+#profile-section,
+#users-section,
+#settings-section { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
 /* Dashboard Header */
 .dashboard-header { display:none }
 
@@ -974,8 +985,8 @@
 .mobile-nav-btn.wall-e-btn .nav-icon {
     max-width: 70%;
     max-height: 70%;
-    width: auto;
-    height: auto;
+    width: 70%;
+    height: 70%;
     object-fit: contain;
     display: block;
 }

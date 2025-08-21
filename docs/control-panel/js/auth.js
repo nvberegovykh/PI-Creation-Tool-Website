@@ -267,7 +267,7 @@ class AuthManager {
             attempts++;
         }
         
-        // Try Firebase authentication first (REQUIRED)
+        // First validate email exists, then attempt password; track failures
         if (window.firebaseService && window.firebaseService.isInitialized) {
             try {
                 console.log('Attempting Firebase login (email/password)...');
@@ -275,13 +275,48 @@ class AuthManager {
                     this.showMessage('Please enter a valid email address', 'error');
                     return;
                 }
-                const firebaseUser = await window.firebaseService.signInUser(email, password);
+                // Check if account exists
+                const account = await window.firebaseService.findUserByEmail(email);
+                if (!account){
+                    this.showMessage('No account found with this email address', 'error');
+                    return;
+                }
+                // Check lockout
+                const lockUntilISO = account.lockoutUntil;
+                if (lockUntilISO){
+                    const until = new Date(lockUntilISO).getTime();
+                    const now = Date.now();
+                    if (until && now < until){
+                        const remain = Math.ceil((until-now)/60000);
+                        this.showMessage(`Account locked. Try again in ${remain} minute(s). A password reset email was sent.`, 'error');
+                        return;
+                    }
+                }
+                // Attempt auth
+                let firebaseUser = null;
+                try{
+                    firebaseUser = await window.firebaseService.signInUser(email, password);
+                }catch(authErr){
+                    // Wrong password handling: increment failed attempts and possibly trigger reset
+                    try{
+                        const count = await window.firebaseService.incrementFailedLogin(account.id);
+                        if (Number(count) >= 5){
+                            await window.firebaseService.sendPasswordResetEmail(email);
+                            this.showMessage('Too many failed attempts. A password reset email has been sent.', 'error');
+                        } else {
+                            this.showMessage(`Incorrect password. Attempts left: ${5-Number(count)}.`, 'error');
+                        }
+                    }catch(_){ this.showMessage('Incorrect password', 'error'); }
+                    return;
+                }
                 
                 if (firebaseUser) {
                     // Get user data from Firestore
                     const userData = await window.firebaseService.getUserData(firebaseUser.uid);
                     
                     if (userData) {
+                        // Reset failed attempts on successful login
+                        try{ await window.firebaseService.resetFailedLogin(firebaseUser.uid); }catch(_){}
                         this.currentUser = {
                             id: firebaseUser.uid,
                             username: userData.username,

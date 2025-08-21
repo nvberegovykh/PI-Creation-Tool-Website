@@ -21,6 +21,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 }
 .sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-color,#1f222a);cursor:pointer}
 .sidebar-header .left-actions{display:flex;align-items:center;gap:10px}
+.sidebar-header .header-actions{display:flex;align-items:center;gap:8px}
 .icon-btn{background:transparent;border:none;color:#eaeaea;cursor:pointer;font-size:18px;line-height:1;padding:8px;border-radius:8px}
 .icon-btn:hover{background:#151822}
 .icon-btn i{color:#fff;font-size:18px}
@@ -50,6 +51,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .chat-header h3{font-size:16px;font-weight:600}
 .dialogue-title-bar{position:sticky;bottom:0;left:0;right:0;height:5px;background:#000;color:#fff;display:flex;align-items:center;padding:0 12px}
 .dialogue-title-bar .title{position:relative;top:-22px;font-size:12px;background:#000;padding:2px 6px;border-radius:4px}
+.dialogue-title-bar .title #admin-badge{color:#9aa4b2}
 .call-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;}
 .call-overlay.hidden{display:none}
 .call-videos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center}
@@ -75,6 +77,13 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:#222737}
 .btn.back{display:none}
+/* Sticker panel */
+.sticker-panel{position:absolute;bottom:80px;left:70px;width:320px;max-height:260px;overflow:auto;background:#111418;border:1px solid #2a2f36;border-radius:10px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.4);z-index:92}
+.sticker-panel .panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.sticker-panel .sticker-grid:first-child{margin-bottom:6px;border-bottom:1px dashed #2a2f36;padding-bottom:6px}
+.sticker-grid img{width:70px;height:70px;object-fit:contain;background:#0f1216;border:1px solid #2a2f36;border-radius:8px;cursor:pointer}
+.sticker-pack-actions{display:flex;gap:6px}
 /* Recording indicator */
 .recording-indicator{ position:absolute; left:50%; transform:translateX(-50%); bottom:62px; z-index:30 }
 .recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }
@@ -83,7 +92,15 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .recording-review{ position:absolute; left:0; right:0; bottom:0; background:#0f1116; border-top:1px solid var(--border-color,#1f222a); padding:12px; display:flex; align-items:center; gap:12px }
 .recording-review.hidden{ display:none }
 .recording-review audio,.recording-review video{ max-width:60%; border-radius:8px; background:#000 }
+.recording-review video.circular{ width:180px; height:180px; border-radius:50%; object-fit:cover }
 .review-actions{ display:flex; gap:8px; margin-left:auto }
+/* Group management */
+.group-panel{position:absolute;top:68px;right:16px;width:320px;max-height:320px;overflow:auto;background:#111418;border:1px solid #2a2f36;border-radius:10px;padding:10px;box-shadow:0 10px 24px rgba(0,0,0,.4);z-index:92}
+.group-panel h4{margin:0 0 8px 0}
+.group-list{list-style:none;margin:0;padding:0}
+.group-list li{display:flex;align-items:center;justify-content:space-between;padding:8px;border-bottom:1px solid #1f222a}
+.group-list li:last-child{border-bottom:none}
+.group-actions{display:flex;gap:6px}
 @media(max-width:1024px){.sidebar{width:min(92vw,380px)}}
 @media(max-width:768px){.chat-app{flex-direction:column}.sidebar{width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a)}.main{flex:1;min-height:0}.messages{padding:10px}.message{max-width:85%}.dialogue-title-bar{position:sticky;bottom:0}}
 

@@ -2,6 +2,9 @@
 #space-profile-card .avatar-field{ display:flex; align-items:center; gap:16px; flex-wrap:wrap }
 #space-profile-card .avatar-preview{ flex:1 1 300px }
 #space-profile-card #space-avatar{ width:100%; height:auto; aspect-ratio:1/1; border-radius:12px; object-fit:cover; display:block }
+@media(min-width:1024px){
+  #space-profile-card #space-avatar{ width:50%; height:auto }
+}
 #space-profile-card .avatar-actions{ flex:0 0 auto }
 @media(min-width:1024px){
   #space-profile-card .avatar-preview{ flex-basis:50% }
@@ -10,6 +13,20 @@
 /* Comment tree visuals */
 .comment-tree{ border-left:2px solid #333; margin-left:8px; padding-left:12px }
 .comment-item{ margin:8px 0 }
+.comment-item .reply-input{ background:#14161b; border:1px solid #1f222a; color:#eaeaea; padding:8px 10px; border-radius:8px }
+/* Player widget */
+.media-previews{ display:flex; gap:8px; flex-wrap:wrap }
+.media-previews .chip{ position:relative; border:1px solid var(--border-color); border-radius:8px; padding:6px 8px; background:#0f1116; color:#eaeaea; display:flex; align-items:center; gap:6px }
+.media-previews .chip img,.media-previews .chip video{ width:48px; height:48px; object-fit:cover; border-radius:6px }
+.media-previews .chip .remove{ position:absolute; top:-6px; right:-6px; background:#222737; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.player-card{ background:#0f1116; border:1px solid var(--border-color); border-radius:12px; padding:8px; }
+.player-media{ width:100%; border-radius:8px; background:#000 }
+.player-bar{ display:flex; align-items:center; gap:10px; margin-top:6px }
+.btn-icon{ background:#222737; border:none; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.player-bar .progress{ position:relative; flex:1; height:6px; background:#1b1e28; border-radius:999px; overflow:hidden; cursor:pointer }
+.player-bar .progress .fill{ position:absolute; left:0; top:0; bottom:0; width:0%; background:#ff6a00 }
+.player-bar .progress .knob{ position:absolute; top:50%; transform:translate(-50%, -50%); width:12px; height:12px; background:#fff; border-radius:50%; box-shadow:0 0 0 2px rgba(255,255,255,.2) }
+.player-bar .time{ font-size:12px; color:#ccc; min-width:60px; text-align:right }
 /* Global Styles */
 * {
     margin: 0;
@@ -54,6 +71,8 @@ body {
 .content-section, .settings-grid, .settings-card, .connections-list, .messages, #apps-grid, #space-feed, #video-library, #wave-library {
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* Hide scrollbars globally while preserving scroll */
@@ -72,6 +91,32 @@ img, video, canvas, svg, iframe {
     height: auto;
     display: block;
 }
+
+/* Sticky mini player */
+.mini-player{ position:fixed; left:12px; right:12px; bottom:72px; background:#0f1116; border:1px solid var(--border-color); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.4); padding:8px 12px; display:none; align-items:center; gap:10px; z-index:900 }
+.mini-player.show{ display:flex }
+.mini-player .cover{ width:40px; height:40px; border-radius:8px; object-fit:cover }
+.mini-player .title{ font-weight:600 }
+.mini-player .by{ font-size:12px; color:#aaa }
+
+/* Micro-interactions */
+.post-actions .fa-heart,.post-actions .fa-retweet,.post-actions .fa-comment,.post-actions .post-menu{ transition: transform .12s ease, color .12s ease }
+.post-actions .fa-heart:active,.post-actions .fa-retweet:active,.post-actions .fa-comment:active{ transform: scale(1.15) }
+.post-actions .fa-heart.active{ color:#ff4d4f }
+.post-actions .fa-retweet.active{ color:#22c55e }
+
+.icon-btn:hover,.btn-icon:hover{ filter: brightness(1.1) }
+
+.comment-tree{ transition: max-height .2s ease }
+
+/* Double-tap like pulse */
+@keyframes liber-like-pulse{
+  0%{ transform: scale(0.6); opacity: 0.0 }
+  40%{ transform: scale(1.0); opacity: 0.9 }
+  100%{ transform: scale(1.2); opacity: 0.0 }
+}
+.dbl-like-pulse{ position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); pointer-events:none; color:#ff4d4f; font-size:56px; opacity:0; animation: liber-like-pulse .6s ease forwards }
+.post-item{ position:relative }
 
 table {
     width: 100%;

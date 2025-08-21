@@ -88,7 +88,7 @@ class SecureKeyManager {
         this.lastFetch = 0;
         this.keyUrl = null; // Force re-fetch of URL
         
-        console.log('Cleared all encrypted data due to key change');
+        if (window.__DEBUG_KEYS__) console.log('Cleared all encrypted data due to key change');
     }
 
     /**
@@ -98,7 +98,7 @@ class SecureKeyManager {
         this.cachedKeys = null;
         this.lastFetch = 0;
         this.keyUrl = null;
-        console.log('Forced refresh of keys from Gist');
+        if (window.__DEBUG_KEYS__) console.log('Forced refresh of keys from Gist');
     }
 
     /**
@@ -109,7 +109,7 @@ class SecureKeyManager {
         
         // If no URL configured, use default credentials
         if (!url) {
-            console.warn('No key source URL configured. Using default credentials.');
+            if (window.__DEBUG_KEYS__) console.warn('No key source URL configured. Using default credentials.');
             return await this.generateDefaultCredentials();
         }
 
@@ -122,19 +122,19 @@ class SecureKeyManager {
             // Fetch from secure source with fallback to latest-raw if a specific commit 404s
             let response = await fetch(url);
             if (!response.ok) {
-                console.warn(`Failed to fetch secure keys (HTTP ${response.status}). Retrying with latest raw pointer...`);
+                if (window.__DEBUG_KEYS__) console.warn(`Failed to fetch secure keys (HTTP ${response.status}). Retrying with latest raw pointer...`);
                 // If the URL was a commit-specific raw path and returned 404, try the latest raw pointer
                 try {
                     const latestRaw = url.replace(/\/raw\/[A-Za-z0-9]+\//, '/raw/');
                     if (latestRaw !== url) {
-                        console.log('Retrying keys fetch via latest raw pointer');
+                        if (window.__DEBUG_KEYS__) console.log('Retrying keys fetch via latest raw pointer');
                         response = await fetch(latestRaw + (latestRaw.includes('?') ? '&' : '?') + 't=' + Date.now());
                     }
                 } catch (e) {
-                    console.warn('Latest-raw fallback construction failed');
+                    if (window.__DEBUG_KEYS__) console.warn('Latest-raw fallback construction failed');
                 }
                 if (!response.ok) {
-                    console.warn('Fallback fetch failed as well. Using default credentials.');
+                    if (window.__DEBUG_KEYS__) console.warn('Fallback fetch failed as well. Using default credentials.');
                     return await this.generateDefaultCredentials();
                 }
             }
@@ -142,12 +142,11 @@ class SecureKeyManager {
             const keysData = await response.json();
             
             // Debug: Log what we got from Gist
-            console.log('=== Gist Data Debug (redacted) ===');
-            console.log('Has firebase config:', !!keysData.firebase);
+            if (window.__DEBUG_KEYS__) { console.log('=== Gist Data Debug (redacted) ==='); console.log('Has firebase config:', !!keysData.firebase); }
             
             // Validate keys structure
             if (!this.validateKeys(keysData)) {
-                console.warn('Invalid keys format from Gist. Using default credentials.');
+                if (window.__DEBUG_KEYS__) console.warn('Invalid keys format from Gist. Using default credentials.');
                 return await this.generateDefaultCredentials();
             }
 
@@ -156,19 +155,17 @@ class SecureKeyManager {
             const correctHash = '597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2';
             
             if (keysData.admin && keysData.admin.passwordHash === placeholderHash) {
-                console.warn('Gist contains placeholder hash. Using default credentials.');
-                console.warn('Please update your Gist with the correct hash. Run this in browser console:');
-                console.warn('await window.secureKeyManager.getCorrectAdminHash()');
+                if (window.__DEBUG_KEYS__) { console.warn('Gist contains placeholder hash. Using default credentials.'); console.warn('Please update your Gist with the correct hash. Run this in browser console:'); console.warn('await window.secureKeyManager.getCorrectAdminHash()'); }
                 return await this.generateDefaultCredentials();
             }
             
             // If we have the correct hash, clear any old encrypted data
             if (keysData.admin && keysData.admin.passwordHash === correctHash) {
-                console.log('✅ Correct hash detected in Gist.');
+                if (window.__DEBUG_KEYS__) console.log('✅ Correct hash detected in Gist.');
                 // Only clear data if we're switching from fallback to Gist
                 if (this.cachedKeys && this.cachedKeys.admin && 
                     this.cachedKeys.admin.username === 'admin_fallback') {
-                    console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
+                    if (window.__DEBUG_KEYS__) console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
                     this.clearAllEncryptedData();
                 }
             }
@@ -183,7 +180,7 @@ class SecureKeyManager {
 
             // If switching from fallback to Gist, clear old encrypted data
             if (wasUsingFallback && isNowUsingGist) {
-                console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
+                if (window.__DEBUG_KEYS__) console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
                 this.clearAllEncryptedData();
             }
 

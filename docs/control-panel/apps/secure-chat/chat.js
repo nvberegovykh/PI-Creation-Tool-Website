@@ -11,6 +11,17 @@
       this.init();
     }
 
+    computeConnKey(uids){
+      try{ return (uids||[]).slice().sort().join('|'); }catch(_){ return ''; }
+    }
+
+    async findConnectionByKey(key){
+      try{
+        const q = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('key','==', key), firebase.limit(1));
+        const s = await firebase.getDocs(q); let id=null; s.forEach(d=> id=d.id); return id;
+      }catch(_){ return null; }
+    }
+
     async getIceServers(){
       try{
         if (window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function'){
@@ -36,11 +47,16 @@
       this.currentUser = await window.firebaseService.getCurrentUser();
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
+      // If a connId is provided via query param, set active after connections load
+      try{
+        const params = new URLSearchParams(location.search);
+        this._deepLinkConnId = params.get('connId') || null;
+      }catch(_){ this._deepLinkConnId = null; }
       await this.loadConnections();
     }
 
     bindUI(){
-      document.getElementById('new-connection-btn').addEventListener('click', ()=> this.promptNewConnection());
+      document.getElementById('new-connection-btn').addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
       const actionBtn = document.getElementById('action-btn');
       actionBtn.addEventListener('click', ()=> this.handleActionButton());
       actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
@@ -48,6 +64,8 @@
       ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
+      const stickerBtn = document.getElementById('sticker-btn');
+      if (stickerBtn){ stickerBtn.addEventListener('click', ()=> this.toggleStickers()); }
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
       const userSearch = document.getElementById('user-search');
       if (userSearch){
@@ -72,6 +90,8 @@
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.startVideoCall());
+      const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
+      const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       // Drag & Drop upload within chat app area
@@ -147,6 +167,59 @@
           }
         }
       });
+    }
+
+    async fixDuplicateConnections(){
+      try{
+        const all = [];
+        const q = firebase.query(
+          firebase.collection(this.db,'chatConnections'),
+          firebase.where('participants','array-contains', this.currentUser.uid)
+        );
+        const snap = await firebase.getDocs(q); snap.forEach(d=> all.push({ id:d.id, ...d.data() }));
+        // Group by stable key of participants
+        const groups = new Map();
+        for (const c of all){
+          const key = c.key || this.computeConnKey(c.participants||[]);
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(c);
+        }
+        let merged = 0;
+        for (const [key, conns] of groups.entries()){
+          if (conns.length <= 1) continue;
+          // Keep the newest (by updatedAt), merge others into it
+          conns.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+          const keep = conns[0];
+          const remove = conns.slice(1);
+          for (const r of remove){
+            try{
+              // Move messages from r to keep by copying docs
+              const srcCol = firebase.collection(this.db,'chatMessages', r.id, 'messages');
+              const dstCol = firebase.collection(this.db,'chatMessages', keep.id, 'messages');
+              const ms = await firebase.getDocs(srcCol);
+              for (const m of ms.docs){
+                const data = m.data();
+                const newRef = firebase.doc(dstCol);
+                await firebase.setDoc(newRef, { ...data, id: newRef.id, connId: keep.id });
+              }
+              // Delete source connection and its subcollection docs
+              // Delete messages collection docs first
+              for (const m of ms.docs){
+                try{ await firebase.deleteDoc(firebase.doc(this.db,'chatMessages', r.id, 'messages', m.id)); }catch(_){ }
+              }
+              await firebase.deleteDoc(firebase.doc(this.db,'chatConnections', r.id));
+              merged++;
+            }catch(_){ /* ignore per-duplicate failure */ }
+          }
+          // Normalize keep doc fields and ensure key/ids
+          try{
+            const k = keep.key || this.computeConnKey(keep.participants||[]);
+            await firebase.updateDoc(firebase.doc(this.db,'chatConnections', keep.id),{ key: k, updatedAt: new Date().toISOString() });
+          }catch(_){ }
+        }
+        alert(merged>0 ? `Merged ${merged} duplicate chats.` : 'No duplicates found.');
+        await this.loadConnections();
+      }catch(e){ alert('Failed to fix duplicates'); }
     }
 
     refreshActionButton(){
@@ -231,19 +304,31 @@
         createBtn.onclick = async ()=>{
           const members = Array.from(this.groupSelection.values());
           if (members.length === 0){ this.isGroupMode = false; if (panel) panel.style.display='none'; return; }
-          const participantUids = [this.currentUser.uid, ...members.map(m=> m.uid||m.id)];
-          const participantNames = [ (this.me&&this.me.username) || (this.currentUser.email||'me'), ...members.map(m=> m.username||m.email) ];
-          const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-          const connId = newRef.id;
-          await firebase.setDoc(newRef,{
-            id: connId,
-            participants: participantUids,
-            participantUsernames: participantNames,
-            pairKey: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            lastMessage:''
-          });
+          let baseUids = Array.isArray(this.groupBaseParticipants)? this.groupBaseParticipants.slice() : [this.currentUser.uid];
+          const addUids = members.map(m=> m.uid||m.id);
+          const participantUids = Array.from(new Set([...baseUids, ...addUids]));
+          const myName = (this.me&&this.me.username) || (this.currentUser.email||'me');
+          const nameMap = new Map();
+          nameMap.set(this.currentUser.uid, myName);
+          members.forEach(m=> nameMap.set(m.uid||m.id, m.username||m.email));
+          const participantNames = participantUids.map(uid=> nameMap.get(uid) || uid);
+          const key = this.computeConnKey(participantUids);
+          let connId = await this.findConnectionByKey(key);
+          if (!connId){
+            // Use stable key as ID to avoid duplicates
+            const newRef = firebase.doc(this.db,'chatConnections', key);
+            connId = key;
+            await firebase.setDoc(newRef,{
+              id: connId,
+              key,
+              participants: participantUids,
+              participantUsernames: participantNames,
+              admins: [this.currentUser.uid],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              lastMessage:''
+            });
+          }
           this.isGroupMode = false;
           if (panel) panel.style.display='none';
           await this.loadConnections();
@@ -281,28 +366,63 @@
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         this.connections = temp;
       }
+      const seen = new Set();
       this.connections.forEach(c=>{
+        const key = c.key || this.computeConnKey(c.participants||[]);
+        if (seen.has(key)) return; seen.add(key);
         const li = document.createElement('li');
         let label = c.id;
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-          const other = c.participantUsernames.find(n=> (n||'').toLowerCase() !== myNameLower);
-          if (other) label = other;
+          const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
+          if (others.length===1) label = others[0];
+          else if (others.length>1){
+            label = others.slice(0,2).join(', ');
+            if (others.length>2) label += `, +${others.length-2}`;
+          }
         }
         li.textContent = label;
+        // Admin badge in header when active
+        li.addEventListener('mouseenter', ()=> li.classList.add('active-hover'));
         li.addEventListener('click',()=>{
           this.setActive(c.id);
           const sidebar = document.querySelector('.sidebar');
           if (sidebar) sidebar.classList.remove('open');
+          setTimeout(async()=>{
+            try{
+              const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', c.id));
+              const data = snap.exists()? snap.data():null;
+              const admins = Array.isArray(data?.admins)? data.admins: [];
+              const hdr = document.querySelector('.chat-header h3');
+              const titleBar = document.getElementById('active-connection-name');
+              if (titleBar){
+                const badgeId = 'admin-badge';
+                let badge = document.getElementById(badgeId);
+                if (!badge){
+                  badge = document.createElement('span'); badge.id = badgeId; badge.style.marginLeft='8px'; badge.style.fontSize='12px'; badge.style.opacity='.8';
+                  titleBar.parentElement && titleBar.parentElement.appendChild(badge);
+                }
+                badge.textContent = admins.includes(this.currentUser.uid) ? '(Admin)' : '';
+              }
+            }catch(_){ }
+          }, 50);
         });
         listEl.appendChild(li);
       });
+      // Deep link: open provided connection once
+      if (this._deepLinkConnId){
+        const target = this.connections.find(c=> c.id === this._deepLinkConnId);
+        if (target){ this.setActive(target.id); }
+        this._deepLinkConnId = null;
+      }
     }
 
     async setActive(connId, displayName){
       this.activeConnection = connId;
       document.getElementById('active-connection-name').textContent = displayName||connId;
       await this.loadMessages();
+      // refresh group panel if open
+      const gp = document.getElementById('group-panel'); if (gp){ await this.renderGroupPanel(); }
     }
 
     async loadMessages(){
@@ -311,11 +431,20 @@
       if (!this.activeConnection) return;
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
-        const q = firebase.query(
-          firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
-          firebase.orderBy('createdAt','asc'),
-          firebase.limit(200)
-        );
+        let q;
+        try{
+          q = firebase.query(
+            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.orderBy('createdAtTS','asc'),
+            firebase.limit(200)
+          );
+        }catch(_){
+          q = firebase.query(
+            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.orderBy('createdAt','asc'),
+            firebase.limit(200)
+          );
+        }
         const handleSnap = async (snap)=>{
           box.innerHTML='';
           let aesKey = await this.getFallbackKey();
@@ -464,6 +593,134 @@
       }
     }
 
+    /* Stickerpacks */
+    async toggleStickers(){
+      const existing = document.getElementById('sticker-panel');
+      if (existing){ existing.remove(); return; }
+      const panel = document.createElement('div'); panel.id='sticker-panel'; panel.className='sticker-panel';
+      panel.innerHTML = `
+        <div class="panel-header">
+          <strong>Stickers</strong>
+          <div class="sticker-pack-actions">
+            <button class="btn secondary" id="add-pack-btn">Add pack</button>
+            <button class="btn secondary" id="manage-packs-btn">Manage</button>
+            <button class="btn secondary" id="close-stickers-btn">Close</button>
+          </div>
+        </div>
+        <div id="sticker-grid" class="sticker-grid"></div>
+        <input id="sticker-pack-input" type="file" accept="image/png" multiple style="display:none" />
+      `;
+      document.querySelector('.main').appendChild(panel);
+      document.getElementById('close-stickers-btn').onclick = ()=> panel.remove();
+      document.getElementById('add-pack-btn').onclick = ()=> document.getElementById('sticker-pack-input').click();
+      document.getElementById('sticker-pack-input').onchange = (e)=> this.addStickerFiles(e.target.files);
+      document.getElementById('manage-packs-btn').onclick = ()=> this.manageStickerpacks();
+      await this.renderStickerGrid();
+    }
+
+    async getStickerIndex(){
+      try{
+        const raw = localStorage.getItem('liber_stickerpacks');
+        const obj = raw ? JSON.parse(raw) : { packs: [] };
+        if (!Array.isArray(obj.packs)) obj.packs = [];
+        return obj;
+      }catch(_){ return { packs: [] }; }
+    }
+    async setStickerIndex(idx){ localStorage.setItem('liber_stickerpacks', JSON.stringify(idx)); }
+
+    async addStickerFiles(fileList){
+      if (!fileList || !fileList.length) return;
+      const idx = await this.getStickerIndex();
+      // Current pack is timestamp-based
+      const packId = 'pack_'+Date.now();
+      const pack = { id: packId, name: 'My pack '+new Date().toLocaleDateString(), items: [] };
+      // Store PNGs to Firebase Storage encrypted, keep manifest locally with storage URLs
+      for (const f of fileList){
+        if (!/\.png$/i.test(f.name)) continue;
+        try{
+          const aesKey = await this.getFallbackKey();
+          const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
+          const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
+          const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+          const path = `stickers/${this.currentUser.uid}/${Date.now()}_${safeName}.enc.json`;
+          const sref = firebase.ref(this.storage, path);
+          await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
+          const url = await firebase.getDownloadURL(sref);
+          pack.items.push({ name: safeName, url });
+        }catch(_){ /* skip failed file */ }
+      }
+      if (pack.items.length){ idx.packs.unshift(pack); await this.setStickerIndex(idx); await this.renderStickerGrid(); }
+    }
+
+    async renderStickerGrid(){
+      const grid = document.getElementById('sticker-grid'); if (!grid) return;
+      grid.innerHTML='';
+      const idx = await this.getStickerIndex();
+      // Most used quick row
+      const rec = JSON.parse(localStorage.getItem('liber_sticker_recents')||'[]');
+      if (Array.isArray(rec) && rec.length){
+        const frag = document.createElement('div'); frag.className='sticker-grid';
+        rec.slice(0,8).forEach(item=>{
+          const cell = document.createElement('div');
+          const img = document.createElement('img'); img.alt = item.name;
+          (async()=>{
+            try{ const res=await fetch(item.url); const payload=await res.json(); const b64=await chatCrypto.decryptWithKey(payload, await this.getFallbackKey()); const blob=this.base64ToBlob(b64,'image/png'); img.src=URL.createObjectURL(blob);}catch(_){ }
+          })();
+          cell.appendChild(img); cell.addEventListener('click', ()=> this.sendSticker(item)); frag.appendChild(cell);
+        });
+        grid.appendChild(frag);
+      }
+      const aesKey = await this.getFallbackKey();
+      for (const p of idx.packs){
+        for (const it of p.items){
+          const cell = document.createElement('div');
+          const img = document.createElement('img');
+          img.alt = it.name;
+          // Lazy load with decrypted thumb (best-effort)
+          (async()=>{
+            try{
+              const res = await fetch(it.url); const payload = await res.json();
+              const b64 = await chatCrypto.decryptWithKey(payload, aesKey);
+              const blob = this.base64ToBlob(b64, 'image/png');
+              img.src = URL.createObjectURL(blob);
+            }catch(_){ img.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABdQh3VwAAAABJRU5ErkJggg=='; }
+          })();
+          cell.appendChild(img);
+          cell.addEventListener('click', ()=> this.sendSticker(it));
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    async manageStickerpacks(){
+      try{
+        const idx = await this.getStickerIndex();
+        const names = idx.packs.map((p,i)=> `${i+1}. ${p.name} (${p.items.length})`).join('\n');
+        const pick = prompt(`Your stickerpacks:\n${names}\n\nType number to delete or rename, or leave blank to close:`);
+        if (!pick) return;
+        const n = parseInt(pick,10); if (!Number.isFinite(n) || n<1 || n>idx.packs.length) return;
+        const act = prompt('Type "d" to delete, or enter new name to rename:');
+        if (!act) return;
+        if (act.toLowerCase()==='d'){ idx.packs.splice(n-1,1); await this.setStickerIndex(idx); await this.renderStickerGrid(); return; }
+        idx.packs[n-1].name = act; await this.setStickerIndex(idx); await this.renderStickerGrid();
+      }catch(_){ }
+    }
+
+    async sendSticker(item){
+      if (!this.activeConnection) return;
+      try{
+        // Simply send as a file message with original encrypted JSON URL and filename
+        // The renderer already handles decryption and preview
+        await this.saveMessage({ text: '[sticker]', fileUrl: item.url, fileName: item.name });
+        // update recents
+        try{
+          const curr = JSON.parse(localStorage.getItem('liber_sticker_recents')||'[]').filter(x=> x.url!==item.url);
+          curr.unshift(item); localStorage.setItem('liber_sticker_recents', JSON.stringify(curr.slice(0,24)));
+        }catch(_){ }
+        const pnl = document.getElementById('sticker-panel'); if (pnl) pnl.remove();
+      }catch(_){ alert('Failed to send sticker'); }
+    }
+
     async saveMessage({text,fileUrl,fileName}){
       const aesKey = await this.getFallbackKey();
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
@@ -475,7 +732,8 @@
         cipher,
         fileUrl: fileUrl||null,
         fileName: fileName||null,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        createdAtTS: firebase.serverTimestamp()
       });
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',this.activeConnection),{
         lastMessage: text.slice(0,200),
@@ -484,6 +742,87 @@
       // Notify recipients (best-effort)
       this.notifyParticipants(text);
       await this.loadMessages();
+    }
+
+    /* Group admin management */
+    async toggleGroupPanel(){
+      const existing = document.getElementById('group-panel');
+      if (existing){ existing.remove(); return; }
+      const panel = document.createElement('div'); panel.id='group-panel'; panel.className='group-panel';
+      panel.innerHTML = `<h4>Group</h4><div id="group-summary"></div><ul id="group-list" class="group-list"></ul><div class="group-actions"><button class="btn secondary" id="add-member-btn">Add member</button><button class="btn secondary" id="close-group-btn">Close</button></div>`;
+      document.querySelector('.main').appendChild(panel);
+      document.getElementById('close-group-btn').onclick = ()=> panel.remove();
+      document.getElementById('add-member-btn').onclick = async ()=>{
+        const s=document.getElementById('user-search');
+        try{
+          const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+          if (snap.exists()) this.groupBaseParticipants = (snap.data().participants||[]);
+        }catch(_){ this.groupBaseParticipants = null; }
+        if(s){ this.isGroupMode=true; this.groupSelection=this.groupSelection||new Map(); s.focus(); }
+      };
+      await this.renderGroupPanel();
+    }
+
+    async renderGroupPanel(){
+      const list = document.getElementById('group-list'); const summary = document.getElementById('group-summary');
+      if (!list || !this.activeConnection) return;
+      list.innerHTML=''; if (summary) summary.textContent='';
+      try{
+        const doc = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+        if (!doc.exists()) return;
+        const conn = doc.data();
+        const participants = Array.isArray(conn.participants)? conn.participants:[];
+        const usernames = Array.isArray(conn.participantUsernames)? conn.participantUsernames:[];
+        const admins = Array.isArray(conn.admins)? conn.admins : [participants[0]].filter(Boolean);
+        if (!Array.isArray(conn.admins)){
+          await firebase.updateDoc(firebase.doc(this.db,'chatConnections', this.activeConnection),{ admins });
+        }
+        const amAdmin = admins.includes(this.currentUser.uid);
+        if (summary){ summary.innerHTML = `Members: ${participants.length} · Admins: ${admins.length}${amAdmin? ' · You are admin':''}`; }
+        for (let i=0;i<participants.length;i++){
+          const uid = participants[i]; const name = usernames[i] || uid;
+          const li = document.createElement('li');
+          const left = document.createElement('span'); left.textContent = name + (admins.includes(uid)? ' (admin)':'');
+          const right = document.createElement('span');
+          if (amAdmin && uid !== this.currentUser.uid){
+            const rm = document.createElement('button'); rm.className='btn secondary'; rm.textContent='Remove'; rm.onclick = ()=> this.removeMember(uid);
+            right.appendChild(rm);
+            const isAdmin = admins.includes(uid);
+            const toggle = document.createElement('button'); toggle.className='btn secondary'; toggle.textContent = isAdmin? 'Revoke admin':'Make admin'; toggle.onclick = ()=> this.toggleAdmin(uid, !isAdmin);
+            right.appendChild(toggle);
+          }
+          li.appendChild(left); li.appendChild(right); list.appendChild(li);
+        }
+      }catch(_){ }
+    }
+
+    async removeMember(uid){
+      try{
+        const ref = firebase.doc(this.db,'chatConnections', this.activeConnection);
+        const doc = await firebase.getDoc(ref); if (!doc.exists()) return;
+        const conn = doc.data();
+        const parts = (conn.participants||[]).filter(x=> x!==uid);
+        const names = (conn.participantUsernames||[]).filter((_,i)=> (conn.participants||[])[i]!==uid);
+        let admins = Array.isArray(conn.admins)? conn.admins: [];
+        admins = admins.filter(x=> x!==uid);
+        await firebase.updateDoc(ref, { participants: parts, participantUsernames: names, admins, updatedAt: new Date().toISOString() });
+        // Recompute key and possibly merge with existing connection with same set
+        const key = this.computeConnKey(parts);
+        await firebase.updateDoc(ref, { key });
+        await this.renderGroupPanel(); await this.loadConnections();
+      }catch(_){ alert('Failed to remove member'); }
+    }
+
+    async toggleAdmin(uid, make){
+      try{
+        const ref = firebase.doc(this.db,'chatConnections', this.activeConnection);
+        const doc = await firebase.getDoc(ref); if (!doc.exists()) return;
+        let admins = Array.isArray(doc.data().admins)? doc.data().admins: [];
+        if (make){ if (!admins.includes(uid)) admins.push(uid); }
+        else { admins = admins.filter(x=> x!==uid); }
+        await firebase.updateDoc(ref, { admins, updatedAt: new Date().toISOString() });
+        await this.renderGroupPanel();
+      }catch(_){ alert('Failed to update admin'); }
     }
 
     async notifyParticipants(plaintext){
@@ -583,6 +922,14 @@
       const n = (name||'').toLowerCase();
       return n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.gif') || n.endsWith('.webp');
     }
+    isVideoFilename(name){
+      const n = (name||'').toLowerCase();
+      return n.endsWith('.mp4') || n.endsWith('.webm') || n.endsWith('.mov') || n.endsWith('.mkv');
+    }
+    isAudioFilename(name){
+      const n = (name||'').toLowerCase();
+      return n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
+    }
 
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey){
       try {
@@ -602,6 +949,20 @@
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
           containerEl.appendChild(img);
+        } else if (this.isVideoFilename(fileName)){
+          const mime = 'video/webm';
+          const blob = this.base64ToBlob(b64, mime);
+          const url = URL.createObjectURL(blob);
+          const video = document.createElement('video');
+          video.src = url; video.controls = true; video.playsInline = true; video.style.maxWidth = '100%'; video.style.borderRadius='8px';
+          containerEl.appendChild(video);
+        } else if (this.isAudioFilename(fileName)){
+          const mime = 'audio/webm';
+          const blob = this.base64ToBlob(b64, mime);
+          const url = URL.createObjectURL(blob);
+          const audio = document.createElement('audio');
+          audio.src = url; audio.controls = true; audio.style.width = '100%';
+          containerEl.appendChild(audio);
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const url = URL.createObjectURL(blob);
@@ -638,7 +999,27 @@
       try{
         if (window.firebaseService && window.firebaseService.isFirebaseAvailable()){
           const users = await window.firebaseService.searchUsers(term.toLowerCase());
-          const filtered = (users||[]).filter(u=> u.uid !== (this.currentUser&&this.currentUser.uid));
+          // Rank by fuzzy score + recency (last messaged) + frequency placeholder
+          const filtered = (users||[]).filter(u=> u.uid !== (this.currentUser&&this.currentUser.uid)).map(u=>{
+            const name = (u.username||'').toLowerCase(); const mail=(u.email||'').toLowerCase(); const t=term.toLowerCase();
+            const contains = (s)=> s.includes(t);
+            const prefix = (s)=> s.startsWith(t);
+            const subseq = (s)=>{ let i=0; for (const ch of s){ if (ch===t[i]) i++; if (i===t.length) return true; } return t.length===0; };
+            let score = 0; if (prefix(name)||prefix(mail)) score+=3; if (contains(name)||contains(mail)) score+=2; if (subseq(name)||subseq(mail)) score+=1;
+            // recent conversation boost
+            let recentBoost = 0;
+            try{
+              const existingKey = this.computeConnKey([this.currentUser.uid, u.uid||u.id]);
+              const conn = this.connections.find(c=> (c.key||this.computeConnKey(c.participants||[]))===existingKey);
+              if (conn && conn.updatedAt){
+                const age = Date.now() - new Date(conn.updatedAt).getTime();
+                recentBoost = Math.max(0, 5 - Math.log10(1+age/86400000));
+              }
+            }catch(_){ }
+            return {u, score: score + recentBoost};
+          })
+          .sort((a,b)=> b.score - a.score)
+          .map(x=> x.u);
           if (filtered.length > 0){
             if (userGroup) userGroup.style.display='block';
             filtered.slice(0,20).forEach(u=>{
@@ -667,26 +1048,18 @@
                 wrapper.style.display='none';
                 if (search) search.value = '';
                 const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
-                const pairKey = [myName.toLowerCase(), (u.username||'').toLowerCase()].sort().join('|');
-                let existingId = null;
-                try {
-                  const q = firebase.query(
-                    firebase.collection(this.db,'chatConnections'),
-                    firebase.where('pairKey','==', pairKey),
-                    firebase.limit(1)
-                  );
-                  const snap = await firebase.getDocs(q);
-                  snap.forEach(d=> existingId = d.id);
-                } catch {}
-                let connId = existingId;
+                const uids = [this.currentUser.uid, u.uid||u.id];
+                const key = this.computeConnKey(uids);
+                let connId = await this.findConnectionByKey(key);
                 if (!connId){
-                  const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-                  connId = newRef.id;
+                  const newRef = firebase.doc(this.db,'chatConnections', key);
+                  connId = key;
                   await firebase.setDoc(newRef,{
                     id: connId,
-                    participants:[this.currentUser.uid, u.uid||u.id],
+                    key,
+                    participants: uids,
                     participantUsernames:[myName, u.username||u.email],
-                    pairKey,
+                    admins: [this.currentUser.uid],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                     lastMessage:''
@@ -733,8 +1106,9 @@
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; } };
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
         if (ov){ ov.classList.remove('hidden'); }
+        try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
         pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
@@ -774,8 +1148,9 @@
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; } };
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
         if (ov){ ov.classList.remove('hidden'); }
+        try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const answersRef = firebase.collection(this.db,'calls',callId,'answers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
         pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'answer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
@@ -796,6 +1171,45 @@
         if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
         if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
       }catch(e){ console.warn('Answer call failed', e); }
+    }
+
+    async _renderParticipants(){
+      try{
+        const cont = document.getElementById('call-participants'); if (!cont) return;
+        cont.innerHTML='';
+        const selfAvatar = (this.me && this.me.avatarUrl) || 'images/default-bird.png';
+        const local = document.createElement('div'); local.className = 'avatar local connected'; local.innerHTML = `<img src="${selfAvatar}" alt="me"/>`;
+        cont.appendChild(local);
+        // Peer
+        const peerUid = await this.getPeerUid();
+        let peerAvatar = 'images/default-bird.png';
+        try{ const d = await window.firebaseService.getUserData(peerUid); if (d && d.avatarUrl) peerAvatar = d.avatarUrl; }catch(_){ }
+        const remote = document.createElement('div'); remote.className = 'avatar remote connected'; remote.innerHTML = `<img src="${peerAvatar}" alt="peer"/>`;
+        cont.appendChild(remote);
+      }catch(_){ }
+    }
+
+    _attachSpeakingDetector(stream, selector){
+      try{
+        const el = document.querySelector(selector); if (!el) return;
+        const ac = new (window.AudioContext || window.webkitAudioContext)();
+        const src = ac.createMediaStreamSource(stream);
+        const analyser = ac.createAnalyser(); analyser.fftSize = 512;
+        src.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        let rafId = 0;
+        const tick = ()=>{
+          analyser.getByteFrequencyData(data);
+          let sum = 0; for (let i=0;i<data.length;i++) sum += data[i];
+          const avg = sum / data.length;
+          if (avg > 30){ el.classList.add('speaking'); } else { el.classList.remove('speaking'); }
+          rafId = requestAnimationFrame(tick);
+        };
+        tick();
+        // Stop when stream ends
+        const stop = ()=>{ try{ cancelAnimationFrame(rafId); }catch(_){} try{ ac.close(); }catch(_){} };
+        stream.getTracks().forEach(t=> t.addEventListener('ended', stop));
+      }catch(_){ }
     }
     async recordVoiceMessage(){
       try{
@@ -841,4 +1255,52 @@
 })();
  
 // Review helpers
-SecureChatApp.prototype.showRecordingReview = SecureChatApp.prototype.showRecordingReview || function(){};
+SecureChatApp.prototype.showRecordingReview = SecureChatApp.prototype.showRecordingReview || function(blob, filename){
+  try{
+    const review = document.getElementById('recording-review');
+    const player = document.getElementById('recording-player');
+    const sendBtn = document.getElementById('send-recording-btn');
+    const discardBtn = document.getElementById('discard-recording-btn');
+    const switchBtn = document.getElementById('switch-camera-btn');
+    if (!review || !player || !sendBtn || !discardBtn) return;
+    player.innerHTML = '';
+    const url = URL.createObjectURL(blob);
+    const isVideo = (blob.type||'').startsWith('video');
+    const mediaEl = document.createElement(isVideo ? 'video' : 'audio');
+    mediaEl.controls = true; mediaEl.src = url; mediaEl.style.maxWidth = '100%'; mediaEl.playsInline = true; if (isVideo){ mediaEl.classList.add('circular'); } player.appendChild(mediaEl);
+    review.classList.remove('hidden');
+    const input = document.getElementById('message-input'); if (input) input.style.display='none';
+    const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-paper-plane"></i>'; }
+    const self = window.secureChatApp;
+    if (switchBtn){ switchBtn.style.display = isVideo ? 'inline-block':'none'; }
+    if (switchBtn && isVideo){
+      switchBtn.onclick = async ()=>{
+        try{
+          // Toggle between user/environment
+          const currFacing = self._recFacing || 'user';
+          const next = currFacing === 'user' ? 'environment' : 'user';
+          self._recFacing = next;
+          const newStream = await navigator.mediaDevices.getUserMedia({ audio:true, video:{ facingMode: next } });
+          // restart capture
+          await self.captureMedia(newStream, { mimeType: 'video/webm;codecs=vp9' }, 30_000, 'video.webm');
+        }catch(_){ }
+      };
+    }
+    sendBtn.onclick = async ()=>{
+      try{
+        const aesKey = await self.getFallbackKey();
+        const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
+        const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
+        const safe = (`chat/${self.activeConnection}/${Date.now()}_${filename}`).replace(/[^a-zA-Z0-9._-]/g,'_');
+        const sref = firebase.ref(self.storage, `${safe}.enc.json`);
+        await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
+        const url2 = await firebase.getDownloadURL(sref);
+        await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
+      }catch(_){ alert('Failed to send recording'); }
+      finally{
+        review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton();
+      }
+    };
+    discardBtn.onclick = ()=>{ review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton(); };
+  }catch(_){ }
+};

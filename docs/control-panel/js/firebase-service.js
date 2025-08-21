@@ -129,11 +129,13 @@ class FirebaseService {
 
             // Set up auth state listener
             firebase.onAuthStateChanged(this.auth, (user) => {
-                console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
+                if (window.__DEBUG_AUTH__) console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
                 if (user) {
-                    console.log('Current user:', user.email);
-                    console.log('User UID:', user.uid);
-                    console.log('Email verified:', user.emailVerified);
+                    if (window.__DEBUG_AUTH__) {
+                        console.log('Current user:', user.email);
+                        console.log('User UID:', user.uid);
+                        console.log('Email verified:', user.emailVerified);
+                    }
                     
                     // Update user data in Firestore if needed
                     this.updateUserLastLogin(user.uid);
@@ -193,10 +195,12 @@ class FirebaseService {
      */
     async getFirebaseConfig() {
         try {
-            console.log('Fetching keys from secure key manager...');
+            if (window.__DEBUG_KEYS__) console.log('Fetching keys from secure key manager...');
             const keys = await window.secureKeyManager.getKeys();
-            console.log('Keys fetched successfully');
-            console.log('Keys structure:', Object.keys(keys));
+            if (window.__DEBUG_KEYS__) {
+                console.log('Keys fetched successfully');
+                console.log('Keys structure:', Object.keys(keys));
+            }
             
             if (!keys.firebase) {
                 console.error('❌ Firebase configuration missing from keys');
@@ -204,15 +208,15 @@ class FirebaseService {
                 throw new Error('❌ Firebase configuration is required but not found in secure keys. Please add Firebase configuration to your Gist.');
             }
             
-            console.log('✅ Firebase config found in keys');
-            console.log('Firebase config fields:', Object.keys(keys.firebase));
+            if (window.__DEBUG_KEYS__) {
+                console.log('✅ Firebase config found in keys');
+                console.log('Firebase config fields:', Object.keys(keys.firebase));
+            }
             
             // Debug: Check if API key looks valid
             if (keys.firebase.apiKey) {
-                console.log('✅ Firebase API key present');
-                
-                // Basic validation - Firebase API keys are typically 39 characters
-                if (keys.firebase.apiKey.length < 30) {
+                if (window.__DEBUG_KEYS__) console.log('✅ Firebase API key present');
+                if (window.__DEBUG_KEYS__ && keys.firebase.apiKey.length < 30) {
                     console.warn('⚠️ Firebase API key seems too short');
                 }
             } else {
@@ -307,13 +311,64 @@ class FirebaseService {
             // Update last login and login count
             await this.updateUserLastLogin(user.uid);
             
-            console.log('User signed in successfully:', user.uid);
+            if (window.__DEBUG_AUTH__) console.log('User signed in successfully:', user.uid);
             return user;
             
         } catch (error) {
             console.error('Error signing in user:', error);
             throw error;
         }
+    }
+
+    /**
+     * Find a user by email (case-insensitive)
+     */
+    async findUserByEmail(email){
+        await this.waitForInit();
+        try{
+            const emailLower = (email||'').toLowerCase();
+            const q = firebase.query(
+                firebase.collection(this.db,'users'),
+                firebase.where('emailLower','==', emailLower),
+                firebase.limit(1)
+            );
+            const snap = await firebase.getDocs(q);
+            let data = null;
+            snap.forEach(doc=>{ data = { id: doc.id, ...doc.data() }; });
+            return data;
+        }catch(e){ return null; }
+    }
+
+    /**
+     * Increment failed login attempts; returns new count
+     */
+    async incrementFailedLogin(uid){
+        await this.waitForInit();
+        try{
+            const ref = firebase.doc(this.db,'users', uid);
+            const doc = await firebase.getDoc(ref);
+            const curr = doc.exists()? (doc.data().failedLoginAttempts||0) : 0;
+            const next = curr + 1;
+            const updates = { failedLoginAttempts: next, lastFailedLoginAt: new Date().toISOString() };
+            if (next >= 5){
+                const lockMs = 15*60*1000;
+                updates.lockoutUntil = new Date(Date.now()+lockMs).toISOString();
+            }
+            await firebase.updateDoc(ref, updates);
+            return next;
+        }catch(e){ return null; }
+    }
+
+    /**
+     * Reset failed login attempts to 0
+     */
+    async resetFailedLogin(uid){
+        await this.waitForInit();
+        try{
+            const ref = firebase.doc(this.db,'users', uid);
+            await firebase.updateDoc(ref, { failedLoginAttempts: 0, lockoutUntil: null, updatedAt: new Date().toISOString() });
+            return true;
+        }catch(e){ return false; }
     }
 
     /**
@@ -324,7 +379,7 @@ class FirebaseService {
         
         try {
             await firebase.signOut(this.auth);
-            console.log('User signed out successfully');
+            if (window.__DEBUG_AUTH__) console.log('User signed out successfully');
         } catch (error) {
             console.error('Error signing out user:', error);
             throw error;
@@ -388,7 +443,12 @@ class FirebaseService {
         const posts = [];
         // Always include my posts first
         try{
-            const qMine = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', meUid), firebase.orderBy('createdAt','desc'), firebase.limit(limitPerAuthor));
+            const qMine = firebase.query(
+                firebase.collection(this.db,'posts'),
+                firebase.where('authorId','==', meUid),
+                firebase.orderBy('createdAtTS','desc'),
+                firebase.limit(limitPerAuthor)
+            );
             const sMine = await firebase.getDocs(qMine);
             sMine.forEach(d=> posts.push(d.data()));
         }catch{
@@ -398,14 +458,20 @@ class FirebaseService {
         // Fetch followed authors, up to a reasonable number per batch due to Firestore limits
         for (const uid of (followingIds||[]).slice(0,20)){
             try{
-                const q = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(5));
+                const q = firebase.query(
+                    firebase.collection(this.db,'posts'),
+                    firebase.where('authorId','==', uid),
+                    firebase.where('visibility','==','public'),
+                    firebase.orderBy('createdAtTS','desc'),
+                    firebase.limit(5)
+                );
                 const s = await firebase.getDocs(q); s.forEach(d=> posts.push(d.data()));
             }catch{
                 const q3 = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', uid));
                 const s3 = await firebase.getDocs(q3); s3.forEach(d=> posts.push(d.data()));
             }
         }
-        posts.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+        posts.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
         return posts.slice(0,50);
     }
 
@@ -435,19 +501,54 @@ class FirebaseService {
         await this.waitForInit();
         const likesCol = firebase.collection(this.db, 'posts', postId, 'likes');
         const likeSnap = await firebase.getDocs(likesCol);
-        return { likes: likeSnap.size };
+        const repostsCol = firebase.collection(this.db, 'posts', postId, 'reposts');
+        let repostSnap = { size: 0 };
+        try { repostSnap = await firebase.getDocs(repostsCol); } catch(_){ }
+        return { likes: likeSnap.size, reposts: repostSnap.size };
     }
 
-    async addComment(postId, userUid, text){
+    async addComment(postId, userUid, text, parentId = null){
         await this.waitForInit();
         const ref = firebase.doc(firebase.collection(this.db, 'posts', postId, 'comments'));
-        await firebase.setDoc(ref, { id: ref.id, authorId: userUid, text, createdAt: new Date().toISOString() });
+        await firebase.setDoc(ref, { id: ref.id, authorId: userUid, text, parentId, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp() });
         return ref.id;
+    }
+
+    async repost(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'reposts', userUid);
+        await firebase.setDoc(ref, { uid: userUid, repostedAt: new Date().toISOString() });
+    }
+
+    async unRepost(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'reposts', userUid);
+        await firebase.deleteDoc(ref);
+    }
+
+    async hasReposted(postId, userUid){
+        await this.waitForInit();
+        const ref = firebase.doc(this.db, 'posts', postId, 'reposts', userUid);
+        const snap = await firebase.getDoc(ref);
+        return snap.exists();
     }
 
     async getComments(postId, limitN = 10){
         await this.waitForInit();
-        const q = firebase.query(firebase.collection(this.db, 'posts', postId, 'comments'), firebase.orderBy('createdAt', 'desc'), firebase.limit(limitN));
+        let q;
+        try{
+            q = firebase.query(
+                firebase.collection(this.db, 'posts', postId, 'comments'),
+                firebase.orderBy('createdAtTS', 'desc'),
+                firebase.limit(limitN)
+            );
+        }catch(_){
+            q = firebase.query(
+                firebase.collection(this.db, 'posts', postId, 'comments'),
+                firebase.orderBy('createdAt', 'desc'),
+                firebase.limit(limitN)
+            );
+        }
         const snap = await firebase.getDocs(q);
         const out = []; snap.forEach(d=> out.push(d.data()));
         return out;
@@ -481,7 +582,12 @@ class FirebaseService {
     async getTrendingPosts(excludeUid, limitN = 10){
         await this.waitForInit();
         // Fallback simple: fetch recent posts and sort by like count client-side
-        const q = firebase.query(firebase.collection(this.db,'posts'), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+        const q = firebase.query(
+            firebase.collection(this.db,'posts'),
+            firebase.where('visibility','==','public'),
+            firebase.orderBy('createdAtTS','desc'),
+            firebase.limit(50)
+        );
         const snap = await firebase.getDocs(q);
         const items = [];
         for (const d of snap.docs){
@@ -490,7 +596,7 @@ class FirebaseService {
             const stats = await this.getPostStats(p.id);
             items.push({ ...p, _likes: stats.likes });
         }
-        items.sort((a,b)=> (b._likes||0) - (a._likes||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+        items.sort((a,b)=> (b._likes||0) - (a._likes||0) || (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
         return items.slice(0, limitN);
     }
 
