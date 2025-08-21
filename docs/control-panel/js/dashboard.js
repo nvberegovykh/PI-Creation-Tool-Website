@@ -308,21 +308,78 @@ class DashboardManager {
                 spaceSearch.oninput = async (e)=>{
                     const term = (e.target.value||'').trim().toLowerCase();
                     const resultsEl = document.getElementById('space-search-results');
-                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } this.loadMyPosts(user.uid); return; }
+                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } return; }
                     const users = await window.firebaseService.searchUsers(term);
                     if (resultsEl){
                         resultsEl.innerHTML = '';
                         (users||[]).slice(0,10).forEach(u=>{
                             const li = document.createElement('li');
-                            li.textContent = u.username || u.email;
                             li.style.cursor = 'pointer';
-                            li.onclick = ()=>{ this.openUserSpace(u.uid||u.id, u.username||u.email); resultsEl.style.display='none'; };
+                            li.innerHTML = `<img class="avatar" src="${u.avatarUrl||'images/default-bird.png'}" alt=""><div><div class="uname">${u.username||''}</div><div class="email">${u.email||''}</div></div>`;
+                            li.onclick = ()=>{ this.showUserPreviewModal(u); resultsEl.style.display='none'; };
                             resultsEl.appendChild(li);
                         });
                         resultsEl.style.display = (users && users.length) ? 'block':'none';
                     }
                 };
             }
+
+            this.showUserPreviewModal = async (u)=>{
+                const uid = u.uid||u.id;
+                const data = u.username ? u : (await window.firebaseService.getUserData(uid))||{};
+                const me = await window.firebaseService.getCurrentUser();
+                let isFollowing = false;
+                try{ const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following||[]).includes(uid);}catch(_){ }
+                const overlay = document.createElement('div');
+                overlay.className='modal-overlay';
+                overlay.innerHTML = `
+                  <div class="modal" style="max-width:720px">
+                    <div class="modal-header"><h3>${data.username||data.email||'User'}</h3><button class="modal-close">&times;</button></div>
+                    <div class="modal-body">
+                      <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+                        <img src="${data.avatarUrl||'images/default-bird.png'}" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
+                        <div style="flex:1">
+                          <div style="font-weight:700">${data.username||''}</div>
+                          <div style="opacity:.8">${data.email||''}</div>
+                        </div>
+                        <button id="follow-toggle" class="btn ${isFollowing?'btn-secondary':'btn-primary'}">${isFollowing?'Unfollow':'Follow'}</button>
+                        <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
+                      </div>
+                      <div id="preview-feed"></div>
+                    </div>
+                  </div>`;
+                document.body.appendChild(overlay);
+                overlay.querySelector('.modal-close').onclick = ()=> overlay.remove();
+                overlay.addEventListener('click', (e)=>{ if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
+                const toggle = overlay.querySelector('#follow-toggle');
+                toggle.onclick = async ()=>{
+                  try{
+                    if (toggle.textContent==='Follow'){ await window.firebaseService.followUser(me.uid, uid); toggle.textContent='Unfollow'; toggle.className='btn btn-secondary'; }
+                    else { await window.firebaseService.unfollowUser(me.uid, uid); toggle.textContent='Follow'; toggle.className='btn btn-primary'; }
+                  }catch(_){ }
+                };
+                const chatBtn = overlay.querySelector('#start-chat');
+                if (chatBtn){ chatBtn.onclick = async ()=>{
+                  try{
+                    const key = [me.uid, uid].sort().join('|');
+                    window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(key)}`;
+                  }catch(_){ }
+                }; }
+                // Load recent public posts for preview
+                const feed = overlay.querySelector('#preview-feed');
+                try{
+                  const q = firebase.query(
+                    firebase.collection(window.firebaseService.db,'posts'),
+                    firebase.where('authorId','==', uid),
+                    firebase.where('visibility','==','public'),
+                    firebase.orderBy('createdAtTS','desc'),
+                    firebase.limit(10)
+                  );
+                  const s = await firebase.getDocs(q);
+                  const list=[]; s.forEach(d=> list.push(d.data()));
+                  feed.innerHTML = list.map(p=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text||'').replace(/</g,'&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>';
+                }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
+            };
 
             // Follow/unfollow bar
             const feedCard = document.getElementById('space-feed-card');

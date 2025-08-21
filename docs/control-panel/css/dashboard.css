@@ -178,11 +178,6 @@
 
 .content-section.active {
     display: block;
-    height: 100%;
-    overflow-y: auto; /* enable internal vertical scroll */
-    overflow-x: hidden; /* prevent horizontal scroll bleed */
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
 }
 
 /* Explicit heights for sections that were not scrolling */
@@ -223,9 +218,8 @@
 #apps-section .settings-grid,
 #profile-section .settings-grid {
     min-height: 0;
-    max-height: calc(100vh - 180px);
-    overflow-y: auto;
-    overflow-x: hidden;
+    max-height: none;
+    overflow: visible;
 }
 
 .settings-card {
@@ -346,6 +340,8 @@
     font-weight: 600;
     color: var(--primary-text);
     flex: 1;
+    display: block;
+    margin-bottom: 8px;
 }
 
 .setting-item input[type="number"] {
@@ -640,7 +636,31 @@
     display: flex;
     align-items: center;
     gap: 15px;
+    position: relative;
 }
+
+/* Overlay search results in Personal Space */
+#space-search-results {
+    position: absolute;
+    top: 48px;
+    left: 0;
+    right: 0;
+    max-width: 480px;
+    background: #0f1116;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(0,0,0,.45);
+    z-index: 50;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 6px 0;
+}
+
+#space-search-results li { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border-color); }
+#space-search-results li:last-child{ border-bottom:none }
+#space-search-results .avatar{ width:32px;height:32px;border-radius:50%;object-fit:cover }
+#space-search-results .uname{ font-weight:600; color:var(--primary-text) }
+#space-search-results .email{ color:var(--secondary-text); font-size:12px }
 
 /* Responsive Design */
 @media (max-width: 768px) {

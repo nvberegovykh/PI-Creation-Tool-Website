@@ -328,19 +328,33 @@
           const key = this.computeConnKey(participantUids);
           let connId = await this.findConnectionByKey(key);
           if (!connId){
-            // Use stable key as ID to avoid duplicates
-            const newRef = firebase.doc(this.db,'chatConnections', key);
-            connId = key;
-            await firebase.setDoc(newRef,{
-              id: connId,
-              key,
-              participants: participantUids,
-              participantUsernames: participantNames,
-              admins: [this.currentUser.uid],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              lastMessage:''
-            });
+            try{
+              const stableRef = firebase.doc(this.db,'chatConnections', key);
+              await firebase.setDoc(stableRef,{
+                id: key,
+                key,
+                participants: participantUids,
+                participantUsernames: participantNames,
+                admins: [this.currentUser.uid],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                lastMessage:''
+              }, { merge:false });
+              connId = key;
+            }catch(errStable){
+              const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+              connId = newRef.id;
+              await firebase.setDoc(newRef,{
+                id: connId,
+                key,
+                participants: participantUids,
+                participantUsernames: participantNames,
+                admins: [this.currentUser.uid],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                lastMessage:''
+              });
+            }
           }
           this.isGroupMode = false;
           if (panel) panel.style.display='none';
@@ -434,6 +448,41 @@
       this.activeConnection = connId;
       document.getElementById('active-connection-name').textContent = displayName||connId;
       await this.loadMessages();
+      // If current user is not a participant of this connection, show banner to recreate with same users
+      try{
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        if (snap.exists()){
+          const data = snap.data();
+          const parts = Array.isArray(data.participants)? data.participants:[];
+          const header = document.querySelector('.chat-header');
+          const existing = document.getElementById('chat-access-banner');
+          if (!parts.includes(this.currentUser.uid)){
+            if (!existing && header){
+              const bar = document.createElement('div');
+              bar.id='chat-access-banner';
+              bar.style.cssText='background:#2a2f36;color:#fff;padding:8px 12px;border-bottom:1px solid #3a404a;display:flex;gap:10px;align-items:center';
+              const msg = document.createElement('div'); msg.textContent='You are not a participant of this chat. Recreate a new chat with the same users to start messaging.'; bar.appendChild(msg);
+              const btn = document.createElement('button'); btn.className='btn btn-secondary'; btn.textContent='Recreate chat';
+              btn.onclick = async ()=>{
+                try{
+                  const participants = parts.slice(); const names = (data.participantUsernames||[]).slice();
+                  if (!participants.includes(this.currentUser.uid)){ participants.push(this.currentUser.uid); names.push((this.me&&this.me.username)||this.currentUser.email||'me'); }
+                  const newKey = this.computeConnKey(participants);
+                  let newId = await this.findConnectionByKey(newKey);
+                  if (!newId){
+                    const ref = firebase.doc(this.db,'chatConnections', newKey);
+                    await firebase.setDoc(ref,{ id:newKey, key:newKey, participants, participantUsernames:names, admins:[this.currentUser.uid], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(), lastMessage:'' });
+                    newId = newKey;
+                  }
+                  await this.loadConnections(); this.setActive(newId);
+                }catch(_){ }
+              };
+              bar.appendChild(btn);
+              header.parentNode.insertBefore(bar, header.nextSibling);
+            }
+          } else if (existing){ existing.remove(); }
+        }
+      }catch(_){ }
       // refresh group panel if open
       const gp = document.getElementById('group-panel'); if (gp){ await this.renderGroupPanel(); }
     }
@@ -1066,18 +1115,33 @@
                 try{
                   let connId = await this.findConnectionByKey(key);
                   if (!connId){
-                    const newRef = firebase.doc(this.db,'chatConnections', key);
-                    connId = key;
-                    await firebase.setDoc(newRef,{
-                      id: connId,
-                      key,
-                      participants: uids,
-                      participantUsernames:[myName, u.username||u.email],
-                      admins: [this.currentUser.uid],
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                      lastMessage:''
-                    });
+                    try{
+                      const stableRef = firebase.doc(this.db,'chatConnections', key);
+                      await firebase.setDoc(stableRef,{
+                        id: key,
+                        key,
+                        participants: uids,
+                        participantUsernames:[myName, u.username||u.email],
+                        admins: [this.currentUser.uid],
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                        lastMessage:''
+                      }, { merge:false });
+                      connId = key;
+                    }catch(errSet){
+                      const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
+                      connId = newRef.id;
+                      await firebase.setDoc(newRef,{
+                        id: connId,
+                        key,
+                        participants: uids,
+                        participantUsernames:[myName, u.username||u.email],
+                        admins: [this.currentUser.uid],
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                        lastMessage:''
+                      });
+                    }
                   }
                   await this.loadConnections();
                   this.setActive(connId, u.username||u.email);
