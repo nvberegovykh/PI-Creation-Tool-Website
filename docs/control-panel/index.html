@@ -144,17 +144,17 @@
     <!-- Main Dashboard -->
     <div id="dashboard" class="dashboard hidden">
         <!-- Header -->
-        <header class="dashboard-header" style="background-color: #333; color: white; padding: 10px 20px; margin: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <header class="dashboard-header" style="background-color: #333; color: white; padding: 10px 20px; margin: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center;">
             <div class="header-left">
-                <h1><i class="fas fa-infinity"></i> Liber Apps Control Panel</h1>
+                <h1 style="margin: 0;"><i class="fas fa-infinity" style="color: white;"></i> Liber Apps Control Panel</h1>
             </div>
-            <div class="header-right">
+            <div class="header-right" style="display: flex; align-items: center; gap: 10px;">
                 <div class="user-info" style="background-color: white; color: black; padding: 5px 10px; border-radius: 4px;">
                     <span id="current-user"></span>
                     <span id="user-role"></span>
                 </div>
-                <button id="logout-btn" class="logout-btn" style="background-color: white; color: black;">
-                    <i class="fas fa-sign-out-alt"></i> Logout
+                <button id="logout-btn" class="logout-btn" style="background-color: white; color: black; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer;">
+                    <i class="fas fa-sign-out-alt" style="color: black;"></i> Logout
                 </button>
             </div>
         </header>
