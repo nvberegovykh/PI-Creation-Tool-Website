@@ -2446,46 +2446,63 @@ Do you want to proceed?`);
     }
 
     // Enhance showUserPreviewModal
-    async showUserPreviewModal(userId) {
-      const modal = document.createElement('div');
-      modal.className = 'user-preview-modal';
-      modal.innerHTML = `
-        <div class="modal-content">
-          <h3>User Profile</h3>
-          <div id="preview-avatar"></div>
-          <div id="preview-username"></div>
-          <div id="preview-mood"></div>
-          <button id="follow-btn">Follow</button>
-          <div id="preview-posts"></div>
-          <button class="close-btn">Close</button>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      
-      const userData = await firebaseService.getUserData(userId);
-      document.getElementById('preview-username').textContent = userData.username;
-      document.getElementById('preview-mood').textContent = userData.mood;
-      document.getElementById('preview-avatar').innerHTML = `<img src="${userData.avatarUrl || 'default.png'}">`;
-      
-      const followBtn = document.getElementById('follow-btn');
-      // Check if following and set text
-      followBtn.onclick = () => this.toggleFollow(userId);
-      
-      const postsEl = document.getElementById('preview-posts');
-      const q = firebase.query(firebase.collection(this.db, 'posts'), firebase.where('authorId', '==', userId), firebase.where('visibility', '==', 'public'), firebase.orderBy('createdAtTS', 'desc'));
-      const snap = await firebase.getDocs(q);
-      snap.forEach(doc => {
-        const post = doc.data();
-        const item = document.createElement('div');
-        item.className = 'post-item';
-        item.innerHTML = `
-          <div class="post-text">${post.text}</div>
-          ${this.renderPostMedia(post.media)}
-        `;
-        postsEl.appendChild(item);
-      });
-      
-      modal.querySelector('.close-btn').onclick = () => modal.remove();
+    async showUserPreviewModal(u) {
+      const uid = u.uid || u.id;
+      const data = u.username ? u : (await window.firebaseService.getUserData(uid)) || {};
+      const me = await window.firebaseService.getCurrentUser();
+      let isFollowing = false;
+      try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:720px">
+          <div class="modal-header"><h3>${data.username || data.email || 'User'}</h3><button class="modal-close">&times;</button></div>
+          <div class="modal-body">
+            <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+              <img src="${data.avatarUrl || 'images/default-bird.png'}" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
+              <div style="flex:1">
+                <div style="font-weight:700">${data.username || ''}</div>
+                <div style="opacity:.8">${data.email || ''}</div>
+              </div>
+              <button id="follow-toggle" class="btn ${isFollowing ? 'btn-secondary' : 'btn-primary'}">${isFollowing ? 'Unfollow' : 'Follow'}</button>
+              <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
+            </div>
+            <div id="preview-feed"></div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.modal-close').onclick = () => overlay.remove();
+      overlay.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
+      const toggle = overlay.querySelector('#follow-toggle');
+      toggle.onclick = async () => {
+        try {
+          if (toggle.textContent === 'Follow') { await window.firebaseService.followUser(me.uid, uid); toggle.textContent = 'Unfollow'; toggle.className = 'btn btn-secondary'; }
+          else { await window.firebaseService.unfollowUser(me.uid, uid); toggle.textContent = 'Follow'; toggle.className = 'btn btn-primary'; }
+        } catch(_) {}
+      };
+      const chatBtn = overlay.querySelector('#start-chat');
+      if (chatBtn) {
+        chatBtn.onclick = async () => {
+          try {
+            const key = [me.uid, uid].sort().join('|');
+            window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(key)}`;
+          } catch(_) {}
+        };
+      }
+      // Load recent public posts
+      const feed = overlay.querySelector('#preview-feed');
+      try {
+        const q = firebase.query(
+          firebase.collection(window.firebaseService.db, 'posts'),
+          firebase.where('authorId', '==', uid),
+          firebase.where('visibility', '==', 'public'),
+          firebase.orderBy('createdAtTS', 'desc'),
+          firebase.limit(10)
+        );
+        const s = await firebase.getDocs(q);
+        const list = []; s.forEach(d => list.push(d.data()));
+        feed.innerHTML = list.map(p => `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text || '').replace(/</g, '&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>';
+      } catch(_) { feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
     }
 
     activatePostActions(container = document) {
