@@ -105,106 +105,31 @@ class SecureKeyManager {
      * Fetch keys from secure source (GitHub Gist, private repo, etc.)
      */
     async fetchKeys() {
-        let attempts = 0;
-        const maxAttempts = 3;
-        while (attempts < maxAttempts) {
-            try {
-                const url = this.getKeySource();
-                if (!url) {
-                    if (window.__DEBUG_KEYS__) console.warn('No key source URL configured. Using default credentials.');
+        try {
+            const response = await fetch(this.keyUrl);
+            if (!response.ok) {
+                if (response.status === 404) {
+                    console.warn('Gist not found (404). Using default fallback credentials.');
                     return await this.generateDefaultCredentials();
                 }
-
-                // If no URL configured, use default credentials
-                if (!url) {
-                    if (window.__DEBUG_KEYS__) console.warn('No key source URL configured. Using default credentials.');
-                    return await this.generateDefaultCredentials();
-                }
-
-                // Check cache first
-                if (this.cachedKeys && (Date.now() - this.lastFetch) < this.keyCacheExpiry) {
-                    return this.cachedKeys;
-                }
-
-                // Fetch from secure source with fallback to latest-raw if a specific commit 404s
-                let response = await fetch(url);
-                if (!response.ok) {
-                    if (window.__DEBUG_KEYS__) console.warn(`Failed to fetch secure keys (HTTP ${response.status}). Retrying with latest raw pointer...`);
-                    // If the URL was a commit-specific raw path and returned 404, try the latest raw pointer
-                    try {
-                        const latestRaw = url.replace(/\/raw\/[A-Za-z0-9]+\//, '/raw/');
-                        if (latestRaw !== url) {
-                            if (window.__DEBUG_KEYS__) console.log('Retrying keys fetch via latest raw pointer');
-                            response = await fetch(latestRaw + (latestRaw.includes('?') ? '&' : '?') + 't=' + Date.now());
-                        }
-                    } catch (e) {
-                        if (window.__DEBUG_KEYS__) console.warn('Latest-raw fallback construction failed');
-                    }
-                    if (!response.ok) {
-                        if (window.__DEBUG_KEYS__) console.warn('Fallback fetch failed as well. Using default credentials.');
-                        return await this.generateDefaultCredentials();
-                    }
-                }
-
-                const keysData = await response.json();
-                
-                // Debug: Log what we got from Gist
-                if (window.__DEBUG_KEYS__) { console.log('=== Gist Data Debug (redacted) ==='); console.log('Has firebase config:', !!keysData.firebase); }
-                
-                // Validate keys structure
-                if (!this.validateKeys(keysData)) {
-                    if (window.__DEBUG_KEYS__) console.warn('Invalid keys format from Gist. Using default credentials.');
-                    return await this.generateDefaultCredentials();
-                }
-
-                // Check if the Gist contains placeholder hash
-                const placeholderHash = 'a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456';
-                const correctHash = '597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2';
-                
-                if (keysData.admin && keysData.admin.passwordHash === placeholderHash) {
-                    if (window.__DEBUG_KEYS__) { console.warn('Gist contains placeholder hash. Using default credentials.'); console.warn('Please update your Gist with the correct hash. Run this in browser console:'); console.warn('await window.secureKeyManager.getCorrectAdminHash()'); }
-                    return await this.generateDefaultCredentials();
-                }
-                
-                // If we have the correct hash, clear any old encrypted data
-                if (keysData.admin && keysData.admin.passwordHash === correctHash) {
-                    if (window.__DEBUG_KEYS__) console.log('✅ Correct hash detected in Gist.');
-                    // Only clear data if we're switching from fallback to Gist
-                    if (this.cachedKeys && this.cachedKeys.admin && 
-                        this.cachedKeys.admin.username === 'admin_fallback') {
-                        if (window.__DEBUG_KEYS__) console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
-                        this.clearAllEncryptedData();
-                    }
-                }
-
-                // Check if we're switching from fallback to Gist keys
-                const wasUsingFallback = this.cachedKeys && this.cachedKeys.admin && 
-                                       this.cachedKeys.admin.username === 'admin_fallback' &&
-                                       this.cachedKeys.system.masterKeyHash.startsWith('fallback_system_key_');
-                
-                const isNowUsingGist = keysData.admin && keysData.admin.username !== 'admin_fallback' &&
-                                     !keysData.system.masterKeyHash.startsWith('fallback_system_key_');
-
-                // If switching from fallback to Gist, clear old encrypted data
-                if (wasUsingFallback && isNowUsingGist) {
-                    if (window.__DEBUG_KEYS__) console.log('Switching from fallback to Gist keys. Clearing old encrypted data...');
-                    this.clearAllEncryptedData();
-                }
-
-                // Cache the keys
-                this.cachedKeys = keysData;
-                this.lastFetch = Date.now();
-
-                return keysData;
-            } catch (error) {
-                attempts++;
-                console.warn(`Gist fetch attempt ${attempts}/${maxAttempts} failed:`, error);
-                if (attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempts)));
-                }
+                throw new Error(`Gist fetch failed: ${response.status}`);
             }
+            const keysData = await response.json();
+            
+            // Structure validation only (no hash checks)
+            if (!keysData.firebase || !keysData.admin || !keysData.system) {
+                throw new Error('Invalid Gist structure');
+            }
+            
+            this.cachedKeys = keysData;
+            this.lastFetch = Date.now();
+            return keysData;
+        } catch (error) {
+            console.error('Secure keys load failed:', error);
+            // Show UI error instead of fallback
+            document.body.innerHTML = '<div style="color:red;text-align:center;padding:20px;">Failed to load secure config from Gist. Check URL/network and reload.</div>';
+            throw error;
         }
-        throw new Error('Failed to load secure keys after retries. Check Gist URL and network.');
     }
 
     /**
