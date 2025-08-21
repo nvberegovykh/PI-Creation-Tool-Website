@@ -2422,6 +2422,132 @@ Do you want to proceed?`);
             }
         }
     }
+
+    // In searchUsers or loadSpace search handler
+    async searchUsers(term) {
+      // existing code ...
+      filtered.forEach(u => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <img src="${u.avatarUrl || 'default-avatar.png'}" class="avatar" alt="${u.username}">
+          <div>
+            <div class="uname">${u.username}</div>
+            <div class="email">${u.email}</div>
+          </div>
+        `;
+        li.dataset.uid = u.uid;
+        li.addEventListener('click', () => {
+          this.showUserPreviewModal(u.uid);
+        });
+        resultsEl.appendChild(li);
+      });
+      // ... 
+    }
+
+    // Enhance showUserPreviewModal
+    async showUserPreviewModal(userId) {
+      const modal = document.createElement('div');
+      modal.className = 'user-preview-modal';
+      modal.innerHTML = `
+        <div class="modal-content">
+          <h3>User Profile</h3>
+          <div id="preview-avatar"></div>
+          <div id="preview-username"></div>
+          <div id="preview-mood"></div>
+          <button id="follow-btn">Follow</button>
+          <div id="preview-posts"></div>
+          <button class="close-btn">Close</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      
+      const userData = await firebaseService.getUserData(userId);
+      document.getElementById('preview-username').textContent = userData.username;
+      document.getElementById('preview-mood').textContent = userData.mood;
+      document.getElementById('preview-avatar').innerHTML = `<img src="${userData.avatarUrl || 'default.png'}">`;
+      
+      const followBtn = document.getElementById('follow-btn');
+      // Check if following and set text
+      followBtn.onclick = () => this.toggleFollow(userId);
+      
+      const postsEl = document.getElementById('preview-posts');
+      const q = firebase.query(firebase.collection(this.db, 'posts'), firebase.where('authorId', '==', userId), firebase.where('visibility', '==', 'public'), firebase.orderBy('createdAtTS', 'desc'));
+      const snap = await firebase.getDocs(q);
+      snap.forEach(doc => {
+        const post = doc.data();
+        const item = document.createElement('div');
+        item.className = 'post-item';
+        item.innerHTML = `
+          <div class="post-text">${post.text}</div>
+          ${this.renderPostMedia(post.media)}
+        `;
+        postsEl.appendChild(item);
+      });
+      
+      modal.querySelector('.close-btn').onclick = () => modal.remove();
+    }
+
+    activatePostActions(container = document) {
+      container.querySelectorAll('.post-item').forEach(item => {
+        const pid = item.dataset.postId;
+        if (!pid) return;
+        
+        const likeBtn = item.querySelector('.like-btn');
+        const likeSpan = likeBtn?.querySelector('span');
+        const likeIcon = likeBtn?.querySelector('i');
+        if (likeBtn) {
+          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'likes'), snap => {
+            likeSpan.textContent = snap.size;
+          });
+          likeBtn.onclick = async () => {
+            // Toggle like logic
+            const likeRef = firebase.doc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'likes'), this.currentUser.uid);
+            const snap = await firebase.getDoc(likeRef);
+            if (snap.exists()) {
+              await firebase.deleteDoc(likeRef);
+              likeIcon.classList.remove('active');
+            } else {
+              await firebase.setDoc(likeRef, { userId: this.currentUser.uid, createdAt: new Date().toISOString() });
+              likeIcon.classList.add('active');
+            }
+          };
+        }
+        
+        const commentBtn = item.querySelector('.comment-btn');
+        const commentSpan = commentBtn?.querySelector('span');
+        if (commentBtn) {
+          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'comments'), snap => {
+            commentSpan.textContent = snap.size;
+          });
+          commentBtn.onclick = () => {
+            // Stub: Open comment modal
+            alert('Comment functionality coming soon');
+          };
+        }
+        
+        const repostBtn = item.querySelector('.repost-btn');
+        const repostSpan = repostBtn?.querySelector('span');
+        const repostIcon = repostBtn?.querySelector('i');
+        if (repostBtn) {
+          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'reposts'), snap => {
+            repostSpan.textContent = snap.size;
+          });
+          repostBtn.onclick = async () => {
+            const repostRef = firebase.doc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'reposts'), this.currentUser.uid);
+            const snap = await firebase.getDoc(repostRef);
+            if (snap.exists()) {
+              await firebase.deleteDoc(repostRef);
+              repostIcon.classList.remove('active');
+            } else {
+              await firebase.setDoc(repostRef, { userId: this.currentUser.uid, createdAt: new Date().toISOString() });
+              repostIcon.classList.add('active');
+            }
+          };
+        }
+      });
+    }
+    // Call in loadGlobalFeed after rendering
+    this.activatePostActions(feedEl);
 }
 
 // Create global instance

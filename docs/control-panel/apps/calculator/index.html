@@ -333,6 +333,7 @@
                 <div class="tab" onclick="switchTab('fractals')">Fractals</div>
                 <div class="tab" onclick="switchTab('converter')">Unit Converter</div>
                 <div class="tab" onclick="switchTab('triangle')">Triangle Calculator</div>
+                <div class="tab" onclick="switchTab('parametric')">Parametric</div>
             </div>
 
             <!-- Calculator Tab -->
@@ -578,6 +579,26 @@
                         <button class="btn" onclick="convertFraction()" style="margin-top: 10px;">Convert</button>
                         <div id="fractionResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
                     </div>
+
+                    <div class="conversion-group">
+                        <h3>Volume</h3>
+                        <input type="number" id="volumeInput" placeholder="Enter value" class="conversion-input" oninput="convertVolume()">
+                        <select id="volumeFrom" class="conversion-input" onchange="convertVolume()">
+                            <option value="oz">Ounces (fl oz)</option>
+                            <option value="ml">Milliliters</option>
+                            <option value="l">Liters</option>
+                            <option value="cup">Cups</option>
+                            <option value="gal">Gallons</option>
+                        </select>
+                        <select id="volumeTo" class="conversion-input" onchange="convertVolume()">
+                            <option value="ml">Milliliters</option>
+                            <option value="oz">Ounces (fl oz)</option>
+                            <option value="l">Liters</option>
+                            <option value="cup">Cups</option>
+                            <option value="gal">Gallons</option>
+                        </select>
+                        <div id="volumeResult" class="result-item" style="margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -625,6 +646,21 @@
                             <span id="triangleType">-</span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Parametric Plotter Tab -->
+            <div id="parametric" class="tab-content">
+                <div class="plot-container">
+                    <h3>Parametric Equation Plotter</h3>
+                    <input type="text" id="paramX" placeholder="x(t) = " class="conversion-input" style="margin-bottom: 10px;">
+                    <input type="text" id="paramY" placeholder="y(t) = " class="conversion-input" style="margin-bottom: 10px;">
+                    <div style="display: flex; gap: 10px;">
+                        <input type="number" id="tMin" placeholder="t min" value="0" style="flex: 1;">
+                        <input type="number" id="tMax" placeholder="t max" value="10" style="flex: 1;">
+                    </div>
+                    <button class="btn" onclick="plotParametric()" style="margin-top: 10px; width: 100%;">Plot Parametric</button>
+                    <canvas id="parametricCanvas" width="600" height="400" style="width: 100%; height: 400px; background: #000; border: 1px solid #333; margin-top: 15px;"></canvas>
                 </div>
             </div>
         </div>
@@ -718,7 +754,7 @@
                 expression = '';
                 updateDisplay();
             } catch (error) {
-                displayValue = 'Error';
+                displayValue = 'Error: ' + error.message;
                 expression = '';
                 updateDisplay();
             }
@@ -760,62 +796,58 @@
             const canvas = document.getElementById('plotCanvas');
             const ctx = canvas.getContext('2d');
             
-            // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw grid
             drawGrid(ctx, canvas.width, canvas.height, xMin, xMax);
             
-            // Plot function
-            ctx.strokeStyle = '#00d4ff';
+            // Plot primary function
+            plotSingleFunction(ctx, functionStr, xMin, xMax, '#00d4ff');
+            
+            // If function might be multi-valued (e.g., contains sqrt), plot negative branch
+            if (functionStr.includes('√') || functionStr.includes('sqrt')) {
+                const negFunction = `-${functionStr}`;
+                plotSingleFunction(ctx, negFunction, xMin, xMax, '#ff6b6b');
+            }
+        }
+
+        function plotSingleFunction(ctx, functionStr, xMin, xMax, color) {
+            ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             ctx.beginPath();
             
-            const step = (xMax - xMin) / canvas.width;
+            const step = (xMax - xMin) / ctx.canvas.width;
             let firstPoint = true;
             
-            for (let i = 0; i <= canvas.width; i++) {
+            for (let i = 0; i <= ctx.canvas.width; i++) {
                 const x = xMin + i * step;
                 let y;
                 
                 try {
-                    // Simple direct evaluation for common functions
-                    if (functionStr === 'x^2') {
-                        y = x * x;
-                    } else if (functionStr === '-x^2' || functionStr === '-(x^2)') {
-                        y = -(x * x);
-                    } else if (functionStr === 'exp(x)') {
-                        y = Math.exp(x);
-                    } else if (functionStr === 'sin(x)') {
-                        y = Math.sin(x);
-                    } else if (functionStr === 'cos(x)') {
-                        y = Math.cos(x);
-                    } else if (functionStr === 'abs(x)') {
-                        y = Math.abs(x);
-                    } else if (functionStr === '1/x') {
-                        y = 1 / x;
-                    } else {
-                        // Fallback to general evaluation with better parsing
-                        let expr = functionStr.replace(/x/g, x.toString());
-                        
-                        // Handle negative signs and parentheses properly
-                        expr = expr.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
-                        expr = expr.replace(/exp\(/g, 'Math.exp(');
-                        expr = expr.replace(/sin\(/g, 'Math.sin(');
-                        expr = expr.replace(/cos\(/g, 'Math.cos(');
-                        expr = expr.replace(/abs\(/g, 'Math.abs(');
-                        
-                        // Handle negative expressions
-                        expr = expr.replace(/\(-\(/g, '(-(');
-                        expr = expr.replace(/\)-\)/g, '))');
-                        
-                        y = eval(expr);
-                    }
+                    let expr = functionStr.replace(/x/g, x.toString());
+                    
+                    // Handle power operations
+                    expr = expr.replace(/x\^(\d+)/g, 'Math.pow(x,$1)');
+                    expr = expr.replace(/(\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                    expr = expr.replace(/(\d+\.\d+)\^(\d+)/g, 'Math.pow($1,$2)');
+                    
+                    // Handle other functions
+                    expr = expr.replace(/exp\(/g, 'Math.exp(');
+                    expr = expr.replace(/sin\(/g, 'Math.sin(');
+                    expr = expr.replace(/cos\(/g, 'Math.cos(');
+                    expr = expr.replace(/tan\(/g, 'Math.tan(');
+                    expr = expr.replace(/asin\(/g, 'Math.asin(');
+                    expr = expr.replace(/acos\(/g, 'Math.acos(');
+                    expr = expr.replace(/atan\(/g, 'Math.atan(');
+                    expr = expr.replace(/log\(/g, 'Math.log10(');
+                    expr = expr.replace(/ln\(/g, 'Math.log(');
+                    expr = expr.replace(/√\(/g, 'Math.sqrt(');
+                    expr = expr.replace(/abs\(/g, 'Math.abs(');
+                    expr = expr.replace(/floor\(/g, 'Math.floor(');
+                    
+                    y = eval(expr);
                     
                     if (isFinite(y) && !isNaN(y)) {
-                        // Convert to canvas coordinates
                         const xPixel = i;
-                        const yPixel = canvas.height / 2 - (y * canvas.height / 20);
+                        const yPixel = ctx.canvas.height / 2 - (y * ctx.canvas.height / 20);
                         
                         if (firstPoint) {
                             ctx.moveTo(xPixel, yPixel);
@@ -2235,6 +2267,89 @@
 
         // Listen for window resize
         window.addEventListener('resize', handleResize);
+
+        // Parametric plotting function
+        function plotParametric() {
+            const xFunc = document.getElementById('paramX').value;
+            const yFunc = document.getElementById('paramY').value;
+            const tMin = parseFloat(document.getElementById('tMin').value);
+            const tMax = parseFloat(document.getElementById('tMax').value);
+            
+            if (!xFunc || !yFunc) return;
+            
+            const canvas = document.getElementById('parametricCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawGrid(ctx, canvas.width, canvas.height, -10, 10);
+            
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const steps = 1000;
+            const step = (tMax - tMin) / steps;
+            let firstPoint = true;
+            
+            for (let i = 0; i <= steps; i++) {
+                const t = tMin + i * step;
+                let x, y;
+                
+                try {
+                    x = eval(xFunc.replace(/t/g, t.toString()));
+                    y = eval(yFunc.replace(/t/g, t.toString()));
+                    
+                    if (isFinite(x) && isFinite(y) && !isNaN(x) && !isNaN(y)) {
+                        const xPixel = (x + 10) / 20 * canvas.width; // Assuming range -10 to 10
+                        const yPixel = canvas.height - (y + 10) / 20 * canvas.height;
+                        
+                        if (firstPoint) {
+                            ctx.moveTo(xPixel, yPixel);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(xPixel, yPixel);
+                        }
+                    } else {
+                        firstPoint = true;
+                    }
+                } catch (error) {
+                    firstPoint = true;
+                }
+            }
+            
+            ctx.stroke();
+        }
+
+        // Add volume conversion function
+        function convertVolume() {
+            const input = parseFloat(document.getElementById('volumeInput').value);
+            const from = document.getElementById('volumeFrom').value;
+            const to = document.getElementById('volumeTo').value;
+            
+            if (isNaN(input)) return;
+            
+            // Convert to ml first
+            let ml = 0;
+            switch (from) {
+                case 'oz': ml = input * 29.5735; break;
+                case 'ml': ml = input; break;
+                case 'l': ml = input * 1000; break;
+                case 'cup': ml = input * 236.588; break;
+                case 'gal': ml = input * 3785.41; break;
+            }
+            
+            // Convert from ml to target
+            let result = 0;
+            switch (to) {
+                case 'ml': result = ml; break;
+                case 'oz': result = ml / 29.5735; break;
+                case 'l': result = ml / 1000; break;
+                case 'cup': result = ml / 236.588; break;
+                case 'gal': result = ml / 3785.41; break;
+            }
+            
+            document.getElementById('volumeResult').textContent = `${input} ${from} = ${result.toFixed(4)} ${to}`;
+        }
     </script>
     <script src="../js/chatgpt-integration.js"></script>
 </body>

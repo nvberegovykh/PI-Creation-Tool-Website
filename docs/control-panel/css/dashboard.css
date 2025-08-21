@@ -644,18 +644,17 @@
 /* Overlay search results in Personal Space */
 #space-search-results {
     position: absolute;
-    top: 48px;
+    top: calc(100% + 4px);
     left: 0;
-    right: 0;
-    max-width: 480px;
+    width: 100%;
     background: #0f1116;
     border: 1px solid var(--border-color);
     border-radius: 10px;
     box-shadow: 0 12px 28px rgba(0,0,0,.45);
     z-index: 50;
-    max-height: 60vh;
-    overflow: auto;
-    padding: 6px 0;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 8px 0;
 }
 
 #space-search-results li { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border-color); }
@@ -1082,13 +1081,64 @@
   flex-direction: column;
   gap: 6px;
 }
-.setting-item label, .form-group label {
-  order: -1;
+.setting-item label, .form-group label, .input-group label {
+  text-align: left;
+  align-self: flex-start;
+  width: 100%;
 }
 .settings-card, .content-section {
   padding: 24px;
 }
 #space-section .settings-grid {
   display: block;
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .dashboard-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: white;
+    color: black;
+    border-bottom: 1px solid #ddd;
+    border-radius: 0;
+  }
+  .dashboard-content {
+    padding-top: 60px; /* Height of nav */
+  }
+  .nav-btn {
+    color: black;
+  }
+  .nav-btn.active {
+    background: black;
+    color: cyan;
+    border-bottom-color: cyan;
+  }
+  .nav-btn i {
+    color: cyan;
+  }
+}
+
+.user-preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #1a1a1a;
+  padding: 20px;
+  border-radius: 12px;
+  max-width: 80%;
+  max-height: 80%;
   overflow-y: auto;
 }
