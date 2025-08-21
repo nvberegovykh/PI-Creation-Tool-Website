@@ -276,13 +276,10 @@ class AuthManager {
                     return;
                 }
                 // Check if account exists
-                const account = await window.firebaseService.findUserByEmail(email);
-                if (!account){
-                    this.showMessage('No account found with this email address', 'error');
-                    return;
-                }
+                let account = await window.firebaseService.findUserByEmail(email);
+                // Proceed even if the Firestore users/{uid} is missing (legacy) and rely on Auth result; we'll auto-create doc on success
                 // Check lockout
-                const lockUntilISO = account.lockoutUntil;
+                const lockUntilISO = account?.lockoutUntil;
                 if (lockUntilISO){
                     const until = new Date(lockUntilISO).getTime();
                     const now = Date.now();
@@ -312,7 +309,12 @@ class AuthManager {
                 
                 if (firebaseUser) {
                     // Get user data from Firestore
-                    const userData = await window.firebaseService.getUserData(firebaseUser.uid);
+                    let userData = await window.firebaseService.getUserData(firebaseUser.uid);
+                    // Auto-create missing users/{uid} doc for legacy accounts
+                    if (!userData){
+                        await window.firebaseService.ensureUserDoc(firebaseUser.uid, { email, username: email.split('@')[0], isVerified: true, status: 'approved' });
+                        userData = await window.firebaseService.getUserData(firebaseUser.uid);
+                    }
                     
                     if (userData) {
                         // Reset failed attempts on successful login

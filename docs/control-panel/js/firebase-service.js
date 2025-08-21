@@ -372,6 +372,34 @@ class FirebaseService {
     }
 
     /**
+     * Ensure a users/{uid} document exists; create with fallback data if missing
+     */
+    async ensureUserDoc(uid, seed = {}){
+        await this.waitForInit();
+        try{
+            const ref = firebase.doc(this.db,'users', uid);
+            const snap = await firebase.getDoc(ref);
+            if (!snap.exists()){
+                const base = {
+                    uid,
+                    username: seed.username || '',
+                    email: seed.email || '',
+                    role: seed.role || 'user',
+                    isVerified: !!seed.isVerified,
+                    status: seed.status || 'approved',
+                    usernameLower: (seed.username||'').toLowerCase(),
+                    emailLower: (seed.email||'').toLowerCase(),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    loginCount: 0
+                };
+                await firebase.setDoc(ref, base);
+            }
+            return true;
+        }catch(e){ return false; }
+    }
+
+    /**
      * Sign out user
      */
     async signOutUser() {
