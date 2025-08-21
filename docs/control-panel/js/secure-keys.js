@@ -8,7 +8,7 @@ class SecureKeyManager {
         // Default GitHub Gist URL - can be overridden in settings
         // This URL is obfuscated to prevent easy discovery
         // New rotated commit URL
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3LzhjYzc0OThhY2Q3ZDJiZDkzYzYwY2Y0MDg5YmVmZTE2NTQzYWZjZi9saWJlci1zZWN1cmUta2V5cy5qc29u');
+        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2xpYmVyLXNlY3VyZS1rZXlzLmpzb24=');
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
