@@ -423,8 +423,8 @@
             const enriched = [];
             for (const uid of parts){
               if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              try{ const u = await window.firebaseService.getUserData(uid); enriched.push((u&&u.username)||u?.email||uid); }
-              catch{ enriched.push(uid); }
+              const u = await window.firebaseService.getUserData(uid); 
+              enriched.push((u&&u.username)||u?.email||uid);
             }
             await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id),{ participantUsernames: enriched, updatedAt: new Date().toISOString() });
             c.participantUsernames = enriched;
@@ -443,27 +443,13 @@
           else if (others.length>1){
             label = others.slice(0,2).join(', ');
             if (others.length>2) label += `, +${others.length-2}`;
+          } else {
+            label = 'Chat';
           }
         } else {
-          // Fallback without await: leave id; optional async resolve (non-blocking)
-          (async()=>{ 
-            try{ 
-              const others=(c.participants||[]).filter(u=> u!==this.currentUser.uid); 
-              if(others.length){ 
-                const d=await window.firebaseService.getUserData(others[0]); 
-                const name=(d&&d.username)||d?.email||others[0]; 
-                if(name){ li.textContent = name; 
-                  // Update Firestore if missing
-                  if (!c.participantUsernames || c.participantUsernames.length !== c.participants.length) {
-                    const enriched = c.participants.map(uid => uid === this.currentUser.uid ? (this.me?.username || 'me') : (uid === others[0] ? name : uid));
-                    await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id), { participantUsernames: enriched });
-                  }
-                } 
-              } 
-            }catch(_){ } 
-          })();
+          label = 'Chat';
         }
-        li.textContent = label;
+        li.textContent = label; // Initial set, async will update
         // Admin badge in header when active
         li.addEventListener('mouseenter', ()=> li.classList.add('active-hover'));
         li.addEventListener('click',()=>{
@@ -497,6 +483,8 @@
         if (target){ this.setActive(target.id); }
         this._deepLinkConnId = null;
       }
+      // After all, refresh list to show updates
+      await this.loadConnections(); // Recursive but limited by seen set
     }
 
     async setActive(connId, displayName){

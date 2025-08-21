@@ -342,6 +342,16 @@
     }
 }
 
+/* Wider password input on desktop */
+@media (min-width: 769px) {
+  .password-input {
+    width: 300px !important; /* Adjust as needed */
+  }
+  .password-input input {
+    width: 100% !important;
+  }
+}
+
 /* Animation for form switching */
 @keyframes slideInRight {
     from {

@@ -1150,3 +1150,9 @@
   max-height: 80%;
   overflow-y: auto;
 }
+
+/* Fix black space - reduce margin/padding above bottom nav */
+.dashboard-bottom-nav {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
