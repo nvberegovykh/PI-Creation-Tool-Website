@@ -1319,8 +1319,8 @@ class DashboardManager {
                 const stats = await window.firebaseService.getUserStats();
                 return `${stats.total} (${stats.pending} pending)`;
             } else {
-                const users = await authManager.getUsers();
-                return users.length + 1; // +1 for admin
+            const users = await authManager.getUsers();
+            return users.length + 1; // +1 for admin
             }
         } catch (error) {
             console.error('Error getting users count:', error);
