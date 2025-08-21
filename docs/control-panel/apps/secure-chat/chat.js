@@ -67,6 +67,31 @@
       const stickerBtn = document.getElementById('sticker-btn');
       if (stickerBtn){ stickerBtn.addEventListener('click', ()=> this.toggleStickers()); }
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
+      // Predictive suggestions: update datalist as user types
+      const suggest = document.getElementById('user-suggestions');
+      const searchEl = document.getElementById('user-search');
+      if (suggest && searchEl){
+        let lastTerm = '';
+        searchEl.addEventListener('input', async ()=>{
+          const term = (searchEl.value||'').trim();
+          if (term === lastTerm || term.length === 0){ if (term.length===0) suggest.innerHTML=''; lastTerm = term; return; }
+          lastTerm = term;
+          try{
+            const users = await window.firebaseService.searchUsers(term.toLowerCase());
+            // simple dedupe and top-10 ranking by prefix/contains
+            const rank = (u)=>{
+              const n=(u.username||'').toLowerCase(); const em=(u.email||'').toLowerCase(); const t=term.toLowerCase();
+              let s=0; if (n.startsWith(t)||em.startsWith(t)) s+=3; if (n.includes(t)||em.includes(t)) s+=2; return s;
+            };
+            const opts = (users||[])
+              .sort((a,b)=> rank(b)-rank(a))
+              .slice(0,10)
+              .map(u=> `<option value="${u.username||u.email}"></option>`)
+              .join('');
+            suggest.innerHTML = opts;
+          }catch(_){ /* ignore */ }
+        });
+      }
       const userSearch = document.getElementById('user-search');
       if (userSearch){
         const openSidebar = ()=>{ const sidebar = document.querySelector('.sidebar'); if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open'); };
@@ -184,42 +209,30 @@
           if (!groups.has(key)) groups.set(key, []);
           groups.get(key).push(c);
         }
-        let merged = 0;
+        let archived = 0;
         for (const [key, conns] of groups.entries()){
           if (conns.length <= 1) continue;
-          // Keep the newest (by updatedAt), merge others into it
+          // Keep the newest; mark others archived → no message copying to respect rules
           conns.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
           const keep = conns[0];
-          const remove = conns.slice(1);
-          for (const r of remove){
+          const rest = conns.slice(1);
+          for (const r of rest){
             try{
-              // Move messages from r to keep by copying docs
-              const srcCol = firebase.collection(this.db,'chatMessages', r.id, 'messages');
-              const dstCol = firebase.collection(this.db,'chatMessages', keep.id, 'messages');
-              const ms = await firebase.getDocs(srcCol);
-              for (const m of ms.docs){
-                const data = m.data();
-                const newRef = firebase.doc(dstCol);
-                await firebase.setDoc(newRef, { ...data, id: newRef.id, connId: keep.id });
-              }
-              // Delete source connection and its subcollection docs
-              // Delete messages collection docs first
-              for (const m of ms.docs){
-                try{ await firebase.deleteDoc(firebase.doc(this.db,'chatMessages', r.id, 'messages', m.id)); }catch(_){ }
-              }
-              await firebase.deleteDoc(firebase.doc(this.db,'chatConnections', r.id));
-              merged++;
-            }catch(_){ /* ignore per-duplicate failure */ }
+              await firebase.updateDoc(firebase.doc(this.db,'chatConnections', r.id),{
+                archived: true,
+                mergedInto: keep.id,
+                key: key,
+                updatedAt: new Date().toISOString()
+              });
+              archived++;
+            }catch(err){ console.warn('Archive duplicate failed', r.id, err); }
           }
-          // Normalize keep doc fields and ensure key/ids
-          try{
-            const k = keep.key || this.computeConnKey(keep.participants||[]);
-            await firebase.updateDoc(firebase.doc(this.db,'chatConnections', keep.id),{ key: k, updatedAt: new Date().toISOString() });
-          }catch(_){ }
+          // Normalize keep doc fields and ensure key present
+          try{ await firebase.updateDoc(firebase.doc(this.db,'chatConnections', keep.id),{ key, updatedAt: new Date().toISOString() }); }catch(_){ }
         }
-        alert(merged>0 ? `Merged ${merged} duplicate chats.` : 'No duplicates found.');
+        alert(archived>0 ? `Archived ${archived} duplicate chats.` : 'No duplicates found.');
         await this.loadConnections();
-      }catch(e){ alert('Failed to fix duplicates'); }
+      }catch(e){ console.error('Fix duplicates failed:', e); /* no alert */ }
     }
 
     refreshActionButton(){
@@ -1050,23 +1063,34 @@
                 const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
                 const uids = [this.currentUser.uid, u.uid||u.id];
                 const key = this.computeConnKey(uids);
-                let connId = await this.findConnectionByKey(key);
-                if (!connId){
-                  const newRef = firebase.doc(this.db,'chatConnections', key);
-                  connId = key;
-                  await firebase.setDoc(newRef,{
-                    id: connId,
-                    key,
-                    participants: uids,
-                    participantUsernames:[myName, u.username||u.email],
-                    admins: [this.currentUser.uid],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    lastMessage:''
-                  });
+                try{
+                  let connId = await this.findConnectionByKey(key);
+                  if (!connId){
+                    const newRef = firebase.doc(this.db,'chatConnections', key);
+                    connId = key;
+                    await firebase.setDoc(newRef,{
+                      id: connId,
+                      key,
+                      participants: uids,
+                      participantUsernames:[myName, u.username||u.email],
+                      admins: [this.currentUser.uid],
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      lastMessage:''
+                    });
+                  }
+                  await this.loadConnections();
+                  this.setActive(connId, u.username||u.email);
+                }catch(err){
+                  console.error('Chat creation failed:', err);
+                  const wrapper = document.getElementById('search-results');
+                  if (wrapper){
+                    const warn = document.createElement('div');
+                    warn.style.cssText='padding:8px;color:#ff6a6a';
+                    warn.textContent = 'Failed to start chat (permissions or network). Check Firestore rules: user must be a participant.';
+                    wrapper.appendChild(warn);
+                  }
                 }
-                await this.loadConnections();
-                this.setActive(connId, u.username||u.email);
               });
               resultsEl.appendChild(li);
             });

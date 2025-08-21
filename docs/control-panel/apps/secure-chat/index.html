@@ -26,7 +26,8 @@
             </div>
             <div class="connections-panel" id="connections-panel">
                 <div class="search-box">
-                    <input id="user-search" type="text" placeholder="Search users or messages..." />
+                    <input id="user-search" type="text" placeholder="Search users or messages..." list="user-suggestions" />
+                    <datalist id="user-suggestions"></datalist>
                     <div id="search-results" class="search-results" style="display:none">
                         <div class="results-group" id="user-results-group" style="display:none">
                             <div class="results-separator">Users</div>

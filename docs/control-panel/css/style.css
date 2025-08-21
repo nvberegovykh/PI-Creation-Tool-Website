@@ -58,8 +58,9 @@ body {
     background: var(--primary-bg);
     color: var(--primary-text);
     line-height: 1.6;
-    overflow: hidden;
-    overscroll-behavior: none;
+    /* Allow natural page scrolling; prevent horizontal overflow */
+    overflow-y: auto;
+    overflow-x: hidden;
     min-height: 100vh;
 }
 
@@ -68,11 +69,16 @@ body {
 *::-webkit-scrollbar { width:0; height:0; }
 
 /* Common internal scroll containers */
-.content-section, .settings-grid, .settings-card, .connections-list, .messages, #apps-grid, #space-feed, #video-library, #wave-library {
+.content-section, .settings-grid, .settings-card, .connections-list, .messages, #apps-grid, #space-feed, #video-library, #wave-library, main, .main, .page, .page-content, #dashboard, #personal-space, #feed {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+}
+
+/* Base page padding so text does not float at edges */
+main, .main, .page, .page-content, #dashboard, #personal-space, #feed {
+    padding: 14px 16px;
 }
 
 /* Hide scrollbars globally while preserving scroll */

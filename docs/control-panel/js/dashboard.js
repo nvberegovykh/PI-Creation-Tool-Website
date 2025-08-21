@@ -1597,11 +1597,22 @@ Do you want to proceed?`);
      */
     saveSettings() {
         try {
+            const stEl = document.getElementById('session-timeout');
+            const autoEl = document.getElementById('auto-refresh-apps');
+            const showDescEl = document.getElementById('show-app-descriptions');
+            const twoFaEl = document.getElementById('enable-2fa');
+
+            // If settings UI is not rendered on this page, silently skip
+            if (!stEl && !autoEl && !showDescEl && !twoFaEl) {
+                return;
+            }
+
+            const sessionTimeout = stEl ? (parseInt(stEl.value || '30') * 60000) : (authManager?.sessionTimeout || 30*60*1000);
             const settings = {
-                sessionTimeout: parseInt(document.getElementById('session-timeout').value) * 60000,
-                autoRefreshApps: document.getElementById('auto-refresh-apps').checked,
-                showAppDescriptions: document.getElementById('show-app-descriptions').checked,
-                enable2FA: document.getElementById('enable-2fa').checked,
+                sessionTimeout,
+                autoRefreshApps: !!(autoEl && autoEl.checked),
+                showAppDescriptions: !!(showDescEl && showDescEl.checked),
+                enable2FA: !!(twoFaEl && twoFaEl.checked),
                 lastUpdated: new Date().toISOString()
             };
 
@@ -1612,10 +1623,11 @@ Do you want to proceed?`);
                 authManager.startSessionTimer();
             }
 
-            this.showSuccess('Settings saved successfully');
+            // Only show toast if UI exists
+            if (stEl || autoEl || showDescEl || twoFaEl) this.showSuccess('Settings saved successfully');
         } catch (error) {
-            console.error('Error saving settings:', error);
-            this.showError('Failed to save settings');
+            // Do not alert on pages without settings UI
+            console.warn('Skipped saving settings:', error?.message || error);
         }
     }
 

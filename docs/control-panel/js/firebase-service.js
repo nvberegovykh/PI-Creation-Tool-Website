@@ -921,10 +921,23 @@ class FirebaseService {
                     firebase.getDocs(qEmailLower)
                 ]);
                 const set = new Map();
-                const fuzz = (s)=> (s||'').toLowerCase();
                 snapU.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
                 snapE.forEach(doc => set.set(doc.id, { id: doc.id, ...doc.data() }));
                 results = Array.from(set.values());
+                // Client-side fallback if still empty or fields missing: fuzzy contains/subsequence
+                if (results.length === 0 && term) {
+                    const snapAll = await firebase.getDocs(usersCollectionRef);
+                    const matches = [];
+                    const contains = (s)=> (s||'').toLowerCase().includes(term);
+                    const isSubseq = (s)=>{ const t=term; let i=0; for (const ch of (s||'').toLowerCase()){ if (ch===t[i]) i++; if (i===t.length) return true; } return t.length===0; };
+                    snapAll.forEach(doc => {
+                        const d = doc.data() || {};
+                        const u = (d.usernameLower || (d.username||'').toLowerCase());
+                        const em = (d.emailLower || (d.email||'').toLowerCase());
+                        if (contains(u) || contains(em) || isSubseq(u) || isSubseq(em)) matches.push({ id: doc.id, ...d });
+                    });
+                    results = matches;
+                }
             } catch (e) {
                 // Client-side fallback if composite queries are restricted
                 const snapAll = await firebase.getDocs(usersCollectionRef);
