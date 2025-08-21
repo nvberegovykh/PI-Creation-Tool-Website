@@ -44,7 +44,20 @@
       if (!window.firebaseService || !window.firebaseService.isInitialized) return;
       this.db = window.firebaseService.db;
       this.storage = firebase.getStorage ? firebase.getStorage() : null;
-      this.currentUser = await window.firebaseService.getCurrentUser();
+
+      // Add auth readiness retry
+      attempts = 0;
+      while (attempts < 50) {
+        this.currentUser = await window.firebaseService.getCurrentUser();
+        if (this.currentUser) break;
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+      }
+      if (!this.currentUser) {
+        console.error('Firebase auth not ready after retries');
+        return; // Or show error UI
+      }
+
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
       // If a connId is provided via query param, set active after connections load
