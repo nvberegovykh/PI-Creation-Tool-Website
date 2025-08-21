@@ -431,6 +431,8 @@
           }
         }catch(_){ }
       }
+      // Clear list before re-rendering
+      listEl.innerHTML = '';
       this.connections.forEach(c=>{
         const key = c.key || this.computeConnKey(c.participants||[]);
         if (seen.has(key)) return; seen.add(key);
@@ -477,14 +479,8 @@
         });
         listEl.appendChild(li);
       });
-      // Deep link: open provided connection once
-      if (this._deepLinkConnId){
-        const target = this.connections.find(c=> c.id === this._deepLinkConnId);
-        if (target){ this.setActive(target.id); }
-        this._deepLinkConnId = null;
-      }
-      // After all, refresh list to show updates
-      await this.loadConnections(); // Recursive but limited by seen set
+      // Remove deep link logic from here if needed, or keep
+      // No recursive call
     }
 
     async setActive(connId, displayName){
