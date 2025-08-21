@@ -5,10 +5,12 @@
 
 class SecureKeyManager {
     constructor() {
-        // Default GitHub Gist URL - can be overridden in settings
-        // This URL is obfuscated to prevent easy discovery
-        // New rotated commit URL
-        this.defaultKeyUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGMvcmF3L2xpYmVyLXNlY3VyZS1rZXlzLmpzb24=');
+        // Obfuscated Gist ID (fd53bb73903ee09f1e62ea7e180b888c base64-encoded)
+        this.gistId = this.decodeUrl('ZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGM=');
+        this.gistFilename = 'liber-secure-keys.json';
+        this.apiCacheExpiry = 5 * 60 * 1000; // 5 mins
+        this.lastApiFetch = 0;
+        this.cachedResponse = null;
         this.keyUrl = null;
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
@@ -41,7 +43,7 @@ class SecureKeyManager {
      */
     getKeySource() {
         if (!this.keyUrl) {
-            this.keyUrl = localStorage.getItem('liber_keys_url') || this.defaultKeyUrl;
+            this.keyUrl = localStorage.getItem('liber_keys_url') || null; // No default key URL here
         }
         return this.keyUrl;
     }
@@ -105,30 +107,57 @@ class SecureKeyManager {
      * Fetch keys from secure source (GitHub Gist, private repo, etc.)
      */
     async fetchKeys() {
-        try {
-            const response = await fetch(this.keyUrl);
-            if (!response.ok) {
-                if (response.status === 404) {
-                    console.warn('Gist not found (404). Using default fallback credentials.');
-                    return await this.generateDefaultCredentials();
+        const maxRetries = 3;
+        let attempt = 0;
+        while (attempt < maxRetries) {
+            try {
+                if (this.cachedResponse && Date.now() - this.lastApiFetch < this.apiCacheExpiry) {
+                    if (window.__DEBUG_KEYS__) console.log('Using cached Gist response');
+                    return this.cachedResponse;
                 }
-                throw new Error(`Gist fetch failed: ${response.status}`);
+                
+                const apiUrl = `https://api.github.com/gists/${this.gistId}`;
+                if (window.__DEBUG_KEYS__) console.log('Fetching latest Gist via API (attempt ' + (attempt + 1) + '):', apiUrl);
+                
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    if (response.status === 403 || response.status === 429) { // Rate limit
+                        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        attempt++;
+                        continue;
+                    }
+                    const errMsg = `Gist API failed: ${response.status} ${response.statusText}`;
+                    if (window.__DEBUG_KEYS__) console.error(errMsg);
+                    throw new Error(errMsg);
+                }
+                
+                const data = await response.json();
+                if (!data.files || !data.files[this.gistFilename]) {
+                    throw new Error('Gist file not found or invalid');
+                }
+                
+                const keysData = JSON.parse(data.files[this.gistFilename].content);
+                
+                // Structure validation
+                if (!keysData.firebase || !keysData.admin || !keysData.system) {
+                    throw new Error('Invalid Gist structure');
+                }
+                
+                this.cachedResponse = keysData;
+                this.lastApiFetch = Date.now();
+                if (window.__DEBUG_KEYS__) console.log('Fetched latest Gist via API (redacted):', Object.keys(keysData));
+                return keysData;
+            } catch (error) {
+                console.error('Secure keys load failed (attempt ' + (attempt + 1) + '):', error);
+                attempt++;
+                if (attempt >= maxRetries) {
+                    // Graceful fallback after retries
+                    console.warn('All retries failed - using limited mode');
+                    document.body.insertAdjacentHTML('afterbegin', '<div style="color:yellow;text-align:center;padding:10px;background:black;">Warning: Failed to load latest secure config after retries. Using cached or limited mode.</div>');
+                    return this.cachedResponse || {}; // Return cached or empty
+                }
             }
-            const keysData = await response.json();
-            
-            // Structure validation only (no hash checks)
-            if (!keysData.firebase || !keysData.admin || !keysData.system) {
-                throw new Error('Invalid Gist structure');
-            }
-            
-            this.cachedKeys = keysData;
-            this.lastFetch = Date.now();
-            return keysData;
-        } catch (error) {
-            console.error('Secure keys load failed:', error);
-            // Show UI error instead of fallback
-            document.body.innerHTML = '<div style="color:red;text-align:center;padding:20px;">Failed to load secure config from Gist. Check URL/network and reload.</div>';
-            throw error;
         }
     }
 

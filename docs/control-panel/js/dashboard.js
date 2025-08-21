@@ -612,6 +612,7 @@ class DashboardManager {
                 const trending = await window.firebaseService.getTrendingPosts('', 10);
                 suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
             }
+            this.activatePostActions(feedEl);  // Activate actions after rendering
         }catch(_){ }
     }
 
@@ -2556,8 +2557,6 @@ Do you want to proceed?`);
         }
       });
     }
-    // Call in loadGlobalFeed after rendering
-    this.activatePostActions(feedEl);
 }
 
 // Create global instance
