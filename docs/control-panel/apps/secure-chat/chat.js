@@ -394,6 +394,23 @@
         this.connections = temp;
       }
       const seen = new Set();
+      // Backfill participantUsernames if missing
+      for (const c of this.connections){
+        try{
+          const parts = Array.isArray(c.participants)? c.participants:[];
+          const names = Array.isArray(c.participantUsernames)? c.participantUsernames:[];
+          if (parts.length && names.length !== parts.length){
+            const enriched = [];
+            for (const uid of parts){
+              if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
+              try{ const u = await window.firebaseService.getUserData(uid); enriched.push((u&&u.username)||u?.email||uid); }
+              catch{ enriched.push(uid); }
+            }
+            await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id),{ participantUsernames: enriched, updatedAt: new Date().toISOString() });
+            c.participantUsernames = enriched;
+          }
+        }catch(_){ }
+      }
       this.connections.forEach(c=>{
         const key = c.key || this.computeConnKey(c.participants||[]);
         if (seen.has(key)) return; seen.add(key);
@@ -407,6 +424,9 @@
             label = others.slice(0,2).join(', ');
             if (others.length>2) label += `, +${others.length-2}`;
           }
+        } else {
+          // Fallback without await: leave id; optional async resolve (non-blocking)
+          (async()=>{ try{ const others=(c.participants||[]).filter(u=> u!==this.currentUser.uid); if(others.length){ const d=await window.firebaseService.getUserData(others[0]); const name=(d&&d.username)||d?.email; if(name){ li.textContent = name; } } }catch(_){ } })();
         }
         li.textContent = label;
         // Admin badge in header when active
@@ -507,6 +527,7 @@
             firebase.limit(200)
           );
         }
+        // Modify here
         const handleSnap = async (snap)=>{
           box.innerHTML='';
           let aesKey = await this.getFallbackKey();
@@ -588,31 +609,42 @@
           const snap = await firebase.getDocs(q); handleSnap(snap);
         }
       }catch{
-        const q = firebase.query(
-          firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
-          firebase.orderBy('createdAt','asc'),
-          firebase.limit(200)
-        );
-        const snap = await firebase.getDocs(q);
-        let aesKey = await this.getFallbackKey();
-        snap.forEach(async d=>{
-          const m=d.data();
-          let text='';
-          try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-            try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
-          }
-          const el = document.createElement('div');
-          el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-          const hasFile = !!m.fileUrl && !!m.fileName;
-          el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
-          box.appendChild(el);
-          if (hasFile){
-            const preview = el.querySelector('.file-preview');
-            if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
-          }
-        });
-        box.scrollTop = box.scrollHeight;
+        try{
+          const q = firebase.query(
+            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.orderBy('createdAt','asc'),
+            firebase.limit(200)
+          );
+          const snap = await firebase.getDocs(q);
+          let aesKey = await this.getFallbackKey();
+          snap.forEach(async d=>{
+            const m=d.data();
+            let text='';
+            try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+              try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+            }
+            const el = document.createElement('div');
+            el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            const hasFile = !!m.fileUrl && !!m.fileName;
+            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+            box.appendChild(el);
+            if (hasFile){
+              const preview = el.querySelector('.file-preview');
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+            }
+          });
+          box.scrollTop = box.scrollHeight;
+        }catch(e){
+          console.error('Failed to load messages:', e);
+          box.innerHTML = '<div class="error">Failed to load messages. Check console.</div>';
+        }
       }
+    }
+    // New helper
+    async getArchivedConnIds(connId){
+      const q = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('mergedInto','==', connId));
+      const s = await firebase.getDocs(q);
+      return s.docs.map(d=> d.id);
     }
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
@@ -1341,9 +1373,10 @@
 
   window.secureChatApp = new SecureChatApp();
 })();
- 
-// Review helpers
-SecureChatApp.prototype.showRecordingReview = SecureChatApp.prototype.showRecordingReview || function(blob, filename){
+
+// Review helpers (attach safely to running instance to avoid global class reference errors)
+if (window && window.secureChatApp && typeof window.secureChatApp.showRecordingReview !== 'function'){
+window.secureChatApp.showRecordingReview = function(blob, filename){
   try{
     const review = document.getElementById('recording-review');
     const player = document.getElementById('recording-player');
@@ -1392,3 +1425,4 @@ SecureChatApp.prototype.showRecordingReview = SecureChatApp.prototype.showRecord
     discardBtn.onclick = ()=>{ review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton(); };
   }catch(_){ }
 };
+}

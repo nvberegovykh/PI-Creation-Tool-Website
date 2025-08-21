@@ -119,6 +119,8 @@
     overflow-x: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    border-radius: 10px;
+    overflow: hidden; /* ensure rounded corners clip content */
 }
 
 .dashboard-nav::-webkit-scrollbar {
@@ -1073,4 +1075,20 @@
 	#waveconnect-section .section-header {
 		padding: 8px 12px;
 	}
+}
+
+.setting-item, .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.setting-item label, .form-group label {
+  order: -1;
+}
+.settings-card, .content-section {
+  padding: 24px;
+}
+#space-section .settings-grid {
+  display: block;
+  overflow-y: auto;
 }

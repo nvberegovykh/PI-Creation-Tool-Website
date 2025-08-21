@@ -97,6 +97,7 @@ img, video, canvas, svg, iframe {
 
 /* Sticky mini player */
 .mini-player{ position:fixed; left:12px; right:12px; bottom:72px; background:#0f1116; border:1px solid var(--border-color); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.4); padding:8px 12px; display:none; align-items:center; gap:10px; z-index:900 }
+.mini-player{ border-radius:10px }
 .mini-player.show{ display:flex }
 .mini-player .cover{ width:40px; height:40px; border-radius:8px; object-fit:cover }
 .mini-player .title{ font-weight:600 }
