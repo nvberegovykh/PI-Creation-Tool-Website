@@ -2448,7 +2448,7 @@ Do you want to proceed?`);
     // Enhance showUserPreviewModal
     async showUserPreviewModal(u) {
       const uid = u.uid || u.id;
-      const data = u.username ? u : (await window.firebaseService.getUserData(uid)) || {};
+      const data = u.username ? u : (await window.firebaseService.getUserData(uid))||{};
       const me = await window.firebaseService.getCurrentUser();
       let isFollowing = false;
       try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
