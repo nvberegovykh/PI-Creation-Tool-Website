@@ -551,18 +551,34 @@ class ChatGPTIntegration {
      */
     async loadConfiguration() {
         try {
-            const keys = await window.secureKeyManager.getKeys();
-            if (!keys.openai || !keys.openai.apiKey || !keys.openai.assistantId) {
-                throw new Error('OpenAI configuration missing from secure keys');
+            // Use the correct Gist URL with your API keys and assistant ID
+            const wallEGistUrl = this.decodeUrl('aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9udmJlcmVnb3Z5a2gvMTM2Yjg1NmM5NDY3OTRmYWQ4MDBjNjM2M2E4ZmE4NmUvcmF3L2M2YzU3MTA2MzM2YmZhNDllOTczYmJhMTZkYzU3Nzk5OGRlOTMwMDgvd2FsbC1lLWNvbmZpZy5qc29u');
+            
+            // Load configuration directly from Gist raw URL
+            const response = await fetch(wallEGistUrl);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load configuration: ${response.status} - ${response.statusText}`);
             }
-            this.apiKey = keys.openai.apiKey;
-            this.assistantId = keys.openai.assistantId;
+            
+            const config = await response.json();
+            
+            // Validate configuration
+            if (!config.openai || !config.openai.apiKey || !config.openai.assistantId) {
+                throw new Error('Invalid configuration format. Missing OpenAI API key or assistant ID.');
+            }
+            
+            // Set configuration values
+            this.apiKey = config.openai.apiKey;
+            this.assistantId = config.openai.assistantId;
             this.isEnabled = true;
             this.configLoaded = true;
-            console.log('ChatGPT config loaded from secure keys');
+            
+            console.log('WALL-E configuration loaded successfully');
+            
         } catch (error) {
-            console.error('Failed to load ChatGPT config:', error);
-            this.showError('Failed to load ChatGPT configuration from secure keys. Add "openai" section to Gist.');
+            console.error('Failed to load WALL-E configuration:', error);
+            this.showError(`WALL-E Configuration Error: ${error.message}`);
             this.isEnabled = false;
         }
     }

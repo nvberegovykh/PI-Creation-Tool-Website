@@ -1102,31 +1102,23 @@
     right: 0;
     z-index: 1000;
     background: white;
+    color: black;
     border-bottom: 1px solid #ddd;
-    padding: 0 30px;
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
+    border-radius: 0;
+  }
+  .dashboard-content {
+    padding-top: 60px; /* Height of nav */
   }
   .nav-btn {
-    background: transparent;
     color: black;
-    border-bottom: 3px solid transparent;
-  }
-  .nav-btn:hover {
-    color: cyan;
-    background: #f0f0f0;
   }
   .nav-btn.active {
-    color: cyan;
     background: black;
+    color: cyan;
     border-bottom-color: cyan;
   }
   .nav-btn i {
     color: cyan;
-  }
-  .dashboard-content {
-    padding-top: 60px;
   }
 }
 

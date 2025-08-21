@@ -2492,7 +2492,6 @@ Do you want to proceed?`);
         const pid = item.dataset.postId;
         if (!pid) return;
         
-        // Like
         const likeBtn = item.querySelector('.like-btn');
         const likeSpan = likeBtn?.querySelector('span');
         const likeIcon = likeBtn?.querySelector('i');
@@ -2514,7 +2513,6 @@ Do you want to proceed?`);
           };
         }
         
-        // Comment
         const commentBtn = item.querySelector('.comment-btn');
         const commentSpan = commentBtn?.querySelector('span');
         if (commentBtn) {
@@ -2522,19 +2520,11 @@ Do you want to proceed?`);
             commentSpan.textContent = snap.size;
           });
           commentBtn.onclick = () => {
-            // Simple modal stub - expand as needed
-            const comment = prompt('Add comment:');
-            if (comment) {
-              firebase.addDoc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'comments'), {
-                userId: this.currentUser.uid,
-                text: comment,
-                createdAt: new Date().toISOString()
-              });
-            }
+            // Stub: Open comment modal
+            alert('Comment functionality coming soon');
           };
         }
         
-        // Repost
         const repostBtn = item.querySelector('.repost-btn');
         const repostSpan = repostBtn?.querySelector('span');
         const repostIcon = repostBtn?.querySelector('i');
