@@ -681,6 +681,7 @@
 
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
+      console.log('Auth state before sendFiles:', !!this.currentUser, firebase.auth().currentUser?.uid);
       for (const f of files){
         try {
           console.log('Sending file:', f.name, 'to connId:', this.activeConnection);
@@ -1437,6 +1438,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       };
     }
     sendBtn.onclick = async ()=>{
+      console.log('Auth state before sending recording:', !!self.currentUser, firebase.auth().currentUser?.uid);
       try {
         console.log('Sending recording:', filename, 'to connId:', self.activeConnection);
         const aesKey = await self.getFallbackKey();
