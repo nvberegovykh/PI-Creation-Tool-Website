@@ -8,6 +8,7 @@
       this.connections = [];
       this.sharedKeyCache = {}; // connId -> CryptoKey
       this.me = null; // cached profile
+      this.usernameCache = new Map(); // uid -> username
       this.init();
     }
 
@@ -423,8 +424,18 @@
             const enriched = [];
             for (const uid of parts){
               if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              const u = await window.firebaseService.getUserData(uid); 
-              enriched.push((u&&u.username)||u?.email||uid);
+              let name = this.usernameCache.get(uid);
+              if (!name) {
+                try {
+                  const u = await window.firebaseService.getUserData(uid);
+                  name = (u&&u.username)||u?.email||uid;
+                  this.usernameCache.set(uid, name);
+                } catch (err) {
+                  console.error('Failed to resolve username for', uid, err);
+                  name = 'Unknown';
+                }
+              }
+              enriched.push(name);
             }
             await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id),{ participantUsernames: enriched, updatedAt: new Date().toISOString() });
             c.participantUsernames = enriched;
@@ -574,11 +585,17 @@
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
             // Resolve sender name async
-            let senderName = m.sender === this.currentUser.uid ? 'You' : m.sender.slice(0,8);
-            try {
-              const user = await window.firebaseService.getUserData(m.sender);
-              senderName = (user?.username || user?.email || m.sender.slice(0,8));
-            } catch {} 
+            let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+            if (!this.usernameCache.has(m.sender)) {
+              try {
+                const user = await window.firebaseService.getUserData(m.sender);
+                senderName = (user?.username || user?.email || m.sender.slice(0,8));
+                this.usernameCache.set(m.sender, senderName);
+              } catch (err) {
+                console.error('Sender name resolution failed:', err);
+                senderName = 'Unknown';
+              }
+            }
             const hasFile = !!m.fileUrl && !!m.fileName;
             const fileText = hasFile ? `Attachment from ${senderName}` : '';
             // Render call invites as buttons
@@ -667,11 +684,17 @@
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
             // Resolve sender name async
-            let senderName = m.sender === this.currentUser.uid ? 'You' : m.sender.slice(0,8);
-            try {
-              const user = await window.firebaseService.getUserData(m.sender);
-              senderName = (user?.username || user?.email || m.sender.slice(0,8));
-            } catch {} 
+            let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+            if (!this.usernameCache.has(m.sender)) {
+              try {
+                const user = await window.firebaseService.getUserData(m.sender);
+                senderName = (user?.username || user?.email || m.sender.slice(0,8));
+                this.usernameCache.set(m.sender, senderName);
+              } catch (err) {
+                console.error('Sender name resolution failed:', err);
+                senderName = 'Unknown';
+              }
+            }
             const hasFile = !!m.fileUrl && !!m.fileName;
             const fileText = hasFile ? `Attachment from ${senderName}` : '';
             el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${fileText}</a></div><div class="file-preview"></div>`:''}<div class="meta">${senderName} · ${new Date(m.createdAt).toLocaleString()}</div>`;
