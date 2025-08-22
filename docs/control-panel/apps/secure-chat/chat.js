@@ -450,7 +450,7 @@
           }
         } else if (Array.isArray(c.participants) && c.participants.length) {
           const others = c.participants.filter(u => u !== this.currentUser.uid);
-          label = others.length === 1 ? `Chat with ${others[0]}` : `Group Chat (${others.length})`;
+          label = others.length === 1 ? `Chat with ${others[0].slice(0,8)}` : `Group Chat (${others.length})`;
         } else {
           label = 'Chat';
         }
@@ -680,9 +680,10 @@
     }
 
     async sendFiles(files){
-      if (!files || !files.length || !this.activeConnection) return;
+      if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
       for (const f of files){
         try {
+          console.log('Sending file:', f.name, 'to connId:', this.activeConnection);
           const aesKey = await this.getFallbackKey();
           // Read file as base64 via FileReader to avoid large argument spreads
           const base64 = await new Promise((resolve, reject)=>{
@@ -706,9 +707,10 @@
           const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
+          console.log('Got URL:', url);
           await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
         } catch (err) {
-          console.error('Failed to send file:', err);
+          console.error('Send file error details:', err.code, err.message, err);
           alert('Failed to send file: ' + err.message);
         }
       }
@@ -1435,14 +1437,17 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       };
     }
     sendBtn.onclick = async ()=>{
-      try{
+      try {
+        console.log('Sending recording:', filename, 'to connId:', self.activeConnection);
         const aesKey = await self.getFallbackKey();
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = (`chat/${self.activeConnection}/${Date.now()}_${filename}`).replace(/[^a-zA-Z0-9._-]/g,'_');
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
+        console.log('Upload path:', sref.fullPath);
         const url2 = await firebase.getDownloadURL(sref);
+        console.log('Got recording URL:', url2);
         await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
       }catch(_){ alert('Failed to send recording'); }
       finally{
