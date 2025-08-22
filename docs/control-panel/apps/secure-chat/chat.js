@@ -1562,7 +1562,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         const aesKey = await self.getFallbackKey();
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-        const safe = (`chat/${self.activeConnection}/${Date.now()}_${filename}`).replace(/[^a-zA-Z0-9._-]/g,'_');
+        const safe = `chat/${self.activeConnection}/${Date.now()}_${filename}`;
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
         console.log('Recording upload path:', sref.fullPath);
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
