@@ -3,7 +3,7 @@
 #space-profile-card .avatar-preview{ flex:1 1 300px }
 #space-profile-card #space-avatar{ width:100%; height:auto; aspect-ratio:1/1; border-radius:12px; object-fit:cover; display:block }
 @media(min-width:1024px){
-  #space-profile-card #space-avatar{ width:50%; height:auto }
+  #space-profile-card #space-avatar{ width:15%; height:auto }
 }
 #space-profile-card .avatar-actions{ flex:0 0 auto }
 @media(min-width:1024px){
