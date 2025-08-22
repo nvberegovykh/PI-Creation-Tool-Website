@@ -437,7 +437,7 @@
         const key = c.key || this.computeConnKey(c.participants||[]);
         if (seen.has(key)) return; seen.add(key);
         const li = document.createElement('li');
-        let label = c.id;
+        let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
           const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
@@ -448,6 +448,9 @@
           } else {
             label = 'Chat';
           }
+        } else if (Array.isArray(c.participants) && c.participants.length) {
+          const others = c.participants.filter(u => u !== this.currentUser.uid);
+          label = others.length === 1 ? `Chat with ${others[0]}` : `Group Chat (${others.length})`;
         } else {
           label = 'Chat';
         }
@@ -679,30 +682,35 @@
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) return;
       for (const f of files){
-        const aesKey = await this.getFallbackKey();
-        // Read file as base64 via FileReader to avoid large argument spreads
-        const base64 = await new Promise((resolve, reject)=>{
-          try{
-            const reader = new FileReader();
-            reader.onload = ()=>{
-              const result = String(reader.result || '');
-              const b64 = result.includes(',') ? result.split(',')[1] : '';
-              resolve(b64);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(f);
-          }catch(e){ reject(e); }
-        });
-        // Encrypt base64 string
-        const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-        // Store encrypted JSON payload with .json extension to aid CORS/content-type and preview
-        const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
-        const s = this.storage; if (!s) continue;
-        const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-        const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
-        await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
-        const url = await firebase.getDownloadURL(r);
-        await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
+        try {
+          const aesKey = await this.getFallbackKey();
+          // Read file as base64 via FileReader to avoid large argument spreads
+          const base64 = await new Promise((resolve, reject)=>{
+            try{
+              const reader = new FileReader();
+              reader.onload = ()=>{
+                const result = String(reader.result || '');
+                const b64 = result.includes(',') ? result.split(',')[1] : '';
+                resolve(b64);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(f);
+            }catch(e){ reject(e); }
+          });
+          // Encrypt base64 string
+          const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
+          // Store encrypted JSON payload with .json extension to aid CORS/content-type and preview
+          const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
+          const s = this.storage; if (!s) continue;
+          const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+          const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
+          await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
+          const url = await firebase.getDownloadURL(r);
+          await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
+        } catch (err) {
+          console.error('Failed to send file:', err);
+          alert('Failed to send file: ' + err.message);
+        }
       }
     }
 
