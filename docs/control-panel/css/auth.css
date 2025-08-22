@@ -167,7 +167,7 @@
 /* Password Input */
 .password-input {
     position: relative;
-    display: flex;
+    display: table-column;
     align-items: center;
     gap: 10px;
 }
@@ -511,6 +511,7 @@
     display: inline-block;
     text-decoration: none;
     text-align: center;
+    width: 100%;
     min-width: 120px;
 }
 

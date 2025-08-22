@@ -1101,11 +1101,6 @@
 @media (min-width: 768px) {
   .dashboard-nav {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 1000;
-    background: white;
     border-bottom: 1px solid #ddd;
     padding: 0 30px;
     display: flex;
@@ -1114,7 +1109,6 @@
   }
   .nav-btn {
     background: transparent;
-    color: black;
     border-bottom: 3px solid transparent;
   }
   .nav-btn:hover {
