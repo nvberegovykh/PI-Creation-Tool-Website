@@ -428,7 +428,7 @@
               if (!name) {
                 try {
                   const u = await window.firebaseService.getUserData(uid);
-                  name = (u&&u.username)||u?.email||uid;
+                  name = (u && u.username) || u?.email || 'User ' + uid.slice(0,6);
                   this.usernameCache.set(uid, name);
                 } catch (err) {
                   console.error('Failed to resolve username for', uid, err);
