@@ -731,6 +731,14 @@
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
       console.log('Auth state before sendFiles:', !!this.currentUser, firebase.auth().currentUser?.uid);
+      try {
+        await firebase.auth().currentUser?.getIdToken(true); // Force refresh
+        if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
+      } catch (err) {
+        console.error('Auth refresh failed before sendFiles:', err);
+        alert('Auth error - please reload and re-login');
+        return;
+      }
       for (const f of files){
         try {
           console.log('Sending file:', f.name, 'to connId:', this.activeConnection);
@@ -759,6 +767,7 @@
           const url = await firebase.getDownloadURL(r);
           console.log('Got URL:', url);
           await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
+          console.log('Storage bucket:', this.storage._bucket, 'Full ref path:', r.fullPath);
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
           alert('Failed to send file: ' + err.message);
@@ -1489,6 +1498,14 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     sendBtn.onclick = async ()=>{
       console.log('Auth state before sending recording:', !!self.currentUser, firebase.auth().currentUser?.uid);
       try {
+        await firebase.auth().currentUser?.getIdToken(true);
+        if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
+      } catch (err) {
+        console.error('Auth refresh failed before recording send:', err);
+        alert('Auth error - please reload and re-login');
+        return;
+      }
+      try {
         console.log('Sending recording:', filename, 'to connId:', self.activeConnection);
         const aesKey = await self.getFallbackKey();
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
@@ -1500,6 +1517,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         const url2 = await firebase.getDownloadURL(sref);
         console.log('Got recording URL:', url2);
         await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
+        console.log('Storage bucket:', self.storage._bucket, 'Full ref path:', sref.fullPath);
       }catch(_){ alert('Failed to send recording'); }
       finally{
         review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton();
