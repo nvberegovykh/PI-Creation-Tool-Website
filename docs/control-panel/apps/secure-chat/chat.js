@@ -742,7 +742,7 @@
       }
       for (const f of files){
         try {
-          console.log('Sending file:', f.name, 'to connId:', this.activeConnection);
+          console.log('Sending file:', f.name);
           const aesKey = await this.getFallbackKey();
           // Read file as base64 via FileReader to avoid large argument spreads
           const base64 = await new Promise((resolve, reject)=>{
@@ -763,10 +763,10 @@
           const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
           const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
           const r = firebase.ref(this.storage, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
-          console.log('Upload path:', r.fullPath);
+          console.log('File upload started');
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
-          console.log('Got URL:', url);
+          console.log('File upload completed');
           await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
@@ -1477,8 +1477,8 @@
         
         console.log('Current User:', !!window.firebaseService.auth?.currentUser);
         if (window.firebaseService.auth?.currentUser) {
-          console.log('User UID:', window.firebaseService.auth.currentUser.uid);
-          console.log('User Email:', window.firebaseService.auth.currentUser.email);
+          console.log('User authenticated');
+                      console.log('User email verified');
         }
       }
       
@@ -1487,10 +1487,10 @@
         const keys = await window.secureKeyManager?.getKeys();
         console.log('Firebase Config in Keys:', !!keys?.firebase);
         if (keys?.firebase) {
-          console.log('Firebase Config Fields:', Object.keys(keys.firebase));
+          console.log('Firebase config loaded');
           console.log('Has storageBucket:', !!keys.firebase.storageBucket);
           if (keys.firebase.storageBucket) {
-            console.log('Storage Bucket:', keys.firebase.storageBucket);
+            console.log('Storage bucket configured');
           }
         }
       } catch (err) {
@@ -1547,7 +1547,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         return;
       }
       
-      console.log('Storage bucket for recording:', self.storage._bucket);
+      console.log('Storage bucket configured');
       
       try {
         await firebase.auth().currentUser?.getIdToken(true);
@@ -1558,16 +1558,16 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         return;
       }
       try {
-        console.log('Sending recording:', filename, 'to connId:', self.activeConnection);
+        console.log('Sending recording:', filename);
         const aesKey = await self.getFallbackKey();
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = `chat/${self.activeConnection}/${Date.now()}_${filename}`;
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
-        console.log('Recording upload path:', sref.fullPath);
+        console.log('Recording upload started');
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
         const url2 = await firebase.getDownloadURL(sref);
-        console.log('Got recording URL:', url2);
+        console.log('Recording upload completed');
         await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
       } catch (err) {
         console.error('Recording upload error:', err.code, err.message, err);
