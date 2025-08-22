@@ -45,7 +45,7 @@
       if (!window.firebaseService || !window.firebaseService.isInitialized) return;
       this.db = window.firebaseService.db;
       this.storage = firebase.getStorage ? firebase.getStorage() : null;
-
+      
       // Enhanced auth readiness with token refresh
       attempts = 0;
       while (attempts < 50) {
@@ -54,15 +54,13 @@
           this.currentUser = await window.firebaseService.getCurrentUser();
           if (this.currentUser) break;
         } catch (err) {
-          console.warn('Auth refresh attempt failed:', err);
+          console.warn('Auth retry attempt', attempts, err.message);
         }
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 100));
         attempts++;
       }
       if (!this.currentUser) {
-        console.error('Firebase auth not ready after retries - check network or WebView config');
-        // Show UI error
-        document.body.innerHTML += '<div style="color:red;padding:20px">Auth failed - please reload or check connection</div>';
+        console.error('Firebase auth not ready after retries');
         return;
       }
 
@@ -74,6 +72,9 @@
         this._deepLinkConnId = params.get('connId') || null;
       }catch(_){ this._deepLinkConnId = null; }
       await this.loadConnections();
+
+      // Add debug method to check Firebase config
+      await this.debugFirebaseConfig();
     }
 
     bindUI(){
@@ -760,14 +761,13 @@
           const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
           // Store encrypted JSON payload with .json extension to aid CORS/content-type and preview
           const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
-          const s = this.storage; if (!s) continue;
           const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-          const r = firebase.ref(s, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
+          const r = firebase.ref(this.storage, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
+          console.log('Upload path:', r.fullPath);
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
           console.log('Got URL:', url);
           await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
-          console.log('Storage bucket:', this.storage._bucket, 'Full ref path:', r.fullPath);
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
           alert('Failed to send file: ' + err.message);
@@ -1457,6 +1457,48 @@
         setTimeout(stopAll, maxMs);
       });
     }
+
+    // Add debug method to check Firebase config
+    async debugFirebaseConfig() {
+      console.log('=== Firebase Configuration Debug ===');
+      console.log('Firebase Service initialized:', !!window.firebaseService);
+      console.log('Firebase Service isInitialized:', window.firebaseService?.isInitialized);
+      
+      if (window.firebaseService) {
+        console.log('Firebase App:', window.firebaseService.app?.name);
+        console.log('Firebase Auth:', !!window.firebaseService.auth);
+        console.log('Firebase Firestore:', !!window.firebaseService.db);
+        console.log('Firebase Storage:', !!window.firebaseService.storage);
+        
+        if (window.firebaseService.storage) {
+          console.log('Storage Bucket:', window.firebaseService.storage._bucket);
+          console.log('Storage App:', window.firebaseService.storage.app?.name);
+        }
+        
+        console.log('Current User:', !!window.firebaseService.auth?.currentUser);
+        if (window.firebaseService.auth?.currentUser) {
+          console.log('User UID:', window.firebaseService.auth.currentUser.uid);
+          console.log('User Email:', window.firebaseService.auth.currentUser.email);
+        }
+      }
+      
+      // Check secure keys
+      try {
+        const keys = await window.secureKeyManager?.getKeys();
+        console.log('Firebase Config in Keys:', !!keys?.firebase);
+        if (keys?.firebase) {
+          console.log('Firebase Config Fields:', Object.keys(keys.firebase));
+          console.log('Has storageBucket:', !!keys.firebase.storageBucket);
+          if (keys.firebase.storageBucket) {
+            console.log('Storage Bucket:', keys.firebase.storageBucket);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check secure keys:', err);
+      }
+      
+      console.log('=== End Debug ===');
+    }
   }
 
   window.secureChatApp = new SecureChatApp();
@@ -1497,6 +1539,16 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     }
     sendBtn.onclick = async ()=>{
       console.log('Auth state before sending recording:', !!self.currentUser, firebase.auth().currentUser?.uid);
+      
+      // Validate storage availability
+      if (!self.storage) {
+        console.error('Storage not available for recording');
+        alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
+        return;
+      }
+      
+      console.log('Storage bucket for recording:', self.storage._bucket);
+      
       try {
         await firebase.auth().currentUser?.getIdToken(true);
         if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
@@ -1512,13 +1564,21 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = (`chat/${self.activeConnection}/${Date.now()}_${filename}`).replace(/[^a-zA-Z0-9._-]/g,'_');
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
+        console.log('Recording upload path:', sref.fullPath);
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
-        console.log('Upload path:', sref.fullPath);
         const url2 = await firebase.getDownloadURL(sref);
         console.log('Got recording URL:', url2);
         await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
-        console.log('Storage bucket:', self.storage._bucket, 'Full ref path:', sref.fullPath);
-      }catch(_){ alert('Failed to send recording'); }
+      } catch (err) {
+        console.error('Recording upload error:', err.code, err.message, err);
+        if (err.code === 'storage/unauthorized') {
+          alert('Recording upload failed: Storage access denied. Please check Firebase Storage rules.');
+        } else if (err.code === 'storage/bucket-not-found') {
+          alert('Recording upload failed: Storage bucket not found. Please check Firebase configuration.');
+        } else {
+          alert('Failed to send recording: ' + err.message);
+        }
+      }
       finally{
         review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton();
       }

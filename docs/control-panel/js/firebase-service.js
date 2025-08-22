@@ -75,9 +75,7 @@ class FirebaseService {
                 this.isInitialized = false;
                 return;
             }
-            console.log('✅ Firebase config validation passed');
-            console.log('Firebase config has all essential fields:', essentialFields);
-
+            
             // Initialize Firebase with modular SDK
             console.log('Initializing Firebase app...');
             this.app = firebase.initializeApp(firebaseConfig);
