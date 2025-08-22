@@ -488,7 +488,19 @@
 
     async setActive(connId, displayName){
       this.activeConnection = connId;
-      document.getElementById('active-connection-name').textContent = displayName||connId;
+      // Resolve displayName if not provided
+      if (!displayName) {
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        if (snap.exists()) {
+          const data = snap.data();
+          const usernames = data.participantUsernames || [];
+          const myNameLower = (this.me?.username || '').toLowerCase();
+          const others = usernames.filter(n => n.toLowerCase() !== myNameLower);
+          displayName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
+        }
+        displayName = displayName || 'Chat';
+      }
+      document.getElementById('active-connection-name').textContent = displayName;
       await this.loadMessages();
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
@@ -561,7 +573,14 @@
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            // Resolve sender name async
+            let senderName = m.sender === this.currentUser.uid ? 'You' : m.sender.slice(0,8);
+            try {
+              const user = await window.firebaseService.getUserData(m.sender);
+              senderName = (user?.username || user?.email || m.sender.slice(0,8));
+            } catch {} 
             const hasFile = !!m.fileUrl && !!m.fileName;
+            const fileText = hasFile ? `Attachment from ${senderName}` : '';
             // Render call invites as buttons
             let bodyHtml = this.renderText(text);
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
@@ -571,7 +590,7 @@
               bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
             }
             const canModify = m.sender === this.currentUser.uid;
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${new Date(m.createdAt).toLocaleString()}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${fileText}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${new Date(m.createdAt).toLocaleString()}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -647,8 +666,15 @@
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            // Resolve sender name async
+            let senderName = m.sender === this.currentUser.uid ? 'You' : m.sender.slice(0,8);
+            try {
+              const user = await window.firebaseService.getUserData(m.sender);
+              senderName = (user?.username || user?.email || m.sender.slice(0,8));
+            } catch {} 
             const hasFile = !!m.fileUrl && !!m.fileName;
-            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${m.fileName}</a></div><div class="file-preview"></div>`:''}<div class="meta">${new Date(m.createdAt).toLocaleString()}</div>`;
+            const fileText = hasFile ? `Attachment from ${senderName}` : '';
+            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${fileText}</a></div><div class="file-preview"></div>`:''}<div class="meta">${senderName} · ${new Date(m.createdAt).toLocaleString()}</div>`;
             box.appendChild(el);
             if (hasFile){
               const preview = el.querySelector('.file-preview');
