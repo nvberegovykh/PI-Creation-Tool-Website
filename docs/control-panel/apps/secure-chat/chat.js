@@ -44,7 +44,7 @@
       let attempts = 0; while((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 150){ await new Promise(r=>setTimeout(r,100)); attempts++; }
       if (!window.firebaseService || !window.firebaseService.isInitialized) return;
       this.db = window.firebaseService.db;
-      this.storage = firebase.getStorage ? firebase.getStorage() : null;
+      this.storage = window.firebaseService.app ? firebase.getStorage(window.firebaseService.app) : null;
       
       // Enhanced auth readiness with token refresh
       attempts = 0;
