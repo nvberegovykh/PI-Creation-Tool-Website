@@ -119,6 +119,10 @@ class ChatGPTIntegration {
      */
     async ensureAssistantSupportsFiles() {
         try {
+            if (!this.assistantId) {
+                console.log('Assistant ID not set; skipping file support check');
+                return;
+            }
             // Try v2 endpoint first (newer API)
             let response = await this.openaiFetch(`/v2/assistants/${this.assistantId}`, {
                 beta: 'assistants=v2',
@@ -168,6 +172,10 @@ class ChatGPTIntegration {
      */
     async checkAssistantConfig() {
         try {
+            if (!this.assistantId) {
+                console.log('Assistant ID not set; skipping assistant config check');
+                return;
+            }
             console.log('Checking assistant configuration...');
             
             // Try v2 endpoint first (newer API)
@@ -1489,9 +1497,8 @@ class ChatGPTIntegration {
     async callWALLE(message, files = []) {
         try {
             // Validate configuration
-            if (!this.apiKey || !this.assistantId) {
-                throw new Error('WALL-E not configured. Please check your Gist configuration.');
-            }
+            // Using proxy allows text-only without exposing apiKey
+            if (!this.proxyUrl && !this.apiKey) throw new Error('WALL-E not configured (no proxy or key).');
 
             // If no files, use chat completions API (more reliable for text-only)
             if (!files || files.length === 0) {
@@ -1501,6 +1508,9 @@ class ChatGPTIntegration {
 
             // If files are present, use assistants API
             console.log('Files detected, using assistants API');
+            if (!this.assistantId) {
+                throw new Error('File uploads require assistant configuration which is not set.');
+            }
             
             // Create or get thread
             if (!this.threadId) {
