@@ -13,23 +13,26 @@ class DashboardManager {
         const urls = Array.isArray(media) ? media : (media ? [media] : []);
         if (!urls.length) return '';
         const renderOne = (url)=>{
-            const lower = (url||'').toLowerCase();
+            const href = String(url||'');
+            let pathOnly = href;
+            try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
+            const lower = pathOnly.toLowerCase();
             const isImg = ['.png','.jpg','.jpeg','.gif','.webp','.avif'].some(ext=> lower.endsWith(ext));
             const isVid = ['.mp4','.webm','.mov','.mkv'].some(ext=> lower.endsWith(ext));
             const isAud = ['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some(ext=> lower.endsWith(ext));
             if (isImg){
-                return `<img src="${url}" alt="media" style="max-width:100%;height:auto;border-radius:12px" />`;
+                return `<img src="${href}" alt="media" style="max-width:100%;height:auto;border-radius:12px" />`;
             }
             if (isVid){
-                return `<div class="player-card"><video src="${url}" class="player-media" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+                return `<div class="player-card"><video src="${href}" class="player-media" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
             }
             if (isAud){
-                return `<div class="player-card"><audio src="${url}" class="player-media" preload="metadata" ></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+                return `<div class="player-card"><audio src="${href}" class="player-media" preload="metadata" ></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
             }
             if (lower.endsWith('.pdf')){
-                return `<iframe src="${url}" style="width:100%;height:420px;border:none"></iframe>`;
+                return `<iframe src="${href}" style="width:100%;height:420px;border:none"></iframe>`;
             }
-            return `<a href="${url}" target="_blank" rel="noopener noreferrer">Open attachment</a>`;
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer">Open attachment</a>`;
         };
         if (urls.length === 1){
             return `<div style="margin-top:8px">${renderOne(urls[0])}</div>`;
@@ -1274,7 +1277,7 @@ class DashboardManager {
                         let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
                         let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
-                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
+                        await firebase.setDoc(docRef, { id: docRef.id, ownerId: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
                     }catch(e){ console.error('Wave upload failed', e); this.showError('Upload failed'); }
@@ -1300,11 +1303,11 @@ class DashboardManager {
         const lib = document.getElementById('wave-library'); if (!lib) return;
         lib.innerHTML = '';
         try{
-            const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('owner','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+            const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
             const snap = await firebase.getDocs(q);
             snap.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
         }catch{
-            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('owner','==', uid));
+            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
         }
     }

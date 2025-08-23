@@ -588,18 +588,8 @@
         <button id="mini-close" class="btn btn-secondary"><i class="fas fa-times"></i></button>
     </div>
 
-    <!-- Modals -->
-    <div id="modal-overlay" class="modal-overlay hidden">
-        <div class="modal">
-            <div class="modal-header">
-                <h3 id="modal-title">Modal Title</h3>
-                <button class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body" id="modal-body">
-                <!-- Modal content will be inserted here -->
-            </div>
-        </div>
-    </div>
+    <!-- Legacy modal container (kept for backward compatibility but hidden by default) -->
+    <div id="modal-overlay" class="modal-overlay hidden" style="display:none"></div>
 
     <!-- Firebase SDK Loader (latest-first with fallback) -->
     <script type="module" src="js/firebase-loader.js"></script>
