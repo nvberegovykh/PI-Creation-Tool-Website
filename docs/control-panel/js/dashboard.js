@@ -109,7 +109,8 @@ class DashboardManager {
                     const seekTo = (clientX)=>{
                         const rect = bar.getBoundingClientRect();
                         const ratio = Math.min(1, Math.max(0, (clientX-rect.left)/rect.width));
-                        if (media.duration) media.currentTime = ratio * media.duration;
+                        if (media.duration){ media.currentTime = ratio * media.duration; }
+                        if (media.paused){ media.play().catch(()=>{}); if (btn) btn.innerHTML='<i class="fas fa-pause"></i>'; }
                     };
                     bar.addEventListener('click', (e)=> seekTo(e.clientX));
                     let dragging = false;
@@ -218,34 +219,70 @@ class DashboardManager {
                 const accounts = raw ? JSON.parse(raw) : [];
                 switcher.innerHTML = '<option value="">Switch account…</option>' + accounts.map(a=>`<option value="${a.uid||''}">${a.username||a.email}</option>`).join('');
                 // Toggle visibility based on availability
-                if (Array.isArray(accounts) && accounts.length > 0) {
-                    switcher.style.display = '';
-                } else {
-                    switcher.style.display = 'none';
-                }
-                if (addAcct){ addAcct.style.display = 'inline-block'; addAcct.onclick = ()=>{ try{ window.location.href = '#login'; if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); } }catch(_){ } }; }
-                switcher.onchange = async ()=>{
-                    const uid = switcher.value || '';
-                    if (!uid) return;
-                    try{
-                        // Retrieve or establish device session token for each account
-                        const deviceId = localStorage.getItem('liber_device_id') || (()=>{ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
-                        let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
-                        let token = tokenMap[uid];
-                        if (!token){
-                            const ua = navigator.userAgent||'';
-                            const res = await firebase.httpsCallable(window.firebaseService.functions, 'saveSwitchToken')({ deviceId, ua });
-                            token = res?.data?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                        }
-                        const res2 = await firebase.httpsCallable(window.firebaseService.functions, 'switchTo')({ uid, deviceId, token });
-                        const customToken = res2?.data?.customToken;
-                        if (customToken){ await firebase.signInWithCustomToken(window.firebaseService.auth, customToken); }
-                        // Refresh dashboard
-                        window.location.reload();
-                    }catch(e){ console.error('Seamless switch failed', e); this.showError('Switch failed'); }
-                };
+                if (Array.isArray(accounts) && accounts.length > 0) { switcher.style.display = ''; }
+                else { switcher.style.display = ''; }
+                if (addAcct){ addAcct.style.display = 'inline-block'; addAcct.onclick = ()=>{ try{ window.location.hash = 'login'; if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); } }catch(_){ } }; }
+                // Open popup on click instead of native select UX
+                switcher.addEventListener('mousedown', (e)=>{ e.preventDefault(); this.showAccountSwitcherPopup(); });
             }catch(_){ }
         }
+
+        // Account switcher popup UI
+        this.showAccountSwitcherPopup = async ()=>{
+            try{
+                const raw = localStorage.getItem('liber_accounts');
+                const accounts = raw ? JSON.parse(raw) : [];
+                const me = await window.firebaseService.getCurrentUser();
+                const currentUid = me && me.uid;
+                // Create / reuse layer
+                let layer = document.getElementById('account-switcher-layer');
+                if (!layer){
+                    layer = document.createElement('div');
+                    layer.id = 'account-switcher-layer';
+                    layer.style.cssText = 'position:fixed;top:60px;right:20px;background:#0f1116;border:1px solid var(--border-color);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4);z-index:1000;min-width:260px;max-width:320px;max-height:60vh;overflow:auto;padding:8px';
+                    document.body.appendChild(layer);
+                }
+                const rows = accounts.map(a=>{
+                    const checked = (a.uid===currentUid) ? '<span style="color:#22c55e">✔</span>' : '';
+                    const avatar = a.avatarUrl || 'images/default-bird.png';
+                    const label = a.username || a.email || a.uid;
+                    return `<div class="acct-row" data-uid="${a.uid||''}" style="display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer">
+                              <img src="${avatar}" style="width:28px;height:28px;border-radius:50%;object-fit:cover"> 
+                              <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${label}</div>
+                              ${checked}
+                            </div>`;
+                }).join('');
+                layer.innerHTML = `<div style="padding:6px 8px;font-weight:600;border-bottom:1px solid var(--border-color)">Switch account</div>
+                                    <div>${rows || '<div style="padding:12px;opacity:.8">No saved accounts</div>'}</div>
+                                    <div style="padding:8px;border-top:1px solid var(--border-color)"><button id="acct-add" class="btn btn-secondary" style="width:100%"><i class="fas fa-user-plus"></i> Add account</button></div>`;
+
+                layer.querySelectorAll('.acct-row').forEach(row=>{
+                    row.onclick = async ()=>{
+                        const uid = row.getAttribute('data-uid'); if (!uid) return;
+                        try{
+                            const deviceId = localStorage.getItem('liber_device_id') || (()=>{ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
+                            let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
+                            let token = tokenMap[uid];
+                            if (!token){
+                                const ua = navigator.userAgent||'';
+                                const res = await firebase.httpsCallable(window.firebaseService.functions, 'saveSwitchToken')({ deviceId, ua });
+                                token = res?.data?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                            }
+                            const res2 = await firebase.httpsCallable(window.firebaseService.functions, 'switchTo')({ uid, deviceId, token });
+                            const customToken = res2?.data?.customToken;
+                            if (customToken){ await firebase.signInWithCustomToken(window.firebaseService.auth, customToken); }
+                            window.location.reload();
+                        }catch(e){ console.error('Switch failed', e); this.showError('Switch failed'); }
+                    };
+                });
+                const addBtn = document.getElementById('acct-add');
+                if (addBtn){ addBtn.onclick = ()=>{ try{ layer.remove(); window.location.hash='login'; if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); } }catch(_){ } }; }
+
+                // Close when clicking outside
+                const closer = (e)=>{ if (!layer.contains(e.target) && e.target !== switcher){ document.removeEventListener('mousedown', closer); try{ layer.remove(); }catch(_){ } } };
+                setTimeout(()=> document.addEventListener('mousedown', closer), 0);
+            }catch(_){ }
+        };
 
         // Force reload all (admin only)
         const frAll = document.getElementById('force-reload-all-btn');

@@ -48,7 +48,7 @@
               <option value="tiff">TIFF</option>
               <option value="gif">GIF</option>
               <option value="ico">ICO</option>
-              <option value="svg">SVG (rasterize)</option>
+              <option value="svg">SVG (vectorize)</option>
               <option value="pdf">PDF (single page)</option>
             </optgroup>
             <optgroup label="Audio">
@@ -81,16 +81,31 @@
   </div>
 
   <script>
-    // Resilient ffmpeg loader
+    // Resilient ffmpeg loader with awaitable ready function
     (function(){
-      const add=(u,cb)=>{const s=document.createElement('script');s.src=u;s.async=true;s.onload=cb;s.onerror=()=>{};document.head.appendChild(s)};
-      const boot=()=>{ if (window.FFmpeg){ window.__FF__=window.FFmpeg; } else setTimeout(boot,80); };
-      add('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
-      add('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
+      const add=(u)=>{const s=document.createElement('script');s.src=u;s.async=true;s.onerror=()=>{};document.head.appendChild(s)};
+      if (!window.FFmpeg){
+        add('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js');
+        add('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js');
+      }
+      // Vectorizer for SVG output
+      if (!window.ImageTracer){
+        add('https://unpkg.com/imagetracerjs@1.2.6/imagetracer_v1.2.6.js');
+      }
+      window.waitForFFmpeg = function waitForFFmpeg(){
+        return new Promise(resolve=>{
+          let tries = 0;
+          const tick = ()=>{
+            if (window.FFmpeg && window.FFmpeg.createFFmpeg){ return resolve(window.FFmpeg); }
+            if (tries++ > 120){ return resolve(null); }
+            setTimeout(tick, 100);
+          };
+          tick();
+        });
+      };
     })();
   </script>
   <script>
-    const getFF=()=> (window.__FF__||window.FFmpeg);
     let ffmpeg;
     const el = (id)=> document.getElementById(id);
 
@@ -103,7 +118,12 @@
     };
 
     async function ensureFFmpeg(){
-      if (!ffmpeg){ const { createFFmpeg } = getFF(); ffmpeg = createFFmpeg({ log: true }); }
+      if (!ffmpeg){
+        const mod = await window.waitForFFmpeg();
+        if (!mod){ throw new Error('FFmpeg failed to load'); }
+        const { createFFmpeg } = mod;
+        ffmpeg = createFFmpeg({ log: true });
+      }
       if (!ffmpeg.isLoaded()) { el('progress').textContent = 'Loading converter...'; await ffmpeg.load(); }
     }
 
@@ -119,12 +139,37 @@
       try{
         await ensureFFmpeg();
         el('progress').textContent = 'Running conversion...';
-        const { fetchFile } = getFF();
+        const { fetchFile } = window.FFmpeg;
+        // Special handling for SVG vector output without ffmpeg
+        if (kind==='image' && target==='svg'){
+          el('progress').textContent = 'Vectorizing to SVG...';
+          const blobUrl = URL.createObjectURL(input);
+          const img = new Image();
+          img.onload = ()=>{
+            try{
+              const canvas = document.createElement('canvas');
+              canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              const imdata = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const svgstr = (window.ImageTracer && ImageTracer.imagedataToSVG) ? ImageTracer.imagedataToSVG(imdata, { ltres:1, qtres:1, pathomit:8 }) : null;
+              if (!svgstr) throw new Error('SVG vectorizer unavailable');
+              const blob = new Blob([svgstr], { type:'image/svg+xml' });
+              downloadBlob(blob, outName);
+              el('output').textContent = 'Done: ' + outName;
+              el('progress').textContent = '';
+            }catch(e){ el('progress').textContent = 'Conversion failed'; el('output').textContent = e.message; }
+            finally{ URL.revokeObjectURL(blobUrl); }
+          };
+          img.onerror = ()=>{ el('progress').textContent='Conversion failed'; el('output').textContent='Could not load image'; };
+          img.src = blobUrl;
+          return;
+        }
+
         ffmpeg.FS('writeFile', inName, await fetchFile(input));
         let args = [];
         if (kind==='image'){
-          if (target==='svg') { args = ['-i', inName, 'out.png']; }
-          else if (target==='pdf') { args = ['-i', inName, '-vf', 'scale=1200:-1', '-f', 'pdf', outName]; }
+          if (target==='pdf') { args = ['-i', inName, '-vf', 'scale=1200:-1', '-f', 'pdf', outName]; }
           else { args = ['-i', inName, outName]; }
         } else if (kind==='audio'){
           if (target==='mp3') args = ['-i', inName, '-b:a', '192k', outName];
@@ -134,6 +179,7 @@
         } else if (kind==='video'){
           if (target==='mp4') args = ['-i', inName, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outName];
           else if (target==='webm') args = ['-i', inName, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '30', '-c:a', 'libopus', outName];
+          else if (target==='avi') args = ['-i', inName, '-c:v', 'mpeg4', '-qscale:v', '3', '-c:a', 'mp2', outName];
           else if (target==='gifv' || target==='gif') args = ['-i', inName, '-vf','fps=12,scale=640:-1:flags=lanczos', outName==='gifv'? 'out.gif': outName];
           else args = ['-i', inName, outName];
         } else { args = ['-i', inName, outName]; }
