@@ -187,6 +187,22 @@ class FirebaseService {
 
                     // Register messaging for push/web notifications (best-effort)
                     this.registerMessaging(user).catch(()=>{});
+
+                    // Seed device-bound switch token for this account (for instant switching later)
+                    (async ()=>{
+                        try{
+                            const deviceId = localStorage.getItem('liber_device_id') || (function(){ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
+                            const ua = navigator.userAgent || '';
+                            const res = await this.callFunction('saveSwitchToken', { deviceId, ua });
+                            const token = res && res.token;
+                            if (token){
+                                const raw = localStorage.getItem('liber_switch_tokens');
+                                const map = raw ? JSON.parse(raw) : {};
+                                map[user.uid] = token;
+                                localStorage.setItem('liber_switch_tokens', JSON.stringify(map));
+                            }
+                        }catch(_){ /* ignore */ }
+                    })();
                 }
             });
 
