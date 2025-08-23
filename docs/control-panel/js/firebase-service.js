@@ -846,12 +846,16 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const userDocRef = firebase.doc(this.db, 'users', uid);
-            await firebase.updateDoc(userDocRef, {
-                status: 'approved',
-                isVerified: true,
-                updatedAt: new Date().toISOString()
-            });
+            // Prefer secure callable to enforce admin role server-side
+            const res = await this.callFunction('adminApproveUser', { uid });
+            if (!res || res.ok !== true){
+                const userDocRef = firebase.doc(this.db, 'users', uid);
+                await firebase.updateDoc(userDocRef, {
+                    status: 'approved',
+                    isVerified: true,
+                    updatedAt: new Date().toISOString()
+                });
+            }
             console.log('User approved:', uid);
         } catch (error) {
             console.error('Error approving user:', error);
@@ -866,11 +870,14 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const userDocRef = firebase.doc(this.db, 'users', uid);
-            await firebase.updateDoc(userDocRef, {
-                status: 'rejected',
-                updatedAt: new Date().toISOString()
-            });
+            const res = await this.callFunction('adminRejectUser', { uid });
+            if (!res || res.ok !== true){
+                const userDocRef = firebase.doc(this.db, 'users', uid);
+                await firebase.updateDoc(userDocRef, {
+                    status: 'rejected',
+                    updatedAt: new Date().toISOString()
+                });
+            }
             console.log('User rejected:', uid);
         } catch (error) {
             console.error('Error rejecting user:', error);

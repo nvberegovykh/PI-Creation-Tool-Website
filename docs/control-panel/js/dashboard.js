@@ -327,10 +327,22 @@ class DashboardManager {
                             const deviceId = localStorage.getItem('liber_device_id') || (()=>{ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
                             let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
                             let token = tokenMap[uid];
+                            // If selecting current account, just close
+                            if (uid === currentUid){ try{ layer.remove(); }catch(_){ } return; }
                             if (!token){
-                                const ua = navigator.userAgent||'';
-                                const res = await window.firebaseService.callFunction('saveSwitchToken', { deviceId, ua });
-                                token = res?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                                // The target account hasn't seeded a device token on this device yet.
+                                // Guide the user to log in once to that account to enable instant switching.
+                                try{ layer.remove(); }catch(_){ }
+                                const acc = (accounts||[]).find(a=> (a.uid===uid));
+                                const email = acc && acc.email;
+                                // Show auth screen and prefill login
+                                const authScreen = document.getElementById('auth-screen');
+                                const dashboard = document.getElementById('dashboard');
+                                if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
+                                if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
+                                const emailInput = document.getElementById('loginUsername'); if (emailInput && email){ emailInput.value = email; emailInput.focus(); }
+                                this.showInfo && this.showInfo('Log in to this account once to enable instant switching.');
+                                return;
                             }
                             const res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
                             const customToken = res2?.customToken;
@@ -934,6 +946,9 @@ class DashboardManager {
                                    <span class="comments-count"></span>
                                    <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
                                    <span class="reposts-count"></span>
+                                   <i class="fas fa-ellipsis-h post-menu" title="More" style="cursor:pointer"></i>
+                                   <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
+                                   <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
                                  </div>
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);
@@ -943,6 +958,21 @@ class DashboardManager {
                 suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
             }
             this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
+            // owner-only controls and comments UI parity
+            try{
+                const meUser = await window.firebaseService.getCurrentUser();
+                feedEl.querySelectorAll('.post-actions').forEach(pa=>{
+                    const postAuthor = pa.getAttribute('data-author');
+                    const canEditPost = postAuthor === meUser.uid;
+                    const editBtn = pa.querySelector('.edit-post-btn');
+                    const delBtn = pa.querySelector('.delete-post-btn');
+                    const menuBtn = pa.querySelector('.post-menu');
+                    const pid = pa.getAttribute('data-post-id');
+                    if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
+                    if (menuBtn){ menuBtn.onclick = async ()=>{ try{ const loc = `${location.origin}${location.pathname}#post-${pid}`; await navigator.clipboard.writeText(loc); this.showSuccess('Post link copied'); }catch(_){ this.showError('Failed to copy'); } }; }
+                });
+                // comments UI is delegated in activatePostActions(); live counters are set there as well
+            }catch(_){ }
             this.activatePlayers(feedEl);
         }catch(_){ }
     }
