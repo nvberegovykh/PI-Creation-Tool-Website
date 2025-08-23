@@ -59,32 +59,30 @@ class EmailService {
      * Send email via Mailgun API
      */
     async sendEmail(to, subject, htmlContent) {
-        if (!this.mailgunDomain || !this.mailgunApiKey) {
-            throw new Error('Mailgun not configured');
-        }
+        // Prefer secure server-side callable if Functions available
+        try{
+            if (window.firebaseService && window.firebaseService.functions && window.firebaseModular && window.firebaseModular.httpsCallable){
+                const callable = window.firebaseModular.httpsCallable(window.firebaseService.functions, 'sendMail');
+                const res = await callable({ to, subject, html: htmlContent });
+                if (res && res.data) return res.data;
+            } else if (window.firebaseService && typeof window.firebaseService.callFunction === 'function'){
+                const res = await window.firebaseService.callFunction('sendMail', { to, subject, html: htmlContent });
+                if (res) return res;
+            }
+        }catch(e){ console.warn('Server email fallback to client:', e?.message||e); }
 
-        // Build URL with query parameters (matching Java example)
+        // Fallback: direct Mailgun if configured locally
+        if (!this.mailgunDomain || !this.mailgunApiKey) {
+            throw new Error('Email unavailable (no functions and Mailgun not configured)');
+        }
         const url = new URL(`https://api.mailgun.net/v3/${this.mailgunDomain}/messages`);
         url.searchParams.append('from', `Liber Apps <postmaster@${this.mailgunDomain}>`);
         url.searchParams.append('to', to);
         url.searchParams.append('subject', subject);
         url.searchParams.append('html', htmlContent);
-
-        const response = await fetch(url.toString(), {
-            method: 'POST',
-            headers: {
-                'Authorization': `Basic ${btoa(`api:${this.mailgunApiKey}`)}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Mailgun API error: ${response.status} - ${errorText}`);
-        }
-
-        const result = await response.json();
-        console.log('Email sent successfully:', result);
-        return result;
+        const response = await fetch(url.toString(), { method:'POST', headers:{ 'Authorization': `Basic ${btoa(`api:${this.mailgunApiKey}`)}` } });
+        if (!response.ok) { const t = await response.text(); throw new Error(`Mailgun API error: ${response.status} - ${t}`); }
+        return await response.json();
     }
 
     /**

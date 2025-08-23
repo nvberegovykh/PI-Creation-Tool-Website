@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>File Converter</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <style>
+    body{background:var(--primary-bg,#000);color:var(--primary-text,#eaeaea);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    .panel{border:1px solid var(--border-color,#2b2f38);border-radius:12px;padding:16px;background:var(--secondary-bg,#0e1014);margin:12px 0}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .row>*>*{max-width:100%}
+    label{display:block;margin-bottom:6px;opacity:.9}
+    select,button,input{background:#161a22;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:10px}
+    .out{white-space:pre-wrap;background:#0b0e12;border-radius:8px;padding:12px;border:1px dashed #2b2f38}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>File Converter</h2>
+    <div class="panel">
+      <div class="row">
+        <div style="flex:1 1 260px">
+          <label for="file-input">Select file</label>
+          <input id="file-input" type="file" />
+        </div>
+        <div style="flex:1 1 180px">
+          <label for="type-select">Type</label>
+          <select id="type-select">
+            <option value="auto">Auto-detect</option>
+            <option value="image">Image</option>
+            <option value="audio">Audio</option>
+            <option value="video">Video</option>
+          </select>
+        </div>
+        <div style="flex:1 1 200px">
+          <label for="format-select">Target format</label>
+          <select id="format-select">
+            <option value="png">PNG (image)</option>
+            <option value="jpg">JPG (image)</option>
+            <option value="webp">WEBP (image)</option>
+            <option value="wav">WAV (audio)</option>
+            <option value="mp3">MP3 (audio)</option>
+            <option value="ogg">OGG (audio)</option>
+            <option value="mp4">MP4 (video)</option>
+            <option value="webm">WEBM (video)</option>
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="convert-btn">Convert</button>
+        </div>
+      </div>
+      <div id="progress" style="margin-top:12px;opacity:.9"></div>
+      <div id="output" class="out" style="margin-top:12px"></div>
+    </div>
+    <p style="opacity:.7">Powered by ffmpeg.wasm (client-side). Some conversions may be CPU intensive on mobile.</p>
+  </div>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+    const el = (id)=> document.getElementById(id);
+
+    const detectType = (file)=>{
+      const t = (file.type||'').toLowerCase();
+      if (t.startsWith('image/')) return 'image';
+      if (t.startsWith('audio/')) return 'audio';
+      if (t.startsWith('video/')) return 'video';
+      return 'auto';
+    };
+
+    async function ensureFFmpeg(){ if (!ffmpeg.isLoaded()) { el('progress').textContent = 'Loading converter...'; await ffmpeg.load(); } }
+
+    function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000); }
+
+    document.getElementById('convert-btn').onclick = async()=>{
+      const input = el('file-input').files[0];
+      if (!input){ alert('Choose a file'); return; }
+      const kind = (el('type-select').value==='auto') ? detectType(input) : el('type-select').value;
+      const target = el('format-select').value;
+      const inName = 'input.' + (input.name.split('.').pop()||'dat');
+      const outName = 'output.' + target;
+      try{
+        await ensureFFmpeg();
+        el('progress').textContent = 'Running conversion...';
+        ffmpeg.FS('writeFile', inName, await fetchFile(input));
+        let args = [];
+        if (kind==='image'){
+          // Generic image transcode
+          args = ['-i', inName, outName];
+        } else if (kind==='audio'){
+          args = ['-i', inName, outName];
+        } else if (kind==='video'){
+          args = ['-i', inName, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outName];
+          if (target==='webm') args = ['-i', inName, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '30', '-c:a', 'libopus', outName];
+        } else { args = ['-i', inName, outName]; }
+        await ffmpeg.run(...args);
+        const data = ffmpeg.FS('readFile', outName);
+        const blob = new Blob([data.buffer], { type: (kind==='image' ? 'image/'+target : (kind==='audio' ? 'audio/'+target : 'video/'+target))});
+        downloadBlob(blob, outName);
+        el('output').textContent = 'Done: ' + outName + ' (' + (blob.size/1024).toFixed(1) + ' KB)';
+        el('progress').textContent = '';
+      }catch(e){
+        console.error(e); el('progress').textContent = 'Conversion failed';
+        el('output').textContent = (e && e.message) || String(e);
+      }
+    };
+  </script>
+</body>
+</html>
+
+

@@ -204,6 +204,32 @@ class LiberAppsControlPanel {
         document.addEventListener('submit', (e) => {
             this.handleFormSubmission(e);
         });
+
+        // Mobile: periodically clean up stray overlays that block scroll/touch
+        try{
+            const cleanup = ()=>{
+                const overlays = Array.from(document.querySelectorAll('.modal-overlay, .reset-modal, .firebase-error-overlay'));
+                // Remove fully transparent or zero-sized overlays
+                overlays.forEach(el=>{
+                    try{
+                        const cs = window.getComputedStyle(el);
+                        const hidden = cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity||'1') === 0;
+                        const rect = el.getBoundingClientRect();
+                        const zero = (rect.width === 0 && rect.height === 0);
+                        if (hidden || zero){ el.remove(); }
+                    }catch(_){ }
+                });
+                // Ensure only the top-most overlay captures events
+                if (overlays.length > 1){
+                    overlays.slice(0, -1).forEach(el=>{ el.style.pointerEvents = 'none'; });
+                    overlays[overlays.length-1].style.pointerEvents = '';
+                }
+            };
+            // Run soon after load and on orientation changes
+            setTimeout(cleanup, 300);
+            window.addEventListener('orientationchange', ()=> setTimeout(cleanup, 250));
+            window.addEventListener('app-resize', cleanup);
+        }catch(_){ }
     }
 
     /**

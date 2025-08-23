@@ -43,6 +43,9 @@ class DashboardManager {
         try{
             if (this._currentPlayer && this._currentPlayer !== mediaEl){ try{ this._currentPlayer.pause(); }catch(_){} }
             this._currentPlayer = mediaEl;
+            // Promote playback to a hidden background audio so it persists across sections
+            let bg = document.getElementById('bg-player');
+            if (!bg){ bg = document.createElement('audio'); bg.id='bg-player'; bg.style.display='none'; document.body.appendChild(bg); }
             const mini = document.getElementById('mini-player'); if (!mini) return;
             const mTitle = document.getElementById('mini-title');
             const mBy = document.getElementById('mini-by');
@@ -53,8 +56,10 @@ class DashboardManager {
             if (mBy) mBy.textContent = meta.by || '';
             if (mCover && meta.cover) mCover.src = meta.cover;
             mini.classList.add('show');
-            if (playBtn){ playBtn.onclick = ()=>{ if (mediaEl.paused){ mediaEl.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { mediaEl.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
-            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ mediaEl.pause(); }catch(_){} }; }
+            // Hand off current media to bg player
+            try{ bg.src = mediaEl.currentSrc || mediaEl.src; if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime; bg.play().catch(()=>{}); mediaEl.pause(); }catch(_){ }
+            if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { bg.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
         }catch(_){ }
     }
 
@@ -180,6 +185,12 @@ class DashboardManager {
                 const raw = localStorage.getItem('liber_accounts');
                 const accounts = raw ? JSON.parse(raw) : [];
                 switcher.innerHTML = '<option value="">Switch account…</option>' + accounts.map(a=>`<option value="${a.uid||''}">${a.username||a.email}</option>`).join('');
+                // Toggle visibility based on availability
+                if (Array.isArray(accounts) && accounts.length > 0) {
+                    switcher.style.display = '';
+                } else {
+                    switcher.style.display = 'none';
+                }
                 switcher.onchange = async ()=>{
                     const uid = switcher.value || '';
                     if (!uid) return;
@@ -398,6 +409,10 @@ class DashboardManager {
                 try{ const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following||[]).includes(uid);}catch(_){ }
                 const overlay = document.createElement('div');
                 overlay.className='modal-overlay';
+                // Ensure body can still scroll behind overlay on mobile
+                overlay.style.position = 'fixed';
+                overlay.style.overflowY = 'auto';
+                overlay.style.inset = '0';
                 overlay.style.cssText = 'position:fixed; inset:0; z-index:10060; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:20px;';
                 overlay.innerHTML = `
                   <div class="modal" style="max-width:720px">
@@ -416,8 +431,9 @@ class DashboardManager {
                     </div>
                   </div>`;
                 document.body.appendChild(overlay);
-                overlay.querySelector('.modal-close').onclick = ()=> overlay.remove();
-                overlay.addEventListener('click', (e)=>{ if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
+                const closeOverlay = ()=>{ overlay.remove(); };
+                overlay.querySelector('.modal-close').onclick = closeOverlay;
+                overlay.addEventListener('click', (e)=>{ if (e.target.classList.contains('modal-overlay')) closeOverlay(); });
                 const toggle = overlay.querySelector('#follow-toggle');
                 toggle.onclick = async ()=>{
                   try{
@@ -669,7 +685,9 @@ class DashboardManager {
                 }
                 li.textContent = label;
                 li.style.cursor = 'pointer';
-                li.onclick = ()=>{ window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(c.id)}`; };
+                // Prefer stable key if present; else use the document id
+                const target = encodeURIComponent(c.key || c.id);
+                li.onclick = ()=>{ window.location.href = `apps/secure-chat/index.html?connId=${target}`; };
                 list.appendChild(li);
             });
         }catch(_){ }
@@ -693,7 +711,15 @@ class DashboardManager {
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
+                div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
+                                   <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
+                                   <span class="likes-count"></span>
+                                   <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
+                                   <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
+                                   <span class="reposts-count"></span>
+                                 </div>
+                                 <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);
             });
             if (suggEl){
@@ -701,6 +727,7 @@ class DashboardManager {
                 suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
             }
             this.activatePostActions(feedEl);  // Activate actions after rendering
+            this.activatePlayers(feedEl);
         }catch(_){ }
     }
 
@@ -1134,6 +1161,8 @@ class DashboardManager {
                 break;
             case 'feed':
                 this.loadGlobalFeed();
+                // Ensure players activate after section switch
+                setTimeout(()=> this.activatePlayers(document.getElementById('global-feed')), 50);
                 break;
             case 'waveconnect':
                 this.loadWaveConnect();

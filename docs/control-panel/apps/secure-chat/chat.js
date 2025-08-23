@@ -9,6 +9,7 @@
       this.sharedKeyCache = {}; // connId -> CryptoKey
       this.me = null; // cached profile
       this.usernameCache = new Map(); // uid -> username
+      this.userUnsubs = new Map(); // uid -> unsubscribe
       this.init();
     }
 
@@ -72,6 +73,21 @@
         this._deepLinkConnId = params.get('connId') || null;
       }catch(_){ this._deepLinkConnId = null; }
       await this.loadConnections();
+      // If deep link provided, activate it after list is ready (supports key or doc id)
+      if (this._deepLinkConnId){
+        try{
+          let id = this._deepLinkConnId;
+          // If this appears to be a participant key (contains a pipe), resolve to existing doc id
+          if (id.includes('|')){
+            const existing = await this.findConnectionByKey(id);
+            if (existing) id = existing; else {
+              // If not found, fall back to using the key directly if a doc with same id exists
+              try{ const test = await firebase.getDoc(firebase.doc(this.db,'chatConnections', id)); if (!test.exists()) id = null; }catch(_){ id = null; }
+            }
+          }
+          if (id) this.setActive(id);
+        }catch(_){ /* ignore deep link issues */ }
+      }
 
       // Add debug method to check Firebase config
       await this.debugFirebaseConfig();
@@ -449,6 +465,7 @@
         const key = c.key || this.computeConnKey(c.participants||[]);
         if (seen.has(key)) return; seen.add(key);
         const li = document.createElement('li');
+        li.setAttribute('data-id', c.id);
         let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
@@ -494,7 +511,49 @@
         });
         listEl.appendChild(li);
       });
-      // Remove deep link logic from here if needed, or keep
+      // Subscribe to participant username changes for live label updates
+      try{
+        const uidSet = new Set();
+        this.connections.forEach(c => (Array.isArray(c.participants)?c.participants:[]).forEach(u=>uidSet.add(u)));
+        const uids = Array.from(uidSet);
+        // Create listeners
+        uids.forEach(uid => {
+          if (this.userUnsubs && this.userUnsubs.has(uid)) return;
+          try{
+            const ref = firebase.doc(this.db, 'users', uid);
+            const unsub = firebase.onSnapshot(ref, (snap)=>{
+              if (!snap.exists()) return;
+              const d = snap.data() || {};
+              const name = d.username || d.email || uid;
+              const prev = this.usernameCache.get(uid);
+              if (prev !== name){
+                this.usernameCache.set(uid, name);
+                // Refresh connection list labels and active header
+                try{
+                  const listEl = document.getElementById('connections-list');
+                  if (listEl){
+                    const myNameLower = (this.me?.username || '').toLowerCase();
+                    listEl.querySelectorAll('li').forEach(li => {
+                      const id = li.getAttribute('data-id');
+                      const c = this.connections.find(x => x.id === id);
+                      if (!c) return;
+                      const parts = Array.isArray(c.participants)?c.participants:[];
+                      const stored = Array.isArray(c.participantUsernames)?c.participantUsernames:[];
+                      const names = parts.map((p,i)=> this.usernameCache.get(p) || stored[i] || p);
+                      const others = names.filter(n => (n||'').toLowerCase() !== myNameLower);
+                      const label = others.length===1? others[0] : (others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''));
+                      li.textContent = label || 'Chat';
+                      li.setAttribute('data-id', c.id);
+                    });
+                  }
+                  if (this.activeConnection) this.setActive(this.activeConnection);
+                }catch(_){ }
+              }
+            });
+            if (this.userUnsubs) this.userUnsubs.set(uid, unsub);
+          }catch(_){ }
+        });
+      }catch(_){ }
       // No recursive call
     }
 
@@ -505,9 +564,12 @@
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
         if (snap.exists()) {
           const data = snap.data();
-          const usernames = data.participantUsernames || [];
+          const parts = Array.isArray(data.participants) ? data.participants : [];
+          // Prefer live cache, fallback to stored usernames
+          const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
+          const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
           const myNameLower = (this.me?.username || '').toLowerCase();
-          const others = usernames.filter(n => n.toLowerCase() !== myNameLower);
+          const others = names.filter(n => (n||'').toLowerCase() !== myNameLower);
           displayName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
         }
         displayName = displayName || 'Chat';
@@ -564,13 +626,13 @@
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
             firebase.orderBy('createdAtTS','asc'),
-            firebase.limit(200)
+            firebase.limit(500)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
             firebase.orderBy('createdAt','asc'),
-            firebase.limit(200)
+            firebase.limit(500)
           );
         }
         // Also include archived/merged message histories
@@ -682,6 +744,7 @@
               s2.forEach(async d=>{ await renderOne(d); });
             }catch(_){ /* ignore per-archive failure */ }
           }
+          // Scroll to last message
           box.scrollTop = box.scrollHeight;
         };
         if (firebase.onSnapshot){

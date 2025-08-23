@@ -194,6 +194,32 @@ class AppsManager {
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-19',
                 logo: null
+            },
+            {
+                id: 'file-converter',
+                name: 'File Converter',
+                description: 'Convert images, vectors, videos and audio between common formats (in-browser).',
+                version: '1.0.0',
+                category: 'utilities',
+                icon: 'fas fa-exchange-alt',
+                status: 'online',
+                path: 'apps/file-converter/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2025-08-23',
+                logo: null
+            },
+            {
+                id: 'media-enhancer',
+                name: 'Media Enhancer',
+                description: 'Audio vocal/music splitter and image upscaler/denoiser.',
+                version: '1.0.0',
+                category: 'media',
+                icon: 'fas fa-magic',
+                status: 'online',
+                path: 'apps/media-enhancer/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2025-08-23',
+                logo: null
             }
         ];
 

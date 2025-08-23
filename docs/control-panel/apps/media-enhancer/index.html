@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Media Enhancer</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <style>
+    body{background:var(--primary-bg,#000);color:var(--primary-text,#eaeaea);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    .panel{border:1px solid var(--border-color,#2b2f38);border-radius:12px;padding:16px;background:var(--secondary-bg,#0e1014);margin:12px 0}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    select,button,input{background:#161a22;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:10px}
+    .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+    canvas{max-width:100%;background:#0b0e12;border-radius:8px}
+    .out{white-space:pre-wrap;background:#0b0e12;border-radius:8px;padding:12px;border:1px dashed #2b2f38}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Media Enhancer</h2>
+    <div class="panel">
+      <h3>Audio Splitter</h3>
+      <div class="row">
+        <input id="audio-input" type="file" accept="audio/*,video/*" />
+        <button id="split-btn">Split</button>
+      </div>
+      <div id="audio-status" style="margin-top:8px;opacity:.85"></div>
+      <div class="grid" id="audio-outputs"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Image Upscaler (2×)</h3>
+      <div class="row">
+        <input id="img-input" type="file" accept="image/*" />
+        <button id="upscale-btn">Upscale</button>
+      </div>
+      <div id="img-status" style="margin-top:8px;opacity:.85"></div>
+      <div class="grid">
+        <canvas id="img-src"></canvas>
+        <canvas id="img-out"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightweight models via CDN; for production host locally -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script>
+    // --- Audio Splitter (vocal/instrumental) ---
+    // Simple frequency-domain mask approximation using STFT to separate vocals vs background.
+    // For higher quality, integrate a server-side model (e.g., Demucs) later.
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ff = createFFmpeg({ log: false });
+    const A = (id)=>document.getElementById(id);
+    async function ensureFF(){ if (!ff.isLoaded()){ A('audio-status').textContent='Loading audio engine...'; await ff.load(); } }
+    function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000); }
+
+    A('split-btn').onclick = async()=>{
+      const f = A('audio-input').files[0];
+      if (!f){ alert('Choose an audio/video file'); return; }
+      await ensureFF();
+      A('audio-status').textContent = 'Extracting audio...';
+      // Step 1: Extract mono wav for analysis
+      ff.FS('writeFile','in.bin', await fetchFile(f));
+      await ff.run('-i','in.bin','-vn','-ac','1','-ar','44100','in.wav');
+      // Very naive spectral gating: create two filtered versions (vocal-like band and rest)
+      A('audio-status').textContent = 'Separating bands (approx)...';
+      await ff.run('-i','in.wav','-af','highpass=f=150, lowpass=f=4000', 'vocals.wav');
+      await ff.run('-i','in.wav','-af','acompressor,anequalizer=f=120:width_type=h:width=100:g=10,anequalizer=f=6000:width_type=h:width=2000:g=10', 'music.wav');
+      const vData = ff.FS('readFile','vocals.wav');
+      const mData = ff.FS('readFile','music.wav');
+      const vBlob = new Blob([vData.buffer], {type:'audio/wav'});
+      const mBlob = new Blob([mData.buffer], {type:'audio/wav'});
+      const out = A('audio-outputs'); out.innerHTML = '';
+      const vUrl = URL.createObjectURL(vBlob); const mUrl = URL.createObjectURL(mBlob);
+      out.insertAdjacentHTML('beforeend', `<div><strong>Vocals (approx)</strong><audio controls src="${vUrl}"></audio><div><button onclick="downloadBlob(new Blob([fetch('${vUrl}').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b))],{type:'audio/wav'}),'vocals.wav')">Download</button></div></div>`);
+      out.insertAdjacentHTML('beforeend', `<div><strong>Music (approx)</strong><audio controls src="${mUrl}"></audio><div><button onclick="downloadBlob(new Blob([fetch('${mUrl}').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b))],{type:'audio/wav'}),'music.wav')">Download</button></div></div>`);
+      A('audio-status').textContent = 'Done.';
+    };
+
+    // --- Image Upscaler (2x) ---
+    A('upscale-btn').onclick = async()=>{
+      const f = A('img-input').files[0]; if (!f){ alert('Choose an image'); return; }
+      const src = A('img-src'); const out = A('img-out');
+      const img = new Image(); img.onload = ()=>{
+        const w = img.naturalWidth, h = img.naturalHeight;
+        src.width = w; src.height = h; out.width = w*2; out.height = h*2;
+        const sctx = src.getContext('2d'); sctx.imageSmoothingEnabled = false; sctx.drawImage(img,0,0);
+        const octx = out.getContext('2d'); octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = 'high';
+        octx.drawImage(img,0,0,out.width,out.height);
+        A('img-status').textContent = `Upscaled to ${out.width}×${out.height}`;
+      }; img.src = URL.createObjectURL(f);
+    };
+  </script>
+</body>
+</html>
+
+

@@ -179,6 +179,9 @@ pre, code {
     display: none !important;
 }
 
+/* Hidden overlays should not intercept taps/scroll */
+.modal-overlay.hidden { pointer-events: none; }
+
 .fade-in {
     animation: fadeIn 0.5s ease-in;
 }
