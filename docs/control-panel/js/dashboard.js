@@ -251,19 +251,8 @@ class DashboardManager {
 
         // Ensure a visible switch-accounts button in header near logout/search
         try{
-            const headerRight = document.querySelector('.dashboard-header .header-right');
-            if (headerRight && !document.getElementById('account-switcher-icon')){
-                const btn = document.createElement('button');
-                btn.id = 'account-switcher-icon';
-                btn.title = 'Switch account';
-                btn.className = 'btn btn-secondary';
-                btn.style.marginRight = '10px';
-                btn.innerHTML = '<i class="fas fa-user-switch"></i>';
-                btn.addEventListener('click', ()=> this.showAccountSwitcherPopup());
-                const logout = document.getElementById('logout-btn');
-                if (logout && logout.parentNode){ logout.parentNode.insertBefore(btn, logout); }
-                else { headerRight.appendChild(btn); }
-            }
+            const btn = document.getElementById('switch-accounts-btn');
+            if (btn && !btn._bound){ btn._bound = true; btn.addEventListener('click', ()=> this.showAccountSwitcherPopup()); }
         }catch(_){ }
 
         // Account switcher popup UI
@@ -2758,6 +2747,56 @@ Do you want to proceed?`);
     }
 
     activatePostActions(container = document) {
+      // Delegate clicks once per container to ensure handlers always work
+      if (!container.__postActionsDelegated) {
+        container.__postActionsDelegated = true;
+        container.addEventListener('click', async (e) => {
+          const likeEl = e.target.closest('.like-btn');
+          const commentEl = e.target.closest('.comment-btn');
+          const repostEl = e.target.closest('.repost-btn');
+          const actionEl = likeEl || commentEl || repostEl;
+          if (!actionEl || !container.contains(actionEl)) return;
+
+          const actionsWrap = actionEl.closest('.post-actions');
+          const postItem = actionEl.closest('.post-item');
+          const pid = actionsWrap?.dataset.postId || postItem?.dataset.postId;
+          if (!pid) return;
+
+          let me = this.currentUser;
+          if (!me) {
+            try { me = await window.firebaseService.getCurrentUser(); this.currentUser = me; } catch(_) { return; }
+          }
+
+          if (likeEl) {
+            try {
+              const likeRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'likes', me.uid);
+              const snap = await firebase.getDoc(likeRef);
+              if (snap.exists()) { await firebase.deleteDoc(likeRef); }
+              else { await firebase.setDoc(likeRef, { userId: me.uid, createdAt: new Date().toISOString() }); }
+            } catch(_) {}
+            return;
+          }
+
+          if (repostEl) {
+            try {
+              const repostRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'reposts', me.uid);
+              const snap = await firebase.getDoc(repostRef);
+              if (snap.exists()) { await firebase.deleteDoc(repostRef); }
+              else { await firebase.setDoc(repostRef, { userId: me.uid, createdAt: new Date().toISOString() }); }
+            } catch(_) {}
+            return;
+          }
+
+          if (commentEl) {
+            const text = prompt('Add comment:');
+            if (text && text.trim()) {
+              try { await firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), { userId: me.uid, text: text.trim(), createdAt: new Date().toISOString() }); } catch(_) {}
+            }
+            return;
+          }
+        });
+      }
+
       container.querySelectorAll('.post-item').forEach(item => {
         const pid = item.dataset.postId || item.querySelector('.post-actions')?.dataset.postId;
         if (!pid) return;
@@ -2770,18 +2809,7 @@ Do you want to proceed?`);
           firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'), snap => {
             likeSpan.textContent = snap.size;
           });
-          likeBtn.onclick = async () => {
-            // Toggle like logic
-            const likeRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'likes', this.currentUser.uid);
-            const snap = await firebase.getDoc(likeRef);
-            if (snap.exists()) {
-              await firebase.deleteDoc(likeRef);
-              likeIcon.classList.remove('active');
-            } else {
-              await firebase.setDoc(likeRef, { userId: this.currentUser.uid, createdAt: new Date().toISOString() });
-              likeIcon.classList.add('active');
-            }
-          };
+          // Clicks handled by delegated listener above
         }
         
         // Comment
@@ -2791,17 +2819,7 @@ Do you want to proceed?`);
           firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), snap => {
             commentSpan.textContent = snap.size;
           });
-          commentBtn.onclick = () => {
-            // Simple modal stub - expand as needed
-            const comment = prompt('Add comment:');
-            if (comment) {
-              firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), {
-                userId: this.currentUser.uid,
-                text: comment,
-                createdAt: new Date().toISOString()
-              });
-            }
-          };
+          // Clicks handled by delegated listener above
         }
         
         // Repost
@@ -2812,17 +2830,7 @@ Do you want to proceed?`);
           firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'), snap => {
             repostSpan.textContent = snap.size;
           });
-          repostBtn.onclick = async () => {
-            const repostRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'reposts', this.currentUser.uid);
-            const snap = await firebase.getDoc(repostRef);
-            if (snap.exists()) {
-              await firebase.deleteDoc(repostRef);
-              repostIcon.classList.remove('active');
-            } else {
-              await firebase.setDoc(repostRef, { userId: this.currentUser.uid, createdAt: new Date().toISOString() });
-              repostIcon.classList.add('active');
-            }
-          };
+          // Clicks handled by delegated listener above
         }
       });
     }
