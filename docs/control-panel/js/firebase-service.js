@@ -189,8 +189,16 @@ class FirebaseService {
                         })();
                     } catch (_) { /* ignore */ }
 
-                    // Update user data in Firestore if needed
-                    this.updateUserLastLogin(user.uid);
+                    // Mirror verification to Firestore and update last login
+                    try {
+                        const userDocRef = firebase.doc(this.db, 'users', user.uid);
+                        firebase.updateDoc(userDocRef, {
+                            isVerified: !!user.emailVerified,
+                            updatedAt: new Date().toISOString(),
+                            lastLogin: new Date().toISOString(),
+                            loginCount: firebase.increment(1)
+                        });
+                    } catch (_) { /* ignore */ }
 
                     // Register messaging for push/web notifications (best-effort)
                     this.registerMessaging(user).catch(()=>{});
