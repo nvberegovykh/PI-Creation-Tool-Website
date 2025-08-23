@@ -187,6 +187,40 @@ class DashboardManager {
             // Keep it fresh
             try{ firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{ this.currentUser = u || null; }); }catch(_){ }
         })();
+
+        // Global delegated handlers for feed interactions (Feed tab and Personal Space feed)
+        if (!window.__LIBER_FEED_DELEGATE_BOUND__){
+            window.__LIBER_FEED_DELEGATE_BOUND__ = true;
+            const handler = async (e)=>{
+                const inFeed = document.getElementById('global-feed')?.contains(e.target) || document.getElementById('space-feed')?.contains(e.target);
+                if (!inFeed) return;
+                const likeEl = e.target.closest('.like-btn');
+                const commentEl = e.target.closest('.comment-btn');
+                const repostEl = e.target.closest('.repost-btn');
+                const actionEl = likeEl || commentEl || repostEl;
+                if (!actionEl) return;
+                const actionsWrap = actionEl.closest('.post-actions');
+                const postItem = actionEl.closest('.post-item');
+                const pid = actionsWrap?.dataset.postId || postItem?.dataset.postId;
+                if (!pid) return;
+                let me = this.currentUser;
+                if (!me){ try{ me = await window.firebaseService.getCurrentUser(); this.currentUser = me; }catch(_){ return; } }
+                if (likeEl){
+                    try{ const likeRef = firebase.doc(window.firebaseService.db,'posts',pid,'likes', me.uid); const s=await firebase.getDoc(likeRef); if(s.exists()) await firebase.deleteDoc(likeRef); else await firebase.setDoc(likeRef,{ userId:me.uid, createdAt:new Date().toISOString() }); }catch(_){ }
+                    return;
+                }
+                if (repostEl){
+                    try{ const repRef = firebase.doc(window.firebaseService.db,'posts',pid,'reposts', me.uid); const s=await firebase.getDoc(repRef); if(s.exists()) await firebase.deleteDoc(repRef); else await firebase.setDoc(repRef,{ userId:me.uid, createdAt:new Date().toISOString() }); }catch(_){ }
+                    return;
+                }
+                if (commentEl){
+                    const text = prompt('Add comment:');
+                    if (text && text.trim()){ try{ await firebase.addDoc(firebase.collection(window.firebaseService.db,'posts',pid,'comments'), { userId:me.uid, text:text.trim(), createdAt:new Date().toISOString() }); }catch(_){ } }
+                    return;
+                }
+            };
+            document.addEventListener('click', handler);
+        }
     }
 
     /**
@@ -306,7 +340,16 @@ class DashboardManager {
                     };
                 });
                 const addBtn = document.getElementById('acct-add');
-                if (addBtn){ addBtn.onclick = ()=>{ try{ layer.remove(); window.location.hash='login'; if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); } }catch(_){ } }; }
+                if (addBtn){ addBtn.onclick = ()=>{ try{ layer.remove();
+                    // Show auth screen and select login tab
+                    const authScreen = document.getElementById('auth-screen');
+                    const dashboard = document.getElementById('dashboard');
+                    if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
+                    if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
+                    // Focus email field
+                    const email = document.getElementById('loginUsername'); if (email){ email.focus(); }
+                }catch(_){ window.location.hash='login'; } };
+                }
 
                 // Close when clicking outside
                 const closer = (e)=>{ if (!layer.contains(e.target) && e.target !== switcher){ document.removeEventListener('mousedown', closer); try{ layer.remove(); }catch(_){ } } };
@@ -526,6 +569,7 @@ class DashboardManager {
                           <div style="opacity:.8">${data.email||''}</div>
                         </div>
                         <button id="follow-toggle" class="btn ${isFollowing?'btn-secondary':'btn-primary'}">${isFollowing?'Unfollow':'Follow'}</button>
+                        <button id="connect-toggle" class="btn btn-secondary"><i class="fas fa-link"></i> Connect</button>
                         <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
                       </div>
                       <div id="preview-feed"></div>
@@ -538,10 +582,60 @@ class DashboardManager {
                 const toggle = overlay.querySelector('#follow-toggle');
                 toggle.onclick = async ()=>{
                   try{
+                    toggle.disabled = true;
                     if (toggle.textContent==='Follow'){ await window.firebaseService.followUser(me.uid, uid); toggle.textContent='Unfollow'; toggle.className='btn btn-secondary'; }
                     else { await window.firebaseService.unfollowUser(me.uid, uid); toggle.textContent='Follow'; toggle.className='btn btn-primary'; }
                   }catch(_){ }
+                  finally{ toggle.disabled = false; }
                 };
+
+                // Connect/Disconnect setup
+                const connectBtn = overlay.querySelector('#connect-toggle');
+                if (connectBtn){
+                  try{
+                    const key = [me.uid, uid].sort().join('|');
+                    let connId = key;
+                    let isConnected = false;
+                    try{
+                      const ref = firebase.doc(window.firebaseService.db,'chatConnections', key);
+                      const d = await firebase.getDoc(ref);
+                      if (d.exists()){ connId = d.id; isConnected = d.data()?.archived !== true; }
+                      else {
+                        const q = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('key','==', key), firebase.limit(1));
+                        const s = await firebase.getDocs(q);
+                        s.forEach(x=>{ connId = x.id; isConnected = x.data()?.archived !== true; });
+                      }
+                    }catch(_){ }
+                    connectBtn.innerHTML = isConnected ? '<i class="fas fa-unlink"></i> Disconnect' : '<i class="fas fa-link"></i> Connect';
+                    connectBtn.onclick = async ()=>{
+                      try{
+                        connectBtn.disabled = true;
+                        const now = new Date().toISOString();
+                        if (!isConnected){
+                          // Create or re-activate connection
+                          const targetRef = firebase.doc(window.firebaseService.db,'chatConnections', connId || key);
+                          try{
+                            const snap = await firebase.getDoc(targetRef);
+                            if (snap.exists()){
+                              await firebase.updateDoc(targetRef, { archived:false, updatedAt: now });
+                            } else {
+                              const createRef = firebase.doc(window.firebaseService.db,'chatConnections', key);
+                              await firebase.setDoc(createRef, { id:key, key, participants:[me.uid, uid], participantUsernames:[me.email||me.uid, data.username||data.email||uid], admins:[me.uid], createdAt: now, updatedAt: now, lastMessage:'', archived:false });
+                              connId = key;
+                            }
+                          }catch(_){ }
+                          isConnected = true;
+                          connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
+                        } else {
+                          // Archive connection
+                          try{ await firebase.updateDoc(firebase.doc(window.firebaseService.db,'chatConnections', connId), { archived:true, updatedAt: now }); }catch(_){ }
+                          isConnected = false;
+                          connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+                        }
+                      }finally{ connectBtn.disabled = false; }
+                    };
+                  }catch(_){ }
+                }
                 const chatBtn = overlay.querySelector('#start-chat');
                 if (chatBtn){ chatBtn.onclick = async ()=>{
                   try{
@@ -772,7 +866,9 @@ class DashboardManager {
                     if (aArchived !== bArchived) return aArchived ? 1 : -1;
                     return new Date(b.updatedAt||0) - new Date(a.updatedAt||0);
                 });
-                pickList.push(arr[0]);
+                // Only take non-archived connections for Personal Space
+                const firstActive = arr.find(x=> !x.archived);
+                if (firstActive) pickList.push(firstActive);
             }
             // Prepare live username map for participants to avoid stale labels
             const nameMap = new Map();
