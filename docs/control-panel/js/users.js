@@ -126,37 +126,17 @@ class UsersManager {
             return;
         }
 
-        // Separate pending and approved users
-        // Pending: explicitly marked pending/rejected and not verified
-        const pendingUsers = this.users.filter(user => ((user.status === 'pending' || user.status === 'rejected') && !user.isVerified));
-        // Approved: verified or explicitly approved
-        const approvedUsers = this.users.filter(user => (user.isVerified) || (user.status === 'approved'));
-
+        // Simplify: show all users; verification status only
+        const allUsers = this.users || [];
         let html = '';
-
-        // Show pending users first (admin approval needed)
-        if (pendingUsers.length > 0) {
-            html += `
-                <div class="users-section">
-                    <h3>Pending Approval (${pendingUsers.length})</h3>
-                    <div class="users-grid">
-                        ${pendingUsers.map(user => this.getUserCardHTML(user, true)).join('')}
-                    </div>
+        html += `
+            <div class="users-section">
+                <h3>Users (${allUsers.length})</h3>
+                <div class="users-grid">
+                    ${allUsers.map(user => this.getUserCardHTML(user, false)).join('')}
                 </div>
-            `;
-        }
-
-        // Show approved users
-        if (approvedUsers.length > 0) {
-            html += `
-                <div class="users-section">
-                    <h3>Approved Users (${approvedUsers.length})</h3>
-                    <div class="users-grid">
-                        ${approvedUsers.map(user => this.getUserCardHTML(user, false)).join('')}
-                    </div>
-                </div>
-            `;
-        }
+            </div>
+        `;
 
         usersList.innerHTML = html;
 
@@ -167,34 +147,15 @@ class UsersManager {
     getUserCardHTML(user, isPending) {
         const createdAt = new Date(user.createdAt).toLocaleDateString();
         
-        // Determine status based on both old status field and new isVerified field - FIXED
-        let statusClass, statusText;
-        if (user.status === 'approved' || user.isVerified) {
-            statusClass = 'approved';
-            statusText = 'Approved';
-        } else {
-            statusClass = 'pending';
-            statusText = 'Pending';
-        }
+        // Status purely by verification
+        let statusClass = user.isVerified ? 'approved' : 'pending';
+        let statusText = user.isVerified ? 'Verified' : 'Unverified';
         
-        let actionsHTML = '';
-        
-        if (isPending) {
-            actionsHTML = `
-                <button class="btn btn-success btn-sm approve-btn" data-uid="${user.id || user.uid}">
-                    <i class="fas fa-check"></i> Approve
-                </button>
-                <button class="btn btn-danger btn-sm reject-btn" data-uid="${user.id || user.uid}">
-                    <i class="fas fa-times"></i> Reject
-                </button>
-            `;
-        } else {
-            actionsHTML = `
-                <button class="btn btn-danger btn-sm delete-btn" data-uid="${user.id || user.uid}">
-                    <i class="fas fa-trash"></i> Delete
-                </button>
-            `;
-        }
+        const actionsHTML = `
+            <button class="btn btn-danger btn-sm delete-btn" data-uid="${user.id || user.uid}">
+                <i class="fas fa-trash"></i> Delete
+            </button>
+        `;
 
         return `
             <div class="user-card ${statusClass}">
@@ -223,12 +184,7 @@ class UsersManager {
                         <span class="label">Created:</span>
                         <span class="value">${createdAt}</span>
                     </div>
-                    ${user.approvedBy ? `
-                        <div class="detail-item">
-                            <span class="label">Approved by:</span>
-                            <span class="value">${user.approvedBy}</span>
-                        </div>
-                    ` : ''}
+                    
                 </div>
                 <div class="user-actions">
                     ${actionsHTML}
@@ -238,21 +194,7 @@ class UsersManager {
     }
 
     setupUserActionListeners() {
-        // Approve buttons
-        document.querySelectorAll('.approve-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const uid = btn.dataset.uid;
-                await this.approveUser(uid);
-            });
-        });
-
-        // Reject buttons
-        document.querySelectorAll('.reject-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const uid = btn.dataset.uid;
-                await this.rejectUser(uid);
-            });
-        });
+        // Approve/Reject removed — verification handled elsewhere
 
         // Delete buttons
         document.querySelectorAll('.delete-btn').forEach(btn => {

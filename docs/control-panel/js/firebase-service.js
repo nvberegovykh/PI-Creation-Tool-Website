@@ -957,26 +957,46 @@ class FirebaseService {
     async callFunction(name, payload = {}) {
         try {
             await this.waitForInit();
-            if (!this.functions) return null;
-            // Prefer modular API with region failover
-            if (window.firebaseModular && window.firebaseModular.httpsCallable && this.functionsByRegion) {
-                const regions = Object.keys(this.functionsByRegion);
-                for (const r of regions){
+            // Prefer SDK callables when available
+            if (this.functions) {
+                // Modular with region failover
+                if (window.firebaseModular && window.firebaseModular.httpsCallable && this.functionsByRegion) {
+                    const regions = Object.keys(this.functionsByRegion);
+                    for (const r of regions){
+                        try{
+                            const callable = window.firebaseModular.httpsCallable(this.functionsByRegion[r], name);
+                            const res = await callable(payload);
+                            return (res && res.data) || null;
+                        }catch(e){ /* try next region */ }
+                    }
+                }
+                // Compat fallback
+                if (firebase.httpsCallable) {
                     try{
-                        const callable = window.firebaseModular.httpsCallable(this.functionsByRegion[r], name);
+                        const callable = firebase.httpsCallable(this.functions, name);
                         const res = await callable(payload);
                         return (res && res.data) || null;
-                    }catch(e){ /* try next region */ }
+                    }catch(_){ /* fall through to HTTP */ }
                 }
             }
-            // Compat fallback if provided on global firebase
-            if (firebase.httpsCallable) {
-                try{
-                    const callable = firebase.httpsCallable(this.functions, name);
-                    const res = await callable(payload);
-                    return (res && res.data) || null;
-                }catch(_){ return null; }
-            }
+            // HTTP fallback for environments without Functions SDK
+            try{
+                const appOptions = (this.app && this.app.options) || {};
+                const projectId = appOptions.projectId || appOptions.project || (await this.getFirebaseConfig())?.projectId;
+                const keys = await window.secureKeyManager.getKeys().catch(()=>({}));
+                const preferred = (keys && (keys.functionsRegion || keys.firebase?.functionsRegion)) || 'us-central1';
+                const regions = [preferred, 'us-central1', 'europe-west1'].filter((v,i,a)=> v && a.indexOf(v)===i);
+                const idToken = await firebase.getIdToken(this.auth.currentUser, true);
+                for (const r of regions){
+                    const url = `https://${r}-${projectId}.cloudfunctions.net/${name}`;
+                    try{
+                        const resp = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': `Bearer ${idToken}` }, body: JSON.stringify({ data: payload }) });
+                        if (!resp.ok) continue;
+                        const json = await resp.json().catch(()=>({}));
+                        return json && (json.data || json.result || null);
+                    }catch(_){ /* try next */ }
+                }
+            }catch(_){ /* give up */ }
             return null;
         } catch (e) {
             console.warn('Callable function failed:', name, e?.message || e);

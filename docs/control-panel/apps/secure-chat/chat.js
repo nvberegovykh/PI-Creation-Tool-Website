@@ -96,8 +96,10 @@
     bindUI(){
       document.getElementById('new-connection-btn').addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
       const actionBtn = document.getElementById('action-btn');
-      actionBtn.addEventListener('click', ()=> this.handleActionButton());
-      actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
+      if (actionBtn){
+        actionBtn.addEventListener('click', ()=> this.handleActionButton());
+        actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
+      }
       actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
       ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
@@ -1012,17 +1014,27 @@
       });
       // Notify recipients (best-effort)
       this.notifyParticipants(text);
-      // Optional push notification via Firebase Functions (no-op if not configured)
+      // Optional push notification via Firebase Functions; fallback to email if no tokens
       try{
         if (window.firebaseService && typeof window.firebaseService.callFunction === 'function'){
           const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
           const data = connSnap.exists()? connSnap.data():null;
           const participantUids = (data && Array.isArray(data.participants)) ? data.participants : [];
-          await window.firebaseService.callFunction('sendPush', {
-            connId: this.activeConnection,
-            recipients: participantUids.filter(uid=> uid !== this.currentUser.uid),
-            preview: text.slice(0, 120)
-          });
+          const recipients = participantUids.filter(uid=> uid !== this.currentUser.uid);
+          const pushResp = await window.firebaseService.callFunction('sendPush', { connId: this.activeConnection, recipients, preview: text.slice(0,120) }) || {};
+          const sent = Number(pushResp.sent||0);
+          if (!sent && recipients && recipients.length){
+            // Fallback: sendMail per recipient (best-effort)
+            for (const uid of recipients){
+              try{
+                const u = await window.firebaseService.getUserData(uid);
+                const email = u && u.email;
+                if (email){
+                  await window.firebaseService.callFunction('sendMail', { to: email, subject: 'New message', html: `<p>You have a new message:</p><p>${(text||'').slice(0,200)}</p>` });
+                }
+              }catch(_){ }
+            }
+          }
         }
       }catch(_){ /* ignore optional push errors */ }
       await this.loadMessages();
