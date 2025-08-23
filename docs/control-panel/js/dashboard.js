@@ -24,7 +24,7 @@ class DashboardManager {
                 return `<img src="${href}" alt="media" style="max-width:100%;height:auto;border-radius:12px" />`;
             }
             if (isVid){
-                return `<div class="player-card"><video src="${href}" class="player-media" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+                return `<div class="player-card"><video src="${href}" class="player-media" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain"></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
             }
             if (isAud){
                 return `<div class="player-card"><audio src="${href}" class="player-media" preload="metadata" ></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
@@ -226,6 +226,23 @@ class DashboardManager {
                 switcher.addEventListener('mousedown', (e)=>{ e.preventDefault(); this.showAccountSwitcherPopup(); });
             }catch(_){ }
         }
+
+        // Ensure a visible switch-accounts button in header near logout/search
+        try{
+            const headerRight = document.querySelector('.dashboard-header .header-right');
+            if (headerRight && !document.getElementById('account-switcher-icon')){
+                const btn = document.createElement('button');
+                btn.id = 'account-switcher-icon';
+                btn.title = 'Switch account';
+                btn.className = 'btn btn-secondary';
+                btn.style.marginRight = '10px';
+                btn.innerHTML = '<i class="fas fa-user-switch"></i>';
+                btn.addEventListener('click', ()=> this.showAccountSwitcherPopup());
+                const logout = document.getElementById('logout-btn');
+                if (logout && logout.parentNode){ logout.parentNode.insertBefore(btn, logout); }
+                else { headerRight.appendChild(btn); }
+            }
+        }catch(_){ }
 
         // Account switcher popup UI
         this.showAccountSwitcherPopup = async ()=>{
@@ -801,12 +818,9 @@ class DashboardManager {
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
-                                   <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
-                                   <span class="likes-count">0</span>
-                                   <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
-                                   <span class="comments-count">0</span>
-                                   <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
-                                   <span class="reposts-count">0</span>
+                                   <span class="like-btn" style="cursor:pointer"><i class="fas fa-heart"></i> <span class="likes-count">0</span></span>
+                                   <span class="comment-btn" style="cursor:pointer"><i class="fas fa-comment"></i> <span class="comments-count">0</span></span>
+                                   <span class="repost-btn" style="cursor:pointer"><i class="fas fa-retweet"></i> <span class="reposts-count">0</span></span>
                                  </div>
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);

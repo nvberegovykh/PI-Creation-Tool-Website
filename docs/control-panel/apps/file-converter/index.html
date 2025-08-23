@@ -122,7 +122,13 @@
         const mod = await window.waitForFFmpeg();
         if (!mod){ throw new Error('FFmpeg failed to load'); }
         const { createFFmpeg } = mod;
-        ffmpeg = createFFmpeg({ log: true });
+        const core1 = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js';
+        const core2 = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js';
+        try{
+          ffmpeg = createFFmpeg({ log: true, corePath: core1 });
+        }catch(_){
+          ffmpeg = createFFmpeg({ log: true, corePath: core2 });
+        }
       }
       if (!ffmpeg.isLoaded()) { el('progress').textContent = 'Loading converter...'; await ffmpeg.load(); }
     }
