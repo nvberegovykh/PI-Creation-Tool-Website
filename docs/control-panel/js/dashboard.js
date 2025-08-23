@@ -60,6 +60,29 @@ class DashboardManager {
             try{ bg.src = mediaEl.currentSrc || mediaEl.src; if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime; bg.play().catch(()=>{}); mediaEl.pause(); }catch(_){ }
             if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { bg.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
             if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+
+            // Build autoplay queue based on context (library/feed/search)
+            const contextRoot = mediaEl.closest('#wave-library') || mediaEl.closest('#global-feed') || mediaEl.closest('#personal-space') || mediaEl.closest('.search-results') || mediaEl.closest('.main') || document;
+            const nodes = Array.from(contextRoot.querySelectorAll('audio.player-media, video.player-media, .player-card .player-media'));
+            const items = nodes.map(n=> ({ src: n.currentSrc || n.src || n.getAttribute('src') || '', el: n } )).filter(x=> x.src);
+            const currentSrc = mediaEl.currentSrc || mediaEl.src || '';
+            let idx = items.findIndex(x=> x.src === currentSrc);
+            if (idx < 0 && items.length){ idx = 0; }
+            this._playQueue = { items, index: idx, context: contextRoot };
+            const advance = ()=>{
+                if (!this._playQueue || !this._playQueue.items.length) return;
+                this._playQueue.index = (this._playQueue.index + 1) % this._playQueue.items.length;
+                const next = this._playQueue.items[this._playQueue.index];
+                if (!next) return;
+                try{
+                    bg.src = next.src; bg.currentTime = 0; bg.play().catch(()=>{});
+                    if (mTitle) mTitle.textContent = (next.el && next.el.dataset && next.el.dataset.title) || (meta.title||'Now playing');
+                    if (mBy) mBy.textContent = (next.el && next.el.dataset && next.el.dataset.by) || (meta.by||'');
+                }catch(_){ }
+            };
+            if (this._onBgEnded){ try{ bg.removeEventListener('ended', this._onBgEnded); }catch(_){ } }
+            this._onBgEnded = advance;
+            bg.addEventListener('ended', this._onBgEnded);
         }catch(_){ }
     }
 
@@ -128,7 +151,12 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
-        this.switchSection('apps');
+        try{
+            const fromHash = (window.location.hash||'').replace('#','');
+            const stored = localStorage.getItem('liber_last_section') || '';
+            const preferred = fromHash || stored || 'apps';
+            this.switchSection(preferred);
+        }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
@@ -180,6 +208,7 @@ class DashboardManager {
 
         // Simple account switcher UI: fill a dropdown if exists
         const switcher = document.getElementById('account-switcher');
+        const addAcct = document.getElementById('add-account-btn');
         if (switcher){
             try{
                 const raw = localStorage.getItem('liber_accounts');
@@ -191,6 +220,7 @@ class DashboardManager {
                 } else {
                     switcher.style.display = 'none';
                 }
+                if (addAcct){ addAcct.style.display = 'inline-block'; addAcct.onclick = ()=>{ try{ window.location.href = '#login'; if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); } }catch(_){ } }; }
                 switcher.onchange = async ()=>{
                     const uid = switcher.value || '';
                     if (!uid) return;
@@ -673,12 +703,29 @@ class DashboardManager {
                 });
                 pickList.push(arr[0]);
             }
+            // Prepare live username map for participants to avoid stale labels
+            const nameMap = new Map();
+            try{
+                const uidSet = new Set();
+                pickList.forEach(c=> (Array.isArray(c.participants)?c.participants:[]).forEach(u=>{ if (u!==me.uid) uidSet.add(u); }));
+                const fetches = Array.from(uidSet).map(async uid=>{
+                    try{ const d = await window.firebaseService.getUserData(uid); nameMap.set(uid, (d&&d.username)||d?.email||uid); }catch(_){ nameMap.set(uid, uid); }
+                });
+                await Promise.all(fetches);
+            }catch(_){ }
+
             // Render
             pickList.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
             pickList.forEach(c=>{
                 const li = document.createElement('li');
                 let label = 'Chat';
-                if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
+                const parts = Array.isArray(c.participants)? c.participants: [];
+                if (parts.length){
+                    const names = parts.map((uid,i)=> uid===me.uid? (myData.username||me.email||'me') : (nameMap.get(uid) || (Array.isArray(c.participantUsernames)? c.participantUsernames[i] : uid)) );
+                    const others = names.filter(n=> (n||'').toLowerCase() !== myNameLower);
+                    if (others.length===1) label = others[0];
+                    else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
+                } else if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
                     const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
                     if (others.length===1) label = others[0];
                     else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
@@ -709,15 +756,17 @@ class DashboardManager {
             list.slice(0,20).forEach(p=>{
                 const div = document.createElement('div');
                 div.className = 'post-item';
+                div.dataset.postId = p.id;
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
-                                   <span class="likes-count"></span>
+                                   <span class="likes-count">0</span>
                                    <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
+                                   <span class="comments-count">0</span>
                                    <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
-                                   <span class="reposts-count"></span>
+                                   <span class="reposts-count">0</span>
                                  </div>
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);
@@ -1148,6 +1197,9 @@ class DashboardManager {
 
         this.currentSection = section;
 
+        // Persist last section and sync hash
+        try{ localStorage.setItem('liber_last_section', section); if (window.location.hash !== `#${section}`) window.location.hash = section; }catch(_){ }
+
         // Load section-specific content
         switch (section) {
             
@@ -1206,12 +1258,18 @@ class DashboardManager {
                 upBtn.onclick = async ()=>{
                     try{
                         const file = document.getElementById('wave-file').files[0];
-                        if (!file){ return this.showError('Select an MP3 file'); }
-                        if (file.type !== 'audio/mpeg' || file.size > 25*1024*1024){ return this.showError('MP3 only, up to 25 MB'); }
+                        if (!file){ return this.showError('Select an audio file'); }
+                        // Accept common audio types; cap size to 50 MB
+                        const okTypes = ['audio/mpeg','audio/mp3','audio/wav','audio/x-wav','audio/ogg','audio/webm','audio/aac','audio/m4a'];
+                        if (!okTypes.includes((file.type||'').toLowerCase())){
+                            console.warn('WaveConnect: unexpected type', file.type);
+                        }
+                        if (file.size > 50*1024*1024){ return this.showError('Max 50 MB'); }
                         const title = (document.getElementById('wave-title').value||file.name).trim();
                         const s = firebase.getStorage();
                         const ref = firebase.ref(s, `wave/${me.uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
-                        await firebase.uploadBytes(ref, file, { contentType: 'audio/mpeg' });
+                        const task = firebase.uploadBytesResumable(ref, file, { contentType: (file.type||'audio/mpeg') });
+                        await task;
                         const url = await firebase.getDownloadURL(ref);
                         let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
                         let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
@@ -1219,7 +1277,7 @@ class DashboardManager {
                         await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
-                    }catch(e){ this.showError('Upload failed'); }
+                    }catch(e){ console.error('Wave upload failed', e); this.showError('Upload failed'); }
                 };
             }
             const search = document.getElementById('wave-search');
@@ -1257,7 +1315,7 @@ class DashboardManager {
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:column;gap:10px;align-items:center;justify-content:space-between';
         const cover = w.coverUrl || 'images/default-bird.png';
         const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -2602,6 +2660,7 @@ Do you want to proceed?`);
         chatBtn.onclick = async () => {
           try {
             const key = [me.uid, uid].sort().join('|');
+            overlay.remove();
             window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(key)}`;
           } catch(_) {}
         };
@@ -2624,20 +2683,20 @@ Do you want to proceed?`);
 
     activatePostActions(container = document) {
       container.querySelectorAll('.post-item').forEach(item => {
-        const pid = item.dataset.postId;
+        const pid = item.dataset.postId || item.querySelector('.post-actions')?.dataset.postId;
         if (!pid) return;
         
         // Like
         const likeBtn = item.querySelector('.like-btn');
-        const likeSpan = likeBtn?.querySelector('span');
+        const likeSpan = item.querySelector('.likes-count');
         const likeIcon = likeBtn?.querySelector('i');
         if (likeBtn) {
-          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'likes'), snap => {
+          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'), snap => {
             likeSpan.textContent = snap.size;
           });
           likeBtn.onclick = async () => {
             // Toggle like logic
-            const likeRef = firebase.doc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'likes'), this.currentUser.uid);
+            const likeRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'likes', this.currentUser.uid);
             const snap = await firebase.getDoc(likeRef);
             if (snap.exists()) {
               await firebase.deleteDoc(likeRef);
@@ -2651,16 +2710,16 @@ Do you want to proceed?`);
         
         // Comment
         const commentBtn = item.querySelector('.comment-btn');
-        const commentSpan = commentBtn?.querySelector('span');
+        const commentSpan = item.querySelector('.comments-count');
         if (commentBtn) {
-          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'comments'), snap => {
+          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), snap => {
             commentSpan.textContent = snap.size;
           });
           commentBtn.onclick = () => {
             // Simple modal stub - expand as needed
             const comment = prompt('Add comment:');
             if (comment) {
-              firebase.addDoc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'comments'), {
+              firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), {
                 userId: this.currentUser.uid,
                 text: comment,
                 createdAt: new Date().toISOString()
@@ -2671,14 +2730,14 @@ Do you want to proceed?`);
         
         // Repost
         const repostBtn = item.querySelector('.repost-btn');
-        const repostSpan = repostBtn?.querySelector('span');
+        const repostSpan = item.querySelector('.reposts-count');
         const repostIcon = repostBtn?.querySelector('i');
         if (repostBtn) {
-          firebase.onSnapshot(firebase.collection(firebase.doc(this.db, 'posts', pid), 'reposts'), snap => {
+          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'), snap => {
             repostSpan.textContent = snap.size;
           });
           repostBtn.onclick = async () => {
-            const repostRef = firebase.doc(firebase.collection(firebase.doc(this.db, 'posts', pid), 'reposts'), this.currentUser.uid);
+            const repostRef = firebase.doc(window.firebaseService.db, 'posts', pid, 'reposts', this.currentUser.uid);
             const snap = await firebase.getDoc(repostRef);
             if (snap.exists()) {
               await firebase.deleteDoc(repostRef);

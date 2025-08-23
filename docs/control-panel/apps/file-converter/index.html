@@ -18,7 +18,10 @@
 </head>
 <body>
   <div class="wrap">
-    <h2>File Converter</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <h2>File Converter</h2>
+      <a href="../../index.html#apps" style="text-decoration:none"><button style="background:#1b2330;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:8px 12px">Back to Control Panel</button></a>
+    </div>
     <div class="panel">
       <div class="row">
         <div style="flex:1 1 260px">
@@ -37,14 +40,33 @@
         <div style="flex:1 1 200px">
           <label for="format-select">Target format</label>
           <select id="format-select">
-            <option value="png">PNG (image)</option>
-            <option value="jpg">JPG (image)</option>
-            <option value="webp">WEBP (image)</option>
-            <option value="wav">WAV (audio)</option>
-            <option value="mp3">MP3 (audio)</option>
-            <option value="ogg">OGG (audio)</option>
-            <option value="mp4">MP4 (video)</option>
-            <option value="webm">WEBM (video)</option>
+            <optgroup label="Image">
+              <option value="png">PNG</option>
+              <option value="jpg">JPG</option>
+              <option value="webp">WEBP</option>
+              <option value="bmp">BMP</option>
+              <option value="tiff">TIFF</option>
+              <option value="gif">GIF</option>
+              <option value="ico">ICO</option>
+              <option value="svg">SVG (rasterize)</option>
+              <option value="pdf">PDF (single page)</option>
+            </optgroup>
+            <optgroup label="Audio">
+              <option value="wav">WAV</option>
+              <option value="mp3">MP3</option>
+              <option value="ogg">OGG</option>
+              <option value="flac">FLAC</option>
+              <option value="aac">AAC</option>
+              <option value="m4a">M4A</option>
+            </optgroup>
+            <optgroup label="Video">
+              <option value="mp4">MP4 (H.264/AAC)</option>
+              <option value="webm">WEBM (VP9/Opus)</option>
+              <option value="avi">AVI</option>
+              <option value="mov">MOV</option>
+              <option value="mkv">MKV</option>
+              <option value="gifv">GIFV</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -58,10 +80,18 @@
     <p style="opacity:.7">Powered by ffmpeg.wasm (client-side). Some conversions may be CPU intensive on mobile.</p>
   </div>
 
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
   <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: true });
+    // Resilient ffmpeg loader
+    (function(){
+      const add=(u,cb)=>{const s=document.createElement('script');s.src=u;s.async=true;s.onload=cb;s.onerror=()=>{};document.head.appendChild(s)};
+      const boot=()=>{ if (window.FFmpeg){ window.__FF__=window.FFmpeg; } else setTimeout(boot,80); };
+      add('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
+      add('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
+    })();
+  </script>
+  <script>
+    const getFF=()=> (window.__FF__||window.FFmpeg);
+    let ffmpeg;
     const el = (id)=> document.getElementById(id);
 
     const detectType = (file)=>{
@@ -72,7 +102,10 @@
       return 'auto';
     };
 
-    async function ensureFFmpeg(){ if (!ffmpeg.isLoaded()) { el('progress').textContent = 'Loading converter...'; await ffmpeg.load(); } }
+    async function ensureFFmpeg(){
+      if (!ffmpeg){ const { createFFmpeg } = getFF(); ffmpeg = createFFmpeg({ log: true }); }
+      if (!ffmpeg.isLoaded()) { el('progress').textContent = 'Loading converter...'; await ffmpeg.load(); }
+    }
 
     function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000); }
 
@@ -86,16 +119,23 @@
       try{
         await ensureFFmpeg();
         el('progress').textContent = 'Running conversion...';
+        const { fetchFile } = getFF();
         ffmpeg.FS('writeFile', inName, await fetchFile(input));
         let args = [];
         if (kind==='image'){
-          // Generic image transcode
-          args = ['-i', inName, outName];
+          if (target==='svg') { args = ['-i', inName, 'out.png']; }
+          else if (target==='pdf') { args = ['-i', inName, '-vf', 'scale=1200:-1', '-f', 'pdf', outName]; }
+          else { args = ['-i', inName, outName]; }
         } else if (kind==='audio'){
-          args = ['-i', inName, outName];
+          if (target==='mp3') args = ['-i', inName, '-b:a', '192k', outName];
+          else if (target==='aac' || target==='m4a') args = ['-i', inName, '-c:a', 'aac', '-b:a','192k', outName];
+          else if (target==='flac') args = ['-i', inName, '-c:a','flac', outName];
+          else args = ['-i', inName, outName];
         } else if (kind==='video'){
-          args = ['-i', inName, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outName];
-          if (target==='webm') args = ['-i', inName, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '30', '-c:a', 'libopus', outName];
+          if (target==='mp4') args = ['-i', inName, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outName];
+          else if (target==='webm') args = ['-i', inName, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '30', '-c:a', 'libopus', outName];
+          else if (target==='gifv' || target==='gif') args = ['-i', inName, '-vf','fps=12,scale=640:-1:flags=lanczos', outName==='gifv'? 'out.gif': outName];
+          else args = ['-i', inName, outName];
         } else { args = ['-i', inName, outName]; }
         await ffmpeg.run(...args);
         const data = ffmpeg.FS('readFile', outName);

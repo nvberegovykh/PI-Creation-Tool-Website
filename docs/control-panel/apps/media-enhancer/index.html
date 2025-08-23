@@ -18,7 +18,10 @@
 </head>
 <body>
   <div class="wrap">
-    <h2>Media Enhancer</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <h2>Media Enhancer</h2>
+      <a href="../../index.html#apps" style="text-decoration:none"><button style="background:#1b2330;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:8px 12px">Back to Control Panel</button></a>
+    </div>
     <div class="panel">
       <h3>Audio Splitter</h3>
       <div class="row">
@@ -44,15 +47,31 @@
   </div>
 
   <!-- Lightweight models via CDN; for production host locally -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script>
+    // Load ffmpeg.wasm with resilient CDN fallbacks
+    (function(){
+      const add = (src, onload)=>{ const s=document.createElement('script'); s.src=src; s.async=true; s.onload=onload; s.onerror=()=>{}; document.head.appendChild(s); };
+      const boot = ()=>{ if (window.FFmpeg) initEnhancer(); else setTimeout(boot, 80); };
+      if (!window.FFmpeg){
+        add('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
+        add('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js', boot);
+      } else { initEnhancer(); }
+      function initEnhancer(){
+        try{ window.__FFMPEG__ = window.FFmpeg; }catch(_){ }
+      }
+    })();
+  </script>
   <script>
     // --- Audio Splitter (vocal/instrumental) ---
     // Simple frequency-domain mask approximation using STFT to separate vocals vs background.
     // For higher quality, integrate a server-side model (e.g., Demucs) later.
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ff = createFFmpeg({ log: false });
+    const getFF = ()=>{ const ns = (window.__FFMPEG__||window.FFmpeg); return { createFFmpeg: ns.createFFmpeg, fetchFile: ns.fetchFile }; };
+    let ff; // lazily created instance
     const A = (id)=>document.getElementById(id);
-    async function ensureFF(){ if (!ff.isLoaded()){ A('audio-status').textContent='Loading audio engine...'; await ff.load(); } }
+    async function ensureFF(){
+      if (!ff){ const { createFFmpeg } = getFF(); ff = createFFmpeg({ log:false }); }
+      if (!ff.isLoaded()){ A('audio-status').textContent='Loading audio engine...'; await ff.load(); }
+    }
     function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000); }
 
     A('split-btn').onclick = async()=>{
@@ -61,6 +80,7 @@
       await ensureFF();
       A('audio-status').textContent = 'Extracting audio...';
       // Step 1: Extract mono wav for analysis
+      const { fetchFile } = getFF();
       ff.FS('writeFile','in.bin', await fetchFile(f));
       await ff.run('-i','in.bin','-vn','-ac','1','-ar','44100','in.wav');
       // Very naive spectral gating: create two filtered versions (vocal-like band and rest)
@@ -73,8 +93,8 @@
       const mBlob = new Blob([mData.buffer], {type:'audio/wav'});
       const out = A('audio-outputs'); out.innerHTML = '';
       const vUrl = URL.createObjectURL(vBlob); const mUrl = URL.createObjectURL(mBlob);
-      out.insertAdjacentHTML('beforeend', `<div><strong>Vocals (approx)</strong><audio controls src="${vUrl}"></audio><div><button onclick="downloadBlob(new Blob([fetch('${vUrl}').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b))],{type:'audio/wav'}),'vocals.wav')">Download</button></div></div>`);
-      out.insertAdjacentHTML('beforeend', `<div><strong>Music (approx)</strong><audio controls src="${mUrl}"></audio><div><button onclick="downloadBlob(new Blob([fetch('${mUrl}').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b))],{type:'audio/wav'}),'music.wav')">Download</button></div></div>`);
+      out.insertAdjacentHTML('beforeend', `<div><strong>Vocals (approx)</strong><audio controls src="${vUrl}"></audio><div><a download="vocals.wav" href="${vUrl}"><button>Download</button></a></div></div>`);
+      out.insertAdjacentHTML('beforeend', `<div><strong>Music (approx)</strong><audio controls src="${mUrl}"></audio><div><a download="music.wav" href="${mUrl}"><button>Download</button></a></div></div>`);
       A('audio-status').textContent = 'Done.';
     };
 

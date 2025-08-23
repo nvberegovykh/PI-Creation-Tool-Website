@@ -576,6 +576,8 @@
       }
       document.getElementById('active-connection-name').textContent = displayName;
       await this.loadMessages();
+      // Force scroll to bottom after messages render
+      try{ const box=document.getElementById('messages'); if(box){ setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 50); } }catch(_){ }
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
