@@ -1,0 +1,24 @@
+{
+  "firebase": {
+    "apiKey": "AIzaSyA2pAIw0t4IGe3IBid8vFjxvoZXzikjfN4",
+    "authDomain": "liber-apps-cca20.firebaseapp.com",
+    "projectId": "liber-apps-cca20",
+    "storageBucket": "liber-apps-cca20.firebasestorage.app",
+    "messagingSenderId": "165400046589",
+    "appId": "1:165400046589:web:ea3cc1cd9e397a7500c794",
+    "measurementId": "G-5B3CVMJ9XG"
+  },
+  "admin": {
+    "username": "nvberegovykh",
+    "email": "nvberegovykh@liberpict.com",
+    "passwordHash": "597ada4b660937a7f075955cea7fb16ba964806bc135f88855d61f370a2f59e2",
+    "role": "admin"
+  },
+  "system": {
+    "masterKeyHash": "f1e2d3c4b5a6789012345678901234567890fedcba1234567890fedcba123456",
+    "salt": "liber_system_salt_2024",
+    "version": "1.0",
+    "created": "2024-12-19T00:00:00.000Z",
+    "lastUpdated": "2024-12-19T00:00:00.000Z"
+  }
+}

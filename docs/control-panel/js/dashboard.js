@@ -329,11 +329,11 @@ class DashboardManager {
                             let token = tokenMap[uid];
                             if (!token){
                                 const ua = navigator.userAgent||'';
-                                const res = await firebase.httpsCallable(window.firebaseService.functions, 'saveSwitchToken')({ deviceId, ua });
-                                token = res?.data?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                                const res = await window.firebaseService.callFunction('saveSwitchToken', { deviceId, ua });
+                                token = res?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
                             }
-                            const res2 = await firebase.httpsCallable(window.firebaseService.functions, 'switchTo')({ uid, deviceId, token });
-                            const customToken = res2?.data?.customToken;
+                            const res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                            const customToken = res2?.customToken;
                             if (customToken){ await firebase.signInWithCustomToken(window.firebaseService.auth, customToken); }
                             window.location.reload();
                         }catch(e){ console.error('Switch failed', e); this.showError('Switch failed'); }
@@ -928,9 +928,12 @@ class DashboardManager {
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
-                                   <span class="like-btn" style="cursor:pointer"><i class="fas fa-heart"></i> <span class="likes-count">0</span></span>
-                                   <span class="comment-btn" style="cursor:pointer"><i class="fas fa-comment"></i> <span class="comments-count">0</span></span>
-                                   <span class="repost-btn" style="cursor:pointer"><i class="fas fa-retweet"></i> <span class="reposts-count">0</span></span>
+                                   <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
+                                   <span class="likes-count"></span>
+                                   <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
+                                   <span class="comments-count"></span>
+                                   <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
+                                   <span class="reposts-count"></span>
                                  </div>
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);
@@ -939,7 +942,7 @@ class DashboardManager {
                 const trending = await window.firebaseService.getTrendingPosts('', 10);
                 suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
             }
-            this.activatePostActions(feedEl);  // Activate actions after rendering
+            this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
             this.activatePlayers(feedEl);
         }catch(_){ }
     }
@@ -1118,7 +1121,7 @@ class DashboardManager {
                     }; }
                 }
             });
-            if (uid === meUser.uid){
+            if (uid === meUser.uid && false){
                 try{
                     const posts = await window.firebaseService.getFeedPosts(meUser.uid, following, 10);
                     feed.innerHTML = '';
