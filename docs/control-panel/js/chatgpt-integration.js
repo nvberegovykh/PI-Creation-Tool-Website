@@ -552,18 +552,27 @@ class ChatGPTIntegration {
     async loadConfiguration() {
         try {
             const keys = await window.secureKeyManager.getKeys();
-            if (!keys.openai || !keys.openai.apiKey || !keys.openai.assistantId) {
-                throw new Error('OpenAI configuration missing from secure keys');
+            if (keys && keys.openai && keys.openai.apiKey && keys.openai.assistantId) {
+                this.apiKey = keys.openai.apiKey;
+                this.assistantId = keys.openai.assistantId;
+                this.isEnabled = true;
+                this.configLoaded = true;
+                console.log('ChatGPT config loaded from secure keys');
+            } else {
+                // Graceful degradation: run in disabled mode without throwing or user-facing error
+                this.apiKey = null;
+                this.assistantId = null;
+                this.isEnabled = false;
+                this.configLoaded = true;
+                console.warn('OpenAI configuration not found. WALL-E will run in disabled mode.');
             }
-            this.apiKey = keys.openai.apiKey;
-            this.assistantId = keys.openai.assistantId;
-            this.isEnabled = true;
-            this.configLoaded = true;
-            console.log('ChatGPT config loaded from secure keys');
         } catch (error) {
-            console.error('Failed to load ChatGPT config:', error);
-            this.showError('Failed to load ChatGPT configuration from secure keys. Add "openai" section to Gist.');
+            // Still degrade gracefully if secure keys cannot be loaded
+            this.apiKey = null;
+            this.assistantId = null;
             this.isEnabled = false;
+            this.configLoaded = true;
+            console.warn('WALL-E: secure keys not available, running in disabled mode.');
         }
     }
 
