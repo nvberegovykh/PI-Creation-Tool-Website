@@ -2957,9 +2957,12 @@ Do you want to proceed?`);
           }
 
           if (commentEl) {
-            const text = prompt('Add comment:');
-            if (text && text.trim()) {
-              try { await firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), { userId: me.uid, text: text.trim(), createdAt: new Date().toISOString() }); } catch(_) {}
+            // If advanced comments UI is enabled on this container, skip prompt and let per-post handler do it
+            if (!container.__useAdvancedComments){
+              const text = prompt('Add comment:');
+              if (text && text.trim()) {
+                try { await firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), { userId: me.uid, text: text.trim(), createdAt: new Date().toISOString() }); } catch(_) {}
+              }
             }
             return;
           }

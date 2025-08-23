@@ -127,8 +127,8 @@ class UsersManager {
         }
 
         // Separate pending and approved users
-        // Pending: not verified and not explicitly approved
-        const pendingUsers = this.users.filter(user => (!user.isVerified) && (user.status !== 'approved'));
+        // Pending: explicitly marked pending/rejected and not verified
+        const pendingUsers = this.users.filter(user => ((user.status === 'pending' || user.status === 'rejected') && !user.isVerified));
         // Approved: verified or explicitly approved
         const approvedUsers = this.users.filter(user => (user.isVerified) || (user.status === 'approved'));
 

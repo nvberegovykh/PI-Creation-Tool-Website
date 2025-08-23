@@ -853,15 +853,16 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            // Prefer secure callable to enforce admin role server-side
-            const res = await this.callFunction('adminApproveUser', { uid });
-            if (!res || res.ok !== true){
+            // Prefer secure callable to enforce admin role server-side.
+            // Only fall back to direct write if Functions is unavailable entirely.
+            if (this.functions) {
+                const res = await this.callFunction('adminApproveUser', { uid });
+                if (!res || res.ok !== true) {
+                    throw new Error('approve_failed');
+                }
+            } else {
                 const userDocRef = firebase.doc(this.db, 'users', uid);
-                await firebase.updateDoc(userDocRef, {
-                    status: 'approved',
-                    isVerified: true,
-                    updatedAt: new Date().toISOString()
-                });
+                await firebase.updateDoc(userDocRef, { status: 'approved', isVerified: true, updatedAt: new Date().toISOString() });
             }
             console.log('User approved:', uid);
         } catch (error) {
@@ -877,13 +878,14 @@ class FirebaseService {
         await this.waitForInit();
         
         try {
-            const res = await this.callFunction('adminRejectUser', { uid });
-            if (!res || res.ok !== true){
+            if (this.functions) {
+                const res = await this.callFunction('adminRejectUser', { uid });
+                if (!res || res.ok !== true) {
+                    throw new Error('reject_failed');
+                }
+            } else {
                 const userDocRef = firebase.doc(this.db, 'users', uid);
-                await firebase.updateDoc(userDocRef, {
-                    status: 'rejected',
-                    updatedAt: new Date().toISOString()
-                });
+                await firebase.updateDoc(userDocRef, { status: 'rejected', updatedAt: new Date().toISOString() });
             }
             console.log('User rejected:', uid);
         } catch (error) {
