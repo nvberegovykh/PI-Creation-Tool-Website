@@ -1150,7 +1150,8 @@ class ChatGPTIntegration {
      * Generate image using DALL-E
      */
     async generateImage() {
-        if (!this.isEnabled || !this.apiKey) {
+        // Require either proxy or direct API key
+        if (!this.proxyUrl && !this.apiKey) {
             this.showError('WALL-E is not configured. Please check the Gist setup.');
             return;
         }
@@ -1372,7 +1373,8 @@ class ChatGPTIntegration {
     async sendMessage() {
         console.log('=== SEND MESSAGE STARTED ===');
         
-        if (!this.isEnabled || !this.apiKey) {
+        // Require either proxy or direct API key
+        if (!this.proxyUrl && !this.apiKey) {
             this.showError('WALL-E is not configured. Please check the Gist setup.');
             return;
         }
