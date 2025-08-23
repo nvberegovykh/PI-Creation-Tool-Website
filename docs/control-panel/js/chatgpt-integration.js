@@ -552,27 +552,31 @@ class ChatGPTIntegration {
     async loadConfiguration() {
         try {
             const keys = await window.secureKeyManager.getKeys();
-            if (keys && keys.openai && keys.openai.apiKey && keys.openai.assistantId) {
-                this.apiKey = keys.openai.apiKey;
-                this.assistantId = keys.openai.assistantId;
-                this.isEnabled = true;
-                this.configLoaded = true;
-                console.log('ChatGPT config loaded from secure keys');
-            } else {
-                // Graceful degradation: run in disabled mode without throwing or user-facing error
-                this.apiKey = null;
-                this.assistantId = null;
-                this.isEnabled = false;
-                this.configLoaded = true;
-                console.warn('OpenAI configuration not found. WALL-E will run in disabled mode.');
+
+            // 1) Configure secure proxy URL (preferred)
+            const region = (keys && keys.firebase && keys.firebase.functionsRegion) || 'europe-west1';
+            const projectId = (keys && keys.firebase && keys.firebase.projectId) || 'liber-apps-cca20';
+            const defaultProxy = `https://${region}-${projectId}.cloudfunctions.net/openaiProxy`;
+            this.proxyUrl = (keys && keys.aiProxyUrl) || defaultProxy;
+
+            // 2) Optional direct keys (not required when proxy is present)
+            if (keys && keys.openai) {
+                if (keys.openai.apiKey) this.apiKey = keys.openai.apiKey;
+                if (keys.openai.assistantId) this.assistantId = keys.openai.assistantId;
             }
+
+            // Enable if either proxy or apiKey is available
+            this.isEnabled = !!(this.proxyUrl || this.apiKey);
+            this.configLoaded = true;
+            console.log(this.isEnabled ? 'WALL-E configured (proxy or key present)' : 'WALL-E not configured');
         } catch (error) {
-            // Still degrade gracefully if secure keys cannot be loaded
+            // Fallback: derive proxy URL from known project/region so widget still works
+            this.proxyUrl = 'https://europe-west1-liber-apps-cca20.cloudfunctions.net/openaiProxy';
             this.apiKey = null;
             this.assistantId = null;
-            this.isEnabled = false;
+            this.isEnabled = true; // proxy assumed available
             this.configLoaded = true;
-            console.warn('WALL-E: secure keys not available, running in disabled mode.');
+            console.warn('WALL-E: keys unavailable; using default proxy URL');
         }
     }
 
