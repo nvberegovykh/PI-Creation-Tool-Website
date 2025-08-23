@@ -573,11 +573,12 @@
             firebase.limit(200)
           );
         }
-        // Modify here
+        // Also include archived/merged message histories
+        const archivedConnIds = await this.getArchivedConnIds(this.activeConnection);
         const handleSnap = async (snap)=>{
           box.innerHTML='';
           let aesKey = await this.getFallbackKey();
-          snap.forEach(async d=>{
+          const renderOne = async (d)=>{
             const m=d.data();
             let text='';
             try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
@@ -657,7 +658,30 @@
                 };
               }
             }
-          });
+          };
+          // Render primary messages
+          snap.forEach(async d=>{ await renderOne(d); });
+          // Fetch and render archived chains (best-effort, no onSnapshot for archives to reduce listeners)
+          for (const aid of archivedConnIds){
+            try{
+              let qa;
+              try{
+                qa = firebase.query(
+                  firebase.collection(this.db,'chatMessages',aid,'messages'),
+                  firebase.orderBy('createdAtTS','asc'),
+                  firebase.limit(200)
+                );
+              }catch(_){
+                qa = firebase.query(
+                  firebase.collection(this.db,'chatMessages',aid,'messages'),
+                  firebase.orderBy('createdAt','asc'),
+                  firebase.limit(200)
+                );
+              }
+              const s2 = await firebase.getDocs(qa);
+              s2.forEach(async d=>{ await renderOne(d); });
+            }catch(_){ /* ignore per-archive failure */ }
+          }
           box.scrollTop = box.scrollHeight;
         };
         if (firebase.onSnapshot){
@@ -923,6 +947,19 @@
       });
       // Notify recipients (best-effort)
       this.notifyParticipants(text);
+      // Optional push notification via Firebase Functions (no-op if not configured)
+      try{
+        if (window.firebaseService && typeof window.firebaseService.callFunction === 'function'){
+          const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+          const data = connSnap.exists()? connSnap.data():null;
+          const participantUids = (data && Array.isArray(data.participants)) ? data.participants : [];
+          await window.firebaseService.callFunction('sendPush', {
+            connId: this.activeConnection,
+            recipients: participantUids.filter(uid=> uid !== this.currentUser.uid),
+            preview: text.slice(0, 120)
+          });
+        }
+      }catch(_){ /* ignore optional push errors */ }
       await this.loadMessages();
     }
 
@@ -1020,24 +1057,7 @@
         }
       }catch(_){}
 
-      // Email notification (serverless via Mailgun from client config). Only send to peer(s), not self
-      try{
-        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
-        const data = connSnap.exists()? connSnap.data():null;
-        const participantUids = (data && Array.isArray(data.participants)) ? data.participants : [];
-        for (const uid of participantUids){
-          if (uid === this.currentUser.uid) continue;
-          try{
-            const u = await window.firebaseService.getUserData(uid);
-            const email = u && u.email;
-            if (email && window.emailService && typeof window.emailService.sendEmail === 'function'){
-              const safeText = plaintext.replace(/[<>]/g,'');
-              const html = `<p>You have a new message</p><p>${safeText}</p>`;
-              window.emailService.sendEmail(email, 'New message on LIBER/Connections', html).catch(()=>{});
-            }
-          }catch(_){/* ignore per-user errors */}
-        }
-      }catch(_){/* ignore email errors */}
+      // Email notifications now handled server-side by Cloud Function on chat message create
     }
 
     async getOrCreateSharedAesKey(){

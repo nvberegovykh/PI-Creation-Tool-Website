@@ -5,9 +5,9 @@
 
 class SecureKeyManager {
     constructor() {
-        // Obfuscated Gist ID (fd53bb73903ee09f1e62ea7e180b888c base64-encoded)
-        this.gistId = this.decodeUrl('ZmQ1M2JiNzM5MDNlZTA5ZjFlNjJlYTdlMTgwYjg4OGM=');
-        this.gistFilename = 'liber-secure-keys.json';
+        // Deprecated Gist path removed in favor of server-provided config via Cloud Function
+        this.gistId = null;
+        this.gistFilename = null;
         this.apiCacheExpiry = 5 * 60 * 1000; // 5 mins
         this.lastApiFetch = 0;
         this.cachedResponse = null;
@@ -15,6 +15,10 @@ class SecureKeyManager {
         this.cachedKeys = null;
         this.keyCacheExpiry = 30 * 60 * 1000; // 30 minutes
         this.lastFetch = 0;
+        this.cacheKeyName = 'liber_keys_cache_v2';
+        this.deviceSecretKeyName = 'liber_device_secret_v1';
+        // No baked URL; client fetches public config from our Cloud Function endpoint
+        this._rawUrlParts = [];
     }
 
     /**
@@ -33,19 +37,23 @@ class SecureKeyManager {
      * Set the secure keys URL (GitHub Gist, private repo, etc.)
      * This should be called by admin during setup
      */
-    setKeySource(url) {
-        this.keyUrl = url;
-        localStorage.setItem('liber_keys_url', url);
-    }
+    setKeySource(url) { this.keyUrl = url; localStorage.setItem('liber_keys_url', url); }
 
     /**
      * Get the key source URL
      */
     getKeySource() {
         if (!this.keyUrl) {
-            this.keyUrl = localStorage.getItem('liber_keys_url') || null; // No default key URL here
+            this.keyUrl = localStorage.getItem('liber_keys_url') || null;
         }
-        return this.keyUrl;
+        // Default to Cloud Function endpoint that serves public client config from Secret Manager
+        return this.keyUrl || this.getDefaultRawUrl();
+    }
+
+    getDefaultRawUrl(){
+        // Use the deployed HTTPS function (region may be in Gist keys/firebase.functionsRegion)
+        const region = (window.__CFN_REGION_OVERRIDE__) || 'europe-west1';
+        return `https://${region}-liber-apps-cca20.cloudfunctions.net/getPublicConfig`;
     }
 
     /**
@@ -107,55 +115,64 @@ class SecureKeyManager {
      * Fetch keys from secure source (GitHub Gist, private repo, etc.)
      */
     async fetchKeys() {
-        const maxRetries = 3;
-        let attempt = 0;
+        // 1) Return in-memory cache if still fresh
+        if (this.cachedResponse && Date.now() - this.lastFetch < this.keyCacheExpiry) {
+            if (window.__DEBUG_KEYS__) console.log('Using in-memory cached keys');
+            return this.cachedResponse;
+        }
+
+        // 2) Try encrypted local cache
+        try {
+            const cached = localStorage.getItem(this.cacheKeyName);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && parsed.iv && parsed.ct && parsed.ts && (Date.now() - parsed.ts < this.keyCacheExpiry)) {
+                    const plain = await this.decryptAtRest(parsed);
+                    if (plain) {
+                        this.cachedResponse = plain;
+                        this.lastFetch = Date.now();
+                        if (window.__DEBUG_KEYS__) console.log('Loaded keys from encrypted local cache');
+                        return plain;
+                    }
+                }
+            }
+        } catch(_) { /* ignore cache errors */ }
+
+        // 3) Fetch from remote: prefer explicit keyUrl (raw Gist) else fallback to GitHub API
+        const maxRetries = 3; let attempt = 0;
         while (attempt < maxRetries) {
             try {
-                if (this.cachedResponse && Date.now() - this.lastApiFetch < this.apiCacheExpiry) {
-                    if (window.__DEBUG_KEYS__) console.log('Using cached Gist response');
-                    return this.cachedResponse;
+                const overrideUrl = this.getKeySource();
+                let keysData = null;
+                if (overrideUrl) {
+                    if (window.__DEBUG_KEYS__) console.log('Fetching keys from override URL (attempt ' + (attempt + 1) + ')');
+                    const resp = await fetch(overrideUrl, { cache: 'no-store' });
+                    if (!resp.ok) throw new Error(`Override URL failed: ${resp.status}`);
+                    keysData = await resp.json();
+                } else {
+                    // Directly call our function endpoint
+                    const resp = await fetch(this.getDefaultRawUrl(), { cache: 'no-store' });
+                    if (!resp.ok) throw new Error(`Config endpoint failed: ${resp.status}`);
+                    keysData = await resp.json();
                 }
-                
-                const apiUrl = `https://api.github.com/gists/${this.gistId}`;
-                if (window.__DEBUG_KEYS__) console.log('Fetching latest Gist via API (attempt ' + (attempt + 1) + '):', apiUrl);
-                
-                const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    if (response.status === 403 || response.status === 429) { // Rate limit
-                        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        attempt++;
-                        continue;
-                    }
-                    const errMsg = `Gist API failed: ${response.status} ${response.statusText}`;
-                    if (window.__DEBUG_KEYS__) console.error(errMsg);
-                    throw new Error(errMsg);
-                }
-                
-                const data = await response.json();
-                if (!data.files || !data.files[this.gistFilename]) {
-                    throw new Error('Gist file not found or invalid');
-                }
-                
-                const keysData = JSON.parse(data.files[this.gistFilename].content);
-                
-                // Structure validation
-                if (!keysData.firebase || !keysData.admin || !keysData.system) {
-                    throw new Error('Invalid Gist structure');
-                }
-                
-                this.cachedResponse = keysData;
-                this.lastApiFetch = Date.now();
-                if (window.__DEBUG_KEYS__) console.log('Fetched latest Gist via API (redacted):', Object.keys(keysData));
+
+                if (!keysData || !keysData.firebase || !keysData.admin || !keysData.system) throw new Error('Invalid Gist structure');
+
+                // Save to caches
+                this.cachedResponse = keysData; this.lastFetch = Date.now();
+                try { await this.encryptAtRest(keysData); } catch(_){}
+                if (window.__DEBUG_KEYS__) console.log('Keys fetched and cached (redacted)');
                 return keysData;
             } catch (error) {
                 console.error('Secure keys load failed (attempt ' + (attempt + 1) + '):', error);
                 attempt++;
                 if (attempt >= maxRetries) {
-                    // Graceful fallback after retries
-                    console.warn('All retries failed - using limited mode');
-                    document.body.insertAdjacentHTML('afterbegin', '<div style="color:yellow;text-align:center;padding:10px;background:black;">Warning: Failed to load latest secure config after retries. Using cached or limited mode.</div>');
-                    return this.cachedResponse || {}; // Return cached or empty
+                    console.warn('All retries failed - using cached or limited mode');
+                    const cached = localStorage.getItem(this.cacheKeyName);
+                    if (cached) {
+                        try { const plain = await this.decryptAtRest(JSON.parse(cached)); if (plain) return plain; } catch(_){}
+                    }
+                    return {};
                 }
             }
         }
@@ -180,7 +197,7 @@ class SecureKeyManager {
         
         // Firebase validation - check if config exists and has basic fields
         if (keys.firebase) {
-            console.log('✅ Firebase config found in Gist');
+            if (window.__DEBUG_KEYS__) console.log('✅ Firebase config found in Gist');
             
             // Basic validation - just check if we have the essential fields
             if (!keys.firebase.apiKey) {
@@ -191,7 +208,7 @@ class SecureKeyManager {
             }
             
             // Continue even if some fields are missing - Firebase will handle validation
-            console.log('✅ Firebase config validation passed (continuing with available fields)');
+            if (window.__DEBUG_KEYS__) console.log('✅ Firebase config validation passed (continuing with available fields)');
         } else {
             console.error('❌ Firebase configuration is required but not found in secure keys');
             console.error('Please add Firebase configuration to your Gist file');
@@ -294,25 +311,18 @@ class SecureKeyManager {
      * Debug Gist configuration
      */
     async debugGistConfig() {
-        console.log('=== Gist Configuration Debug (redacted) ===');
-        const url = this.getKeySource();
-        
+        console.log('=== Debugging Gist Configuration (redacted) ===');
         try {
-            const response = await fetch(url);
-            console.log('Gist response status:', response.status);
-            console.log('Gist response ok:', response.ok);
-            
-            if (response.ok) {
-                const data = await response.json();
-                console.log('Gist data structure:', Object.keys(data));
+            const data = await this.fetchKeys();
+            if (data && typeof data === 'object') {
+                console.log('Gist data structure (redacted):', Object.keys(data));
                 console.log('Has Firebase config:', !!data.firebase);
-                return data;
             } else {
-                console.error('Gist fetch failed:', response.status, response.statusText);
-                return null;
+                console.warn('No keys available to debug');
             }
+            return data;
         } catch (error) {
-            console.error('Gist fetch error:', error);
+            console.error('Gist debug error:', error);
             return null;
         }
     }
@@ -323,6 +333,44 @@ class SecureKeyManager {
     clearCache() {
         this.cachedKeys = null;
         this.lastFetch = 0;
+    }
+
+    // --- Encrypted-at-rest helpers ---
+    async getOrCreateDeviceKey() {
+        try {
+            const existing = localStorage.getItem(this.deviceSecretKeyName);
+            if (existing) {
+                const raw = Uint8Array.from(atob(existing), c=>c.charCodeAt(0));
+                return await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt','decrypt']);
+            }
+            const key = await crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
+            const raw = await crypto.subtle.exportKey('raw', key);
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+            localStorage.setItem(this.deviceSecretKeyName, b64);
+            return key;
+        } catch(_) { return null; }
+    }
+
+    async encryptAtRest(obj) {
+        try {
+            const key = await this.getOrCreateDeviceKey(); if (!key) return;
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const data = new TextEncoder().encode(JSON.stringify(obj));
+            const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, data);
+            const out = { iv: btoa(String.fromCharCode(...iv)), ct: btoa(String.fromCharCode(...new Uint8Array(ct))), ts: Date.now() };
+            localStorage.setItem(this.cacheKeyName, JSON.stringify(out));
+        } catch(_) { /* ignore */ }
+    }
+
+    async decryptAtRest(bundle) {
+        try {
+            const key = await this.getOrCreateDeviceKey(); if (!key) return null;
+            const iv = Uint8Array.from(atob(bundle.iv), c=>c.charCodeAt(0));
+            const ct = Uint8Array.from(atob(bundle.ct), c=>c.charCodeAt(0));
+            const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv }, key, ct);
+            const json = new TextDecoder().decode(pt);
+            return JSON.parse(json);
+        } catch(_) { return null; }
     }
 
     /**

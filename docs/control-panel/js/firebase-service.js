@@ -85,11 +85,40 @@ class FirebaseService {
             console.log('Initializing Firebase services...');
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
+            // Optional Functions (for future FCM/webhooks)
+            try {
+                // Determine preferred region from secure keys if provided
+                let functionsRegion = 'us-central1';
+                try {
+                    const keys = await window.secureKeyManager.getKeys();
+                    functionsRegion = keys.functionsRegion || keys.firebase?.functionsRegion || 'us-central1';
+                } catch(_) { /* default */ }
+                if (window.firebaseModular && window.firebaseModular.getFunctions) {
+                    this.functions = window.firebaseModular.getFunctions(this.app, functionsRegion);
+                } else if (firebase.functions) {
+                    // Compat fallback if provided by loader
+                    this.functions = firebase.functions(this.app);
+                } else {
+                    this.functions = null;
+                }
+            } catch(_){ this.functions = null; }
             
             // Set up persistence for better offline support
             try {
-                await firebase.setPersistence(this.auth, firebase.browserLocalPersistence);
-                console.log('✅ Auth persistence set to local storage');
+                // Prefer IndexedDB persistence if available; fallback to local storage
+                // This helps survive reloads, app updates, and iOS webview quirks better
+                if (firebase.inMemoryPersistence && firebase.indexedDBLocalPersistence) {
+                    try {
+                        await firebase.setPersistence(this.auth, firebase.indexedDBLocalPersistence);
+                        console.log('✅ Auth persistence set to IndexedDB');
+                    } catch (_) {
+                        await firebase.setPersistence(this.auth, firebase.browserLocalPersistence);
+                        console.log('✅ Auth persistence set to local storage');
+                    }
+                } else {
+                    await firebase.setPersistence(this.auth, firebase.browserLocalPersistence);
+                    console.log('✅ Auth persistence set to local storage');
+                }
             } catch (error) {
                 console.warn('⚠️ Auth persistence setup failed:', error.message);
             }
@@ -135,6 +164,24 @@ class FirebaseService {
                         console.log('Email verified:', user.emailVerified);
                     }
                     
+                    // Mirror minimal user info for account switcher
+                    try {
+                        const acct = {
+                            uid: user.uid,
+                            email: user.email || '',
+                            username: '',
+                            lastUsedAt: new Date().toISOString()
+                        };
+                        (async ()=>{
+                            try{ const d = await this.getUserData(user.uid); acct.username = (d&&d.username)||acct.email; }catch(_){}
+                            const raw = localStorage.getItem('liber_accounts');
+                            const list = raw ? JSON.parse(raw) : [];
+                            const dedup = list.filter(a => a.uid !== acct.uid);
+                            dedup.unshift(acct);
+                            localStorage.setItem('liber_accounts', JSON.stringify(dedup.slice(0, 10)));
+                        })();
+                    } catch (_) { /* ignore */ }
+
                     // Update user data in Firestore if needed
                     this.updateUserLastLogin(user.uid);
 
@@ -869,6 +916,32 @@ class FirebaseService {
         } catch (error) {
             console.error('Error getting user stats:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Safely call a Firebase Callable Function (no-op if Functions unavailable)
+     */
+    async callFunction(name, payload = {}) {
+        try {
+            await this.waitForInit();
+            if (!this.functions) return null;
+            // Prefer modular API if available
+            if (window.firebaseModular && window.firebaseModular.httpsCallable) {
+                const callable = window.firebaseModular.httpsCallable(this.functions, name);
+                const res = await callable(payload);
+                return (res && res.data) || null;
+            }
+            // Compat fallback if provided on global firebase
+            if (firebase.httpsCallable) {
+                const callable = firebase.httpsCallable(this.functions, name);
+                const res = await callable(payload);
+                return (res && res.data) || null;
+            }
+            return null;
+        } catch (e) {
+            console.warn('Callable function failed:', name, e?.message || e);
+            return null;
         }
     }
 

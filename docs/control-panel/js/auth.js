@@ -6,7 +6,8 @@
 class AuthManager {
     constructor() {
         this.currentUser = null;
-        this.sessionTimeout = 30 * 60 * 1000;
+        // Persist session for a very long period to "remember device"
+        this.sessionTimeout = 10 * 365 * 24 * 60 * 60 * 1000; // ~10 years
         this.init();
     }
 
@@ -1121,6 +1122,7 @@ class AuthManager {
         const session = {
             user: this.currentUser,
             createdAt: new Date().toISOString(),
+            // Far future expiration to avoid unexpected sign-outs
             expiresAt: new Date(Date.now() + this.sessionTimeout).toISOString()
         };
         
@@ -1135,6 +1137,21 @@ class AuthManager {
             // Fallback for non-Firebase users
             localStorage.setItem('liber_user_password', this.currentUser.username);
         }
+        
+        // Maintain a lightweight account switcher list (email/uid/username)
+        try {
+            const raw = localStorage.getItem('liber_accounts');
+            const list = raw ? JSON.parse(raw) : [];
+            const acct = {
+                uid: this.currentUser.id || this.currentUser.uid || '',
+                email: this.currentUser.email || '',
+                username: this.currentUser.username || '',
+                lastUsedAt: new Date().toISOString()
+            };
+            const dedup = list.filter(a => a.uid !== acct.uid);
+            dedup.unshift(acct);
+            localStorage.setItem('liber_accounts', JSON.stringify(dedup.slice(0, 10)));
+        } catch (_) { /* ignore */ }
         
         // Update user info in dashboard
         this.updateUserInfo();
@@ -1153,7 +1170,28 @@ class AuthManager {
                 this.currentUser = session.user;
                 this.showDashboard();
             } else {
-                this.logout();
+                // If local session is expired, try to recover from Firebase auth state
+                if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser) {
+                    const u = window.firebaseService.auth.currentUser;
+                    // Attempt to read profile to rebuild session
+                    (async () => {
+                        try {
+                            const data = await window.firebaseService.getUserData(u.uid);
+                            this.currentUser = {
+                                id: u.uid,
+                                username: (data && data.username) || (u.email || ''),
+                                email: u.email || '',
+                                role: (data && data.role) || 'user'
+                            };
+                            this.createSession();
+                            this.showDashboard();
+                        } catch (_) {
+                            this.logout();
+                        }
+                    })();
+                } else {
+                    this.logout();
+                }
             }
         } catch (error) {
             console.error('Session check error:', error);
@@ -1195,6 +1233,16 @@ class AuthManager {
             widget.style.display = 'none';
         }
         
+        // Prefill email for quick account switching
+        try{
+            const email = localStorage.getItem('liber_prefill_email');
+            if (email){
+                const el = document.getElementById('loginUsername');
+                if (el){ el.value = email; }
+                // Do not remove immediately; keep for page reloads. It will be overwritten on next switch.
+            }
+        }catch(_){ }
+
         // Setup mobile WALL-E toggle for login screen
         this.setupMobileWallEToggle();
     }

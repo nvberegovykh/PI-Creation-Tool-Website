@@ -173,6 +173,36 @@ class DashboardManager {
         // Settings form handlers
         this.setupSettingsHandlers();
 
+        // Simple account switcher UI: fill a dropdown if exists
+        const switcher = document.getElementById('account-switcher');
+        if (switcher){
+            try{
+                const raw = localStorage.getItem('liber_accounts');
+                const accounts = raw ? JSON.parse(raw) : [];
+                switcher.innerHTML = '<option value="">Switch account…</option>' + accounts.map(a=>`<option value="${a.uid||''}">${a.username||a.email}</option>`).join('');
+                switcher.onchange = async ()=>{
+                    const uid = switcher.value || '';
+                    if (!uid) return;
+                    try{
+                        // Retrieve or establish device session token for each account
+                        const deviceId = localStorage.getItem('liber_device_id') || (()=>{ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
+                        let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
+                        let token = tokenMap[uid];
+                        if (!token){
+                            const ua = navigator.userAgent||'';
+                            const res = await firebase.httpsCallable(window.firebaseService.functions, 'saveSwitchToken')({ deviceId, ua });
+                            token = res?.data?.token; tokenMap[uid] = token; localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                        }
+                        const res2 = await firebase.httpsCallable(window.firebaseService.functions, 'switchTo')({ uid, deviceId, token });
+                        const customToken = res2?.data?.customToken;
+                        if (customToken){ await firebase.signInWithCustomToken(window.firebaseService.auth, customToken); }
+                        // Refresh dashboard
+                        window.location.reload();
+                    }catch(e){ console.error('Seamless switch failed', e); this.showError('Switch failed'); }
+                };
+            }catch(_){ }
+        }
+
         // Force reload all (admin only)
         const frAll = document.getElementById('force-reload-all-btn');
         if (frAll){
@@ -305,23 +335,59 @@ class DashboardManager {
 
             const spaceSearch = document.getElementById('space-search');
             if (spaceSearch){
-                spaceSearch.oninput = async (e)=>{
-                    const term = (e.target.value||'').trim().toLowerCase();
-                    const resultsEl = document.getElementById('space-search-results');
-                    if (!term){ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML=''; } return; }
-                    const users = await window.firebaseService.searchUsers(term);
-                    if (resultsEl){
-                        resultsEl.innerHTML = '';
-                        (users||[]).slice(0,10).forEach(u=>{
-                            const li = document.createElement('li');
-                            li.style.cursor = 'pointer';
-                            li.innerHTML = `<img class="avatar" src="${u.avatarUrl||'images/default-bird.png'}" alt=""><div><div class="uname">${u.username||''}</div><div class="email">${u.email||''}</div></div>`;
-                            li.onclick = ()=>{ this.showUserPreviewModal(u); resultsEl.style.display='none'; };
-                            resultsEl.appendChild(li);
-                        });
-                        resultsEl.style.display = (users && users.length) ? 'block':'none';
+                const ensureLayer = ()=>{
+                    let layer = document.getElementById('space-search-results-layer');
+                    if (!layer){
+                        layer = document.createElement('div');
+                        layer.id = 'space-search-results-layer';
+                        layer.style.cssText = 'position:fixed; z-index: 10050; display:none; max-height:320px; overflow:auto; border:1px solid var(--border-color); background: var(--secondary-bg); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25);';
+                        document.body.appendChild(layer);
                     }
+                    return layer;
                 };
+                const positionLayer = (layer)=>{
+                    const r = spaceSearch.getBoundingClientRect();
+                    const width = Math.max(280, Math.min(420, r.width));
+                    layer.style.left = `${Math.round(r.left)}px`;
+                    layer.style.top = `${Math.round(r.bottom+6)}px`;
+                    layer.style.width = `${Math.round(width)}px`;
+                };
+                const renderResults = (layer, users)=>{
+                    layer.innerHTML = '';
+                    const ul = document.createElement('ul');
+                    ul.style.listStyle='none'; ul.style.margin='0'; ul.style.padding='8px';
+                    (users||[]).slice(0,10).forEach(u=>{
+                        const li = document.createElement('li');
+                        li.style.cssText='display:flex;gap:8px;align-items:center;padding:8px;border-radius:8px;cursor:pointer;';
+                        li.onmouseenter = ()=> li.style.background='var(--hover-bg, rgba(255,255,255,.06))';
+                        li.onmouseleave = ()=> li.style.background='transparent';
+                        li.innerHTML = `<img class="avatar" src="${u.avatarUrl||'images/default-bird.png'}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">`+
+                                       `<div style="min-width:0"><div class="uname" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.username||''}</div>`+
+                                       `<div class="email" style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.email||''}</div></div>`;
+                        li.onclick = ()=>{ layer.style.display='none'; this.showUserPreviewModal(u); };
+                        ul.appendChild(li);
+                    });
+                    layer.appendChild(ul);
+                };
+                const hideOnOutside = (e)=>{
+                    const layer = document.getElementById('space-search-results-layer');
+                    if (!layer) return;
+                    if (e.target===spaceSearch || spaceSearch.contains(e.target) || layer.contains(e.target)) return;
+                    layer.style.display='none';
+                };
+                window.addEventListener('scroll', ()=>{ const l=document.getElementById('space-search-results-layer'); if(l&&l.style.display!=='none') positionLayer(l); }, true);
+                window.addEventListener('resize', ()=>{ const l=document.getElementById('space-search-results-layer'); if(l&&l.style.display!=='none') positionLayer(l); });
+                document.addEventListener('click', hideOnOutside);
+
+                spaceSearch.addEventListener('input', async (e)=>{
+                    const term = (e.target.value||'').trim().toLowerCase();
+                    const layer = ensureLayer();
+                    if (!term){ layer.style.display='none'; layer.innerHTML=''; return; }
+                    const users = await window.firebaseService.searchUsers(term);
+                    renderResults(layer, users);
+                    positionLayer(layer);
+                    layer.style.display = (users && users.length) ? 'block':'none';
+                });
             }
 
             this.showUserPreviewModal = async (u)=>{
@@ -332,6 +398,7 @@ class DashboardManager {
                 try{ const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following||[]).includes(uid);}catch(_){ }
                 const overlay = document.createElement('div');
                 overlay.className='modal-overlay';
+                overlay.style.cssText = 'position:fixed; inset:0; z-index:10060; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:20px;';
                 overlay.innerHTML = `
                   <div class="modal" style="max-width:720px">
                     <div class="modal-header"><h3>${data.username||data.email||'User'}</h3><button class="modal-close">&times;</button></div>
@@ -571,13 +638,34 @@ class DashboardManager {
             }
             const myData = await window.firebaseService.getUserData(me.uid) || {};
             const myNameLower = (myData.username||'').toLowerCase();
-            snap.forEach(d=>{
-                const c = d.data();
+            // Unify and dedupe by stable participant key, prefer non-archived, then most recent
+            const items = [];
+            snap.forEach(d=> items.push({ id:d.id, ...d.data() }));
+            const groups = new Map();
+            const computeKey = (parts)=> (Array.isArray(parts)? parts.slice().sort().join('|') : '');
+            for (const c of items){
+                const key = c.key || computeKey(c.participants||[]);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(c);
+            }
+            const pickList = [];
+            for (const [k, arr] of groups.entries()){
+                arr.sort((a,b)=>{
+                    const aArchived = !!a.archived; const bArchived = !!b.archived;
+                    if (aArchived !== bArchived) return aArchived ? 1 : -1;
+                    return new Date(b.updatedAt||0) - new Date(a.updatedAt||0);
+                });
+                pickList.push(arr[0]);
+            }
+            // Render
+            pickList.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+            pickList.forEach(c=>{
                 const li = document.createElement('li');
-                let label = c.id;
+                let label = 'Chat';
                 if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-                    const other = c.participantUsernames.find(n=> (n||'').toLowerCase() !== myNameLower);
-                    if (other) label = other;
+                    const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
+                    if (others.length===1) label = others[0];
+                    else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
                 }
                 li.textContent = label;
                 li.style.cursor = 'pointer';
