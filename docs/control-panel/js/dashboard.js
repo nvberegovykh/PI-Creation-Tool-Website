@@ -253,6 +253,8 @@ class DashboardManager {
         try{
             const btn = document.getElementById('switch-accounts-btn');
             if (btn && !btn._bound){ btn._bound = true; btn.addEventListener('click', ()=> this.showAccountSwitcherPopup()); }
+            const spaceBtn = document.getElementById('space-switch-btn');
+            if (spaceBtn && !spaceBtn._bound){ spaceBtn._bound = true; spaceBtn.addEventListener('click', ()=> this.showAccountSwitcherPopup()); }
         }catch(_){ }
 
         // Account switcher popup UI
@@ -449,7 +451,7 @@ class DashboardManager {
                     if (!layer){
                         layer = document.createElement('div');
                         layer.id = 'space-search-results-layer';
-                        layer.style.cssText = 'position:fixed; z-index: 10050; display:none; max-height:320px; overflow:auto; border:1px solid var(--border-color); background: var(--secondary-bg); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25);';
+                        layer.style.cssText = 'position:fixed; z-index: 10050; display:none; max-height:320px; overflow:auto; border:1px solid var(--border-color); background: var(--secondary-bg); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); left:0; width:auto; max-width:100%;';
                         document.body.appendChild(layer);
                     }
                     return layer;
@@ -457,9 +459,10 @@ class DashboardManager {
                 const positionLayer = (layer)=>{
                     const r = spaceSearch.getBoundingClientRect();
                     const width = Math.max(280, Math.min(420, r.width));
-                    layer.style.left = `${Math.round(r.left)}px`;
+                    layer.style.left = '0px';
                     layer.style.top = `${Math.round(r.bottom+6)}px`;
-                    layer.style.width = `${Math.round(width)}px`;
+                    layer.style.width = 'auto';
+                    layer.style.maxWidth = '100%';
                 };
                 const renderResults = (layer, users)=>{
                     layer.innerHTML = '';
@@ -467,7 +470,7 @@ class DashboardManager {
                     ul.style.listStyle='none'; ul.style.margin='0'; ul.style.padding='8px';
                     (users||[]).slice(0,10).forEach(u=>{
                         const li = document.createElement('li');
-                        li.style.cssText='display:flex;gap:8px;align-items:center;padding:8px;border-radius:8px;cursor:pointer;';
+                        li.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-radius:8px;cursor:pointer;';
                         li.onmouseenter = ()=> li.style.background='var(--hover-bg, rgba(255,255,255,.06))';
                         li.onmouseleave = ()=> li.style.background='transparent';
                         li.innerHTML = `<img class="avatar" src="${u.avatarUrl||'images/default-bird.png'}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">`+
@@ -516,7 +519,7 @@ class DashboardManager {
                   <div class="modal" style="max-width:720px">
                     <div class="modal-header"><h3>${data.username||data.email||'User'}</h3><button class="modal-close">&times;</button></div>
                     <div class="modal-body">
-                      <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+                      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:12px">
                         <img src="${data.avatarUrl||'images/default-bird.png'}" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
                         <div style="flex:1">
                           <div style="font-weight:700">${data.username||''}</div>
@@ -607,7 +610,7 @@ class DashboardManager {
                 const by = p.authorName ? `<div class=\"byline\" style=\"display:flex;align-items:center;gap:8px;margin:4px 0\"><img src=\"${p.coverUrl||p.thumbnailUrl||'images/default-bird.png'}\" alt=\"cover\" style=\"width:20px;height:20px;border-radius:50%;object-fit:cover\"><span style=\"font-size:12px;color:#aaa\">by ${(p.authorName||'').replace(/</g,'&lt;')}</span></div>` : '';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
-                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
                 // double-tap like on post content
                 const contentArea = div.querySelector('.post-text') || div;
@@ -828,7 +831,7 @@ class DashboardManager {
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
+                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <span class="like-btn" style="cursor:pointer"><i class="fas fa-heart"></i> <span class="likes-count">0</span></span>
                                    <span class="comment-btn" style="cursor:pointer"><i class="fas fa-comment"></i> <span class="comments-count">0</span></span>
                                    <span class="repost-btn" style="cursor:pointer"><i class="fas fa-retweet"></i> <span class="reposts-count">0</span></span>
@@ -887,7 +890,7 @@ class DashboardManager {
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:14px;align-items:center">
+                                 <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
                                    <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
@@ -1029,7 +1032,7 @@ class DashboardManager {
                         div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                         const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                         div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                         <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;gap:10px;align-items:center">
+                                         <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
                                            <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
                                            <span class="likes-count"></span>
                                            <i class="fas fa-comment comment-btn" style="cursor:pointer"></i>
