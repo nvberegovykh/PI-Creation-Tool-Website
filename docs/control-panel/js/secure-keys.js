@@ -156,7 +156,8 @@ class SecureKeyManager {
                     keysData = await resp.json();
                 }
 
-                if (!keysData || !keysData.firebase || !keysData.admin || !keysData.system) throw new Error('Invalid Gist structure');
+                // Accept public-only config from server function: firebase (+ optional messaging)
+                if (!keysData || !keysData.firebase) throw new Error('Invalid Gist structure');
 
                 // Save to caches
                 this.cachedResponse = keysData; this.lastFetch = Date.now();
@@ -182,39 +183,12 @@ class SecureKeyManager {
      * Validate keys structure
      */
     validateKeys(keys) {
-        // Basic validation - admin and system keys are required
-        const basicValid = keys && 
-               typeof keys === 'object' &&
-               keys.admin &&
-               keys.system &&
-               keys.admin.passwordHash &&
-               keys.system.masterKeyHash;
-        
-        if (!basicValid) {
-            console.warn('Basic keys validation failed');
-            return false;
+        // New rule: accept public config (firebase + optional messaging). Admin/system are optional now.
+        if (!(keys && typeof keys === 'object' && keys.firebase)) return false;
+        if (!keys.firebase.apiKey || !keys.firebase.projectId) {
+            console.warn('⚠️ Firebase config missing essential fields');
         }
-        
-        // Firebase validation - check if config exists and has basic fields
-        if (keys.firebase) {
-            if (window.__DEBUG_KEYS__) console.log('✅ Firebase config found in Gist');
-            
-            // Basic validation - just check if we have the essential fields
-            if (!keys.firebase.apiKey) {
-                console.warn('⚠️ Firebase config missing apiKey');
-            }
-            if (!keys.firebase.projectId) {
-                console.warn('⚠️ Firebase config missing projectId');
-            }
-            
-            // Continue even if some fields are missing - Firebase will handle validation
-            if (window.__DEBUG_KEYS__) console.log('✅ Firebase config validation passed (continuing with available fields)');
-        } else {
-            console.error('❌ Firebase configuration is required but not found in secure keys');
-            console.error('Please add Firebase configuration to your Gist file');
-            return false;
-        }
-        
+        if (window.__DEBUG_KEYS__) console.log('✅ Public config validated');
         return true;
     }
 
