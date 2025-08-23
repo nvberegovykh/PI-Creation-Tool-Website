@@ -88,20 +88,27 @@ class FirebaseService {
             // Optional Functions (for future FCM/webhooks)
             try {
                 // Determine preferred region from secure keys if provided
-                let functionsRegion = 'us-central1';
+                let preferredRegion = 'us-central1';
                 try {
                     const keys = await window.secureKeyManager.getKeys();
-                    functionsRegion = keys.functionsRegion || keys.firebase?.functionsRegion || 'us-central1';
+                    preferredRegion = keys.functionsRegion || keys.firebase?.functionsRegion || 'us-central1';
                 } catch(_) { /* default */ }
+                const regionOrder = [preferredRegion, 'us-central1', 'europe-west1']
+                    .filter(Boolean)
+                    .filter((v,i,a)=> a.indexOf(v)===i);
+                this.functionsByRegion = {};
                 if (window.firebaseModular && window.firebaseModular.getFunctions) {
-                    this.functions = window.firebaseModular.getFunctions(this.app, functionsRegion);
+                    regionOrder.forEach(r=>{ this.functionsByRegion[r] = window.firebaseModular.getFunctions(this.app, r); });
+                    this.functions = this.functionsByRegion[regionOrder[0]];
                 } else if (firebase.functions) {
                     // Compat fallback if provided by loader
                     this.functions = firebase.functions(this.app);
+                    this.functionsByRegion = null;
                 } else {
                     this.functions = null;
+                    this.functionsByRegion = null;
                 }
-            } catch(_){ this.functions = null; }
+            } catch(_){ this.functions = null; this.functionsByRegion = null; }
             
             // Set up persistence for better offline support
             try {
@@ -949,17 +956,24 @@ class FirebaseService {
         try {
             await this.waitForInit();
             if (!this.functions) return null;
-            // Prefer modular API if available
-            if (window.firebaseModular && window.firebaseModular.httpsCallable) {
-                const callable = window.firebaseModular.httpsCallable(this.functions, name);
-                const res = await callable(payload);
-                return (res && res.data) || null;
+            // Prefer modular API with region failover
+            if (window.firebaseModular && window.firebaseModular.httpsCallable && this.functionsByRegion) {
+                const regions = Object.keys(this.functionsByRegion);
+                for (const r of regions){
+                    try{
+                        const callable = window.firebaseModular.httpsCallable(this.functionsByRegion[r], name);
+                        const res = await callable(payload);
+                        return (res && res.data) || null;
+                    }catch(e){ /* try next region */ }
+                }
             }
             // Compat fallback if provided on global firebase
             if (firebase.httpsCallable) {
-                const callable = firebase.httpsCallable(this.functions, name);
-                const res = await callable(payload);
-                return (res && res.data) || null;
+                try{
+                    const callable = firebase.httpsCallable(this.functions, name);
+                    const res = await callable(payload);
+                    return (res && res.data) || null;
+                }catch(_){ return null; }
             }
             return null;
         } catch (e) {

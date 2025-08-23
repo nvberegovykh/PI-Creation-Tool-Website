@@ -958,20 +958,57 @@ class DashboardManager {
                 suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
             }
             this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
-            // owner-only controls and comments UI parity
+            // owner-only controls and advanced comments UI parity with personal space
             try{
                 const meUser = await window.firebaseService.getCurrentUser();
                 feedEl.querySelectorAll('.post-actions').forEach(pa=>{
+                    const postId = pa.getAttribute('data-post-id');
                     const postAuthor = pa.getAttribute('data-author');
                     const canEditPost = postAuthor === meUser.uid;
                     const editBtn = pa.querySelector('.edit-post-btn');
                     const delBtn = pa.querySelector('.delete-post-btn');
                     const menuBtn = pa.querySelector('.post-menu');
-                    const pid = pa.getAttribute('data-post-id');
-                    if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
-                    if (menuBtn){ menuBtn.onclick = async ()=>{ try{ const loc = `${location.origin}${location.pathname}#post-${pid}`; await navigator.clipboard.writeText(loc); this.showSuccess('Post link copied'); }catch(_){ this.showError('Failed to copy'); } }; }
+                    const visBtn = pa.querySelector('.visibility-btn');
+                    const commentBtn = pa.querySelector('.comment-btn');
+                    if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; if (visBtn) visBtn.style.display='none'; }
+                    if (menuBtn){ menuBtn.onclick = async ()=>{ try{ const loc = `${location.origin}${location.pathname}#post-${postId}`; await navigator.clipboard.writeText(loc); this.showSuccess('Post link copied'); }catch(_){ this.showError('Failed to copy'); } }; }
+                    if (visBtn && canEditPost){ visBtn.onclick = async ()=>{ try{ const ref = firebase.doc(window.firebaseService.db,'posts', postId); const doc = await firebase.getDoc(ref); const p=doc.data()||{}; const next = p.visibility==='public'?'private':'public'; await firebase.updateDoc(ref, { visibility: next, updatedAt:new Date().toISOString() }); visBtn.textContent = next==='public'?'Make Private':'Make Public'; }catch(_){ } }; }
+                    if (editBtn && canEditPost){ editBtn.onclick = async ()=>{ const container = pa.closest('.post-item'); const textDiv = container && container.querySelector('.post-text'); const current = textDiv ? textDiv.textContent : ''; const newText = prompt('Edit post:', current); if (newText===null) return; await window.firebaseService.updatePost(postId, { text: newText.trim() }); this.loadGlobalFeed(); }; }
+                    if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
+                    if (commentBtn){ commentBtn.onclick = async ()=>{
+                        const tree = document.getElementById(`comments-${postId}`); if (!tree) return;
+                        if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                        tree.innerHTML = '';
+                        const comments = await window.firebaseService.getComments(postId, 100);
+                        const map = new Map(); comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
+                        const roots = []; comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
+                        const renderNode = (node, container)=>{
+                            const item = document.createElement('div');
+                            item.className = 'comment-item';
+                            item.innerHTML = `<div class=\"comment-text\"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                            <div class=\"comment-actions\" data-comment-id=\"${node.id}\" data-author=\"${node.authorId}\" style=\"display:flex;gap:8px;margin-top:4px\">
+                              <span class=\"reply-btn\" style=\"cursor:pointer\"><i class=\"fas fa-reply\"></i> Reply</span>
+                              <i class=\"fas fa-edit edit-comment-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>
+                              <i class=\"fas fa-trash delete-comment-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>
+                            </div>`;
+                            container.appendChild(item);
+                            const replyBox = document.createElement('div'); replyBox.style.cssText='margin:6px 0 0 0; display:none'; replyBox.innerHTML = `<input type=\"text\" class=\"reply-input\" placeholder=\"Reply...\" style=\"width:100%\">`; item.appendChild(replyBox);
+                            item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
+                            const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                            if (node.children && node.children.length){ const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub); node.children.forEach(ch=> renderNode(ch, sub)); }
+                        };
+                        roots.reverse().forEach(n=> renderNode(n, tree));
+                        const addWrap = document.createElement('div'); addWrap.style.cssText='margin-top:8px'; addWrap.innerHTML = `<input type=\"text\" class=\"reply-input\" id=\"add-comment-${postId}\" placeholder=\"Add a comment...\" style=\"width:100%\">`; tree.appendChild(addWrap);
+                        const addInp = document.getElementById(`add-comment-${postId}`); if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
+                        tree.querySelectorAll('.comment-actions').forEach(act=>{
+                            const cid = act.getAttribute('data-comment-id'); const author = act.getAttribute('data-author'); const canEdit = author === meUser.uid; const eb = act.querySelector('.edit-comment-btn'); const db = act.querySelector('.delete-comment-btn');
+                            if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
+                            if (canEdit){ if (eb){ eb.onclick = async ()=>{ const newText = prompt('Edit comment:'); if (newText===null) return; await window.firebaseService.updateComment(postId, cid, newText.trim()); this.loadGlobalFeed(); }; }
+                                if (db){ db.onclick = async ()=>{ if (!confirm('Delete this comment?')) return; await window.firebaseService.deleteComment(postId, cid); this.loadGlobalFeed(); }; }
+                            }
+                        });
+                    }; }
                 });
-                // comments UI is delegated in activatePostActions(); live counters are set there as well
             }catch(_){ }
             this.activatePlayers(feedEl);
         }catch(_){ }
