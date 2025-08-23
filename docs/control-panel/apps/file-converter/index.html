@@ -20,7 +20,7 @@
   <div class="wrap">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
       <h2>File Converter</h2>
-      <a href="../../index.html#apps" style="text-decoration:none"><button style="background:#1b2330;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:8px 12px">Back to Control Panel</button></a>
+      <button id="back-to-cp" style="background:#1b2330;border:1px solid #2b2f38;color:#fff;border-radius:8px;padding:8px 12px">Back to Control Panel</button>
     </div>
     <div class="panel">
       <div class="row">
@@ -106,6 +106,20 @@
     })();
   </script>
   <script>
+    // Back button logic: focus existing dashboard tab if opened from it; else navigate
+    (function(){
+      const back = document.getElementById('back-to-cp');
+      if (back){
+        back.addEventListener('click', (e)=>{
+          e.preventDefault();
+          try{
+            if (window.opener && !window.opener.closed){ try{ window.opener.focus(); }catch(_){} try{ window.close(); }catch(_){} return; }
+          }catch(_){ }
+          window.location.href='../../index.html#apps';
+        });
+      }
+    })();
+
     let ffmpeg;
     const el = (id)=> document.getElementById(id);
 

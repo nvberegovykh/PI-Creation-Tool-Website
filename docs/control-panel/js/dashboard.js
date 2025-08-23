@@ -133,6 +133,9 @@ class DashboardManager {
                 const mCover = mini && mini.querySelector('.cover');
                 const playBtn = document.getElementById('mini-play');
                 const closeBtn = document.getElementById('mini-close');
+                const miniBar = document.getElementById('mini-progress');
+                const miniFill = document.getElementById('mini-fill');
+                const miniTime = document.getElementById('mini-time');
                 const showMini = ()=>{
                     if (!mini) return;
                     mini.classList.add('show');
@@ -142,6 +145,18 @@ class DashboardManager {
                         mTitle && (mTitle.textContent = (t && t.textContent) ? t.textContent.slice(0,50) : 'Now playing');
                     }
                     if (mBy){ const by = card.closest('.post-item')?.querySelector('.byline')?.textContent || ''; mBy.textContent = by; }
+                    // Sync mini progress to media
+                    const syncMini = ()=>{
+                        try{
+                            if (miniFill && media.duration){ miniFill.style.width = `${(media.currentTime/media.duration)*100}%`; }
+                            if (miniTime && media.duration){ const m=Math.floor(media.currentTime/60); const ss=Math.floor(media.currentTime%60).toString().padStart(2,'0'); const M=Math.floor(media.duration/60); const SS=Math.floor(media.duration%60).toString().padStart(2,'0'); miniTime.textContent = `${m}:${ss} / ${M}:${SS}`; }
+                        }catch(_){ }
+                    };
+                    media.addEventListener('timeupdate', syncMini);
+                    if (miniBar){
+                        const seekMini = (clientX)=>{ const r=miniBar.getBoundingClientRect(); const ratio=Math.min(1,Math.max(0,(clientX-r.left)/r.width)); if (media.duration){ media.currentTime = ratio*media.duration; media.play().catch(()=>{}); } };
+                        miniBar.onclick = (e)=> seekMini(e.clientX);
+                    }
                 };
                 media.addEventListener('play', showMini);
                 if (playBtn){ playBtn.onclick = ()=>{ if (media.paused){ media.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { media.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
@@ -165,6 +180,13 @@ class DashboardManager {
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
         if ('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+
+        // Cache current user for feed actions
+        (async()=>{
+            try{ this.currentUser = await window.firebaseService.getCurrentUser(); }catch(_){ this.currentUser = null; }
+            // Keep it fresh
+            try{ firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{ this.currentUser = u || null; }); }catch(_){ }
+        })();
     }
 
     /**
