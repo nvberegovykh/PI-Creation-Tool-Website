@@ -645,9 +645,14 @@ class AuthManager {
                         return;
                     }
                     
-                    // For resend verification, we need to sign in the user first
-                    // This is a limitation of Firebase - we need the user to be signed in
-                    this.showMessage('Please sign in to your account first, then use the resend verification option.', 'info');
+                    // If current user matches email, send directly; else attempt link-based send
+                    if (window.firebaseService && window.firebaseService.auth.currentUser && (window.firebaseService.auth.currentUser.email||'').toLowerCase()===email.toLowerCase()){
+                        await window.firebaseService.sendEmailVerification();
+                        this.showMessage('Verification email sent. Please check your inbox.', 'success');
+                        return;
+                    }
+                    // Fallback: ask user to login for verification mail (required by Firebase)
+                    this.showMessage('Please login as this user, then click Resend verification again.', 'info');
                     this.switchTab('login');
                     return;
                     
@@ -730,14 +735,21 @@ class AuthManager {
      */
     async handleEmailVerification(token, email) {
         try {
-            // Firebase handles email verification automatically when user clicks the link
-            // This method is called when user returns from verification email
             if (window.firebaseService && window.firebaseService.isInitialized) {
-                console.log('Email verification handled by Firebase automatically');
+                // Try applying as Firebase OOB code first
+                try { await window.firebaseService.auth.applyActionCode(token); } catch (_) {}
+                try { await window.firebaseService.auth.currentUser?.reload?.(); } catch(_){ }
+                // Update Firestore flag best-effort
+                try{
+                    const u = window.firebaseService.auth.currentUser;
+                    if (u){
+                        const ref = window.firebase.doc(window.firebaseService.db,'users', u.uid);
+                        await window.firebase.updateDoc(ref, { isVerified: true, updatedAt: new Date().toISOString() });
+                    }
+                }catch(_){ }
                 this.showMessage('Email verified successfully! You can now login to your account.', 'success');
                 return true;
             } else {
-                console.error('Firebase not available - email verification requires Firebase. No fallback.');
                 this.showMessage('Email verification service not available. Please contact support.', 'error');
                 return false;
             }
@@ -754,8 +766,22 @@ class AuthManager {
     async checkUrlActions() {
         const urlParams = new URLSearchParams(window.location.search);
         const action = urlParams.get('action');
-        const token = urlParams.get('token');
-        const email = urlParams.get('email');
+        const token = urlParams.get('token') || urlParams.get('oobCode');
+        const email = urlParams.get('email') || urlParams.get('continueUrl') || '';
+
+        if (token && (action === 'verify' || urlParams.get('mode') === 'verifyEmail')) {
+            try{
+                await this.handleEmailVerification(token, email);
+            }catch(_){ }
+            // Redirect to login with prefilled email
+            const href = `${location.origin}${location.pathname}#login`;
+            history.replaceState({}, document.title, href);
+            setTimeout(()=>{
+                const input = document.getElementById('loginUsername'); if (input) input.value = (typeof email==='string' ? email : '');
+                this.switchTab('login');
+            }, 50);
+            return;
+        }
 
         if (action && token && email) {
             console.log('=== URL Action Detected ===');

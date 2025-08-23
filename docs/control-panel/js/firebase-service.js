@@ -189,16 +189,33 @@ class FirebaseService {
                         })();
                     } catch (_) { /* ignore */ }
 
-                    // Mirror verification to Firestore and update last login
-                    try {
-                        const userDocRef = firebase.doc(this.db, 'users', user.uid);
-                        firebase.updateDoc(userDocRef, {
-                            isVerified: !!user.emailVerified,
-                            updatedAt: new Date().toISOString(),
-                            lastLogin: new Date().toISOString(),
-                            loginCount: firebase.increment(1)
-                        });
-                    } catch (_) { /* ignore */ }
+                    // Ensure Firestore user doc exists; sync verification + last login
+                    (async () => {
+                        try {
+                            await this.ensureUserDoc(user.uid, { username: user.displayName || '', email: user.email || '', isVerified: !!user.emailVerified, status: 'approved' });
+                            const userDocRef = firebase.doc(this.db, 'users', user.uid);
+                            try {
+                                await firebase.updateDoc(userDocRef, {
+                                    isVerified: !!user.emailVerified,
+                                    updatedAt: new Date().toISOString(),
+                                    lastLogin: new Date().toISOString(),
+                                    loginCount: firebase.increment(1)
+                                });
+                            } catch (e) {
+                                await firebase.setDoc(userDocRef, {
+                                    uid: user.uid,
+                                    email: user.email || '',
+                                    username: user.displayName || '',
+                                    isVerified: !!user.emailVerified,
+                                    status: 'approved',
+                                    lastLogin: new Date().toISOString(),
+                                    loginCount: 1,
+                                    updatedAt: new Date().toISOString(),
+                                    createdAt: new Date().toISOString()
+                                }, { merge: true });
+                            }
+                        } catch (_) { /* ignore */ }
+                    })();
 
                     // Register messaging for push/web notifications (best-effort)
                     this.registerMessaging(user).catch(()=>{});
