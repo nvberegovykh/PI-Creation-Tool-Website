@@ -244,8 +244,8 @@ class AuthManager {
 
         try {
             // Check if it's admin login
-            const adminCredentials = await this.getAdminCredentials();
-            if (email === adminCredentials.username) {
+            const adminCredentials = await this.getAdminCredentials().catch(()=>null);
+            if (adminCredentials && email === adminCredentials.username) {
                 const adminHash = await this.generateAdminHash(password);
                 if (adminHash === adminCredentials.passwordHash) {
                     this.currentUser = {
