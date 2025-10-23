@@ -14,36 +14,21 @@ class InvoiceGenerator {
     }
 
     async checkAuthentication() {
-        // Check if user is logged into the control panel via Firebase
-        if (window.authManager && window.authManager.getCurrentUser()) {
-            const currentUser = window.authManager.getCurrentUser();
-            console.log('User authenticated via Firebase:', currentUser);
-            
-            // For Firebase users, we'll use a derived key from their UID
-            const userKey = currentUser.id || currentUser.email || 'default_key';
-            window.invoiceCryptoManager.setUserKey(userKey);
-            this.userAuthenticated = true;
-        } else {
-            // Fallback to localStorage for backward compatibility
-            const currentUser = localStorage.getItem('liber_current_user');
-            const userPassword = localStorage.getItem('liber_user_password');
-            
-            if (!currentUser || !userPassword) {
-                this.showAuthenticationError();
-                return;
-            }
-
-            // Set user key for encryption
-            window.invoiceCryptoManager.setUserKey(userPassword);
-            this.userAuthenticated = true;
+        // Require Firebase to be initialized and a signed-in user
+        let attempts = 0;
+        while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 100) {
+            await new Promise(r => setTimeout(r, 100));
+            attempts++;
         }
-        
-        // Migrate old data format if needed
-        await window.invoiceCryptoManager.migrateOldData();
-        
-        // Debug storage for troubleshooting
-        await window.invoiceCryptoManager.debugStorage();
-        
+        const authedUser = window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser;
+        if (!authedUser) {
+            this.showAuthenticationError();
+            return;
+        }
+        // Derive app key from uid if client-side encryption is desired
+        window.invoiceCryptoManager.setUserKey(authedUser.uid);
+        this.userAuthenticated = true;
+
         // Initialize the app
         this.initializeApp();
     }
@@ -83,8 +68,8 @@ class InvoiceGenerator {
             return;
         }
 
-        // Load encrypted data
-        await this.loadEncryptedData();
+        // Load data from Firestore
+        await this.loadDataFromStore();
         
         // Set current date
         const today = new Date().toISOString().split('T')[0];
@@ -106,16 +91,16 @@ class InvoiceGenerator {
         this.loadIssuedInvoices();
     }
 
-    async loadEncryptedData() {
+    async loadDataFromStore() {
         try {
-            this.services = await window.invoiceCryptoManager.loadServices();
-            this.providers = await window.invoiceCryptoManager.loadProviders();
-            this.clients = await window.invoiceCryptoManager.loadClients();
-            this.invoices = await window.invoiceCryptoManager.loadInvoices();
-            this.invoiceCounter = await window.invoiceCryptoManager.loadInvoiceCounter();
+            const uid = window.firebaseService.auth.currentUser.uid;
+            this.services = await window.invoiceStore.getServices(uid);
+            this.providers = await window.invoiceStore.getProviders(uid);
+            this.clients = await window.invoiceStore.getClients(uid);
+            this.invoices = await window.invoiceStore.getInvoices(uid);
+            this.invoiceCounter = await window.invoiceStore.getNextCounterPreview(uid);
         } catch (error) {
-            console.error('Error loading encrypted data:', error);
-            // Fallback to empty arrays if decryption fails
+            console.error('Error loading data from store:', error);
             this.services = [];
             this.clients = [];
             this.invoices = [];
@@ -439,7 +424,7 @@ class InvoiceGenerator {
         const service = { name, cost, rate };
         this.services.push(service);
 
-        const success = await window.invoiceCryptoManager.saveServices(this.services);
+        const success = await window.invoiceStore.saveService(window.firebaseService.auth.currentUser.uid, service);
         if (success) {
         // Clear form
         document.getElementById('newServiceName').value = '';
@@ -468,7 +453,7 @@ class InvoiceGenerator {
 
         this.clients.push({ name });
 
-        const success = await window.invoiceCryptoManager.saveClients(this.clients);
+        const success = await window.invoiceStore.saveClient(window.firebaseService.auth.currentUser.uid, { name });
         if (success) {
         // Clear form
         document.getElementById('newClientName').value = '';
@@ -495,7 +480,7 @@ class InvoiceGenerator {
 
         this.providers.push({ name });
 
-        const success = await window.invoiceCryptoManager.saveProviders(this.providers);
+        const success = await window.invoiceStore.saveProvider(window.firebaseService.auth.currentUser.uid, { name });
         if (success) {
             // Clear form
             document.getElementById('newProviderName').value = '';
@@ -554,8 +539,8 @@ class InvoiceGenerator {
 
     async deleteService(index) {
         if (confirm('Are you sure you want to delete this service?')) {
-            this.services.splice(index, 1);
-            const success = await window.invoiceCryptoManager.saveServices(this.services);
+            const removed = this.services.splice(index, 1)[0];
+            const success = await window.invoiceStore.deleteService(window.firebaseService.auth.currentUser.uid, removed);
             if (success) {
             this.loadSavedData();
             } else {
@@ -566,8 +551,8 @@ class InvoiceGenerator {
 
     async deleteClient(index) {
         if (confirm('Are you sure you want to delete this client?')) {
-            this.clients.splice(index, 1);
-            const success = await window.invoiceCryptoManager.saveClients(this.clients);
+            const removed = this.clients.splice(index, 1)[0];
+            const success = await window.invoiceStore.deleteClient(window.firebaseService.auth.currentUser.uid, removed);
             if (success) {
             this.loadSavedData();
             } else {
@@ -578,8 +563,8 @@ class InvoiceGenerator {
 
     async deleteProvider(index) {
         if (confirm('Are you sure you want to delete this provider?')) {
-            this.providers.splice(index, 1);
-            const success = await window.invoiceCryptoManager.saveProviders(this.providers);
+            const removed = this.providers.splice(index, 1)[0];
+            const success = await window.invoiceStore.deleteProvider(window.firebaseService.auth.currentUser.uid, removed);
             if (success) {
                 this.loadSavedData();
             } else {
@@ -825,20 +810,24 @@ class InvoiceGenerator {
          doc.setFontSize(10);
          doc.text('LIBER CREATIVE LLC © 2025', 105, finalY + 20, { align: 'center' });
         
-        // Save PDF
+        // Save invoice to Firestore and upload PDF (best-effort)
+        const uid = window.firebaseService.auth.currentUser.uid;
+        const ok = await window.invoiceStore.saveInvoice(uid, data, async (fileName) => {
+            try { const pdfBlob = doc.output('blob'); await window.invoiceStore.uploadInvoicePdf(uid, fileName, pdfBlob); } catch(_) {}
+        });
+        if (!ok) { alert('Failed to save invoice. Please try again.'); return; }
+
+        // Offer download to user too
         const filename = `invoice_${data.invoiceId}.pdf`;
         doc.save(filename);
-        
-        // Save invoice to encrypted storage
-        this.invoices.push(data);
-        await window.invoiceCryptoManager.saveInvoices(this.invoices);
-        
-        // Increment invoice counter
-        this.invoiceCounter++;
-        await window.invoiceCryptoManager.saveInvoiceCounter(this.invoiceCounter);
+
+        // Refresh state from store
+        this.invoices = await window.invoiceStore.getInvoices(uid);
+        this.invoiceCounter = await window.invoiceStore.getNextCounterPreview(uid);
         await this.generateInvoiceId();
+        this.loadIssuedInvoices();
         
-        alert('PDF generated and saved successfully!');
+        alert('PDF generated and saved securely!');
     }
 
     loadIssuedInvoices() {
@@ -1080,7 +1069,7 @@ class InvoiceGenerator {
         doc.text('LIBER CREATIVE LLC © 2025', 105, finalY + 20, { align: 'center' });
         
         // Issued by line
-        const currentUser = localStorage.getItem('liber_current_user') || 'Unknown User';
+        const currentUser = (window.firebaseService && window.firebaseService.auth && (window.firebaseService.auth.currentUser.email || window.firebaseService.auth.currentUser.uid)) || 'Unknown User';
         doc.setFontSize(8);
         doc.text(`Issued by: ${currentUser}`, 180, finalY + 15, { align: 'right' });
         
@@ -1094,7 +1083,8 @@ class InvoiceGenerator {
             return;
         }
 
-        const success = await window.invoiceCryptoManager.deleteInvoice(invoiceId);
+        const uid = window.firebaseService.auth.currentUser.uid;
+        const success = await window.invoiceStore.deleteInvoice(uid, invoiceId);
         if (success) {
             // Update local data
             this.invoices = this.invoices.filter(inv => inv.invoiceId !== invoiceId);

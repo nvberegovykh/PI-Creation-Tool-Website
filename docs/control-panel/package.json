@@ -1,7 +1,7 @@
 {
   "name": "liber-control-panel",
   "version": "1.0.0",
-  "description": "Liber Apps Control Panel with encrypted data storage",
+  "description": "LIBER/APPS with encrypted data storage",
   "main": "index.html",
   "scripts": {
     "start": "python -m http.server 8000",
