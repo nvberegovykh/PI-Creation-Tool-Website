@@ -789,8 +789,18 @@
             }
             const hasFile = !!m.fileUrl && !!m.fileName;
             const fileText = hasFile ? `Attachment from ${senderName}` : '';
-            el.innerHTML = `<div>${this.renderText(text)}</div>${hasFile?`<div class="file-link"><a href="${m.fileUrl}" target="_blank" rel="noopener noreferrer">${fileText}</a></div><div class="file-preview"></div>`:''}<div class="meta">${senderName} · ${new Date(m.createdAt).toLocaleString()}</div>`;
+            // Render call invites as buttons
+            let bodyHtml = this.renderText(text);
+            const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+            if (callMatch){
+              const kind = callMatch[1]; const callId = callMatch[2];
+              const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
+              bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
+            }
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${fileText}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${new Date(m.createdAt).toLocaleString()}</div>`;
             box.appendChild(el);
+            const joinBtn = el.querySelector('button[data-call-id]');
+            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
               if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
@@ -1410,8 +1420,8 @@
         const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
-        if (lv){ lv.srcObject = stream; }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
+        if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; try{ rv.playsInline = true; rv.play().catch(()=>{}); }catch(_){} this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
         if (ov){ ov.classList.remove('hidden'); }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
@@ -1452,8 +1462,8 @@
         const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
-        if (lv){ lv.srcObject = stream; }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
+        if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
+        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; try{ rv.playsInline = true; rv.play().catch(()=>{}); }catch(_){} this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
         if (ov){ ov.classList.remove('hidden'); }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const answersRef = firebase.collection(this.db,'calls',callId,'answers');
@@ -1465,6 +1475,13 @@
         await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
         const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
         await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
+        // Listen for caller ICE candidates (type 'offer') and add to this peer connection
+        if (firebase.onSnapshot){
+          const added = new Set();
+          firebase.onSnapshot(candsRef, (snap)=>{
+            snap.forEach(d=>{ const v=d.data(); const key=v && v.candidate && (v.candidate.sdpMid+':'+v.candidate.sdpMLineIndex+':'+v.candidate.candidate); if (v.type==='offer' && v.candidate && !added.has(key)){ added.add(key); pc.addIceCandidate(new RTCIceCandidate(v.candidate)); } });
+          });
+        }
         const endBtn = document.getElementById('end-call-btn');
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
