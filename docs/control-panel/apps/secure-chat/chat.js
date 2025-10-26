@@ -1512,8 +1512,18 @@
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
     const exitBtn = document.getElementById('exit-room-btn');
-    if (endBtn) endBtn.onclick = () => { console.log('End clicked'); this.cleanupActiveCall(true); if (ov) ov.classList.add('hidden'); };
-    if (exitBtn) exitBtn.onclick = () => { console.log('Exit clicked'); this.cleanupActiveCall(false); if (ov) ov.classList.add('hidden'); };
+    if (endBtn) endBtn.onclick = () => { 
+      console.log('End clicked'); 
+      this.cleanupActiveCall(true); 
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.add('hidden'); 
+    };
+    if (exitBtn) exitBtn.onclick = () => { 
+      console.log('Exit clicked'); 
+      this.cleanupActiveCall(false); 
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.add('hidden'); 
+    };
     if (micBtn) micBtn.onclick = () => { console.log('Mic toggle'); this._micEnabled = !this._micEnabled; this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled)); };
     if (camBtn) camBtn.onclick = async () => { 
       console.log('Camera toggle');
@@ -1534,7 +1544,8 @@
       console.log('Show clicked'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.remove('hidden'); 
-      showBtn.style.display = 'none'; 
+      const showBtn = document.getElementById('show-call-btn');
+      if (showBtn) showBtn.style.display = 'none'; 
     };
   }
 
@@ -1558,13 +1569,17 @@
       await this.saveMessage({ text: `[call:voice:${cid}]` });
     } else {
       console.log('Room already active, joining');
-      if (this._roomState.activeCallId) await this.joinMultiCall(this._roomState.activeCallId, video);
+      if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
+        await this.joinMultiCall(this._roomState.activeCallId, video);
+      } else {
+        console.warn('Invalid activeCallId, cannot join');
+      }
     }
   }
 
   async runStartTransaction(roomRef, cid) {
     return new Promise((resolve, reject) => {
-      firebase.runTransaction(this.db, tx => {
+      runTransaction(this.db, tx => {
         return tx.get(roomRef)
           .then(snap => {
             if (snap.data().status !== 'idle') return false;
