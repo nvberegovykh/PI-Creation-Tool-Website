@@ -34,6 +34,7 @@ import { runTransaction } from 'firebase/firestore';
       this._activeCid = null;
       this._joinRetryTimer = null;
       this._forceRelay = true; // Debug: force TURN-only until stable
+      this._pcWatchdogs = new Map(); // key: callId:peerUid -> {t1,t2}
       this.init();
     }
 
@@ -1702,8 +1703,15 @@ import { runTransaction } from 'firebase/firestore';
         if (pc.connectionState === 'connected'){
           const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
           this._activeCid = callId;
+          const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
         }
       };
+      // ICE watchdogs
+      const wdKey = callId+':'+peerUid;
+      try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
+      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(_){ } }, 12000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(_){ } }, 25000);
+      this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
       const txVideo = pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
@@ -2367,6 +2375,7 @@ import { runTransaction } from 'firebase/firestore';
     this._lastJoinedCallId = null;
       this._activePCs.forEach((p, uid) => {
         console.log('Stopping stream for ' + uid);
+        try{ const key = (this._activeCid||'')+':'+uid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); } }catch(_){ }
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
         try{ p.pc.close(); }catch(_){ }
         try{ p.stream.getTracks().forEach(t => { t.stop(); console.log('Stopped track ' + t.kind); }); }catch(_){ }
