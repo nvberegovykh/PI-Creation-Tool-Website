@@ -2118,10 +2118,12 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async cleanupActiveCall(endRoom = false){
+      console.log('Cleaning up active call');
       this._activePCs.forEach((p, uid) => {
+        console.log('Stopping stream for ' + uid);
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
         try{ p.pc.close(); }catch(_){ }
-        try{ p.stream.getTracks().forEach(t => t.stop()); }catch(_){ }
+        try{ p.stream.getTracks().forEach(t => { t.stop(); console.log('Stopped track ' + t.kind); }); }catch(_){ }
         if (p.videoEl) p.videoEl.remove();
       });
       this._activePCs.clear();
@@ -2132,7 +2134,8 @@ import { runTransaction } from 'firebase/firestore';
       }
       await this.updatePresence('idle', false);
       if (this._monitorStream) {
-        this._monitorStream.getTracks().forEach(t => t.stop());
+        console.log('Stopping monitor stream');
+        this._monitorStream.getTracks().forEach(t => { t.stop(); console.log('Stopped monitor track ' + t.kind); });
         this._monitorStream = null;
         this._monitoring = false;
       }
@@ -2153,8 +2156,8 @@ import { runTransaction } from 'firebase/firestore';
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         const participants = new Set(conn.participants || []);
-        participants.forEach(async uid => { // Make loop async
-          if (uid === this.currentUser.uid) return;
+        const fetches = Array.from(participants).map(async uid => {
+          if (uid === this.currentUser.uid) return null;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
           let cached = this.usernameCache.get(uid);
           if (!cached || !cached.avatarUrl) {
@@ -2164,6 +2167,11 @@ import { runTransaction } from 'firebase/firestore';
               this.usernameCache.set(uid, cached);
             } catch (_) { cached = { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' }; }
           }
+          return { uid, p, cached };
+        });
+        const remotes = await Promise.all(fetches);
+        remotes.forEach(({uid, p, cached}) => {
+          if (!uid) return;
           const av = document.createElement('div');
           av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
           av.setAttribute('data-uid', uid);
@@ -2171,7 +2179,7 @@ import { runTransaction } from 'firebase/firestore';
           cont.appendChild(av);
           // Video tile logic...
         });
-        // Add self
+        // Self similarly with await
         let selfCached = this.usernameCache.get(this.currentUser.uid);
         if (!selfCached || !selfCached.avatarUrl) {
           try {
@@ -2186,11 +2194,9 @@ import { runTransaction } from 'firebase/firestore';
         selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${this._peersPresence[this.currentUser.uid].state === 'connecting' ? 'connecting' : ''}</div>`;
         cont.appendChild(selfAv);
       } catch (err) {
-        console.error('Failed to load participants for UI:', err);
-        if (err.code === 'permission-denied') {
-          alert('Permission denied loading chat data. Check Firestore rules.');
-        }
+        console.error('UI update error:', err);
       }
+      // statusEl
       const statusEl = document.getElementById('call-status');
       if (statusEl) {
         statusEl.textContent = this._roomState.activeCallId ? 'In call' : 'Waiting for speech...';
