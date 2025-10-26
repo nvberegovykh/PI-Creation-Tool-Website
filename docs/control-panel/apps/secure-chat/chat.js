@@ -1544,11 +1544,29 @@
   }
 
   async runStartTransaction(roomRef, cid) {
-    return await firebase.runTransaction(this.db, async (tx) => {
-      const snap = await tx.get(roomRef);
-      if (snap.data().status !== 'idle') return false;
-      tx.update(roomRef, { status: 'connecting', activeCallId: cid, startedBy: this.currentUser.uid, startedAt: new Date().toISOString() });
-      return true;
+    return new Promise((resolve, reject) => {
+      firebase.runTransaction(this.db, tx => {
+        return tx.get(roomRef)
+          .then(snap => {
+            if (snap.data().status !== 'idle') return false;
+            tx.update(roomRef, { 
+              status: 'connecting', 
+              activeCallId: cid, 
+              startedBy: this.currentUser.uid, 
+              startedAt: new Date().toISOString() 
+            });
+            return true;
+          })
+          .catch(err => {
+            console.error('Transaction error:', err);
+            return false;
+          });
+      })
+      .then(result => resolve(result))
+      .catch(err => {
+        console.error('runTransaction failed:', err);
+        resolve(false);
+      });
     });
   }
 
