@@ -25,6 +25,7 @@ import { runTransaction } from 'firebase/firestore';
       this._micEnabled = true;
       this._monitoring = false;
       this._monitorStream = null;
+      this._inRoom = false;
       this.init();
     }
 
@@ -1508,6 +1509,7 @@ import { runTransaction } from 'firebase/firestore';
     if (this._roomState.status === 'idle') {
       this._startAutoResumeMonitor(video);
     }
+    this._inRoom = true;
   }
 
   initCallControls(video){
@@ -1651,6 +1653,7 @@ import { runTransaction } from 'firebase/firestore';
       pc.addTransceiver('audio', { direction: 'sendrecv' });
       if (video) pc.addTransceiver('video', { direction: 'sendrecv' });
       const offer = await pc.createOffer();
+      console.log('Offer SDP:', offer.sdp);
       await pc.setLocalDescription(offer);
       await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       const unsubs = [];
@@ -1728,9 +1731,15 @@ import { runTransaction } from 'firebase/firestore';
       if (!offerDoc.exists()) continue;
       const offer = offerDoc.data();
       await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
+      // Parse offer SDP to match m-lines
+      const offerSdp = pc.remoteDescription.sdp;
+      const audioLines = (offerSdp.match(/m=audio/g) || []).length;
+      const videoLines = (offerSdp.match(/m=video/g) || []).length;
+      console.log('Offer has ' + audioLines + ' audio, ' + videoLines + ' video m-lines');
+      for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
+      for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: 'sendrecv' });
       const answer = await pc.createAnswer();
+      console.log('Answer SDP:', answer.sdp);
       await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       const unsubs = [];
@@ -2022,6 +2031,7 @@ import { runTransaction } from 'firebase/firestore';
       const data = new Uint8Array(analyser.frequencyBinCount);
       let streak = 0;
       const tick = () => {
+        if (!this._inRoom) return;
         analyser.getByteFrequencyData(data);
         let sum = 0; data.forEach(v => sum += v * v); // Energy
         const rms = Math.sqrt(sum / data.length);
@@ -2144,6 +2154,7 @@ import { runTransaction } from 'firebase/firestore';
         this._monitoring = false;
       }
       document.querySelectorAll('#call-videos video').forEach(v => v.remove());
+      if (!endRoom) this._inRoom = false;
     }
 
     async updatePresence(state, hasVideo = false){
@@ -2298,3 +2309,11 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
   }catch(_){ }
 };
 }
+
+window.addEventListener('beforeunload', () => {
+  if (secureChatApp._inRoom) secureChatApp.cleanupActiveCall(false);
+  if (secureChatApp._monitorStream) {
+    secureChatApp._monitorStream.getTracks().forEach(t => t.stop());
+    secureChatApp._monitorStream = null;
+  }
+});
