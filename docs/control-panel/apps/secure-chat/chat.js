@@ -8,7 +8,7 @@
       this.connections = [];
       this.sharedKeyCache = {}; // connId -> CryptoKey
       this.me = null; // cached profile
-      this.usernameCache = new Map(); // uid -> username
+      this.usernameCache = new Map(); // uid -> {username, avatarUrl}
       this.userUnsubs = new Map(); // uid -> unsubscribe
       this._activePCs = new Map(); // peerUid -> {pc, unsubs, stream, videoEl}
       this._roomUnsub = null;
@@ -475,18 +475,18 @@
             const enriched = [];
             for (const uid of parts){
               if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              let name = this.usernameCache.get(uid);
-              if (!name) {
+              let cached = this.usernameCache.get(uid);
+              if (!cached) {
                 try {
                   const u = await window.firebaseService.getUserData(uid);
-                  name = (u && u.username) || u?.email || 'User ' + uid.slice(0,6);
-                  this.usernameCache.set(uid, name);
+                  cached = { username: (u && u.username) || u?.email || 'User ' + uid.slice(0,6), avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
+                  this.usernameCache.set(uid, cached);
                 } catch (err) {
-                  console.error('Failed to resolve username for', uid, err);
-                  name = 'Unknown';
+                  console.error('Failed to resolve user for', uid, err);
+                  cached = { username: 'Unknown', avatarUrl: '../../images/default-bird.png' };
                 }
               }
-              enriched.push(name);
+              enriched.push(cached.username);
             }
             await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id),{ participantUsernames: enriched, updatedAt: new Date().toISOString() });
             c.participantUsernames = enriched;
@@ -1464,6 +1464,7 @@
     if (ov) ov.classList.remove('hidden');
     const status = document.getElementById('call-status');
     if (status) status.textContent = 'Room open. Waiting for speech to start call...';
+    this.initCallControls(video);
     if (this._roomUnsub) this._roomUnsub();
     if (this._peersUnsub) this._peersUnsub();
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
@@ -1487,6 +1488,28 @@
     if (this._roomState.status === 'idle') {
       this._startAutoResumeMonitor(video);
     }
+  }
+
+  initCallControls(video){
+    const endBtn = document.getElementById('end-call-btn');
+    const micBtn = document.getElementById('toggle-mic-btn');
+    const camBtn = document.getElementById('toggle-camera-btn');
+    const hideBtn = document.getElementById('hide-call-btn');
+    const showBtn = document.getElementById('show-call-btn');
+    if (endBtn) endBtn.onclick = () => this.cleanupActiveCall(true); // End room for all
+    if (micBtn) micBtn.onclick = () => {
+      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = !t.enabled));
+    };
+    if (camBtn) camBtn.onclick = () => {
+      const enabled = !video; // Toggle
+      this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = enabled));
+      this.updatePresence(this._roomState.status, enabled);
+      // Update local video display
+      const lv = document.getElementById('localVideo');
+      if (lv) lv.style.display = enabled ? 'block' : 'none';
+    };
+    if (hideBtn) hideBtn.onclick = () => { ov.classList.add('hidden'); showBtn.style.display = 'block'; };
+    if (showBtn) showBtn.onclick = () => { ov.classList.remove('hidden'); showBtn.style.display = 'none'; };
   }
 
   async attemptStartRoomCall(video){
@@ -1542,7 +1565,7 @@
         rv.play();
         const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
         rv.style.display = hasVid ? 'block' : 'none';
-        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`);
+        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
       };
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
@@ -1566,6 +1589,8 @@
     }
     await this.updatePresence('connected', video);
     this._setupRoomInactivityMonitor();
+    // Attach local speaking detector (once, since local stream is same for all)
+    this._attachSpeakingDetector(this._activePCs.values().next().value.stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
   }
 
   async joinMultiCall(callId, video){
@@ -1606,7 +1631,7 @@
         rv.play();
         const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
         rv.style.display = hasVid ? 'block' : 'none';
-        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`);
+        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
       };
       const answersRef = firebase.collection(this.db,'calls',callId,'answers');
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
@@ -1843,7 +1868,7 @@
       }catch(_){ }
     }
 
-    _attachSpeakingDetector(stream, selector){
+    _attachSpeakingDetector(stream, selector, uid){
       try{
         const el = document.querySelector(selector); if (!el) return;
         const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -1856,7 +1881,7 @@
           analyser.getByteFrequencyData(data);
           let sum = 0; for (let i=0;i<data.length;i++) sum += data[i];
           const avg = sum / data.length;
-          if (avg > 30){ el.classList.add('speaking'); } else { el.classList.remove('speaking'); }
+          if (avg > 30){ el.classList.add('speaking'); if (uid) this._lastSpeech.set(uid, Date.now()); } else { el.classList.remove('speaking'); }
           // Update last speech timestamps for inactivity monitor
           if (avg > 30){
             const now = Date.now();
@@ -2030,7 +2055,7 @@
       const participants = conn.participants || [];
       participants.forEach(uid => {
         const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
-        const name = this.usernameCache.get(uid) || uid.slice(0,8);
+        const name = this.usernameCache.get(uid)?.username || uid.slice(0,8);
         const avatarUrl = this.usernameCache.get(uid)?.avatarUrl || '../../images/default-bird.png';
         const av = document.createElement('div');
         av.className = 'avatar' + (p.state === 'connected' ? ' connected' : ' dim');
