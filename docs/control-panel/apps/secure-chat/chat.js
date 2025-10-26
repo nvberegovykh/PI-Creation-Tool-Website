@@ -1,5 +1,4 @@
 // Add before the IIFE
-import { runTransaction } from 'firebase/firestore';
 
 (() => {
 
@@ -1584,7 +1583,7 @@ import { runTransaction } from 'firebase/firestore';
 
   async runStartTransaction(roomRef, cid) {
     return new Promise((resolve, reject) => {
-      runTransaction(this.db, tx => {
+      firebase.firestore.runTransaction(this.db, tx => {
         return tx.get(roomRef)
           .then(snap => {
             if (snap.data().status !== 'idle') return false;
