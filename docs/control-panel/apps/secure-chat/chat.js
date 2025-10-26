@@ -1446,6 +1446,11 @@
           iceServers: await this.getIceServers(),
           iceTransportPolicy: 'relay' // prefer TURN to punch through strict NATs
         });
+        // Ensure we can both send and receive
+        try{ pc.addTransceiver('audio', { direction: 'sendrecv' }); }catch(_){ }
+        if (video){ try{ pc.addTransceiver('video', { direction: 'sendrecv' }); }catch(_){ } }
+        // Add our local media tracks
+        try{ stream.getTracks().forEach(tr => pc.addTrack(tr, stream)); }catch(_){ }
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
@@ -1503,6 +1508,9 @@
           iceServers: await this.getIceServers(),
           iceTransportPolicy: 'relay'
         });
+        try{ pc.addTransceiver('audio', { direction: 'sendrecv' }); }catch(_){ }
+        if (video){ try{ pc.addTransceiver('video', { direction: 'sendrecv' }); }catch(_){ } }
+        try{ stream.getTracks().forEach(tr => pc.addTrack(tr, stream)); }catch(_){ }
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
