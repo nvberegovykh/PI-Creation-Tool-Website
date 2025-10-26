@@ -1503,9 +1503,11 @@ import { runTransaction } from 'firebase/firestore';
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
-      if (this._roomState.activeCallId && this._activePCs.size === 0) {
+      // Only auto-join when a call is active and we're not already starting/joining
+      if (this._roomState.activeCallId && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall) {
         await this.joinMultiCall(this._roomState.activeCallId, video);
-      } else if (!this._roomState.activeCallId && this._activePCs.size > 0) {
+      } else if (this._roomState.status === 'idle' && this._activePCs.size > 0) {
+        // Only auto-cleanup if the room explicitly went idle
         await this.cleanupActiveCall();
       }
       await this.updateRoomUI();
@@ -1700,6 +1702,8 @@ import { runTransaction } from 'firebase/firestore';
       await pc.setLocalDescription(offer);
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
       await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      // Mark room active once first offer is published
+      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'connecting', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
       if (!rv) {
         rv = document.createElement('video');
@@ -1772,6 +1776,7 @@ import { runTransaction } from 'firebase/firestore';
         snap.forEach(d => {
           const v = d.data();
           if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
+            if (!pc.remoteDescription) return;
             pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
           }
         });
@@ -1876,7 +1881,7 @@ import { runTransaction } from 'firebase/firestore';
       this._attachSpeakingDetector(rstream, `[data-uid="${peerUid}"]`, peerUid);
     };
 
-    const answersRef = firebase.collection(this.db,'calls',callId,'answers');
+      const answersRef = firebase.collection(this.db,'calls',callId,'answers');
     const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
     const candidateQueue = [];
     pc.onicecandidate = e => {
@@ -1915,6 +1920,7 @@ import { runTransaction } from 'firebase/firestore';
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
     const unsubs = [];
