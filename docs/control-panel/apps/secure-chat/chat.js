@@ -1444,7 +1444,7 @@
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getIceServers(),
-          iceTransportPolicy: 'relay' // prefer TURN to punch through strict NATs
+          iceTransportPolicy: 'all'
         });
         window._pc = pc; // debug handle
         pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
@@ -1513,7 +1513,7 @@
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getIceServers(),
-          iceTransportPolicy: 'relay'
+          iceTransportPolicy: 'all'
         });
         window._pc = pc; // debug handle
         pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
