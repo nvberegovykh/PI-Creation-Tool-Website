@@ -84,18 +84,29 @@ import { runTransaction } from 'firebase/firestore';
                 if (Array.isArray(json.iceServers) && json.iceServers.length){
                   // Prefer TCP/TLS relays first for restrictive networks
                   const expanded = [];
-                  json.iceServers.forEach(s => {
-                    if (Array.isArray(s.urls)){
-                      const tcp = s.urls.map(u=> typeof u==='string' && u.startsWith('turn') ? (u.includes('?')? (u+'&transport=tcp') : (u+'?transport=tcp')) : u);
-                      expanded.push({ ...s, urls: tcp });
-                      expanded.push(s);
-                    } else if (typeof s.urls === 'string'){
-                      const u=s.urls; const ut = (u.startsWith('turn')? (u.includes('?')? (u+'&transport=tcp') : (u+'?transport=tcp')): u);
-                      expanded.push({ ...s, urls: ut });
-                      expanded.push(s);
-                    } else {
-                      expanded.push(s);
+                  const normalizeTcp = (u)=>{
+                    if (typeof u !== 'string') return u;
+                    if (!u.startsWith('turn')) return u;
+                    // Replace any existing transport parameter with tcp
+                    const hasQ = u.includes('?');
+                    const base = hasQ ? u.replace(/([?&])transport=(udp|tcp)/i, '$1transport=tcp') : u + '?transport=tcp';
+                    // Ensure only one transport param exists
+                    const parts = base.split('?');
+                    if (parts.length>1){
+                      const q = parts[1]
+                        .split('&')
+                        .filter(kv => !/^transport=(udp|tcp)$/i.test(kv))
+                        .concat(['transport=tcp'])
+                        .join('&');
+                      return parts[0] + '?' + q;
                     }
+                    return base;
+                  };
+                  json.iceServers.forEach(s => {
+                    const urls = Array.isArray(s.urls) ? s.urls : (s.urls ? [s.urls] : []);
+                    const tcpUrls = urls.map(normalizeTcp);
+                    const dedup = Array.from(new Set([ ...urls, ...tcpUrls ]));
+                    expanded.push({ ...s, urls: dedup });
                   });
                   console.log('TURN from', url);
                   return expanded;
