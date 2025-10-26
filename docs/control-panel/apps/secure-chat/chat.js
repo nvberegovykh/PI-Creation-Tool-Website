@@ -1816,7 +1816,7 @@ import { runTransaction } from 'firebase/firestore';
       const videoLines = (offerSdp.match(/m=video/g) || []).length;
       console.log('Offer has ' + audioLines + ' audio, ' + videoLines + ' video m-lines');
       for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
-      for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
+      for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' }); // Use recvonly if video=false but offer has it
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
@@ -2012,7 +2012,7 @@ import { runTransaction } from 'firebase/firestore';
         const offer = offerDoc.data();
         await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
         pc.addTransceiver('audio', { direction: 'sendrecv' });
-        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
+        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
@@ -2311,7 +2311,7 @@ import { runTransaction } from 'firebase/firestore';
       this._activePCs.forEach(async (p, peerUid) => {
         const pc = p.pc;
         pc.addTransceiver('audio', { direction: 'sendrecv' });
-        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
+        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
