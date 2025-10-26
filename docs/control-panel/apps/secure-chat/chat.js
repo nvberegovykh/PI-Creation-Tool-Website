@@ -1524,11 +1524,12 @@
         }catch(_){ }
         // tracks already added or replaced above
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
-        if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
+        if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled))? 'block':'none'; }
         pc.ontrack = (e)=>{
           if (rv){
             rv.srcObject = e.streams[0];
             try{ rv.playsInline = true; rv.muted = false; rv.play().catch(()=>{}); }catch(_){ }
+            try{ const hasVid = e.streams[0].getVideoTracks().some(t=> t.enabled); rv.style.display = hasVid? 'block':'none'; }catch(_){ }
           }
           // For audio-only calls ensure an audio sink exists
           if (!video){
@@ -1543,6 +1544,12 @@
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
         pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
+        // Avoid duplicate starts: if an offer already exists, switch to join flow
+        const existingOffer = await firebase.getDoc(firebase.doc(offersRef,'offer'));
+        if (existingOffer.exists()){
+          try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
+          return await this.answerCall(callId, { video });
+        }
         const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
         await firebase.setDoc(firebase.doc(offersRef,'offer'), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
         // publish one join message for room-wide latest call id
@@ -1563,14 +1570,14 @@
           unsubs.push(u2);
           this._activeCall = { pc, unsubs };
         }
-        const endBtn = document.getElementById('end-call-btn');
+        const endBtn = document.getElementById('end-call-btn'); if (endBtn) endBtn.textContent = 'Exit';
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
         const hideBtn = document.getElementById('hide-call-btn');
         const showBtn = document.getElementById('show-call-btn');
         if (endBtn){ endBtn.onclick = ()=>{ try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ } try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
         if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
-        if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
+        if (camBtn){ camBtn.onclick = ()=>{ const enabled = stream.getVideoTracks().some(t=> t.enabled); stream.getVideoTracks().forEach(t=> t.enabled = !enabled); if (lv) lv.style.display = stream.getVideoTracks().some(t=>t.enabled)? 'block':'none'; }; }
         if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
         if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
       }catch(e){ console.warn('Call start failed', e); }
