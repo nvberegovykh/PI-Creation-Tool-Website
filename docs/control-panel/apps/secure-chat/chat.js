@@ -1652,7 +1652,11 @@ import { runTransaction } from 'firebase/firestore';
       await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       const unsubs = [];
       unsubs.push(firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers', peerUid), async doc => {
-        if (doc.exists()) await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
+        if (doc.exists() && pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
+        } else if (doc.exists()) {
+          console.warn('Skipping setRemote - wrong state:', pc.signalingState);
+        }
       }));
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
         snap.forEach(d => {
