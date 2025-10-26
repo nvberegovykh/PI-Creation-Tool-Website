@@ -1625,16 +1625,16 @@ import { runTransaction } from 'firebase/firestore';
       stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
       const lv = document.getElementById('localVideo');
       if (lv) lv.srcObject = stream;
+      let rv = document.getElementById(`remoteVideo-${peerUid}`);
+      if (!rv) {
+        rv = document.createElement('video');
+        rv.id = `remoteVideo-${peerUid}`;
+        rv.autoplay = true;
+        rv.playsInline = true;
+        rv.style.display = 'none';
+        document.getElementById('call-videos').appendChild(rv);
+      }
       pc.ontrack = e => {
-        let rv = document.getElementById(`remoteVideo-${peerUid}`);
-        if (!rv) {
-          rv = document.createElement('video');
-          rv.id = `remoteVideo-${peerUid}`;
-          rv.autoplay = true;
-          rv.playsInline = true;
-          rv.style.display = 'none';
-          document.getElementById('call-videos').appendChild(rv);
-        }
         rv.srcObject = e.streams[0];
         rv.muted = false;
         rv.play();
@@ -1696,16 +1696,16 @@ import { runTransaction } from 'firebase/firestore';
       stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
       const lv = document.getElementById('localVideo');
       if (lv) lv.srcObject = stream;
+      let rv = document.getElementById(`remoteVideo-${peerUid}`);
+      if (!rv) {
+        rv = document.createElement('video');
+        rv.id = `remoteVideo-${peerUid}`;
+        rv.autoplay = true;
+        rv.playsInline = true;
+        rv.style.display = 'none';
+        document.getElementById('call-videos').appendChild(rv);
+      }
       pc.ontrack = e => {
-        let rv = document.getElementById(`remoteVideo-${peerUid}`);
-        if (!rv) {
-          rv = document.createElement('video');
-          rv.id = `remoteVideo-${peerUid}`;
-          rv.autoplay = true;
-          rv.playsInline = true;
-          rv.style.display = 'none';
-          document.getElementById('call-videos').appendChild(rv);
-        }
         rv.srcObject = e.streams[0];
         rv.muted = false;
         rv.play();
