@@ -1684,14 +1684,18 @@ import { runTransaction } from 'firebase/firestore';
       });
       pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      // Always include a video m-line to allow later toggling
-      pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
-      // Attach local tracks BEFORE creating offer to ensure media flows immediately
-      stream.getTracks().forEach(tr => {
-        if (tr.kind === 'video' && !video) return;
-        pc.addTrack(tr, stream);
-      });
+      // Prepare transceivers first to lock m-line order
+      const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      const txVideo = pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
+      // Attach local tracks via replaceTrack when possible
+      try {
+        const a = stream.getAudioTracks()[0];
+        if (a && txAudio && txAudio.sender) { try { await txAudio.sender.replaceTrack(a); } catch(_) {} }
+      } catch(_) {}
+      try {
+        const v = stream.getVideoTracks()[0];
+        if (v && txVideo && txVideo.sender && video) { try { await txVideo.sender.replaceTrack(v); } catch(_) {} }
+      } catch(_) {}
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
@@ -1734,13 +1738,13 @@ import { runTransaction } from 'firebase/firestore';
         this._attachSpeakingDetector(stream, `[data-uid="${peerUid}"]`, peerUid);
       };
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
-      const candidateQueue = [];
+      const localCandidateQueue = [];
       pc.onicecandidate = e => {
         if (e.candidate) {
           if (pc.remoteDescription) {
             firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
           } else {
-            candidateQueue.push(e.candidate);
+            localCandidateQueue.push(e.candidate);
           }
         }
       };
@@ -1755,10 +1759,10 @@ import { runTransaction } from 'firebase/firestore';
         console.log('Setting remote description for ' + peerUid);
         try {
           await pc.setRemoteDescription(desc);
-          // Flush queued ICE now that remoteDescription is set
-          while (candidateQueue.length) {
-            const cand = candidateQueue.shift();
-            try { await pc.addIceCandidate(cand); } catch (e) { console.warn('addIceCandidate (flushed) failed:', e?.message||e); }
+          // Flush queued LOCAL ICE now that remoteDescription is set (send to peer)
+          while (localCandidateQueue.length) {
+            const cand = localCandidateQueue.shift();
+            try { await firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: cand.toJSON() }); } catch (_) {}
           }
         } catch (err) {
           console.error('setRemote failed for ' + peerUid, err);
@@ -1886,17 +1890,27 @@ import { runTransaction } from 'firebase/firestore';
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
-    const offerSdp = pc.remoteDescription.sdp;
-    const audioLines = (offerSdp.match(/m=audio/g) || []).length;
-    const videoLines = (offerSdp.match(/m=video/g) || []).length;
-    console.log('Offer has ' + audioLines + ' audio, ' + videoLines + ' video m-lines');
-    for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
-    for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
-
-    // Attach local tracks ONCE before creating the answer
+    // Align transceivers to the remote offer and attach local tracks without changing m-line order
+    const trxs = pc.getTransceivers ? pc.getTransceivers() : [];
+    trxs.forEach(tx => {
+      if (!tx || !tx.receiver || !tx.receiver.track) return;
+      const kind = tx.receiver.track.kind;
+      try {
+        if (kind === 'audio') tx.direction = 'sendrecv';
+        if (kind === 'video') tx.direction = (video ? 'sendrecv' : 'recvonly');
+      } catch(_) {}
+      const local = localStream.getTracks().find(t => t.kind === kind);
+      if (local && tx.sender && typeof tx.sender.replaceTrack === 'function') {
+        try { tx.sender.replaceTrack(local); } catch(_) {}
+      }
+    });
+    // Fallback: attach any local track that has no sender yet
     localStream.getTracks().forEach(tr => {
-      if (tr.kind === 'video' && !video) return;
-      pc.addTrack(tr, localStream);
+      const hasSender = trxs.some(tx => tx && tx.sender && tx.sender.track && tx.sender.track.kind === tr.kind);
+      if (!hasSender) {
+        if (tr.kind === 'video' && !video) return;
+        try { pc.addTrack(tr, localStream); } catch(_) {}
+      }
     });
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
