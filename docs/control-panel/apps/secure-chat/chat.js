@@ -24,6 +24,7 @@ import { runTransaction } from 'firebase/firestore';
       this._videoEnabled = false;
       this._micEnabled = true;
       this._monitoring = false;
+      this._monitorStream = null;
       this.init();
     }
 
@@ -2007,6 +2008,7 @@ import { runTransaction } from 'firebase/firestore';
       this._monitoring = true;
       console.log('Starting speech monitor');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this._monitorStream = stream;
       const ac = new AudioContext();
       const src = ac.createMediaStreamSource(stream);
       const analyser = ac.createAnalyser();
@@ -2023,6 +2025,7 @@ import { runTransaction } from 'firebase/firestore';
         if (streak > 3) { // Shorter streak
           console.log('Speech detected! Starting call');
           stream.getTracks().forEach(t => t.stop());
+          this._monitorStream = null;
           ac.close();
           this.attemptStartRoomCall(video);
           this._monitoring = false;
@@ -2127,6 +2130,10 @@ import { runTransaction } from 'firebase/firestore';
         await firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
       }
       await this.updatePresence('idle', false);
+      if (this._monitorStream) {
+        this._monitorStream.getTracks().forEach(t => t.stop());
+        this._monitorStream = null;
+      }
     }
 
     async updatePresence(state, hasVideo = false){
