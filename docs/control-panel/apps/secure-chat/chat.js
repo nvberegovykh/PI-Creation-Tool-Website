@@ -1697,7 +1697,13 @@ import { runTransaction } from 'firebase/firestore';
         iceServers: await this.getIceServers(),
         iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
       });
-      pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+        const st = pc.iceConnectionState;
+        if (st === 'disconnected' || st === 'failed'){
+          try { pc.restartIce && pc.restartIce(); } catch(_){ }
+        }
+      };
       pc.onconnectionstatechange = () => {
         console.log('PC state for ' + peerUid + ':', pc.connectionState);
         if (pc.connectionState === 'connected'){
@@ -1744,19 +1750,13 @@ import { runTransaction } from 'firebase/firestore';
         const stream = e.streams[0];
         if (!stream) return;
         const hasVid = stream.getVideoTracks && stream.getVideoTracks().some(t => t.enabled);
+        // Always ensure an audio sink exists (hidden) regardless of video
+        let audEl = document.getElementById(`remoteAudio-${peerUid}`);
+        if (!audEl){ audEl = document.createElement('audio'); audEl.id = `remoteAudio-${peerUid}`; audEl.autoplay = true; audEl.playsInline = true; audEl.style.display = 'none'; document.body.appendChild(audEl); }
+        audEl.srcObject = stream; audEl.muted = false; audEl.volume = 1;
+        // Video element visible only if video tracks exist
         let mediaEl = rv;
-        if (!hasVid){
-          // use hidden audio element for audio-only
-          mediaEl = document.getElementById(`remoteAudio-${peerUid}`);
-          if (!mediaEl){
-            mediaEl = document.createElement('audio');
-            mediaEl.id = `remoteAudio-${peerUid}`;
-            mediaEl.autoplay = true;
-            mediaEl.playsInline = true;
-            mediaEl.style.display = 'none';
-            document.body.appendChild(mediaEl);
-          }
-        }
+        if (!hasVid){ mediaEl = audEl; }
         mediaEl.srcObject = stream;
         mediaEl.muted = false;
         mediaEl.volume = 1;
@@ -1881,7 +1881,13 @@ import { runTransaction } from 'firebase/firestore';
       iceServers: await this.getIceServers(),
       iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
     });
-    pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+      const st = pc.iceConnectionState;
+      if (st === 'disconnected' || st === 'failed'){
+        try { pc.restartIce && pc.restartIce(); } catch(_){ }
+      }
+    };
     pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
 
     // Remote media element
@@ -1899,18 +1905,11 @@ import { runTransaction } from 'firebase/firestore';
       const rstream = e.streams[0];
       if (!rstream) return;
       const hasVid = rstream.getVideoTracks && rstream.getVideoTracks().some(t => t.enabled);
-      let mediaEl = rv;
-      if (!hasVid){
-        mediaEl = document.getElementById(`remoteAudio-${peerUid}`);
-        if (!mediaEl){
-          mediaEl = document.createElement('audio');
-          mediaEl.id = `remoteAudio-${peerUid}`;
-          mediaEl.autoplay = true;
-          mediaEl.playsInline = true;
-          mediaEl.style.display = 'none';
-          document.body.appendChild(mediaEl);
-        }
-      }
+      // Always ensure an audio sink exists
+      let audEl = document.getElementById(`remoteAudio-${peerUid}`);
+      if (!audEl){ audEl = document.createElement('audio'); audEl.id = `remoteAudio-${peerUid}`; audEl.autoplay = true; audEl.playsInline = true; audEl.style.display = 'none'; document.body.appendChild(audEl); }
+      audEl.srcObject = rstream; audEl.muted = false; audEl.volume = 1;
+      let mediaEl = rv; if (!hasVid) mediaEl = audEl;
       mediaEl.srcObject = rstream;
       mediaEl.muted = false;
       mediaEl.volume = 1;
