@@ -26,6 +26,7 @@
 
     async getIceServers(){
       try{
+        // 1) Try static TURN from keys
         if (window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function'){
           const keys = await window.secureKeyManager.getKeys();
           const turn = keys && keys.turn;
@@ -34,6 +35,16 @@
               { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] },
               { urls: turn.uris, username: turn.username, credential: turn.credential }
             ];
+          }
+        }
+        // 2) Else fetch ephemeral TURN via Cloud Function
+        if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
+          const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
+          const url = 'https://europe-west1-liber-apps-cca20.cloudfunctions.net/getTurnConfig';
+          const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
+          if (resp.ok){
+            const json = await resp.json();
+            if (Array.isArray(json.iceServers) && json.iceServers.length){ return json.iceServers; }
           }
         }
       }catch(_){ /* ignore */ }
