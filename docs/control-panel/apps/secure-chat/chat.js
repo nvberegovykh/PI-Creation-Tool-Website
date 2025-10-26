@@ -2169,15 +2169,19 @@ import { runTransaction } from 'firebase/firestore';
           }
           return { uid, p, cached };
         });
-        const remotes = await Promise.all(fetches);
-        remotes.forEach(({uid, p, cached}) => {
-          if (!uid) return;
-          const av = document.createElement('div');
-          av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
-          av.setAttribute('data-uid', uid);
-          av.innerHTML = `<img src="${cached.avatarUrl || '../../images/default-bird.png'}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
-          cont.appendChild(av);
-          // Video tile logic...
+        const remotes = (await Promise.all(fetches)).filter(item => item);
+        remotes.forEach(item => {
+          try {
+            const {uid, p, cached} = item;
+            const av = document.createElement('div');
+            av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
+            av.setAttribute('data-uid', uid);
+            av.innerHTML = `<img src="${cached.avatarUrl || '../../images/default-bird.png'}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
+            cont.appendChild(av);
+            // Video tile logic...
+          } catch (err) {
+            console.error('Error rendering remote participant:', err);
+          }
         });
         // Self similarly with await
         let selfCached = this.usernameCache.get(this.currentUser.uid);
