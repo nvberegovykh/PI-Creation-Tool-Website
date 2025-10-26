@@ -10,6 +10,13 @@
       this.me = null; // cached profile
       this.usernameCache = new Map(); // uid -> username
       this.userUnsubs = new Map(); // uid -> unsubscribe
+      this._activePCs = new Map(); // peerUid -> {pc, unsubs, stream, videoEl}
+      this._roomUnsub = null;
+      this._peersUnsub = null;
+      this._roomState = null;
+      this._peersPresence = {};
+      this._lastSpeech = new Map(); // uid -> timestamp
+      this._inactTimer = null;
       this.init();
     }
 
@@ -1451,37 +1458,208 @@
     }catch(_){ return roomRef; }
   }
 
-  async enterRoom(){
-    // Enter a persistent room; start a silent monitor to trigger call on speech
-    const ov = document.getElementById('call-overlay'); if (ov) ov.classList.remove('hidden');
-    const status = document.getElementById('call-status'); if (status){ status.textContent = 'Room open. Waiting for speech to start call...'; }
+  async enterRoom(video){
     await this.ensureRoom();
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
-      const src = ac.createMediaStreamSource(stream);
-      const analyser = ac.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      let streak = 0;
-      const tick = async ()=>{
-        analyser.getByteFrequencyData(data);
-        let sum=0; for (let i=0;i<data.length;i++) sum+=data[i];
-        const avg=sum/data.length;
-        if (avg>35) streak++; else streak=0;
-        if (streak>12){
-          try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
-          try{ ac.close(); }catch(_){ }
-          if (status) status.textContent = 'Connecting...';
-          const cid = `${this.activeConnection}_latest`;
-          await this.startCall({ callId: cid, video:false });
-          await this.saveMessage({ text:`[call:voice:${cid}]` });
-          return;
-        }
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    }catch(_){ /* ignore if no mic */ }
+    const ov = document.getElementById('call-overlay');
+    if (ov) ov.classList.remove('hidden');
+    const status = document.getElementById('call-status');
+    if (status) status.textContent = 'Room open. Waiting for speech to start call...';
+    if (this._roomUnsub) this._roomUnsub();
+    if (this._peersUnsub) this._peersUnsub();
+    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
+      this._roomState = snap.data() || { status: 'idle', activeCallId: null };
+      if (this._roomState.activeCallId && this._activePCs.size === 0) {
+        await this.joinMultiCall(this._roomState.activeCallId, video);
+      } else if (!this._roomState.activeCallId && this._activePCs.size > 0) {
+        await this.cleanupActiveCall();
+      }
+      await this.updateRoomUI();
+    });
+    const peersRef = firebase.collection(this.db,'callRooms', this.activeConnection, 'peers');
+    this._peersUnsub = firebase.onSnapshot(peersRef, snap => {
+      this._peersPresence = {};
+      snap.forEach(d => this._peersPresence[d.id] = d.data());
+      this.updateRoomUI();
+    });
+    await this.updatePresence('idle', false);
+    // Start silence monitor if no call active
+    if (this._roomState.status === 'idle') {
+      this._startAutoResumeMonitor(video);
+    }
   }
+
+  async attemptStartRoomCall(video){
+    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    const cid = `${this.activeConnection}_latest`;
+    const success = await firebase.runTransaction(this.db, async tx => {
+      const snap = await tx.get(roomRef);
+      if (snap.data().status !== 'idle') return false;
+      tx.update(roomRef, { status: 'connecting', activeCallId: cid, startedBy: this.currentUser.uid, startedAt: new Date().toISOString() });
+      return true;
+    });
+    if (success) {
+      await this.startMultiCall(cid, video);
+      await this.saveMessage({ text: `[call:voice:${cid}]` });
+    }
+  }
+
+  async startMultiCall(callId, video){
+    this.cleanupActiveCall();
+    const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+    const conn = connSnap.data() || {};
+    const participants = conn.participants.filter(uid => uid !== this.currentUser.uid);
+    if (participants.length + 1 > 8) {
+      alert('Max 8 users per room');
+      return;
+    }
+    await this.updatePresence('connecting', video);
+    this._activePCs = new Map();
+    for (const peerUid of participants){
+      const pc = new RTCPeerConnection({
+        iceServers: await this.getIceServers(),
+        iceTransportPolicy: 'all'
+      });
+      pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
+      const config = { audio: true, video: !!video };
+      const stream = await navigator.mediaDevices.getUserMedia(config);
+      stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
+      const lv = document.getElementById('localVideo');
+      if (lv) lv.srcObject = stream;
+      pc.ontrack = e => {
+        let rv = document.getElementById(`remoteVideo-${peerUid}`);
+        if (!rv) {
+          rv = document.createElement('video');
+          rv.id = `remoteVideo-${peerUid}`;
+          rv.autoplay = true;
+          rv.playsInline = true;
+          rv.style.display = 'none';
+          document.getElementById('call-videos').appendChild(rv);
+        }
+        rv.srcObject = e.streams[0];
+        rv.muted = false;
+        rv.play();
+        const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
+        rv.style.display = hasVid ? 'block' : 'none';
+        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`);
+      };
+      const offersRef = firebase.collection(this.db,'calls',callId,'offers');
+      const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+      pc.onicecandidate = e => {
+        if (e.candidate) firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      const unsubs = [];
+      unsubs.push(firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers', peerUid), async doc => {
+        if (doc.exists()) await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
+      }));
+      unsubs.push(firebase.onSnapshot(candsRef, snap => {
+        snap.forEach(d => {
+          const v = d.data();
+          if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate));
+        });
+      }));
+      this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
+    }
+    await this.updatePresence('connected', video);
+    this._setupRoomInactivityMonitor();
+  }
+
+  async joinMultiCall(callId, video){
+    this.cleanupActiveCall();
+    const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+    const conn = connSnap.data() || {};
+    const participants = conn.participants.filter(uid => uid !== this.currentUser.uid);
+    if (participants.length + 1 > 8) {
+      alert('Max 8 users per room');
+      return;
+    }
+    await this.updatePresence('connecting', video);
+    this._activePCs = new Map();
+    for (const peerUid of participants){
+      const pc = new RTCPeerConnection({
+        iceServers: await this.getIceServers(),
+        iceTransportPolicy: 'all'
+      });
+      pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
+      const config = { audio: true, video: !!video };
+      const stream = await navigator.mediaDevices.getUserMedia(config);
+      stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
+      const lv = document.getElementById('localVideo');
+      if (lv) lv.srcObject = stream;
+      pc.ontrack = e => {
+        let rv = document.getElementById(`remoteVideo-${peerUid}`);
+        if (!rv) {
+          rv = document.createElement('video');
+          rv.id = `remoteVideo-${peerUid}`;
+          rv.autoplay = true;
+          rv.playsInline = true;
+          rv.style.display = 'none';
+          document.getElementById('call-videos').appendChild(rv);
+        }
+        rv.srcObject = e.streams[0];
+        rv.muted = false;
+        rv.play();
+        const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
+        rv.style.display = hasVid ? 'block' : 'none';
+        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`);
+      };
+      const answersRef = firebase.collection(this.db,'calls',callId,'answers');
+      const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+      pc.onicecandidate = e => {
+        if (e.candidate) firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+      };
+      const offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid));
+      if (!offerDoc.exists()) continue;
+      const offer = offerDoc.data();
+      await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      const unsubs = [];
+      unsubs.push(firebase.onSnapshot(candsRef, snap => {
+        snap.forEach(d => {
+          const v = d.data();
+          if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate));
+        });
+      }));
+      this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
+    }
+    await this.updatePresence('connected', video);
+    this._setupRoomInactivityMonitor();
+  }
+
+  async _setupRoomInactivityMonitor(){
+    this._lastSpeech.clear();
+    if (this._inactTimer) clearInterval(this._inactTimer);
+    this._inactTimer = setInterval(()=>{
+      const now = Date.now();
+      let maxLast = 0;
+      this._lastSpeech.forEach(ts => maxLast = Math.max(maxLast, ts));
+      if (now - maxLast > 5 * 60 * 1000){
+        clearInterval(this._inactTimer);
+        this.cleanupActiveCall();
+        const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+        firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
+        this.saveMessage({ text: '[system] Call ended due to silence' });
+        this._startAutoResumeMonitor(false);
+      }
+    }, 15000);
+  }
+
+  // Add to _attachSpeakingDetector to take uid and update this._lastSpeech.set(uid, now) when avg > 30
+
+  // In camBtn onclick for local: toggle enabled and updatePresence with hasVideo = enabled
+
+  // For remote video toggle: on ontrack check hasVid and toggle display
+
+  // In endBtn onclick: this.cleanupActiveCall(true) to end room for all
+
+  // Limit: in enterRoom check conn.participants.length > 8 and alert/return
 
   async joinOrStartCall({ video }){
     // If latest call offer exists in this room, join; otherwise create a new one
@@ -1626,7 +1804,8 @@
         if (!offerDoc.exists()) return;
         const offer = offerDoc.data();
         await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
-        const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
         await firebase.setDoc(firebase.doc(answersRef,'answer'), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
         // Listen for caller ICE candidates (type 'offer') and add to this peer connection
         if (firebase.onSnapshot){
@@ -1819,6 +1998,56 @@
       }
       
       console.log('=== End Debug ===');
+    }
+
+    async cleanupActiveCall(endRoom = false){
+      this._activePCs.forEach((p, uid) => {
+        try{ p.unsubs.forEach(u => u()); }catch(_){ }
+        try{ p.pc.close(); }catch(_){ }
+        try{ p.stream.getTracks().forEach(t => t.stop()); }catch(_){ }
+        if (p.videoEl) p.videoEl.remove();
+      });
+      this._activePCs.clear();
+      if (this._inactTimer) clearInterval(this._inactTimer);
+      if (endRoom){
+        const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+        await firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
+      }
+      await this.updatePresence('idle', false);
+    }
+
+    updatePresence(state, hasVideo){
+      const ref = firebase.doc(this.db,'callRooms', this.activeConnection, 'peers', this.currentUser.uid);
+      await firebase.setDoc(ref, { uid: this.currentUser.uid, state, hasVideo, updatedAt: new Date().toISOString() }, { merge: true });
+    }
+
+    async updateRoomUI(){
+      const cont = document.getElementById('call-participants');
+      if (!cont) return;
+      cont.innerHTML = '';
+      const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+      const conn = connSnap.data() || {};
+      const participants = conn.participants || [];
+      participants.forEach(uid => {
+        const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
+        const name = this.usernameCache.get(uid) || uid.slice(0,8);
+        const avatarUrl = this.usernameCache.get(uid)?.avatarUrl || '../../images/default-bird.png';
+        const av = document.createElement('div');
+        av.className = 'avatar' + (p.state === 'connected' ? ' connected' : ' dim');
+        av.setAttribute('data-uid', uid);
+        av.innerHTML = `<img src="${avatarUrl}" alt="${name}"/><div class="name">${name}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
+        cont.appendChild(av);
+        // Video tile
+        let rv = document.getElementById(`remoteVideo-${uid}`);
+        if (!rv && p.hasVideo) {
+          rv = document.createElement('video');
+          rv.id = `remoteVideo-${uid}`;
+          rv.autoplay = true;
+          rv.playsInline = true;
+          document.getElementById('call-videos').appendChild(rv);
+        }
+        if (rv) rv.style.display = p.hasVideo ? 'block' : 'none';
+      });
     }
   }
 
