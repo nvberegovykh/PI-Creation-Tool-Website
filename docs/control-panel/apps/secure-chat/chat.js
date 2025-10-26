@@ -1434,8 +1434,8 @@
     }
 
     // Placeholders / basic signaling for calls
-    async startVoiceCall(){ await this.startCall({ video:false }); }
-    async startVideoCall(){ await this.startCall({ video:true }); }
+  async startVoiceCall(){ await this.startCall({ callId: `${this.activeConnection}_latest`, video:false }); }
+  async startVideoCall(){ await this.startCall({ callId: `${this.activeConnection}_latest`, video:true }); }
 
   async ensureRoom(){
     if (!this.activeConnection) return null;
@@ -1472,8 +1472,9 @@
           try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
           try{ ac.close(); }catch(_){ }
           if (status) status.textContent = 'Connecting...';
-          await this.startCall({ video:false });
-          await this.saveMessage({ text:`[call:voice:${this.activeConnection}_${Date.now()}]` });
+          const cid = `${this.activeConnection}_latest`;
+          await this.startCall({ callId: cid, video:false });
+          await this.saveMessage({ text:`[call:voice:${cid}]` });
           return;
         }
         requestAnimationFrame(tick);
@@ -1486,22 +1487,23 @@
     // If latest call offer exists in this room, join; otherwise create a new one
     const roomId = this.activeConnection; if (!roomId) return;
     try{
-      const offersRef = firebase.collection(this.db,'calls',`${roomId}_latest`,'offers');
+      const cid = `${roomId}_latest`;
+      const offersRef = firebase.collection(this.db,'calls',cid,'offers');
       const docSnap = await firebase.getDoc(firebase.doc(offersRef,'offer'));
       if (docSnap.exists()){
-        await this.answerCall(`${roomId}_latest`, { video });
+        await this.answerCall(cid, { video });
       } else {
-        await this.startCall({ video });
+        await this.startCall({ callId: cid, video });
       }
-    }catch{ await this.startCall({ video }); }
+    }catch{ const cid = `${roomId}_latest`; await this.startCall({ callId: cid, video }); }
   }
 
-    async startCall({ video }){
+  async startCall({ callId, video }){
       try{
         // ensure previous listeners/pcs are cleaned up when reconnecting
         try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ }
         try{ this._activeCall && this._activeCall.pc && this._activeCall.pc.close(); }catch(_){ }
-        const callId = `${this.activeConnection}_${Date.now()}`;
+        callId = callId || `${this.activeConnection}_${Date.now()}`;
         const config = { audio: true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
@@ -1543,6 +1545,7 @@
         pc.onicecandidate = (e)=>{ if(e.candidate){ firebase.setDoc(firebase.doc(candsRef), { type:'offer', connId: this.activeConnection, candidate:e.candidate.toJSON() }); }};
         const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
         await firebase.setDoc(firebase.doc(offersRef,'offer'), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
+        // publish one join message for room-wide latest call id
         await this.saveMessage({ text:`[call:${video?'video':'voice'}:${callId}]` });
         // Listen for answer
         if (firebase.onSnapshot){
