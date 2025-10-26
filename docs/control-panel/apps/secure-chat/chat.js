@@ -178,8 +178,8 @@
         navigator.serviceWorker.register('/sw.js').catch(()=>{});
       }
       // Call and recording buttons (placeholders)
-      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.startVoiceCall());
-      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.startVideoCall());
+      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom());
+      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom());
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
@@ -703,7 +703,7 @@
             el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${fileText}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${new Date(m.createdAt).toLocaleString()}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
-            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
+            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
               if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
@@ -1436,6 +1436,65 @@
     // Placeholders / basic signaling for calls
     async startVoiceCall(){ await this.startCall({ video:false }); }
     async startVideoCall(){ await this.startCall({ video:true }); }
+
+  async ensureRoom(){
+    if (!this.activeConnection) return null;
+    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    try{
+      const snap = await firebase.getDoc(roomRef);
+      if (!snap.exists()){
+        await firebase.setDoc(roomRef, { id:this.activeConnection, createdAt:new Date().toISOString(), lastActiveAt:new Date().toISOString() });
+      } else {
+        await firebase.updateDoc(roomRef, { lastActiveAt:new Date().toISOString() });
+      }
+      return roomRef;
+    }catch(_){ return roomRef; }
+  }
+
+  async enterRoom(){
+    // Enter a persistent room; start a silent monitor to trigger call on speech
+    const ov = document.getElementById('call-overlay'); if (ov) ov.classList.remove('hidden');
+    const status = document.getElementById('call-status'); if (status){ status.textContent = 'Room open. Waiting for speech to start call...'; }
+    await this.ensureRoom();
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ac.createMediaStreamSource(stream);
+      const analyser = ac.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let streak = 0;
+      const tick = async ()=>{
+        analyser.getByteFrequencyData(data);
+        let sum=0; for (let i=0;i<data.length;i++) sum+=data[i];
+        const avg=sum/data.length;
+        if (avg>35) streak++; else streak=0;
+        if (streak>12){
+          try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
+          try{ ac.close(); }catch(_){ }
+          if (status) status.textContent = 'Connecting...';
+          await this.startCall({ video:false });
+          await this.saveMessage({ text:`[call:voice:${this.activeConnection}_${Date.now()}]` });
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }catch(_){ /* ignore if no mic */ }
+  }
+
+  async joinOrStartCall({ video }){
+    // If latest call offer exists in this room, join; otherwise create a new one
+    const roomId = this.activeConnection; if (!roomId) return;
+    try{
+      const offersRef = firebase.collection(this.db,'calls',`${roomId}_latest`,'offers');
+      const docSnap = await firebase.getDoc(firebase.doc(offersRef,'offer'));
+      if (docSnap.exists()){
+        await this.answerCall(`${roomId}_latest`, { video });
+      } else {
+        await this.startCall({ video });
+      }
+    }catch{ await this.startCall({ video }); }
+  }
 
     async startCall({ video }){
       try{
