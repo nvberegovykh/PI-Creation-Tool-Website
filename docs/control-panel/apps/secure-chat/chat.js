@@ -28,6 +28,7 @@ import { runTransaction } from 'firebase/firestore';
       this._inRoom = false;
       this._startingCall = false;
       this._joiningCall = false;
+      this._cleanupIdleTimer = null;
       this.init();
     }
 
@@ -1506,7 +1507,7 @@ import { runTransaction } from 'firebase/firestore';
       // Only auto-join when a call is active and we're not already starting/joining
       if (this._roomState.activeCallId && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall) {
         await this.joinMultiCall(this._roomState.activeCallId, video);
-      } else if (this._roomState.status === 'idle' && this._activePCs.size > 0) {
+      } else if (this._roomState.status === 'idle' && this._activePCs.size > 0 && !this._joiningCall && !this._startingCall) {
         // Only auto-cleanup if the room explicitly went idle
         await this.cleanupActiveCall();
       }
@@ -1768,6 +1769,7 @@ import { runTransaction } from 'firebase/firestore';
             const cand = localCandidateQueue.shift();
             try { await firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: cand.toJSON() }); } catch (_) {}
           }
+          try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', lastActiveAt: new Date().toISOString() }); } catch(_){ }
         } catch (err) {
           console.error('setRemote failed for ' + peerUid, err);
         }
@@ -1881,8 +1883,10 @@ import { runTransaction } from 'firebase/firestore';
       this._attachSpeakingDetector(rstream, `[data-uid="${peerUid}"]`, peerUid);
     };
 
-      const answersRef = firebase.collection(this.db,'calls',callId,'answers');
+    const answersRef = firebase.collection(this.db,'calls',callId,'answers');
     const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+    // Ensure we only process candidates for this peer
+    const myUid = this.currentUser.uid;
     const candidateQueue = [];
     pc.onicecandidate = e => {
       if (e.candidate) {
@@ -1927,7 +1931,7 @@ import { runTransaction } from 'firebase/firestore';
     unsubs.push(firebase.onSnapshot(candsRef, snap => {
       snap.forEach(d => {
         const v = d.data();
-        if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
+        if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === myUid && v.candidate) {
           // Guard against calling before remoteDescription set
           if (!pc.remoteDescription) { return; }
           pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
