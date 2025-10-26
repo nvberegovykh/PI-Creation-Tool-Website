@@ -30,6 +30,9 @@ import { runTransaction } from 'firebase/firestore';
       this._joiningCall = false;
       this._cleanupIdleTimer = null;
       this._lastJoinedCallId = null;
+      this._connectingCid = null;
+      this._activeCid = null;
+      this._joinRetryTimer = null;
       this.init();
     }
 
@@ -1497,6 +1500,7 @@ import { runTransaction } from 'firebase/firestore';
     await this.ensureRoom();
     const ov = document.getElementById('call-overlay');
     if (ov) ov.classList.remove('hidden');
+    const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Room open. Waiting for speech to start call...';
     const status = document.getElementById('call-status');
     if (status) status.textContent = 'Room open. Waiting for speech to start call...';
     this.initCallControls(video);
@@ -1599,6 +1603,7 @@ import { runTransaction } from 'firebase/firestore';
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     const cid = `${this.activeConnection}_latest`;
     this._startingCall = true;
+    this._connectingCid = cid;
     const success = await this.runStartTransaction(roomRef, cid).catch(err => {
       console.error('Transaction failed:', err);
       if (err.code === 'permission-denied') alert('Permission denied starting call. Check Firestore rules for /callRooms.');
@@ -1838,15 +1843,21 @@ import { runTransaction } from 'firebase/firestore';
     lv.style.display = (video && localStream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
 
     // Find the offer addressed to me to identify the initiator
-    const offerDocRef = firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid);
-    const offerDoc = await firebase.getDoc(offerDocRef);
-    if (!offerDoc.exists()) {
-      console.warn('No offer for current user found; room may not be active yet');
-      return;
+    // Find the newest offer addressed to me; if none, poll briefly waiting for initiator
+    let offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid));
+    if (!offerDoc.exists()){
+      for (let i=0;i<6;i++){
+        await new Promise(r=>setTimeout(r,250));
+        offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid));
+        if (offerDoc.exists()) break;
+      }
+      if (!offerDoc.exists()){
+        console.warn('No offer for current user found; room may not be active yet');
+        return;
+      }
     }
     const offer = offerDoc.data();
-    const initiatorUid = offer.fromUid;
-    const peerUid = initiatorUid;
+    const peerUid = offer.fromUid;
 
     const pc = new RTCPeerConnection({
       iceServers: await this.getIceServers(),
@@ -1934,7 +1945,7 @@ import { runTransaction } from 'firebase/firestore';
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
-      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
+      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
     const unsubs = [];
@@ -2042,7 +2053,7 @@ import { runTransaction } from 'firebase/firestore';
           }
           this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
         };
-        if (ov){ ov.classList.remove('hidden'); }
+        if (ov){ ov.classList.remove('hidden'); const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Connecting...'; }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
@@ -2120,7 +2131,7 @@ import { runTransaction } from 'firebase/firestore';
           }
           this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
         };
-        if (ov){ ov.classList.remove('hidden'); }
+        if (ov){ ov.classList.remove('hidden'); const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Connecting...'; }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const answersRef = firebase.collection(this.db,'calls',callId,'answers');
         const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
