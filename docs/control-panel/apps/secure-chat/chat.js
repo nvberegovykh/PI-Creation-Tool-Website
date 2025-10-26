@@ -42,14 +42,21 @@
         // 2) Else fetch ephemeral TURN via Cloud Function
         if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
           const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
+          // Prefer explicit run.app URL if provided in keys or known
+          let runAppUrl = null;
+          try{ const keys = await window.secureKeyManager.getKeys(); runAppUrl = keys && (keys.turnFunctionUrl || keys.turn?.functionUrl) || null; }catch(_){ runAppUrl = null; }
+          const knownRunHost = 'https://getturnconfig-hkhtxasofa-ew.a.run.app';
           const regions = [regionPref, 'europe-west1', 'us-central1'];
-          for (const r of regions){
+          const candidates = [];
+          if (runAppUrl) candidates.push(runAppUrl);
+          candidates.push(knownRunHost);
+          regions.forEach(r=> candidates.push(`https://${r}-liber-apps-cca20.cloudfunctions.net/getTurnConfig`));
+          for (const url of candidates){
             try{
-              const url = `https://${r}-liber-apps-cca20.cloudfunctions.net/getTurnConfig`;
               const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
               if (resp.ok){
                 const json = await resp.json();
-                if (Array.isArray(json.iceServers) && json.iceServers.length){ console.log('TURN from', r); return json.iceServers; }
+                if (Array.isArray(json.iceServers) && json.iceServers.length){ console.log('TURN from', url); return json.iceServers; }
               }
             }catch(_){ /* try next region */ }
           }
