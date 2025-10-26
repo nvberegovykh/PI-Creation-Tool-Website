@@ -1,4 +1,12 @@
+// Add before the IIFE
+import { runTransaction } from 'firebase/firestore';
+
 (() => {
+  // At the very top, after (() => {, add:
+  import { runTransaction } from 'firebase/firestore';
+
+  // If firebase is not global, adjust accordingly. If it's already imported elsewhere, this may need to be moved.
+
   class SecureChatApp {
     constructor() {
       this.db = null;
@@ -1570,9 +1578,10 @@
     } else {
       console.log('Room already active, joining');
       if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
+        console.log('Joining call ID:', this._roomState.activeCallId);
         await this.joinMultiCall(this._roomState.activeCallId, video);
       } else {
-        console.warn('Invalid activeCallId, cannot join');
+        console.warn('No valid active call to join');
       }
     }
   }
