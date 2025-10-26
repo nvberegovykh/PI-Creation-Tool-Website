@@ -1439,6 +1439,9 @@
 
     async startCall({ video }){
       try{
+        // ensure previous listeners/pcs are cleaned up when reconnecting
+        try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ }
+        try{ this._activeCall && this._activeCall.pc && this._activeCall.pc.close(); }catch(_){ }
         const callId = `${this.activeConnection}_${Date.now()}`;
         const config = { audio: true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
@@ -1484,22 +1487,26 @@
         await this.saveMessage({ text:`[call:${video?'video':'voice'}:${callId}]` });
         // Listen for answer
         if (firebase.onSnapshot){
-          firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers','answer'), async (doc)=>{
+          const unsubs=[];
+          const u1 = firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers','answer'), async (doc)=>{
             if (doc.exists()){
               const data = doc.data();
               await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp:data.sdp }));
             }
           });
-          firebase.onSnapshot(candsRef, (snap)=>{
-            snap.forEach(d=>{ const v=d.data(); if(v.type==='answer' && v.candidate){ pc.addIceCandidate(new RTCIceCandidate(v.candidate)); }});
+          unsubs.push(u1);
+          const u2 = firebase.onSnapshot(candsRef, (snap)=>{
+            snap.forEach(d=>{ const v=d.data(); if(v.type==='answer' && v.candidate){ try{ if (pc.signalingState!=='closed'){ pc.addIceCandidate(new RTCIceCandidate(v.candidate)); } }catch(_){ } }});
           });
+          unsubs.push(u2);
+          this._activeCall = { pc, unsubs };
         }
         const endBtn = document.getElementById('end-call-btn');
         const micBtn = document.getElementById('toggle-mic-btn');
         const camBtn = document.getElementById('toggle-camera-btn');
         const hideBtn = document.getElementById('hide-call-btn');
         const showBtn = document.getElementById('show-call-btn');
-        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
+        if (endBtn){ endBtn.onclick = ()=>{ try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ } try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
         if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
         if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
         if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
