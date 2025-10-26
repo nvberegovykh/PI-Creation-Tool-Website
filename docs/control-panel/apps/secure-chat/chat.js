@@ -33,6 +33,7 @@ import { runTransaction } from 'firebase/firestore';
       this._connectingCid = null;
       this._activeCid = null;
       this._joinRetryTimer = null;
+      this._forceRelay = true; // Debug: force TURN-only until stable
       this.init();
     }
 
@@ -1649,7 +1650,9 @@ import { runTransaction } from 'firebase/firestore';
 
   async startMultiCall(callId, video = false){
     console.log('Starting multi call', callId, video);
-    await this.cleanupActiveCall();
+    if (this._activePCs && this._activePCs.size > 0) {
+      await this.cleanupActiveCall();
+    }
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
     const participants = conn.participants.filter(uid => uid !== this.currentUser.uid);
@@ -1691,10 +1694,16 @@ import { runTransaction } from 'firebase/firestore';
     for (const peerUid of participants){
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
-        iceTransportPolicy: 'all'
+        iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
       });
       pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
-      pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
+      pc.onconnectionstatechange = () => {
+        console.log('PC state for ' + peerUid + ':', pc.connectionState);
+        if (pc.connectionState === 'connected'){
+          const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
+          this._activeCid = callId;
+        }
+      };
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
       const txVideo = pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
@@ -1752,6 +1761,7 @@ import { runTransaction } from 'firebase/firestore';
       };
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
       const localCandidateQueue = [];
+      const remoteCandidateQueue = [];
       pc.onicecandidate = e => {
         if (e.candidate) {
           if (pc.remoteDescription) {
@@ -1786,7 +1796,7 @@ import { runTransaction } from 'firebase/firestore';
         snap.forEach(d => {
           const v = d.data();
           if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
-            if (!pc.remoteDescription) return;
+            if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
             pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
           }
         });
@@ -1861,7 +1871,7 @@ import { runTransaction } from 'firebase/firestore';
 
     const pc = new RTCPeerConnection({
       iceServers: await this.getIceServers(),
-      iceTransportPolicy: 'all'
+      iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
     });
     pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
     pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
@@ -1908,6 +1918,7 @@ import { runTransaction } from 'firebase/firestore';
     const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
     // Ensure we only process candidates for this peer
     const myUid = this.currentUser.uid;
+    const remoteCandidateQueue = [];
     const candidateQueue = [];
     pc.onicecandidate = e => {
       if (e.candidate) {
@@ -1945,6 +1956,9 @@ import { runTransaction } from 'firebase/firestore';
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      // Flush any queued ICE now that descriptions are set
+      while (candidateQueue.length) { const c = candidateQueue.shift(); try { await pc.addIceCandidate(c); } catch(_){} }
+      while (remoteCandidateQueue.length) { const rc = remoteCandidateQueue.shift(); try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch(_){} }
       try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
@@ -1954,7 +1968,7 @@ import { runTransaction } from 'firebase/firestore';
         const v = d.data();
         if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === myUid && v.candidate) {
           // Guard against calling before remoteDescription set
-          if (!pc.remoteDescription) { return; }
+          if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
           pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
         }
       });
@@ -2022,7 +2036,7 @@ import { runTransaction } from 'firebase/firestore';
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getIceServers(),
-          iceTransportPolicy: 'all'
+          iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
         pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
@@ -2103,7 +2117,7 @@ import { runTransaction } from 'firebase/firestore';
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getIceServers(),
-          iceTransportPolicy: 'all'
+          iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
         pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
