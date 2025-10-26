@@ -1532,14 +1532,20 @@ import { runTransaction } from 'firebase/firestore';
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
     };
-    if (micBtn) micBtn.onclick = () => { console.log('Mic toggle'); this._micEnabled = !this._micEnabled; this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled)); };
-    if (camBtn) camBtn.onclick = async () => { 
+    if (micBtn) micBtn.onclick = async () => {
+      console.log('Mic toggle');
+      this._micEnabled = !this._micEnabled;
+      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled));
+      if (this._roomState.activeCallId) await this.renegotiateCall(this._roomState.activeCallId, this._videoEnabled);
+    };
+    if (camBtn) camBtn.onclick = async () => {
       console.log('Camera toggle');
       this._videoEnabled = !this._videoEnabled;
       this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = this._videoEnabled));
       await this.updatePresence(this._roomState ? this._roomState.status : 'idle', this._videoEnabled);
       const lv = document.getElementById('localVideo');
       if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
+      if (this._roomState.activeCallId) await this.renegotiateCall(this._roomState.activeCallId, this._videoEnabled);
     };
     if (hideBtn) hideBtn.onclick = () => { 
       console.log('Hide clicked'); 
@@ -1655,7 +1661,6 @@ import { runTransaction } from 'firebase/firestore';
       pc.addTransceiver('audio', { direction: 'sendrecv' });
       if (video) pc.addTransceiver('video', { direction: 'sendrecv' });
       const offer = await pc.createOffer();
-      console.log('Offer SDP for ' + peerUid + ':', offer.sdp);
       await pc.setLocalDescription(offer);
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
       await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
@@ -1813,7 +1818,6 @@ import { runTransaction } from 'firebase/firestore';
       for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
       for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
       const answer = await pc.createAnswer();
-      console.log('Answer SDP:', answer.sdp);
       await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       stream.getTracks().forEach(tr => {
@@ -2301,6 +2305,18 @@ import { runTransaction } from 'firebase/firestore';
       if (statusEl) {
         statusEl.textContent = this._roomState.activeCallId ? 'In call' : 'Waiting for speech...';
       }
+    }
+
+    async renegotiateCall(callId, video){
+      this._activePCs.forEach(async (p, peerUid) => {
+        const pc = p.pc;
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        const offersRef = firebase.collection(this.db,'calls',callId,'offers');
+        await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      });
     }
   }
 
