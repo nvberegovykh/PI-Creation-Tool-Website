@@ -194,8 +194,8 @@ import { runTransaction } from 'firebase/firestore';
         navigator.serviceWorker.register('/sw.js').catch(()=>{});
       }
       // Call and recording buttons (placeholders)
-      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom());
-      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom());
+      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom(false));
+      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
@@ -1467,7 +1467,7 @@ import { runTransaction } from 'firebase/firestore';
     }catch(_){ return roomRef; }
   }
 
-  async enterRoom(video){
+  async enterRoom(video = false){
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log('Mic permission granted');
@@ -1599,7 +1599,7 @@ import { runTransaction } from 'firebase/firestore';
     });
   }
 
-  async startMultiCall(callId, video){
+  async startMultiCall(callId, video = false){
     console.log('Starting multi call', callId, video);
     this.cleanupActiveCall();
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
@@ -1609,7 +1609,7 @@ import { runTransaction } from 'firebase/firestore';
       alert('Max 8 users per room');
       return;
     }
-    await this.updatePresence('connecting', video);
+    await this.updatePresence('connecting', !!video);
     this._activePCs = new Map();
     for (const peerUid of participants){
       const pc = new RTCPeerConnection({
@@ -1660,7 +1660,7 @@ import { runTransaction } from 'firebase/firestore';
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
     }
-    await this.updatePresence('connected', video);
+    await this.updatePresence('connected', !!video);
     this._setupRoomInactivityMonitor();
     // Attach local speaking detector (once, since local stream is same for all)
     this._attachSpeakingDetector(this._activePCs.values().next().value.stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
@@ -2120,7 +2120,7 @@ import { runTransaction } from 'firebase/firestore';
       await this.updatePresence('idle', false);
     }
 
-    async updatePresence(state, hasVideo){
+    async updatePresence(state, hasVideo = false){
       const ref = firebase.doc(this.db,'callRooms', this.activeConnection, 'peers', this.currentUser.uid);
       await firebase.setDoc(ref, { uid: this.currentUser.uid, state, hasVideo, updatedAt: new Date().toISOString() }, { merge: true });
     }
