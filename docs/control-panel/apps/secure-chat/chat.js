@@ -1455,7 +1455,7 @@
             else { pc.addTrack(tr, stream); }
           });
         }catch(_){ }
-        stream.getTracks().forEach(t=> pc.addTrack(t, stream));
+        // tracks already added or replaced above
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
         pc.ontrack = (e)=>{
@@ -1520,7 +1520,7 @@
             else { pc.addTrack(tr, stream); }
           });
         }catch(_){ }
-        stream.getTracks().forEach(t=> pc.addTrack(t, stream));
+        // tracks already added or replaced above
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
         pc.ontrack = (e)=>{
