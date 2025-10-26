@@ -1505,14 +1505,15 @@ import { runTransaction } from 'firebase/firestore';
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
-      // Only auto-join when a call is active and we're not already starting/joining
-      if (this._roomState.activeCallId && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall) {
-        await this.joinMultiCall(this._roomState.activeCallId, video);
-      } else if (this._roomState.status === 'idle' && this._activePCs.size > 0 && !this._joiningCall && !this._startingCall) {
-        // Only auto-cleanup if the room explicitly went idle
-        await this.cleanupActiveCall();
+      // Only auto-join when a call is active, and we haven't already joined/started this call
+      const activeCid = this._roomState.activeCallId;
+      if (activeCid && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall && this._lastJoinedCallId !== activeCid) {
+        await this.joinMultiCall(activeCid, video);
       }
+      // Do not auto-cleanup here; end is controlled by silence timer or End button
       await this.updateRoomUI();
+      const status = document.getElementById('call-status');
+      if (status) status.textContent = activeCid ? 'In call' : 'Room open. Waiting for speech to start call...';
     });
     const peersRef = firebase.collection(this.db,'callRooms', this.activeConnection, 'peers');
     this._peersUnsub = firebase.onSnapshot(peersRef, snap => {
@@ -1536,15 +1537,16 @@ import { runTransaction } from 'firebase/firestore';
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
     const exitBtn = document.getElementById('exit-room-btn');
-    if (endBtn) endBtn.onclick = () => { 
+    if (endBtn) endBtn.onclick = async () => { 
       console.log('End clicked'); 
-      this.cleanupActiveCall(true); 
-      const ov = document.getElementById('call-overlay');
-      if (ov) ov.classList.add('hidden'); 
+      // End the call for everyone but keep overlay open for the room
+      await this.cleanupActiveCall(true);
+      const status = document.getElementById('call-status');
+      if (status) status.textContent = 'Room open. Waiting for speech to start call...';
     };
-    if (exitBtn) exitBtn.onclick = () => { 
+    if (exitBtn) exitBtn.onclick = async () => { 
       console.log('Exit clicked'); 
-      this.cleanupActiveCall(false); 
+      await this.cleanupActiveCall(false); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
     };
@@ -2232,7 +2234,7 @@ import { runTransaction } from 'firebase/firestore';
       const data = new Uint8Array(analyser.frequencyBinCount);
       let streak = 0;
       const tick = () => {
-        if (!this._inRoom) return;
+        if (!this._inRoom || (this._roomState && this._roomState.activeCallId)) return;
         analyser.getByteFrequencyData(data);
         let sum = 0; data.forEach(v => sum += v * v); // Energy
         const rms = Math.sqrt(sum / data.length);
