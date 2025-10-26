@@ -2,10 +2,6 @@
 import { runTransaction } from 'firebase/firestore';
 
 (() => {
-  // At the very top, after (() => {, add:
-  import { runTransaction } from 'firebase/firestore';
-
-  // If firebase is not global, adjust accordingly. If it's already imported elsewhere, this may need to be moved.
 
   class SecureChatApp {
     constructor() {
