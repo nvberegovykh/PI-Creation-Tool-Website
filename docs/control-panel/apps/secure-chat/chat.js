@@ -1442,11 +1442,26 @@
         const callId = `${this.activeConnection}_${Date.now()}`;
         const config = { audio: true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
-        const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
+        const pc = new RTCPeerConnection({
+          iceServers: await this.getIceServers(),
+          iceTransportPolicy: 'relay' // prefer TURN to punch through strict NATs
+        });
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; try{ rv.playsInline = true; rv.play().catch(()=>{}); }catch(_){} this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
+        pc.ontrack = (e)=>{
+          if (rv){
+            rv.srcObject = e.streams[0];
+            try{ rv.playsInline = true; rv.muted = false; rv.play().catch(()=>{}); }catch(_){ }
+          }
+          // For audio-only calls ensure an audio sink exists
+          if (!video){
+            let aud = document.getElementById('remoteAudio');
+            if (!aud){ aud = document.createElement('audio'); aud.id='remoteAudio'; aud.autoplay = true; aud.style.display='none'; document.body.appendChild(aud); }
+            aud.srcObject = e.streams[0];
+          }
+          this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
+        };
         if (ov){ ov.classList.remove('hidden'); }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
@@ -1484,11 +1499,25 @@
       try{
         const config = { audio:true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
-        const pc = new RTCPeerConnection({ iceServers: await this.getIceServers() });
+        const pc = new RTCPeerConnection({
+          iceServers: await this.getIceServers(),
+          iceTransportPolicy: 'relay'
+        });
         stream.getTracks().forEach(t=> pc.addTrack(t, stream));
         const lv = document.getElementById('localVideo'); const rv = document.getElementById('remoteVideo'); const ov = document.getElementById('call-overlay');
         if (lv){ lv.srcObject = stream; try{ lv.muted = true; lv.playsInline = true; lv.play().catch(()=>{}); }catch(_){} }
-        pc.ontrack = (e)=>{ if (rv){ rv.srcObject = e.streams[0]; try{ rv.playsInline = true; rv.play().catch(()=>{}); }catch(_){} this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote'); } };
+        pc.ontrack = (e)=>{
+          if (rv){
+            rv.srcObject = e.streams[0];
+            try{ rv.playsInline = true; rv.muted = false; rv.play().catch(()=>{}); }catch(_){ }
+          }
+          if (!video){
+            let aud = document.getElementById('remoteAudio');
+            if (!aud){ aud = document.createElement('audio'); aud.id='remoteAudio'; aud.autoplay = true; aud.style.display='none'; document.body.appendChild(aud); }
+            aud.srcObject = e.streams[0];
+          }
+          this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
+        };
         if (ov){ ov.classList.remove('hidden'); }
         try { await this._renderParticipants(); this._attachSpeakingDetector(stream, '.call-participants .avatar.local'); } catch(_){ }
         const answersRef = firebase.collection(this.db,'calls',callId,'answers');
@@ -1550,6 +1579,12 @@
           let sum = 0; for (let i=0;i<data.length;i++) sum += data[i];
           const avg = sum / data.length;
           if (avg > 30){ el.classList.add('speaking'); } else { el.classList.remove('speaking'); }
+          // Update last speech timestamps for inactivity monitor
+          if (avg > 30){
+            const now = Date.now();
+            if (selector && selector.includes('local')){ this._lastLocalSpeechTs = now; }
+            if (selector && selector.includes('remote')){ this._lastRemoteSpeechTs = now; }
+          }
           rafId = requestAnimationFrame(tick);
         };
         tick();
@@ -1557,6 +1592,54 @@
         const stop = ()=>{ try{ cancelAnimationFrame(rafId); }catch(_){} try{ ac.close(); }catch(_){} };
         stream.getTracks().forEach(t=> t.addEventListener('ended', stop));
       }catch(_){ }
+    }
+
+    _setupInactivityMonitor(pc, localStream, opts){
+      try{
+        this._lastLocalSpeechTs = Date.now();
+        this._lastRemoteSpeechTs = Date.now();
+        // initial detector values are set by _attachSpeakingDetector callbacks
+        if (this._inactTimer) clearInterval(this._inactTimer);
+        const limitMs = 5 * 60 * 1000; // 5 minutes
+        this._inactTimer = setInterval(()=>{
+          const last = Math.max(this._lastLocalSpeechTs||0, this._lastRemoteSpeechTs||0);
+          if (Date.now() - last > limitMs){
+            clearInterval(this._inactTimer); this._inactTimer=null;
+            try{ pc.close(); }catch(_){ }
+            try{ localStream && localStream.getTracks().forEach(t=> t.stop()); }catch(_){ }
+            const ov = document.getElementById('call-overlay'); if (ov) ov.classList.add('hidden');
+            this.saveMessage({ text: '[system] Call ended due to 5 minutes of silence' }).catch(()=>{});
+            this._startAutoResumeMonitor(opts && opts.video);
+          }
+        }, 15000);
+      }catch(_){ }
+    }
+
+    async _startAutoResumeMonitor(video){
+      // Keep a lightweight local mic monitor; when speech is detected, re-initiate call
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+        const ac = new (window.AudioContext || window.webkitAudioContext)();
+        const src = ac.createMediaStreamSource(stream);
+        const analyser = ac.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        let spokenStreak = 0;
+        const tick = async ()=>{
+          analyser.getByteFrequencyData(data);
+          let sum=0; for (let i=0;i<data.length;i++) sum+=data[i];
+          const avg = sum/data.length;
+          if (avg > 35){ spokenStreak++; } else { spokenStreak = 0; }
+          if (spokenStreak > 10){
+            try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
+            try{ ac.close(); }catch(_){ }
+            // Recreate call as voice by default; preserve requested video flag
+            await this.startCall({ video: !!video });
+            return; // stop loop
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }catch(_){ /* ignore auto-resume if mic permissions blocked */ }
     }
     async recordVoiceMessage(){
       try{
