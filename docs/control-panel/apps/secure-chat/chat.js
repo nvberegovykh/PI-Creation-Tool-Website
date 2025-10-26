@@ -1446,6 +1446,9 @@
           iceServers: await this.getIceServers(),
           iceTransportPolicy: 'relay' // prefer TURN to punch through strict NATs
         });
+        window._pc = pc; // debug handle
+        pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
+        pc.onconnectionstatechange = ()=> console.log('PC state:', pc.connectionState);
         // Add local tracks safely (avoid duplicate senders)
         try{
           const existing = pc.getSenders ? pc.getSenders() : [];
@@ -1512,6 +1515,9 @@
           iceServers: await this.getIceServers(),
           iceTransportPolicy: 'relay'
         });
+        window._pc = pc; // debug handle
+        pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
+        pc.onconnectionstatechange = ()=> console.log('PC state:', pc.connectionState);
         try{
           const existing = pc.getSenders ? pc.getSenders() : [];
           stream.getTracks().forEach(tr => {
