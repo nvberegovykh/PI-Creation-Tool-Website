@@ -2016,7 +2016,7 @@
       await this.updatePresence('idle', false);
     }
 
-    updatePresence(state, hasVideo){
+    async updatePresence(state, hasVideo){
       const ref = firebase.doc(this.db,'callRooms', this.activeConnection, 'peers', this.currentUser.uid);
       await firebase.setDoc(ref, { uid: this.currentUser.uid, state, hasVideo, updatedAt: new Date().toISOString() }, { merge: true });
     }
