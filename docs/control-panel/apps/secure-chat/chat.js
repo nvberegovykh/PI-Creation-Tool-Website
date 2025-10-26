@@ -42,11 +42,16 @@
         // 2) Else fetch ephemeral TURN via Cloud Function
         if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
           const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
-          const url = `https://${regionPref}-liber-apps-cca20.cloudfunctions.net/getTurnConfig`;
-          const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
-          if (resp.ok){
-            const json = await resp.json();
-            if (Array.isArray(json.iceServers) && json.iceServers.length){ return json.iceServers; }
+          const regions = [regionPref, 'europe-west1', 'us-central1'];
+          for (const r of regions){
+            try{
+              const url = `https://${r}-liber-apps-cca20.cloudfunctions.net/getTurnConfig`;
+              const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
+              if (resp.ok){
+                const json = await resp.json();
+                if (Array.isArray(json.iceServers) && json.iceServers.length){ console.log('TURN from', r); return json.iceServers; }
+              }
+            }catch(_){ /* try next region */ }
           }
         }
       }catch(_){ /* ignore */ }
@@ -1512,12 +1517,12 @@
       try{
         const cont = document.getElementById('call-participants'); if (!cont) return;
         cont.innerHTML='';
-        const selfAvatar = (this.me && this.me.avatarUrl) || 'images/default-bird.png';
+        const selfAvatar = (this.me && this.me.avatarUrl) || '../../images/default-bird.png';
         const local = document.createElement('div'); local.className = 'avatar local connected'; local.innerHTML = `<img src="${selfAvatar}" alt="me"/>`;
         cont.appendChild(local);
         // Peer
         const peerUid = await this.getPeerUid();
-        let peerAvatar = 'images/default-bird.png';
+        let peerAvatar = '../../images/default-bird.png';
         try{ const d = await window.firebaseService.getUserData(peerUid); if (d && d.avatarUrl) peerAvatar = d.avatarUrl; }catch(_){ }
         const remote = document.createElement('div'); remote.className = 'avatar remote connected'; remote.innerHTML = `<img src="${peerAvatar}" alt="peer"/>`;
         cont.appendChild(remote);
