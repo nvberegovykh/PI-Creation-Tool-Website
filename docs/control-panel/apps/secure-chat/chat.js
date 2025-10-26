@@ -23,6 +23,7 @@ import { runTransaction } from 'firebase/firestore';
       this._inactTimer = null;
       this._videoEnabled = false;
       this._micEnabled = true;
+      this._monitoring = false;
       this.init();
     }
 
@@ -1571,6 +1572,7 @@ import { runTransaction } from 'firebase/firestore';
       console.log('Transaction success, starting multi call');
       await this.startMultiCall(cid, video);
       await this.saveMessage({ text: `[call:voice:${cid}]` });
+      this._monitoring = false;
     } else {
       console.log('Room already active, joining');
       if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
@@ -1997,6 +1999,8 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async _startAutoResumeMonitor(video){
+      if (this._monitoring) return;
+      this._monitoring = true;
       console.log('Starting speech monitor');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const ac = new AudioContext();
@@ -2017,6 +2021,7 @@ import { runTransaction } from 'firebase/firestore';
           stream.getTracks().forEach(t => t.stop());
           ac.close();
           this.attemptStartRoomCall(video);
+          this._monitoring = false;
           return;
         }
         requestAnimationFrame(tick);
@@ -2141,7 +2146,7 @@ import { runTransaction } from 'firebase/firestore';
           const av = document.createElement('div');
           av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
           av.setAttribute('data-uid', uid);
-          av.innerHTML = `<img src="${cached.avatarUrl}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
+          av.innerHTML = `<img src="${cached.avatarUrl || '../../images/default-bird.png'}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
           cont.appendChild(av);
           // Video tile logic...
         });
@@ -2151,7 +2156,7 @@ import { runTransaction } from 'firebase/firestore';
         const selfAv = document.createElement('div');
         selfAv.className = `avatar local ${selfP.state}` + (selfP.state !== 'connected' ? ' dim' : '');
         selfAv.setAttribute('data-uid', this.currentUser.uid);
-        selfAv.innerHTML = `<img src="${selfCached.avatarUrl}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${selfP.state === 'connecting' ? 'connecting' : ''}</div>`;
+        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${selfP.state === 'connecting' ? 'connecting' : ''}</div>`;
         cont.appendChild(selfAv);
       } catch (err) {
         console.error('Failed to load participants for UI:', err);
