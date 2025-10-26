@@ -1614,8 +1614,37 @@ import { runTransaction } from 'firebase/firestore';
       alert('Max 8 users per room');
       return;
     }
-    await this.updatePresence('connecting', !!video);
+    await this.updatePresence('connecting', video);
     this._activePCs = new Map();
+    const config = { audio: true, video: !!video };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(config);
+    } catch (err) {
+      console.error('getUserMedia failed:', err);
+      return;
+    }
+    stream.getVideoTracks().forEach(t => t.enabled = !!video);
+    let videosCont = document.getElementById('call-videos');
+    if (!videosCont) {
+      videosCont = document.createElement('div');
+      videosCont.id = 'call-videos';
+      videosCont.style.cssText = 'display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;';
+      const overlay = document.getElementById('call-overlay');
+      if (overlay) overlay.appendChild(videosCont);
+    }
+    let lv = document.getElementById('localVideo');
+    if (!lv) {
+      lv = document.createElement('video');
+      lv.id = 'localVideo';
+      lv.autoplay = true;
+      lv.playsInline = true;
+      lv.muted = true;
+      lv.style.display = 'none';
+      videosCont.appendChild(lv);
+    }
+    lv.srcObject = stream;
+    lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
     for (const peerUid of participants){
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
@@ -1623,11 +1652,17 @@ import { runTransaction } from 'firebase/firestore';
       });
       pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
-        const config = { audio: true, video: !!video };
-        const stream = await navigator.mediaDevices.getUserMedia(config);
-      stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
-      const lv = document.getElementById('localVideo');
-      if (lv) lv.srcObject = stream;
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      if (video) pc.addTransceiver('video', { direction: 'sendrecv' });
+      const offer = await pc.createOffer();
+      console.log('Offer SDP for ' + peerUid + ':', offer.sdp);
+      await pc.setLocalDescription(offer);
+      const offersRef = firebase.collection(this.db,'calls',callId,'offers');
+      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      stream.getTracks().forEach(tr => {
+        if (tr.kind === 'video' && !video) return;
+        pc.addTrack(tr, stream);
+      });
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
       if (!rv) {
         rv = document.createElement('video');
@@ -1635,9 +1670,10 @@ import { runTransaction } from 'firebase/firestore';
         rv.autoplay = true;
         rv.playsInline = true;
         rv.style.display = 'none';
-        document.getElementById('call-videos').appendChild(rv);
+        videosCont.appendChild(rv);
       }
       pc.ontrack = e => {
+        console.log('Received remote track for ' + peerUid, e.track.kind);
         rv.srcObject = e.streams[0];
         rv.muted = false;
         rv.play();
@@ -1645,44 +1681,50 @@ import { runTransaction } from 'firebase/firestore';
         rv.style.display = hasVid ? 'block' : 'none';
         this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
       };
-      const offersRef = firebase.collection(this.db,'calls',callId,'offers');
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+      const candidateQueue = [];
       pc.onicecandidate = e => {
-        if (e.candidate) firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+        if (e.candidate) {
+          if (pc.remoteDescription) {
+            firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+          } else {
+            candidateQueue.push(e.candidate);
+          }
+        }
       };
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      if (video) pc.addTransceiver('video', { direction: 'sendrecv' });
-      const offer = await pc.createOffer();
-      console.log('Offer SDP:', offer.sdp);
-      await pc.setLocalDescription(offer);
-      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       const unsubs = [];
       unsubs.push(firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers', peerUid), async doc => {
         if (doc.exists() && pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
+          console.log('Setting remote description for ' + peerUid);
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
+            for (const cand of candidateQueue) {
+              await pc.addIceCandidate(cand);
+            }
+            candidateQueue.length = 0;
+          } catch (err) {
+            console.error('setRemote failed for ' + peerUid, err);
+          }
         } else if (doc.exists()) {
-          console.warn('Skipping setRemote - wrong state:', pc.signalingState);
+          console.warn('Skipping setRemote for ' + peerUid + ' - wrong state:', pc.signalingState);
         }
       }));
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
         snap.forEach(d => {
           const v = d.data();
-          if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate));
+          if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
+            pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
+          }
         });
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
     }
-    await this.updatePresence('connected', !!video);
+    await this.updatePresence('connected', video);
     this._setupRoomInactivityMonitor();
-    // Attach local speaking detector (once, since local stream is same for all)
-    this._attachSpeakingDetector(this._activePCs.values().next().value.stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+    this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
   }
 
-  async joinMultiCall(callId, video){
-    if (!callId) {
-      console.warn('No active call ID');
-      return;
-    }
+  async joinMultiCall(callId, video = false){
     console.log('Joining multi call', callId, video);
     this.cleanupActiveCall();
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
@@ -1694,6 +1736,35 @@ import { runTransaction } from 'firebase/firestore';
     }
     await this.updatePresence('connecting', video);
     this._activePCs = new Map();
+    const config = { audio: true, video: !!video };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(config);
+    } catch (err) {
+      console.error('getUserMedia failed:', err);
+      return;
+    }
+    stream.getVideoTracks().forEach(t => t.enabled = !!video);
+    let videosCont = document.getElementById('call-videos');
+    if (!videosCont) {
+      videosCont = document.createElement('div');
+      videosCont.id = 'call-videos';
+      videosCont.style.cssText = 'display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;';
+      const overlay = document.getElementById('call-overlay');
+      if (overlay) overlay.appendChild(videosCont);
+    }
+    let lv = document.getElementById('localVideo');
+    if (!lv) {
+      lv = document.createElement('video');
+      lv.id = 'localVideo';
+      lv.autoplay = true;
+      lv.playsInline = true;
+      lv.muted = true;
+      lv.style.display = 'none';
+      videosCont.appendChild(lv);
+    }
+    lv.srcObject = stream;
+    lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
     for (const peerUid of participants){
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
@@ -1701,10 +1772,6 @@ import { runTransaction } from 'firebase/firestore';
       });
       pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
-      const config = { audio: true, video: !!video };
-      const stream = await navigator.mediaDevices.getUserMedia(config);
-      const lv = document.getElementById('localVideo');
-      if (lv) lv.srcObject = stream;
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
       if (!rv) {
         rv = document.createElement('video');
@@ -1712,9 +1779,10 @@ import { runTransaction } from 'firebase/firestore';
         rv.autoplay = true;
         rv.playsInline = true;
         rv.style.display = 'none';
-        document.getElementById('call-videos').appendChild(rv);
+        videosCont.appendChild(rv);
       }
       pc.ontrack = e => {
+        console.log('Received remote track for ' + peerUid, e.track.kind);
         rv.srcObject = e.streams[0];
         rv.muted = false;
         rv.play();
@@ -1724,35 +1792,48 @@ import { runTransaction } from 'firebase/firestore';
       };
       const answersRef = firebase.collection(this.db,'calls',callId,'answers');
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
+      const candidateQueue = [];
       pc.onicecandidate = e => {
-        if (e.candidate) firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+        if (e.candidate) {
+          if (pc.remoteDescription) {
+            firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+          } else {
+            candidateQueue.push(e.candidate);
+          }
+        }
       };
       const offerDoc = await firebase.getDoc(firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid));
       if (!offerDoc.exists()) continue;
       const offer = offerDoc.data();
       await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
-      // Parse offer SDP to match m-lines
       const offerSdp = pc.remoteDescription.sdp;
       const audioLines = (offerSdp.match(/m=audio/g) || []).length;
       const videoLines = (offerSdp.match(/m=video/g) || []).length;
       console.log('Offer has ' + audioLines + ' audio, ' + videoLines + ' video m-lines');
       for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
-      for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: 'sendrecv' });
+      for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'inactive' });
       const answer = await pc.createAnswer();
       console.log('Answer SDP:', answer.sdp);
       await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      stream.getTracks().forEach(tr => {
+        if (tr.kind === 'video' && !video) return;
+        pc.addTrack(tr, stream);
+      });
+      candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
+      candidateQueue.length = 0;
       const unsubs = [];
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
         snap.forEach(d => {
           const v = d.data();
-          if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate));
+          if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
         });
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
     }
     await this.updatePresence('connected', video);
     this._setupRoomInactivityMonitor();
+    this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
   }
 
   async _setupRoomInactivityMonitor(){
