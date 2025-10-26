@@ -29,6 +29,7 @@ import { runTransaction } from 'firebase/firestore';
       this._startingCall = false;
       this._joiningCall = false;
       this._cleanupIdleTimer = null;
+      this._lastJoinedCallId = null;
       this.init();
     }
 
@@ -1792,6 +1793,8 @@ import { runTransaction } from 'firebase/firestore';
 
   async joinMultiCall(callId, video = false){
     console.log('Joining multi call', callId, video);
+    if (this._lastJoinedCallId === callId && this._activePCs.size > 0) { return; }
+    this._lastJoinedCallId = callId;
     await this.cleanupActiveCall();
     await this.updatePresence('connecting', video);
     this._activePCs = new Map();
@@ -1898,7 +1901,7 @@ import { runTransaction } from 'firebase/firestore';
       }
     };
 
-    await pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp: offer.sdp }));
+    await pc.setRemoteDescription({ type:'offer', sdp: offer.sdp });
     // Align transceivers to the remote offer and attach local tracks without changing m-line order
     const trxs = pc.getTransceivers ? pc.getTransceivers() : [];
     trxs.forEach(tx => {
