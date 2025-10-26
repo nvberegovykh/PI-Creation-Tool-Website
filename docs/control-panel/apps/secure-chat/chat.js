@@ -27,8 +27,10 @@
     async getIceServers(){
       try{
         // 1) Try static TURN from keys
+        let regionPref = 'europe-west1';
         if (window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function'){
           const keys = await window.secureKeyManager.getKeys();
+          regionPref = (keys && keys.firebase && (keys.firebase.functionsRegion || keys.firebase.region)) || regionPref;
           const turn = keys && keys.turn;
           if (turn && Array.isArray(turn.uris) && turn.username && turn.credential){
             return [
@@ -40,7 +42,7 @@
         // 2) Else fetch ephemeral TURN via Cloud Function
         if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
           const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
-          const url = 'https://europe-west1-liber-apps-cca20.cloudfunctions.net/getTurnConfig';
+          const url = `https://${regionPref}-liber-apps-cca20.cloudfunctions.net/getTurnConfig`;
           const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
           if (resp.ok){
             const json = await resp.json();
