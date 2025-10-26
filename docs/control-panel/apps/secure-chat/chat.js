@@ -1681,8 +1681,8 @@ import { runTransaction } from 'firebase/firestore';
         console.log('Received remote track for ' + peerUid, e.track.kind);
         rv.srcObject = e.streams[0];
         rv.muted = false;
-        rv.play();
-        const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
+        rv.addEventListener('loadedmetadata', () => rv.play().catch(err => console.error('Play failed:', err)));
+        const hasVid = e.streams[0] && e.streams[0].getVideoTracks().some(t => t.enabled);
         rv.style.display = hasVid ? 'block' : 'none';
         this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
       };
@@ -1790,8 +1790,8 @@ import { runTransaction } from 'firebase/firestore';
         console.log('Received remote track for ' + peerUid, e.track.kind);
         rv.srcObject = e.streams[0];
         rv.muted = false;
-        rv.play();
-        const hasVid = e.streams[0].getVideoTracks().some(t => t.enabled);
+        rv.addEventListener('loadedmetadata', () => rv.play().catch(err => console.error('Play failed:', err)));
+        const hasVid = e.streams[0] && e.streams[0].getVideoTracks().some(t => t.enabled);
         rv.style.display = hasVid ? 'block' : 'none';
         this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
       };
@@ -2240,6 +2240,9 @@ import { runTransaction } from 'firebase/firestore';
       }
       document.querySelectorAll('#call-videos video').forEach(v => v.remove());
       if (!endRoom) this._inRoom = false;
+      try {
+        await navigator.mediaDevices.getUserMedia({audio: false});
+      } catch (_) {}
     }
 
     async updatePresence(state, hasVideo = false){
