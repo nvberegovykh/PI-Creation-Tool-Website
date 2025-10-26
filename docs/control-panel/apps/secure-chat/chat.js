@@ -17,6 +17,8 @@
       this._peersPresence = {};
       this._lastSpeech = new Map(); // uid -> timestamp
       this._inactTimer = null;
+      this._videoEnabled = false;
+      this._micEnabled = true;
       this.init();
     }
 
@@ -1462,6 +1464,15 @@
   }
 
   async enterRoom(video){
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('Mic permission granted');
+    } catch (err) {
+      console.error('Mic permission denied', err);
+      alert('Microphone access is required for voice detection in calls.');
+      return;
+    }
+    this._videoEnabled = !!video;
     await this.ensureRoom();
     const ov = document.getElementById('call-overlay');
     if (ov) ov.classList.remove('hidden');
@@ -1500,37 +1511,49 @@
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
     if (endBtn) endBtn.onclick = () => this.cleanupActiveCall(true); // End room for all
-    if (micBtn) micBtn.onclick = () => {
-      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = !t.enabled));
+    if (micBtn) micBtn.onclick = () => { 
+      console.log('Mic toggle');
+      this._micEnabled = !this._micEnabled;
+      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled));
     };
-    if (camBtn) camBtn.onclick = () => {
-      const enabled = !video; // Toggle
-      this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = enabled));
-      this.updatePresence(this._roomState.status, enabled);
-      // Update local video display
+    if (camBtn) camBtn.onclick = () => { 
+      console.log('Camera toggle');
+      this._videoEnabled = !this._videoEnabled;
+      this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = this._videoEnabled));
+      await this.updatePresence(this._roomState.status || 'idle', this._videoEnabled);
       const lv = document.getElementById('localVideo');
-      if (lv) lv.style.display = enabled ? 'block' : 'none';
+      if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
     };
     if (hideBtn) hideBtn.onclick = () => { ov.classList.add('hidden'); showBtn.style.display = 'block'; };
     if (showBtn) showBtn.onclick = () => { ov.classList.remove('hidden'); showBtn.style.display = 'none'; };
   }
 
   async attemptStartRoomCall(video){
+    console.log('Attempting to start room call');
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     const cid = `${this.activeConnection}_latest`;
-    const success = await firebase.runTransaction(this.db, async tx => {
+    const success = await this.runStartTransaction(roomRef, cid);
+    if (success) {
+      console.log('Transaction success, starting multi call');
+      await this.startMultiCall(cid, video);
+      await this.saveMessage({ text: `[call:voice:${cid}]` });
+    } else {
+      console.log('Room already active, joining');
+      await this.joinMultiCall(this._roomState.activeCallId, video);
+    }
+  }
+
+  async runStartTransaction(roomRef, cid) {
+    return await firebase.runTransaction(this.db, async (tx) => {
       const snap = await tx.get(roomRef);
       if (snap.data().status !== 'idle') return false;
       tx.update(roomRef, { status: 'connecting', activeCallId: cid, startedBy: this.currentUser.uid, startedAt: new Date().toISOString() });
       return true;
     });
-    if (success) {
-      await this.startMultiCall(cid, video);
-      await this.saveMessage({ text: `[call:voice:${cid}]` });
-    }
   }
 
   async startMultiCall(callId, video){
+    console.log('Starting multi call', callId, video);
     this.cleanupActiveCall();
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
@@ -1597,6 +1620,7 @@
   }
 
   async joinMultiCall(callId, video){
+    console.log('Joining multi call', callId, video);
     this.cleanupActiveCall();
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
@@ -1922,30 +1946,31 @@
     }
 
     async _startAutoResumeMonitor(video){
-      // Keep a lightweight local mic monitor; when speech is detected, re-initiate call
-      try{
-        const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-        const ac = new (window.AudioContext || window.webkitAudioContext)();
-        const src = ac.createMediaStreamSource(stream);
-        const analyser = ac.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        let spokenStreak = 0;
-        const tick = async ()=>{
-          analyser.getByteFrequencyData(data);
-          let sum=0; for (let i=0;i<data.length;i++) sum+=data[i];
-          const avg = sum/data.length;
-          if (avg > 35){ spokenStreak++; } else { spokenStreak = 0; }
-          if (spokenStreak > 10){
-            try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){ }
-            try{ ac.close(); }catch(_){ }
-            // Recreate call as voice by default; preserve requested video flag
-            await this.startCall({ video: !!video });
-            return; // stop loop
-          }
-          requestAnimationFrame(tick);
-        };
+      console.log('Starting speech monitor');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ac = new AudioContext();
+      const src = ac.createMediaStreamSource(stream);
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 256; // Smaller for faster response
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let streak = 0;
+      const tick = () => {
+        analyser.getByteFrequencyData(data);
+        let sum = 0; data.forEach(v => sum += v * v); // Energy
+        const rms = Math.sqrt(sum / data.length);
+        console.log('RMS:', rms);
+        if (rms > 10) streak++; else streak = 0; // Lower threshold
+        if (streak > 3) { // Shorter streak
+          console.log('Speech detected! Starting call');
+          stream.getTracks().forEach(t => t.stop());
+          ac.close();
+          this.attemptStartRoomCall(video);
+          return;
+        }
         requestAnimationFrame(tick);
-      }catch(_){ /* ignore auto-resume if mic permissions blocked */ }
+      };
+      requestAnimationFrame(tick);
     }
     async recordVoiceMessage(){
       try{
@@ -2082,6 +2107,10 @@
         if (err.code === 'permission-denied') {
           alert('Permission denied loading chat data. Check Firestore rules.');
         }
+      }
+      const statusEl = document.getElementById('call-status');
+      if (statusEl) {
+        statusEl.textContent = this._roomState.activeCallId ? 'In call' : 'Waiting for speech...';
       }
     }
   }
