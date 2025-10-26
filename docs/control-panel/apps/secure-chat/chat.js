@@ -26,6 +26,8 @@ import { runTransaction } from 'firebase/firestore';
       this._monitoring = false;
       this._monitorStream = null;
       this._inRoom = false;
+      this._startingCall = false;
+      this._joiningCall = false;
       this.init();
     }
 
@@ -1575,13 +1577,22 @@ import { runTransaction } from 'firebase/firestore';
 
   async attemptStartRoomCall(video){
     console.log('Attempting to start room call');
+    if (this._startingCall || this._joiningCall) { console.warn('Call start suppressed (busy)'); return; }
     if (!this._roomState) {
       console.warn('Room state not loaded yet, retrying...');
       await new Promise(r => setTimeout(r, 500)); // Short delay
       if (!this._roomState) return; // Bail if still null
     }
+    // If room already active, join instead of trying to set active
+    if (this._roomState.activeCallId) {
+      this._joiningCall = true;
+      try { await this.joinMultiCall(this._roomState.activeCallId, video); }
+      finally { this._joiningCall = false; }
+      return;
+    }
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     const cid = `${this.activeConnection}_latest`;
+    this._startingCall = true;
     const success = await this.runStartTransaction(roomRef, cid).catch(err => {
       console.error('Transaction failed:', err);
       if (err.code === 'permission-denied') alert('Permission denied starting call. Check Firestore rules for /callRooms.');
@@ -1589,17 +1600,21 @@ import { runTransaction } from 'firebase/firestore';
     });
     if (success) {
       console.log('Transaction success, starting multi call');
-      await this.startMultiCall(cid, video);
+      try { await this.startMultiCall(cid, video); }
+      finally { this._startingCall = false; }
       await this.saveMessage({ text: `[call:voice:${cid}]` });
       this._monitoring = false;
     } else {
       console.log('Room already active, joining');
       if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
         console.log('Joining call ID:', this._roomState.activeCallId);
-        await this.joinMultiCall(this._roomState.activeCallId, video);
+        this._joiningCall = true;
+        try { await this.joinMultiCall(this._roomState.activeCallId, video); }
+        finally { this._joiningCall = false; }
       } else {
         console.warn('No valid active call to join');
       }
+      this._startingCall = false;
     }
   }
 
@@ -1731,19 +1746,22 @@ import { runTransaction } from 'firebase/firestore';
       };
       const unsubs = [];
       unsubs.push(firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers', peerUid), async doc => {
-        if (doc.exists() && pc.signalingState === 'have-local-offer') {
-          console.log('Setting remote description for ' + peerUid);
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(doc.data()));
-            for (const cand of candidateQueue) {
-              await pc.addIceCandidate(cand);
-            }
-            candidateQueue.length = 0;
-          } catch (err) {
-            console.error('setRemote failed for ' + peerUid, err);
+        if (!doc.exists()) return;
+        const data = doc.data();
+        // Normalize to RTCSessionDescriptionInit
+        const desc = { type: data.type || 'answer', sdp: data.sdp };
+        // Only set when we have a local offer
+        if (pc.signalingState !== 'have-local-offer') { return; }
+        console.log('Setting remote description for ' + peerUid);
+        try {
+          await pc.setRemoteDescription(desc);
+          // Flush queued ICE now that remoteDescription is set
+          while (candidateQueue.length) {
+            const cand = candidateQueue.shift();
+            try { await pc.addIceCandidate(cand); } catch (e) { console.warn('addIceCandidate (flushed) failed:', e?.message||e); }
           }
-        } else if (doc.exists()) {
-          console.warn('Skipping setRemote for ' + peerUid + ' - wrong state:', pc.signalingState);
+        } catch (err) {
+          console.error('setRemote failed for ' + peerUid, err);
         }
       }));
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
@@ -1875,19 +1893,13 @@ import { runTransaction } from 'firebase/firestore';
     for (let i = 0; i < audioLines; i++) pc.addTransceiver('audio', { direction: 'sendrecv' });
     for (let i = 0; i < videoLines; i++) pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
 
-    // Attach local tracks
+    // Attach local tracks ONCE before creating the answer
     localStream.getTracks().forEach(tr => {
       if (tr.kind === 'video' && !video) return;
       pc.addTrack(tr, localStream);
     });
-
-      // Attach local tracks before answer so SDP contains SSRCs
-      localStream.getTracks().forEach(tr => {
-        if (tr.kind === 'video' && !video) return;
-        pc.addTrack(tr, localStream);
-      });
       const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+    await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
@@ -1895,7 +1907,11 @@ import { runTransaction } from 'firebase/firestore';
     unsubs.push(firebase.onSnapshot(candsRef, snap => {
       snap.forEach(d => {
         const v = d.data();
-        if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
+        if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
+          // Guard against calling before remoteDescription set
+          if (!pc.remoteDescription) { return; }
+          pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
+        }
       });
     }));
     this._activePCs.set(peerUid, {pc, unsubs, stream: localStream, videoEl: rv});
@@ -2283,6 +2299,8 @@ import { runTransaction } from 'firebase/firestore';
 
     async cleanupActiveCall(endRoom = false){
       console.log('Cleaning up active call');
+    this._startingCall = false;
+    this._joiningCall = false;
       this._activePCs.forEach((p, uid) => {
         console.log('Stopping stream for ' + uid);
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
