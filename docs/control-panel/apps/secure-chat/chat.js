@@ -1648,6 +1648,8 @@ import { runTransaction } from 'firebase/firestore';
       pc.onicecandidate = e => {
         if (e.candidate) firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
       };
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      if (video) pc.addTransceiver('video', { direction: 'sendrecv' });
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
@@ -1698,7 +1700,6 @@ import { runTransaction } from 'firebase/firestore';
       pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
       const config = { audio: true, video: !!video };
       const stream = await navigator.mediaDevices.getUserMedia(config);
-      stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
       const lv = document.getElementById('localVideo');
       if (lv) lv.srcObject = stream;
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
@@ -2133,7 +2134,9 @@ import { runTransaction } from 'firebase/firestore';
       if (this._monitorStream) {
         this._monitorStream.getTracks().forEach(t => t.stop());
         this._monitorStream = null;
+        this._monitoring = false;
       }
+      document.querySelectorAll('#call-videos video').forEach(v => v.remove());
     }
 
     async updatePresence(state, hasVideo = false){
@@ -2150,10 +2153,17 @@ import { runTransaction } from 'firebase/firestore';
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         const participants = new Set(conn.participants || []);
-        participants.forEach(uid => {
-          if (uid === this.currentUser.uid) return; // Skip self for remote
+        participants.forEach(async uid => { // Make loop async
+          if (uid === this.currentUser.uid) return;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
-          const cached = this.usernameCache.get(uid) || { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' };
+          let cached = this.usernameCache.get(uid);
+          if (!cached || !cached.avatarUrl) {
+            try {
+              const u = await window.firebaseService.getUserData(uid);
+              cached = { username: u?.username || uid.slice(0,8), avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
+              this.usernameCache.set(uid, cached);
+            } catch (_) { cached = { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' }; }
+          }
           const av = document.createElement('div');
           av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
           av.setAttribute('data-uid', uid);
@@ -2162,12 +2172,18 @@ import { runTransaction } from 'firebase/firestore';
           // Video tile logic...
         });
         // Add self
-        const selfP = this._peersPresence[this.currentUser.uid] || { state: 'idle', hasVideo: false };
-        const selfCached = this.usernameCache.get(this.currentUser.uid) || { username: 'You', avatarUrl: '../../images/default-bird.png' };
+        let selfCached = this.usernameCache.get(this.currentUser.uid);
+        if (!selfCached || !selfCached.avatarUrl) {
+          try {
+            const u = await window.firebaseService.getUserData(this.currentUser.uid);
+            selfCached = { username: u?.username || 'You', avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
+            this.usernameCache.set(this.currentUser.uid, selfCached);
+          } catch (_) { selfCached = { username: 'You', avatarUrl: '../../images/default-bird.png' }; }
+        }
         const selfAv = document.createElement('div');
-        selfAv.className = `avatar local ${selfP.state}` + (selfP.state !== 'connected' ? ' dim' : '');
+        selfAv.className = `avatar local ${this._peersPresence[this.currentUser.uid].state}` + (this._peersPresence[this.currentUser.uid].state !== 'connected' ? ' dim' : '');
         selfAv.setAttribute('data-uid', this.currentUser.uid);
-        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${selfP.state === 'connecting' ? 'connecting' : ''}</div>`;
+        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${this._peersPresence[this.currentUser.uid].state === 'connecting' ? 'connecting' : ''}</div>`;
         cont.appendChild(selfAv);
       } catch (err) {
         console.error('Failed to load participants for UI:', err);
