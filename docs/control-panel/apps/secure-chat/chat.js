@@ -123,6 +123,9 @@
 
       // Add debug method to check Firebase config
       await this.debugFirebaseConfig();
+
+      // Ensure self is cached
+      this.usernameCache.set(this.currentUser.uid, { username: this.me?.username || 'You', avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png' });
     }
 
     bindUI(){
@@ -2050,29 +2053,36 @@
       const cont = document.getElementById('call-participants');
       if (!cont) return;
       cont.innerHTML = '';
-      const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
-      const conn = connSnap.data() || {};
-      const participants = conn.participants || [];
-      participants.forEach(uid => {
-        const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
-        const name = this.usernameCache.get(uid)?.username || uid.slice(0,8);
-        const avatarUrl = this.usernameCache.get(uid)?.avatarUrl || '../../images/default-bird.png';
-        const av = document.createElement('div');
-        av.className = 'avatar' + (p.state === 'connected' ? ' connected' : ' dim');
-        av.setAttribute('data-uid', uid);
-        av.innerHTML = `<img src="${avatarUrl}" alt="${name}"/><div class="name">${name}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
-        cont.appendChild(av);
-        // Video tile
-        let rv = document.getElementById(`remoteVideo-${uid}`);
-        if (!rv && p.hasVideo) {
-          rv = document.createElement('video');
-          rv.id = `remoteVideo-${uid}`;
-          rv.autoplay = true;
-          rv.playsInline = true;
-          document.getElementById('call-videos').appendChild(rv);
+      try {
+        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+        if (!connSnap.exists()) return;
+        const conn = connSnap.data();
+        const participants = new Set(conn.participants || []);
+        participants.forEach(uid => {
+          if (uid === this.currentUser.uid) return; // Skip self for remote
+          const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
+          const cached = this.usernameCache.get(uid) || { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' };
+          const av = document.createElement('div');
+          av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
+          av.setAttribute('data-uid', uid);
+          av.innerHTML = `<img src="${cached.avatarUrl}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
+          cont.appendChild(av);
+          // Video tile logic...
+        });
+        // Add self
+        const selfP = this._peersPresence[this.currentUser.uid] || { state: 'idle', hasVideo: false };
+        const selfCached = this.usernameCache.get(this.currentUser.uid) || { username: 'You', avatarUrl: '../../images/default-bird.png' };
+        const selfAv = document.createElement('div');
+        selfAv.className = `avatar local ${selfP.state}` + (selfP.state !== 'connected' ? ' dim' : '');
+        selfAv.setAttribute('data-uid', this.currentUser.uid);
+        selfAv.innerHTML = `<img src="${selfCached.avatarUrl}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${selfP.state === 'connecting' ? 'connecting' : ''}</div>`;
+        cont.appendChild(selfAv);
+      } catch (err) {
+        console.error('Failed to load participants for UI:', err);
+        if (err.code === 'permission-denied') {
+          alert('Permission denied loading chat data. Check Firestore rules.');
         }
-        if (rv) rv.style.display = p.hasVideo ? 'block' : 'none';
-      });
+      }
     }
   }
 
