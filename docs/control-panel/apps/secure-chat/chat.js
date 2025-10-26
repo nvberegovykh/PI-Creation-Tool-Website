@@ -1793,10 +1793,15 @@ import { runTransaction } from 'firebase/firestore';
 
   async joinMultiCall(callId, video = false){
     console.log('Joining multi call', callId, video);
+    if (this._joiningCall) return;
     if (this._lastJoinedCallId === callId && this._activePCs.size > 0) { return; }
     this._lastJoinedCallId = callId;
-    await this.cleanupActiveCall();
-    await this.updatePresence('connecting', video);
+    this._joiningCall = true;
+    try{
+      if (this._activePCs && this._activePCs.size > 0) {
+        await this.cleanupActiveCall();
+      }
+      await this.updatePresence('connecting', video);
     this._activePCs = new Map();
     // Prepare local media
     const localCfg = { audio: true, video: !!video };
@@ -1943,9 +1948,12 @@ import { runTransaction } from 'firebase/firestore';
     }));
     this._activePCs.set(peerUid, {pc, unsubs, stream: localStream, videoEl: rv});
 
-    await this.updatePresence('connected', video);
-    this._setupRoomInactivityMonitor();
-    this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+      await this.updatePresence('connected', video);
+      this._setupRoomInactivityMonitor();
+      this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+    } finally {
+      this._joiningCall = false;
+    }
   }
 
   async _setupRoomInactivityMonitor(){
@@ -2328,6 +2336,7 @@ import { runTransaction } from 'firebase/firestore';
       console.log('Cleaning up active call');
     this._startingCall = false;
     this._joiningCall = false;
+    this._lastJoinedCallId = null;
       this._activePCs.forEach((p, uid) => {
         console.log('Stopping stream for ' + uid);
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
