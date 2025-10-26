@@ -1679,12 +1679,31 @@ import { runTransaction } from 'firebase/firestore';
       }
       pc.ontrack = e => {
         console.log('Received remote track for ' + peerUid, e.track.kind);
-        rv.srcObject = e.streams[0];
-        rv.muted = false;
-        rv.addEventListener('loadedmetadata', () => rv.play().catch(err => console.error('Play failed:', err)));
-        const hasVid = e.streams[0] && e.streams[0].getVideoTracks().some(t => t.enabled);
-        rv.style.display = hasVid ? 'block' : 'none';
-        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
+        const stream = e.streams[0];
+        if (!stream) return;
+        const hasVid = stream.getVideoTracks && stream.getVideoTracks().some(t => t.enabled);
+        let mediaEl = rv;
+        if (!hasVid){
+          // use hidden audio element for audio-only
+          mediaEl = document.getElementById(`remoteAudio-${peerUid}`);
+          if (!mediaEl){
+            mediaEl = document.createElement('audio');
+            mediaEl.id = `remoteAudio-${peerUid}`;
+            mediaEl.autoplay = true;
+            mediaEl.playsInline = true;
+            mediaEl.style.display = 'none';
+            document.body.appendChild(mediaEl);
+          }
+        }
+        mediaEl.srcObject = stream;
+        mediaEl.muted = false;
+        mediaEl.volume = 1;
+        mediaEl.addEventListener('loadedmetadata', () => {
+          try { mediaEl.play().catch(err => console.error('Play failed:', err)); }
+          catch (err) { console.error('Play error:', err); }
+        });
+        mediaEl.style.display = hasVid ? 'block' : 'none';
+        this._attachSpeakingDetector(stream, `[data-uid="${peerUid}"]`, peerUid);
       };
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
       const candidateQueue = [];
@@ -1788,12 +1807,30 @@ import { runTransaction } from 'firebase/firestore';
       }
       pc.ontrack = e => {
         console.log('Received remote track for ' + peerUid, e.track.kind);
-        rv.srcObject = e.streams[0];
-        rv.muted = false;
-        rv.addEventListener('loadedmetadata', () => rv.play().catch(err => console.error('Play failed:', err)));
-        const hasVid = e.streams[0] && e.streams[0].getVideoTracks().some(t => t.enabled);
-        rv.style.display = hasVid ? 'block' : 'none';
-        this._attachSpeakingDetector(e.streams[0], `[data-uid="${peerUid}"]`, peerUid);
+        const stream = e.streams[0];
+        if (!stream) return;
+        const hasVid = stream.getVideoTracks && stream.getVideoTracks().some(t => t.enabled);
+        let mediaEl = rv;
+        if (!hasVid){
+          mediaEl = document.getElementById(`remoteAudio-${peerUid}`);
+          if (!mediaEl){
+            mediaEl = document.createElement('audio');
+            mediaEl.id = `remoteAudio-${peerUid}`;
+            mediaEl.autoplay = true;
+            mediaEl.playsInline = true;
+            mediaEl.style.display = 'none';
+            document.body.appendChild(mediaEl);
+          }
+        }
+        mediaEl.srcObject = stream;
+        mediaEl.muted = false;
+        mediaEl.volume = 1;
+        mediaEl.addEventListener('loadedmetadata', () => {
+          try { mediaEl.play().catch(err => console.error('Play failed:', err)); }
+          catch (err) { console.error('Play error:', err); }
+        });
+        mediaEl.style.display = hasVid ? 'block' : 'none';
+        this._attachSpeakingDetector(stream, `[data-uid="${peerUid}"]`, peerUid);
       };
       const answersRef = firebase.collection(this.db,'calls',callId,'answers');
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
@@ -2242,6 +2279,14 @@ import { runTransaction } from 'firebase/firestore';
       if (!endRoom) this._inRoom = false;
       try {
         await navigator.mediaDevices.getUserMedia({audio: false});
+      } catch (_) {}
+      const audioEls = document.querySelectorAll('[id^="remoteAudio-"]');
+      audioEls.forEach(el => el.remove());
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        devices.forEach(d => {
+          if (d.kind === 'audioinput' && typeof d.stop === 'function') d.stop();
+        });
       } catch (_) {}
     }
 
