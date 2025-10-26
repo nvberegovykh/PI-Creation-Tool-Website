@@ -1523,8 +1523,19 @@
       const lv = document.getElementById('localVideo');
       if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
     };
-    if (hideBtn) hideBtn.onclick = () => { console.log('Hide clicked'); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display = 'block'; };
-    if (showBtn) showBtn.onclick = () => { console.log('Show clicked'); if (ov) ov.classList.remove('hidden'); if (showBtn) showBtn.style.display = 'none'; };
+    if (hideBtn) hideBtn.onclick = () => { 
+      console.log('Hide clicked'); 
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.add('hidden'); 
+      const showBtn = document.getElementById('show-call-btn');
+      if (showBtn) showBtn.style.display = 'block'; 
+    };
+    if (showBtn) showBtn.onclick = () => { 
+      console.log('Show clicked'); 
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.remove('hidden'); 
+      showBtn.style.display = 'none'; 
+    };
   }
 
   async attemptStartRoomCall(video){
@@ -1553,7 +1564,7 @@
 
   async runStartTransaction(roomRef, cid) {
     return new Promise((resolve, reject) => {
-      this.db.runTransaction(tx => {
+      firebase.runTransaction(this.db, tx => {
         return tx.get(roomRef)
           .then(snap => {
             if (snap.data().status !== 'idle') return false;
@@ -1597,8 +1608,8 @@
       });
       pc.oniceconnectionstatechange = () => console.log('ICE state for ' + peerUid + ':', pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
-      const config = { audio: true, video: !!video };
-      const stream = await navigator.mediaDevices.getUserMedia(config);
+        const config = { audio: true, video: !!video };
+        const stream = await navigator.mediaDevices.getUserMedia(config);
       stream.getTracks().forEach(tr => pc.addTrack(tr, stream));
       const lv = document.getElementById('localVideo');
       if (lv) lv.srcObject = stream;
