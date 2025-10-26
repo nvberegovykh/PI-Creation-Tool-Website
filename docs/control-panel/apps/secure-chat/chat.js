@@ -81,7 +81,25 @@ import { runTransaction } from 'firebase/firestore';
               const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${idToken}` }});
               if (resp.ok){
                 const json = await resp.json();
-                if (Array.isArray(json.iceServers) && json.iceServers.length){ console.log('TURN from', url); return json.iceServers; }
+                if (Array.isArray(json.iceServers) && json.iceServers.length){
+                  // Prefer TCP/TLS relays first for restrictive networks
+                  const expanded = [];
+                  json.iceServers.forEach(s => {
+                    if (Array.isArray(s.urls)){
+                      const tcp = s.urls.map(u=> typeof u==='string' && u.startsWith('turn') ? (u.includes('?')? (u+'&transport=tcp') : (u+'?transport=tcp')) : u);
+                      expanded.push({ ...s, urls: tcp });
+                      expanded.push(s);
+                    } else if (typeof s.urls === 'string'){
+                      const u=s.urls; const ut = (u.startsWith('turn')? (u.includes('?')? (u+'&transport=tcp') : (u+'?transport=tcp')): u);
+                      expanded.push({ ...s, urls: ut });
+                      expanded.push(s);
+                    } else {
+                      expanded.push(s);
+                    }
+                  });
+                  console.log('TURN from', url);
+                  return expanded;
+                }
               }
             }catch(_){ /* try next region */ }
           }
