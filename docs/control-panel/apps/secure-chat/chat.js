@@ -1545,13 +1545,13 @@ import { runTransaction } from 'firebase/firestore';
     if (endBtn) endBtn.onclick = async () => { 
       console.log('End clicked'); 
       // End the call for everyone but keep overlay open for the room
-      await this.cleanupActiveCall(true);
+      await this.cleanupActiveCall(true, 'end_button');
       const status = document.getElementById('call-status');
       if (status) status.textContent = 'Room open. Waiting for speech to start call...';
     };
     if (exitBtn) exitBtn.onclick = async () => { 
       console.log('Exit clicked'); 
-      await this.cleanupActiveCall(false); 
+      await this.cleanupActiveCall(false, 'exit_button'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
     };
@@ -1651,7 +1651,7 @@ import { runTransaction } from 'firebase/firestore';
   async startMultiCall(callId, video = false){
     console.log('Starting multi call', callId, video);
     if (this._activePCs && this._activePCs.size > 0) {
-      await this.cleanupActiveCall();
+      await this.cleanupActiveCall(false, 'start_multi_preclean');
     }
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
@@ -1816,7 +1816,7 @@ import { runTransaction } from 'firebase/firestore';
     this._joiningCall = true;
     try{
       if (this._activePCs && this._activePCs.size > 0) {
-        await this.cleanupActiveCall();
+        await this.cleanupActiveCall(false, 'join_multi_preclean');
       }
       await this.updatePresence('connecting', video);
     this._activePCs = new Map();
@@ -1986,19 +1986,20 @@ import { runTransaction } from 'firebase/firestore';
   async _setupRoomInactivityMonitor(){
     this._lastSpeech.clear();
     if (this._inactTimer) clearInterval(this._inactTimer);
-    this._inactTimer = setInterval(()=>{
+    // Temporarily disable auto-silence end during debug to avoid premature cleanup
+    /* this._inactTimer = setInterval(()=>{
       const now = Date.now();
       let maxLast = 0;
       this._lastSpeech.forEach(ts => maxLast = Math.max(maxLast, ts));
       if (now - maxLast > 5 * 60 * 1000){
         clearInterval(this._inactTimer);
-        this.cleanupActiveCall();
+        this.cleanupActiveCall(false, 'silence_timer');
         const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
         firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
         this.saveMessage({ text: '[system] Call ended due to silence' });
         this._startAutoResumeMonitor(false);
       }
-    }, 15000);
+    }, 15000); */
   }
 
   // Add to _attachSpeakingDetector to take uid and update this._lastSpeech.set(uid, now) when avg > 30
@@ -2359,8 +2360,8 @@ import { runTransaction } from 'firebase/firestore';
       console.log('=== End Debug ===');
     }
 
-    async cleanupActiveCall(endRoom = false){
-      console.log('Cleaning up active call');
+    async cleanupActiveCall(endRoom = false, reason = 'unknown'){
+      console.log('Cleaning up active call', reason);
     this._startingCall = false;
     this._joiningCall = false;
     this._lastJoinedCallId = null;
