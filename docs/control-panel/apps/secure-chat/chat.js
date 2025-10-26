@@ -1516,7 +1516,7 @@
       this._micEnabled = !this._micEnabled;
       this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled));
     };
-    if (camBtn) camBtn.onclick = () => { 
+    if (camBtn) camBtn.onclick = async () => { 
       console.log('Camera toggle');
       this._videoEnabled = !this._videoEnabled;
       this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = this._videoEnabled));
@@ -1530,16 +1530,25 @@
 
   async attemptStartRoomCall(video){
     console.log('Attempting to start room call');
+    if (!this._roomState) {
+      console.warn('Room state not loaded yet, retrying...');
+      await new Promise(r => setTimeout(r, 500)); // Short delay
+      if (!this._roomState) return; // Bail if still null
+    }
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     const cid = `${this.activeConnection}_latest`;
-    const success = await this.runStartTransaction(roomRef, cid);
+    const success = await this.runStartTransaction(roomRef, cid).catch(err => {
+      console.error('Transaction failed:', err);
+      if (err.code === 'permission-denied') alert('Permission denied starting call. Check Firestore rules for /callRooms.');
+      return false;
+    });
     if (success) {
       console.log('Transaction success, starting multi call');
       await this.startMultiCall(cid, video);
       await this.saveMessage({ text: `[call:voice:${cid}]` });
     } else {
       console.log('Room already active, joining');
-      await this.joinMultiCall(this._roomState.activeCallId, video);
+      if (this._roomState.activeCallId) await this.joinMultiCall(this._roomState.activeCallId, video);
     }
   }
 
@@ -1638,6 +1647,10 @@
   }
 
   async joinMultiCall(callId, video){
+    if (!callId) {
+      console.warn('No active call ID');
+      return;
+    }
     console.log('Joining multi call', callId, video);
     this.cleanupActiveCall();
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
