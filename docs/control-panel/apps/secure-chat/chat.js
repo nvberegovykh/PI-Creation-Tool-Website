@@ -1505,27 +1505,26 @@
   }
 
   initCallControls(video){
+    const ov = document.getElementById('call-overlay');
     const endBtn = document.getElementById('end-call-btn');
     const micBtn = document.getElementById('toggle-mic-btn');
     const camBtn = document.getElementById('toggle-camera-btn');
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
-    if (endBtn) endBtn.onclick = () => this.cleanupActiveCall(true); // End room for all
-    if (micBtn) micBtn.onclick = () => { 
-      console.log('Mic toggle');
-      this._micEnabled = !this._micEnabled;
-      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled));
-    };
+    const exitBtn = document.getElementById('exit-room-btn');
+    if (endBtn) endBtn.onclick = () => { console.log('End clicked'); this.cleanupActiveCall(true); if (ov) ov.classList.add('hidden'); };
+    if (exitBtn) exitBtn.onclick = () => { console.log('Exit clicked'); this.cleanupActiveCall(false); if (ov) ov.classList.add('hidden'); };
+    if (micBtn) micBtn.onclick = () => { console.log('Mic toggle'); this._micEnabled = !this._micEnabled; this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled)); };
     if (camBtn) camBtn.onclick = async () => { 
       console.log('Camera toggle');
       this._videoEnabled = !this._videoEnabled;
       this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = this._videoEnabled));
-      await this.updatePresence(this._roomState.status || 'idle', this._videoEnabled);
+      await this.updatePresence(this._roomState ? this._roomState.status : 'idle', this._videoEnabled);
       const lv = document.getElementById('localVideo');
       if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
     };
-    if (hideBtn) hideBtn.onclick = () => { ov.classList.add('hidden'); showBtn.style.display = 'block'; };
-    if (showBtn) showBtn.onclick = () => { ov.classList.remove('hidden'); showBtn.style.display = 'none'; };
+    if (hideBtn) hideBtn.onclick = () => { console.log('Hide clicked'); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display = 'block'; };
+    if (showBtn) showBtn.onclick = () => { console.log('Show clicked'); if (ov) ov.classList.remove('hidden'); if (showBtn) showBtn.style.display = 'none'; };
   }
 
   async attemptStartRoomCall(video){
@@ -1554,7 +1553,7 @@
 
   async runStartTransaction(roomRef, cid) {
     return new Promise((resolve, reject) => {
-      firebase.runTransaction(this.db, tx => {
+      this.db.runTransaction(tx => {
         return tx.get(roomRef)
           .then(snap => {
             if (snap.data().status !== 'idle') return false;
