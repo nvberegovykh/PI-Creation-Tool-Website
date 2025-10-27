@@ -1540,9 +1540,12 @@ import { runTransaction } from 'firebase/firestore';
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
-      // Only auto-join when a call is active, and we haven't already joined/started this call
+      // Only auto-join when a call is active and I'm NOT the initiator of this active call
       const activeCid = this._roomState.activeCallId;
-      if (activeCid && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall && this._lastJoinedCallId !== activeCid) {
+      const startedBy = this._roomState.startedBy;
+      const iAmInitiator = !!activeCid && (startedBy === (this.currentUser && this.currentUser.uid)) || (activeCid === this._connectingCid);
+      const alreadyActiveHere = !!this._activeCid && this._activeCid === activeCid;
+      if (activeCid && !iAmInitiator && !alreadyActiveHere && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall && this._lastJoinedCallId !== activeCid) {
         await this.joinMultiCall(activeCid, video);
       }
       // Do not auto-cleanup here; end is controlled by silence timer or End button
@@ -1917,7 +1920,13 @@ import { runTransaction } from 'firebase/firestore';
         try { pc.restartIce && pc.restartIce(); } catch(_){ }
       }
     };
-    pc.onconnectionstatechange = () => console.log('PC state for ' + peerUid + ':', pc.connectionState);
+    pc.onconnectionstatechange = () => {
+      console.log('PC state for ' + peerUid + ':', pc.connectionState);
+      if (pc.connectionState === 'connected' || pc.connectionState === 'completed'){
+        const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
+        const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
+      }
+    };
 
     // Remote media element
     let rv = document.getElementById(`remoteVideo-${peerUid}`);
@@ -2010,6 +2019,13 @@ import { runTransaction } from 'firebase/firestore';
       });
     }));
     this._activePCs.set(peerUid, {pc, unsubs, stream: localStream, videoEl: rv});
+
+    // Add watchdogs on joiner too
+    const wdKey = callId+':'+peerUid;
+    try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
+    const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 12000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); const ans = await pc.createAnswer(); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connected', video);
       this._setupRoomInactivityMonitor();
