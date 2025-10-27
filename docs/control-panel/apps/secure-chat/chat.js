@@ -2026,7 +2026,7 @@ import { runTransaction } from 'firebase/firestore';
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
     const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 12000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); const ans = await pc.createAnswer(); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 12000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connected', video);
@@ -2488,9 +2488,9 @@ import { runTransaction } from 'firebase/firestore';
           try {
             const {uid, p, cached} = item;
             const av = document.createElement('div');
-            av.className = `avatar ${p.state}` + (p.state !== 'connected' ? ' dim' : '');
+            av.className = `avatar ${p.state}`;
             av.setAttribute('data-uid', uid);
-            av.innerHTML = `<img src="${cached.avatarUrl || '../../images/default-bird.png'}" alt="${cached.username}"/><div class="name">${cached.username}</div><div class="state">${p.state === 'connecting' ? 'connecting' : ''}</div>`;
+            av.innerHTML = `<img src="${cached.avatarUrl || '../../images/default-bird.png'}" alt="${cached.username}"/>`;
             cont.appendChild(av);
             // Video tile logic...
           } catch (err) {
@@ -2508,9 +2508,9 @@ import { runTransaction } from 'firebase/firestore';
         }
         const meState = (this._peersPresence[this.currentUser.uid] && this._peersPresence[this.currentUser.uid].state) || 'idle';
         const selfAv = document.createElement('div');
-        selfAv.className = `avatar local ${meState}` + (meState !== 'connected' ? ' dim' : '');
+        selfAv.className = `avatar local ${meState}`;
         selfAv.setAttribute('data-uid', this.currentUser.uid);
-        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${meState === 'connecting' ? 'connecting' : ''}</div>`;
+        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/>`;
         cont.appendChild(selfAv);
       } catch (err) {
         console.error('UI update error:', err);
