@@ -1747,8 +1747,8 @@ import { runTransaction } from 'firebase/firestore';
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 12000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
+      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 5000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 12000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -2467,7 +2467,7 @@ import { runTransaction } from 'firebase/firestore';
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         // Deduplicate once
-        const uniq = Array.from(new Set(conn.participants || []));
+        const uniq = Array.from(new Set((conn.participants || []).filter(Boolean)));
         const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
@@ -2504,10 +2504,11 @@ import { runTransaction } from 'firebase/firestore';
             this.usernameCache.set(this.currentUser.uid, selfCached);
           } catch (_) { selfCached = { username: 'You', avatarUrl: '../../images/default-bird.png' }; }
         }
+        const meState = (this._peersPresence[this.currentUser.uid] && this._peersPresence[this.currentUser.uid].state) || 'idle';
         const selfAv = document.createElement('div');
-        selfAv.className = `avatar local ${this._peersPresence[this.currentUser.uid].state}` + (this._peersPresence[this.currentUser.uid].state !== 'connected' ? ' dim' : '');
+        selfAv.className = `avatar local ${meState}` + (meState !== 'connected' ? ' dim' : '');
         selfAv.setAttribute('data-uid', this.currentUser.uid);
-        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${this._peersPresence[this.currentUser.uid].state === 'connecting' ? 'connecting' : ''}</div>`;
+        selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/><div class="name">${selfCached.username}</div><div class="state">${meState === 'connecting' ? 'connecting' : ''}</div>`;
         cont.appendChild(selfAv);
       } catch (err) {
         console.error('UI update error:', err);
