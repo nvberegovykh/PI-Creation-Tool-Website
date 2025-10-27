@@ -1744,8 +1744,8 @@ import { runTransaction } from 'firebase/firestore';
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(_){ } }, 12000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(_){ } }, 25000);
+      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 12000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
