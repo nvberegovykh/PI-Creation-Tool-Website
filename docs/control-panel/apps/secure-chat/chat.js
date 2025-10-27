@@ -2020,6 +2020,26 @@ import { runTransaction } from 'firebase/firestore';
         }
       });
     }));
+    // Listen for future offers (ICE restarts/renegotiations) from initiator
+    let lastOfferSdp = offer.sdp;
+    const myOfferRef = firebase.doc(this.db,'calls',callId,'offers', this.currentUser.uid);
+    const uOffers = firebase.onSnapshot(myOfferRef, async d => {
+      try{
+        if (!d.exists()) return;
+        const data = d.data() || {};
+        const sdp = data.sdp || '';
+        if (!sdp || sdp === lastOfferSdp) return;
+        lastOfferSdp = sdp;
+        if (pc.signalingState === 'closed') return;
+        // Apply new remote offer and answer back
+        await pc.setRemoteDescription({ type:'offer', sdp: sdp });
+        const ans2 = await pc.createAnswer();
+        await pc.setLocalDescription(ans2);
+        await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      }catch(e){ console.warn('offer update handling failed', e?.message||e); }
+    });
+    unsubs.push(uOffers);
+
     this._activePCs.set(peerUid, {pc, unsubs, stream: localStream, videoEl: rv});
 
     // Add watchdogs on joiner too
