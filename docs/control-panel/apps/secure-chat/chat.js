@@ -2466,8 +2466,9 @@ import { runTransaction } from 'firebase/firestore';
         const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
-        const participants = new Set(conn.participants || []);
-        const fetches = Array.from(participants).map(async uid => {
+        // Deduplicate once
+        const uniq = Array.from(new Set(conn.participants || []));
+        const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
           let cached = this.usernameCache.get(uid);
@@ -2494,7 +2495,7 @@ import { runTransaction } from 'firebase/firestore';
             console.error('Error rendering remote participant:', err);
           }
         });
-        // Self similarly with await
+        // Self avatar (single)
         let selfCached = this.usernameCache.get(this.currentUser.uid);
         if (!selfCached || !selfCached.avatarUrl) {
           try {

@@ -58,12 +58,12 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-videos video{background:#111;border-radius:8px;max-width:45vw;max-height:45vh}
 .call-controls{margin-top:12px}
 .call-participants{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; justify-content:center }
-.call-participants .avatar{ position:relative; width:56px; height:56px; border-radius:50%; background:#222; overflow:hidden; box-shadow:0 0 0 2px #d1d5db inset }
+.call-participants .avatar{ position:relative; width:56px; height:56px; border-radius:50%; background:#222; overflow:visible; box-shadow:0 0 0 2px #d1d5db inset }
 .call-participants .avatar.connected{ box-shadow:0 0 0 2px #e5e7eb inset }
 /* Thicker, vivid speaking ring with animated pulse */
 .call-participants .avatar.speaking{ box-shadow:0 0 0 2px #e5e7eb inset, 0 0 0 5px rgba(37,99,235,.75) inset }
-.call-participants .avatar.speaking::after{ content:""; position:absolute; inset:-6px; border-radius:50%; border:3px solid rgba(37,99,235,.9); box-shadow:0 0 14px rgba(37,99,235,.9); animation:vuPulse .9s ease-out infinite; pointer-events:none }
-.call-participants .avatar img{ width:100%; height:100%; object-fit:cover }
+.call-participants .avatar.speaking::after{ content:""; position:absolute; inset:-6px; border-radius:50%; border:3px solid rgba(37,99,235,.9); box-shadow:0 0 14px rgba(37,99,235,.9); animation:vuPulse .9s ease-out infinite; pointer-events:none; z-index:2 }
+.call-participants .avatar img{ width:100%; height:100%; object-fit:cover; position:relative; z-index:1 }
 @keyframes vuPulse{ 0%{ transform:scale(.92); opacity:.95 } 70%{ transform:scale(1.12); opacity:.15 } 100%{ transform:scale(1.18); opacity:0 } }
 .messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .messages::-webkit-scrollbar{width:0;height:0}
