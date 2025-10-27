@@ -1688,7 +1688,9 @@ import { runTransaction } from 'firebase/firestore';
     }
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
-    const participants = conn.participants.filter(uid => uid !== this.currentUser.uid);
+    const participants = (conn.participants||[]).filter(Boolean).filter(uid => uid !== this.currentUser.uid);
+    // Temporary: limit to first remote only for stability
+    const limited = participants.slice(0,1);
     if (participants.length + 1 > 8) {
       alert('Max 8 users per room');
       return;
@@ -1724,7 +1726,7 @@ import { runTransaction } from 'firebase/firestore';
     }
     lv.srcObject = stream;
     lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
-    for (const peerUid of participants){
+    for (const peerUid of limited){
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
         iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
