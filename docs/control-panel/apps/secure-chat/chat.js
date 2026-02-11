@@ -528,6 +528,9 @@ import { runTransaction } from 'firebase/firestore';
         });
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         this.connections = temp;
+      } catch (e) {
+        if (e && e.code === 'permission-denied') permissionDenied = true;
+        this.connections = [];
       }
       if (permissionDenied && this.connections.length === 0){
         listEl.innerHTML = '<li style="opacity:.8">No access to chat connections. Please redeploy Firestore rules and reload.</li>';

@@ -38,6 +38,12 @@ class AppsManager {
             // Clone the element to remove all event listeners
             const newSearchInput = searchInput.cloneNode(true);
             searchInput.parentNode.replaceChild(newSearchInput, searchInput);
+            // Keep anti-autofill settings after cloning.
+            newSearchInput.setAttribute('autocomplete', 'off');
+            newSearchInput.setAttribute('autocorrect', 'off');
+            newSearchInput.setAttribute('autocapitalize', 'off');
+            newSearchInput.setAttribute('spellcheck', 'false');
+            if (/@/.test((newSearchInput.value || '').trim())) newSearchInput.value = '';
             
             // Add new event listener
             newSearchInput.addEventListener('input', (e) => {
