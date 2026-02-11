@@ -507,7 +507,6 @@ class DashboardManager {
                             const fnErrors = [];
                             const callSwitchFn = async (name, payload)=>{
                                 const fs = window.firebaseService;
-                                const projectId = fs?.app?.options?.projectId || (await fs.getFirebaseConfig())?.projectId;
                                 const preferred = (()=>{ try{ return localStorage.getItem('liber_functions_region') || 'europe-west1'; }catch(_){ return 'europe-west1'; } })();
                                 const regions = [preferred, 'europe-west1', 'us-central1'].filter((v,i,a)=> v && a.indexOf(v)===i);
                                 const errs = [];
@@ -524,24 +523,6 @@ class DashboardManager {
                                         }
                                     }catch(e){
                                         errs.push(`${name}@${r}[callable]: ${e?.code || e?.message || e}`);
-                                    }
-                                }
-                                for (const r of regions){
-                                    try{
-                                        const user = fs?.auth?.currentUser;
-                                        if (!projectId || !user) throw new Error('missing project/auth');
-                                        const idToken = await user.getIdToken(true);
-                                        const url = `https://${r}-${projectId}.cloudfunctions.net/${name}`;
-                                        const resp = await fetch(url, {
-                                            method:'POST',
-                                            headers:{ 'Content-Type':'application/json', 'Authorization': `Bearer ${idToken}` },
-                                            body: JSON.stringify({ data: payload })
-                                        });
-                                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                                        const json = await resp.json().catch(()=>({}));
-                                        return json && (json.data || json.result || null);
-                                    }catch(e){
-                                        errs.push(`${name}@${r}[http]: ${e?.message || e}`);
                                     }
                                 }
                                 throw new Error(errs.join(' | '));
