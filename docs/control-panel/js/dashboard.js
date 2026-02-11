@@ -360,6 +360,9 @@ class DashboardManager {
                 const repostEl = e.target.closest('.repost-btn');
                 const actionEl = likeEl || commentEl || repostEl;
                 if (!actionEl) return;
+                const delegatedContainer = actionEl.closest('#global-feed, #space-feed');
+                // Avoid double handling when container-level delegation is active.
+                if (delegatedContainer && delegatedContainer.__postActionsDelegated) return;
                 const actionsWrap = actionEl.closest('.post-actions');
                 const postItem = actionEl.closest('.post-item');
                 const pid = actionsWrap?.dataset.postId || postItem?.dataset.postId;
@@ -376,19 +379,8 @@ class DashboardManager {
                     return;
                 }
                 if (commentEl){
-                    // Prefer advanced in-place comment trees; fallback if bound handler was missed.
                     const tree = document.getElementById(`comments-${pid}`);
-                    if (tree){
-                        // If per-post handler exists, try it first.
-                        if (tree.style.display === 'none' && typeof commentEl.onclick === 'function'){
-                            try{ await commentEl.onclick(); }catch(_){ }
-                            if (tree.style.display !== 'none') return;
-                        }
-                        try{
-                            await this.openAdvancedCommentsFallback(pid, tree, me.uid);
-                        }catch(_){ }
-                        return;
-                    }
+                    if (tree) return; // Advanced comments are handled at container/post level.
                     const text = prompt('Add comment:');
                     if (text && text.trim()){ try{ await firebase.addDoc(firebase.collection(window.firebaseService.db,'posts',pid,'comments'), { userId:me.uid, text:text.trim(), createdAt:new Date().toISOString() }); }catch(_){ } }
                     return;
