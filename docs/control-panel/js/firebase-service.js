@@ -125,7 +125,7 @@ class FirebaseService {
                     const keys = await window.secureKeyManager.getKeys();
                     preferredRegion = keys.functionsRegion || keys.firebase?.functionsRegion || 'us-central1';
                 } catch(_) { /* default */ }
-                const regionOrder = [preferredRegion, 'us-central1', 'europe-west1']
+                const regionOrder = [preferredRegion, 'europe-west1']
                     .filter(Boolean)
                     .filter((v,i,a)=> a.indexOf(v)===i);
                 this.functionsByRegion = {};

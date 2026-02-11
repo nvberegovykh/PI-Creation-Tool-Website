@@ -508,7 +508,7 @@ class DashboardManager {
                             const callSwitchFn = async (name, payload)=>{
                                 const fs = window.firebaseService;
                                 const preferred = (()=>{ try{ return localStorage.getItem('liber_functions_region') || 'europe-west1'; }catch(_){ return 'europe-west1'; } })();
-                                const regions = [preferred, 'europe-west1', 'us-central1'].filter((v,i,a)=> v && a.indexOf(v)===i);
+                                const regions = [preferred, 'europe-west1'].filter((v,i,a)=> v && a.indexOf(v)===i);
                                 const errs = [];
                                 for (const r of regions){
                                     try{
