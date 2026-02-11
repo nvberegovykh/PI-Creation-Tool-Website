@@ -499,8 +499,13 @@ class DashboardManager {
                     row.onclick = async ()=>{
                         const uid = row.getAttribute('data-uid'); if (!uid) return;
                         try{
+                            const fnErrors = [];
                             const callFnMaybe = async (name, payload)=>{
-                                try{ return await window.firebaseService.callFunction(name, payload); }catch(_){ return null; }
+                                try{ return await window.firebaseService.callFunction(name, payload); }
+                                catch(e){
+                                    fnErrors.push(`${name}: ${e?.message || e}`);
+                                    return null;
+                                }
                             };
                             const deviceId = this.getOrCreateDeviceId();
                             // Refresh current account seed token before attempting a switch.
@@ -583,6 +588,9 @@ class DashboardManager {
                                 if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
                                 if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
                                 const emailInput = document.getElementById('loginUsername'); if (emailInput && prefill){ emailInput.value = prefill; emailInput.focus(); }
+                                if (fnErrors.length){
+                                    console.warn('Instant switch call errors:', fnErrors.join(' | '));
+                                }
                                 this.showError('Instant switch unavailable. Log in once for this account on this device.');
                                 return;
                             }
@@ -1153,7 +1161,12 @@ class DashboardManager {
                         ev.stopPropagation();
                         try{
                             confirmBtn.disabled = true;
-                            await window.firebaseService.callFunction('respondConnection', { peerUid: r.uid || r.id, action: 'accept' });
+                            const peerUid = r.uid || r.id;
+                            const now = new Date().toISOString();
+                            const myRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',peerUid);
+                            const peerRef = firebase.doc(window.firebaseService.db,'connections',peerUid,'peers',me.uid);
+                            await firebase.setDoc(myRef, { status:'connected', connectedAt:now, updatedAt:now }, { merge:true });
+                            await firebase.setDoc(peerRef, { status:'connected', connectedAt:now, updatedAt:now }, { merge:true });
                             await this.loadConnectionsForSpace();
                         }catch(_){ this.showError('Failed to confirm connection'); }
                         finally{ confirmBtn.disabled = false; }
@@ -1165,7 +1178,11 @@ class DashboardManager {
                         ev.stopPropagation();
                         try{
                             denyBtn.disabled = true;
-                            await window.firebaseService.callFunction('respondConnection', { peerUid: r.uid || r.id, action: 'deny' });
+                            const peerUid = r.uid || r.id;
+                            const myRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',peerUid);
+                            const peerRef = firebase.doc(window.firebaseService.db,'connections',peerUid,'peers',me.uid);
+                            await firebase.deleteDoc(myRef).catch(()=>null);
+                            await firebase.deleteDoc(peerRef).catch(()=>null);
                             await this.loadConnectionsForSpace();
                         }catch(_){ this.showError('Failed to deny request'); }
                         finally{ denyBtn.disabled = false; }
@@ -3036,11 +3053,6 @@ Do you want to proceed?`);
       const data = (u && u.username) ? u : ((await window.firebaseService.getUserData(uid)) || {});
       const me = await this.resolveCurrentUser();
       if (!me || !me.uid) return;
-      const callFnStrict = async (name, payload)=>{
-        const res = await window.firebaseService.callFunction(name, payload);
-        if (res == null) throw new Error(`Function ${name} unavailable`);
-        return res;
-      };
       const readConnState = async ()=>{
         try{
           const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
@@ -3121,26 +3133,49 @@ Do you want to proceed?`);
           const status = currentState.status;
           const requestedBy = currentState.requestedBy;
           const requestedTo = currentState.requestedTo;
+          const now = new Date().toISOString();
+          const meData = (await window.firebaseService.getUserData(me.uid)) || {};
+          const mePeer = {
+            uid: me.uid,
+            username: meData.username || me.email || me.uid,
+            email: meData.email || me.email || '',
+            avatarUrl: meData.avatarUrl || 'images/default-bird.png'
+          };
+          const otherPeer = {
+            uid,
+            username: data.username || data.email || uid,
+            email: data.email || '',
+            avatarUrl: data.avatarUrl || 'images/default-bird.png'
+          };
+          const myRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid);
+          const peerRef = firebase.doc(window.firebaseService.db,'connections',uid,'peers',me.uid);
           if (status === 'connected'){
-            await callFnStrict('removeConnection', { peerUid: uid });
+            await firebase.deleteDoc(myRef).catch(()=>null);
+            await firebase.deleteDoc(peerRef).catch(()=>null);
           } else if (status === 'pending' && requestedBy === me.uid){
-            await callFnStrict('removeConnection', { peerUid: uid });
+            await firebase.deleteDoc(myRef).catch(()=>null);
+            await firebase.deleteDoc(peerRef).catch(()=>null);
           } else if (status === 'pending' && requestedTo === me.uid){
-            await callFnStrict('respondConnection', { peerUid: uid, action: 'accept' });
+            await firebase.setDoc(myRef, {
+              ...otherPeer, status:'connected', requestedBy, requestedTo, connectedAt:now, updatedAt:now
+            }, { merge:true });
+            await firebase.setDoc(peerRef, {
+              ...mePeer, status:'connected', requestedBy, requestedTo, connectedAt:now, updatedAt:now
+            }, { merge:true });
           } else {
-            await callFnStrict('requestConnection', { peerUid: uid });
+            await firebase.setDoc(myRef, {
+              ...otherPeer, status:'pending', requestedBy:me.uid, requestedTo:uid, requestedAt:now, updatedAt:now
+            }, { merge:true });
+            await firebase.setDoc(peerRef, {
+              ...mePeer, status:'pending', requestedBy:me.uid, requestedTo:uid, requestedAt:now, updatedAt:now
+            }, { merge:true });
           }
           const nextState = await readConnState();
           connectBtn.innerHTML = connectLabelFor(nextState);
-          if (nextState.status === 'none' && status === 'none'){
-            this.showError('Connection request service unavailable. Deploy cloud functions and reload.');
-          }
           await this.loadConnectionsForSpace();
         }catch(e){
           console.error('Connection update failed', e);
-          const msg = String(e?.message || '');
-          if (/unavailable/i.test(msg)) this.showError('Connection service unavailable. Deploy functions and reload.');
-          else this.showError('Connection update failed');
+          this.showError('Connection update failed');
         }
         finally{ connectBtn.disabled = false; }
       };
