@@ -33,7 +33,7 @@ import { runTransaction } from 'firebase/firestore';
       this._connectingCid = null;
       this._activeCid = null;
       this._joinRetryTimer = null;
-      this._forceRelay = true; // Debug: force TURN-only until stable
+      this._forceRelay = false; // Prefer mixed ICE; TURN is still included in iceServers.
       this._pcWatchdogs = new Map(); // key: callId:peerUid -> {t1,t2}
       this.init();
     }
@@ -768,8 +768,32 @@ import { runTransaction } from 'firebase/firestore';
       const box = document.getElementById('messages');
       box.innerHTML='';
       if (!this.activeConnection) return;
+      // Ensure a persistent scroll-to-latest affordance exists.
+      let toBottomBtn = document.getElementById('chat-scroll-bottom-btn');
+      if (!toBottomBtn){
+        toBottomBtn = document.createElement('button');
+        toBottomBtn.id = 'chat-scroll-bottom-btn';
+        toBottomBtn.className = 'btn secondary';
+        toBottomBtn.textContent = '↓';
+        toBottomBtn.title = 'Scroll to latest';
+        toBottomBtn.style.cssText = 'position:absolute;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
+        const main = document.querySelector('.main') || document.body;
+        main.appendChild(toBottomBtn);
+      }
+      const updateBottomUi = ()=>{
+        const dist = box.scrollHeight - box.scrollTop - box.clientHeight;
+        const pinned = dist < 120;
+        box.dataset.pinnedBottom = pinned ? '1' : '0';
+        toBottomBtn.style.display = pinned ? 'none' : 'inline-block';
+      };
+      if (!box._bottomUiBound){
+        box._bottomUiBound = true;
+        box.addEventListener('scroll', updateBottomUi, { passive: true });
+        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = box.scrollHeight; updateBottomUi(); });
+      }
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
+        if (this._msgPoll) { clearInterval(this._msgPoll); this._msgPoll = null; }
         let q;
         try{
           q = firebase.query(
@@ -784,20 +808,27 @@ import { runTransaction } from 'firebase/firestore';
             firebase.limit(500)
           );
         }
-        // Also include archived/merged message histories
-        const archivedConnIds = await this.getArchivedConnIds(this.activeConnection);
+        // Also include archived/sibling histories so duplicate-chat states still refresh correctly.
+        const relatedConnIds = await this.getRelatedConnIds(this.activeConnection);
+        const keyByConn = new Map();
+        const getKeyForConn = async (cid)=>{
+          if (keyByConn.has(cid)) return keyByConn.get(cid);
+          const k = await this.getFallbackKeyForConn(cid);
+          keyByConn.set(cid, k);
+          return k;
+        };
         const handleSnap = async (snap)=>{
           const prevTop = box.scrollTop;
-          const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 100;
+          const pinnedBefore = box.dataset.pinnedBottom !== '0';
           box.innerHTML='';
-          let aesKey = await this.getFallbackKey();
-          const renderOne = async (d)=>{
+          const renderOne = async (d, sourceConnId = this.activeConnection)=>{
             const m=d.data();
+            const aesKey = await getKeyForConn(sourceConnId);
             let text='';
             try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
               try {
                 const peerUid = await this.getPeerUid();
-                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
                 text = await chatCrypto.decryptWithKey(m.cipher, legacy);
               } catch {
                 try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
@@ -834,7 +865,7 @@ import { runTransaction } from 'firebase/firestore';
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey, sourceConnId);
             }
             // Bind edit/delete/replace for own messages
             if (canModify){
@@ -882,8 +913,9 @@ import { runTransaction } from 'firebase/firestore';
           for (const d of (snap.docs || [])) {
             await renderOne(d);
           }
-          // Fetch and render archived chains (best-effort, no onSnapshot for archives to reduce listeners)
-          for (const aid of archivedConnIds){
+          // Fetch and render related chains (best-effort).
+          for (const aid of relatedConnIds){
+            if (aid === this.activeConnection) continue;
             try{
               let qa;
               try{
@@ -901,15 +933,33 @@ import { runTransaction } from 'firebase/firestore';
               }
               const s2 = await firebase.getDocs(qa);
               for (const d of (s2.docs || [])) {
-                await renderOne(d);
+                await renderOne(d, aid);
               }
             }catch(_){ /* ignore per-archive failure */ }
           }
-          // Keep chat pinned to newest message for smoother live conversation flow.
-          box.scrollTop = box.scrollHeight;
+          if (pinnedBefore){
+            box.scrollTop = box.scrollHeight;
+          }else{
+            box.scrollTop = prevTop;
+          }
+          updateBottomUi();
         };
         if (firebase.onSnapshot){
-          this._unsubMessages = firebase.onSnapshot(q, handleSnap);
+          this._unsubMessages = firebase.onSnapshot(
+            q,
+            handleSnap,
+            async ()=>{
+              // If snapshot fails for any reason, keep UI live via polling fallback.
+              try{
+                const s = await firebase.getDocs(q);
+                await handleSnap(s);
+              }catch(_){ }
+            }
+          );
+          // Safety poll to catch messages posted into duplicate/sibling connection docs.
+          this._msgPoll = setInterval(async ()=>{
+            try{ const s = await firebase.getDocs(q); await handleSnap(s); }catch(_){ }
+          }, 3000);
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
           this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); handleSnap(s); }, 2500);
@@ -970,17 +1020,39 @@ import { runTransaction } from 'firebase/firestore';
             }
           });
           box.scrollTop = box.scrollHeight;
+          updateBottomUi();
         }catch(e){
           console.error('Failed to load messages:', e);
           box.innerHTML = '<div class="error">Failed to load messages. Check console.</div>';
         }
       }
     }
-    // New helper
+    // Legacy helper kept for compatibility
     async getArchivedConnIds(connId){
       const q = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('mergedInto','==', connId));
       const s = await firebase.getDocs(q);
       return s.docs.map(d=> d.id);
+    }
+
+    async getRelatedConnIds(connId){
+      const out = new Set([connId]);
+      try{
+        // merged chains into current
+        const qM = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('mergedInto','==', connId));
+        const sM = await firebase.getDocs(qM);
+        sM.forEach(d=> out.add(d.id));
+      }catch(_){ }
+      try{
+        // same user set by key (covers duplicate docs not yet archived)
+        const cur = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        const key = cur.exists() ? (cur.data().key || this.computeConnKey(this.getConnParticipants(cur.data()))) : '';
+        if (key){
+          const qK = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('key','==', key));
+          const sK = await firebase.getDocs(qK);
+          sK.forEach(d=> out.add(d.id));
+        }
+      }catch(_){ }
+      return Array.from(out);
     }
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
@@ -1379,8 +1451,7 @@ import { runTransaction } from 'firebase/firestore';
       return '';
     }
 
-    async getFallbackKey(){
-      const connId = this.activeConnection;
+    async getFallbackKeyForConn(connId){
       try{
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
         const parts = snap.exists() ? this.getConnParticipants(snap.data()) : [];
@@ -1397,6 +1468,10 @@ import { runTransaction } from 'firebase/firestore';
       return window.chatCrypto.deriveChatKey(secret);
     }
 
+    async getFallbackKey(){
+      return this.getFallbackKeyForConn(this.activeConnection);
+    }
+
     isImageFilename(name){
       const n = (name||'').toLowerCase();
       return n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.gif') || n.endsWith('.webp');
@@ -1410,7 +1485,7 @@ import { runTransaction } from 'firebase/firestore';
       return n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
     }
 
-    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey){
+    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection){
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
         const ct = res.headers.get('content-type')||'';
@@ -1420,7 +1495,7 @@ import { runTransaction } from 'firebase/firestore';
         catch {
           try{
             const peerUid = await this.getPeerUid();
-            const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+            const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
             b64 = await chatCrypto.decryptWithKey(payload, legacy);
           }catch{
             const alt = await this.getOrCreateSharedAesKey();
@@ -2248,8 +2323,18 @@ import { runTransaction } from 'firebase/firestore';
           iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
-        pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
-        pc.onconnectionstatechange = ()=> console.log('PC state:', pc.connectionState);
+        pc.oniceconnectionstatechange = ()=>{
+          console.log('ICE state:', pc.iceConnectionState);
+          if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected'){
+            try { pc.restartIce && pc.restartIce(); } catch(_){ }
+          }
+        };
+        pc.onconnectionstatechange = ()=>{
+          console.log('PC state:', pc.connectionState);
+          if (pc.connectionState === 'failed' && this._forceRelay){
+            this._forceRelay = false;
+          }
+        };
         // Add local tracks safely (avoid duplicate senders)
         try{
           const existing = pc.getSenders ? pc.getSenders() : [];
@@ -2338,8 +2423,18 @@ import { runTransaction } from 'firebase/firestore';
           iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
-        pc.oniceconnectionstatechange = ()=> console.log('ICE state:', pc.iceConnectionState);
-        pc.onconnectionstatechange = ()=> console.log('PC state:', pc.connectionState);
+        pc.oniceconnectionstatechange = ()=>{
+          console.log('ICE state:', pc.iceConnectionState);
+          if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected'){
+            try { pc.restartIce && pc.restartIce(); } catch(_){ }
+          }
+        };
+        pc.onconnectionstatechange = ()=>{
+          console.log('PC state:', pc.connectionState);
+          if (pc.connectionState === 'failed' && this._forceRelay){
+            this._forceRelay = false;
+          }
+        };
         try{
           const existing = pc.getSenders ? pc.getSenders() : [];
           stream.getTracks().forEach(tr => {

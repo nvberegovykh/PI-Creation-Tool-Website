@@ -50,11 +50,21 @@ class AppsManager {
             const clearAutofill = ()=>{
                 const v = (newSearchInput.value || '').trim();
                 // Clear likely account autofill content (email-like or long single token).
-                if (/@/.test(v) || /^[A-Za-z0-9._-]{16,}$/.test(v)) newSearchInput.value = '';
+                if (/@/.test(v) || /^[A-Za-z0-9._-]{16,}$/.test(v)) { newSearchInput.value = ''; return; }
+                try{
+                    const raw = localStorage.getItem('liber_accounts');
+                    const accounts = raw ? JSON.parse(raw) : [];
+                    const low = v.toLowerCase();
+                    if ((accounts||[]).some(a => String(a?.email||'').toLowerCase()===low || String(a?.username||'').toLowerCase()===low)){
+                        newSearchInput.value = '';
+                    }
+                }catch(_){ }
             };
             setTimeout(clearAutofill, 0);
             setTimeout(clearAutofill, 300);
             setTimeout(clearAutofill, 1200);
+            newSearchInput.addEventListener('focus', clearAutofill);
+            newSearchInput.addEventListener('input', clearAutofill);
             
             // Add new event listener
             newSearchInput.addEventListener('input', (e) => {

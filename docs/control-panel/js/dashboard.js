@@ -25,6 +25,26 @@ class DashboardManager {
         return null;
     }
 
+    async resolveCurrentUserWithRetry(maxWaitMs = 2500){
+        const start = Date.now();
+        let user = await this.resolveCurrentUser();
+        while ((!user || !user.uid) && (Date.now() - start) < maxWaitMs){
+            await new Promise((r)=> setTimeout(r, 180));
+            user = await this.resolveCurrentUser();
+        }
+        return user;
+    }
+
+    scheduleSpaceRetry(){
+        if (this._spaceRetryTimer) return;
+        this._spaceRetryTimer = setTimeout(()=>{
+            this._spaceRetryTimer = null;
+            if (this.currentSection === 'space'){
+                this.loadSpace();
+            }
+        }, 320);
+    }
+
     renderPostMedia(media){
         const urls = Array.isArray(media) ? media : (media ? [media] : []);
         if (!urls.length) return '';
@@ -209,6 +229,30 @@ class DashboardManager {
                 if (/@/.test((el.value || '').trim())) el.value = '';
             }catch(_){ }
         });
+        // Extra scrub: clear browser-restored account values from non-auth inputs.
+        const scrubSearchPrefill = ()=>{
+            try{
+                const raw = localStorage.getItem('liber_accounts');
+                const accounts = raw ? JSON.parse(raw) : [];
+                const bad = new Set();
+                (accounts||[]).forEach(a=>{
+                    if (a && typeof a.email === 'string' && a.email) bad.add(a.email.trim().toLowerCase());
+                    if (a && typeof a.username === 'string' && a.username) bad.add(a.username.trim().toLowerCase());
+                });
+                ['app-search','space-search','user-search','wave-search','video-search'].forEach((id)=>{
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    const v = String(el.value || '').trim();
+                    if (!v) return;
+                    const low = v.toLowerCase();
+                    if (bad.has(low) || /@/.test(v)) el.value = '';
+                });
+            }catch(_){ }
+        };
+        scrubSearchPrefill();
+        setTimeout(scrubSearchPrefill, 120);
+        setTimeout(scrubSearchPrefill, 900);
+        window.addEventListener('pageshow', scrubSearchPrefill);
         document.addEventListener('focusin', (e)=>{
             const el = e.target;
             if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
@@ -401,12 +445,29 @@ class DashboardManager {
                             // If selecting current account, just close
                             if (uid === currentUid){ try{ layer.remove(); }catch(_){ } return; }
                             if (!token){
-                                // The target account hasn't seeded a device token on this device yet.
-                                // Guide the user to log in once to that account to enable instant switching.
+                                // Admin fallback: mint a device token for the target account on demand.
+                                try{
+                                    const acc = (accounts||[]).find(a=> (a.uid===uid));
+                                    const email = acc && acc.email;
+                                    if (email){
+                                        const mint = await window.firebaseService.callFunction('adminMintSwitchToken', { deviceId, email });
+                                        const mintedToken = mint && mint.token;
+                                        if (mintedToken){
+                                            token = mintedToken;
+                                            tokenMap[uid] = token;
+                                            localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                                        }
+                                    }
+                                }catch(_){ /* non-admin or mint failed */ }
+                            }
+                            if (!token){
+                                // No token available -> one-time login prefill for this switch attempt.
                                 try{ layer.remove(); }catch(_){ }
                                 const acc = (accounts||[]).find(a=> (a.uid===uid));
                                 const email = acc && acc.email;
-                                // Show auth screen and prefill login
+                                try{
+                                    if (email) sessionStorage.setItem('liber_switch_prefill_email', email);
+                                }catch(_){ }
                                 const authScreen = document.getElementById('auth-screen');
                                 const dashboard = document.getElementById('dashboard');
                                 if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
@@ -504,9 +565,10 @@ class DashboardManager {
      */
     async loadSpace(){
         try{
-            if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
-            const user = await this.resolveCurrentUser();
-            if (!user || !user.uid) return;
+            if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())){ this.scheduleSpaceRetry(); return; }
+            const user = await this.resolveCurrentUserWithRetry(2600);
+            if (!user || !user.uid){ this.scheduleSpaceRetry(); return; }
+            if (this._spaceRetryTimer){ clearTimeout(this._spaceRetryTimer); this._spaceRetryTimer = null; }
             const data = await window.firebaseService.getUserData(user.uid) || {};
             const unameEl = document.getElementById('space-username');
             const moodEl = document.getElementById('space-mood');
@@ -671,120 +733,7 @@ class DashboardManager {
                 });
             }
 
-            this.showUserPreviewModal = async (u)=>{
-                const uid = u.uid||u.id;
-                const data = u.username ? u : (await window.firebaseService.getUserData(uid))||{};
-                const me = await this.resolveCurrentUser();
-                if (!me || !me.uid) return;
-                let isFollowing = false;
-                try{ const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following||[]).includes(uid);}catch(_){ }
-                const overlay = document.createElement('div');
-                overlay.className='modal-overlay';
-                // Ensure body can still scroll behind overlay on mobile
-                overlay.style.position = 'fixed';
-                overlay.style.overflowY = 'auto';
-                overlay.style.inset = '0';
-                overlay.style.cssText = 'position:fixed; inset:0; z-index:10060; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:20px;';
-                overlay.innerHTML = `
-                  <div class="modal" style="max-width:720px">
-                    <div class="modal-header"><h3>${data.username||data.email||'User'}</h3><button class="modal-close">&times;</button></div>
-                    <div class="modal-body">
-                      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:12px">
-                        <img src="${data.avatarUrl||'images/default-bird.png'}" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
-                        <div style="flex:1">
-                          <div style="font-weight:700">${data.username||''}</div>
-                          <div style="opacity:.8">${data.email||''}</div>
-                        </div>
-                        <button id="follow-toggle" class="btn ${isFollowing?'btn-secondary':'btn-primary'}">${isFollowing?'Unfollow':'Follow'}</button>
-                        <button id="connect-toggle" class="btn btn-secondary"><i class="fas fa-link"></i> Connect</button>
-                        <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
-                      </div>
-                      <div id="preview-feed"></div>
-                    </div>
-                  </div>`;
-                document.body.appendChild(overlay);
-                const closeOverlay = ()=>{ overlay.remove(); };
-                overlay.querySelector('.modal-close').onclick = closeOverlay;
-                overlay.addEventListener('click', (e)=>{ if (e.target.classList.contains('modal-overlay')) closeOverlay(); });
-                const toggle = overlay.querySelector('#follow-toggle');
-                toggle.onclick = async ()=>{
-                  try{
-                    toggle.disabled = true;
-                    if (toggle.textContent==='Follow'){ await window.firebaseService.followUser(me.uid, uid); toggle.textContent='Unfollow'; toggle.className='btn btn-secondary'; }
-                    else { await window.firebaseService.unfollowUser(me.uid, uid); toggle.textContent='Follow'; toggle.className='btn btn-primary'; }
-                  }catch(_){ }
-                  finally{ toggle.disabled = false; }
-                };
-
-                // Connect/Disconnect setup
-                const connectBtn = overlay.querySelector('#connect-toggle');
-                if (connectBtn){
-                  try{
-                    const key = [me.uid, uid].sort().join('|');
-                    let connId = key;
-                    let isConnected = false;
-                    try{
-                      const ref = firebase.doc(window.firebaseService.db,'chatConnections', key);
-                      const d = await firebase.getDoc(ref);
-                      if (d.exists()){ connId = d.id; isConnected = d.data()?.archived !== true; }
-                      else {
-                        const q = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('key','==', key), firebase.limit(1));
-                        const s = await firebase.getDocs(q);
-                        s.forEach(x=>{ connId = x.id; isConnected = x.data()?.archived !== true; });
-                      }
-                    }catch(_){ }
-                    connectBtn.innerHTML = isConnected ? '<i class="fas fa-unlink"></i> Disconnect' : '<i class="fas fa-link"></i> Connect';
-                    connectBtn.onclick = async ()=>{
-                      try{
-                        connectBtn.disabled = true;
-                        const now = new Date().toISOString();
-                        if (!isConnected){
-                          // Create or re-activate connection
-                          const targetRef = firebase.doc(window.firebaseService.db,'chatConnections', connId || key);
-                          try{
-                            const snap = await firebase.getDoc(targetRef);
-                            if (snap.exists()){
-                              await firebase.updateDoc(targetRef, { archived:false, updatedAt: now });
-                            } else {
-                              const createRef = firebase.doc(window.firebaseService.db,'chatConnections', key);
-                              await firebase.setDoc(createRef, { id:key, key, participants:[me.uid, uid], participantUsernames:[me.email||me.uid, data.username||data.email||uid], admins:[me.uid], createdAt: now, updatedAt: now, lastMessage:'', archived:false });
-                              connId = key;
-                            }
-                          }catch(_){ }
-                          isConnected = true;
-                          connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
-                        } else {
-                          // Archive connection
-                          try{ await firebase.updateDoc(firebase.doc(window.firebaseService.db,'chatConnections', connId), { archived:true, updatedAt: now }); }catch(_){ }
-                          isConnected = false;
-                          connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
-                        }
-                      }finally{ connectBtn.disabled = false; }
-                    };
-                  }catch(_){ }
-                }
-                const chatBtn = overlay.querySelector('#start-chat');
-                if (chatBtn){ chatBtn.onclick = async ()=>{
-                  try{
-                    const key = [me.uid, uid].sort().join('|');
-                    window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(key)}`;
-                  }catch(_){ }
-                }; }
-                // Load recent public posts for preview
-                const feed = overlay.querySelector('#preview-feed');
-                try{
-                  const q = firebase.query(
-                    firebase.collection(window.firebaseService.db,'posts'),
-                    firebase.where('authorId','==', uid),
-                    firebase.where('visibility','==','public'),
-                    firebase.orderBy('createdAtTS','desc'),
-                    firebase.limit(10)
-                  );
-                  const s = await firebase.getDocs(q);
-                  const list=[]; s.forEach(d=> list.push(d.data()));
-                  feed.innerHTML = list.map(p=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text||'').replace(/</g,'&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>';
-                }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
-            };
+            // Use the class method implementation of showUserPreviewModal.
 
             // Follow/unfollow bar
             const feedCard = document.getElementById('space-feed-card');
@@ -831,13 +780,22 @@ class DashboardManager {
             });
             // Include public posts that current user reposted so they appear in My Feed.
             try{
-                const qRecent = firebase.query(
-                    firebase.collection(window.firebaseService.db,'posts'),
-                    firebase.where('visibility','==','public'),
-                    firebase.orderBy('createdAtTS','desc'),
-                    firebase.limit(80)
-                );
-                const recent = await firebase.getDocs(qRecent);
+                let recent;
+                try{
+                    const qRecent = firebase.query(
+                        firebase.collection(window.firebaseService.db,'posts'),
+                        firebase.where('visibility','==','public'),
+                        firebase.orderBy('createdAtTS','desc'),
+                        firebase.limit(80)
+                    );
+                    recent = await firebase.getDocs(qRecent);
+                }catch{
+                    const qRecent2 = firebase.query(
+                        firebase.collection(window.firebaseService.db,'posts'),
+                        firebase.where('visibility','==','public')
+                    );
+                    recent = await firebase.getDocs(qRecent2);
+                }
                 for (const d of recent.docs || []){
                     const p = d.data();
                     if (!p || !p.id || postsById.has(p.id)) continue;
@@ -1018,88 +976,32 @@ class DashboardManager {
             const me = await this.resolveCurrentUser(); if (!me || !me.uid) return;
             const list = document.getElementById('space-connections-list'); if (!list) return;
             list.innerHTML = '';
-            const byId = new Map();
-            const fields = ['participants', 'users', 'memberIds'];
-            for (const field of fields){
-                try{
-                    const q = firebase.query(
-                        firebase.collection(window.firebaseService.db,'chatConnections'),
-                        firebase.where(field,'array-contains', me.uid),
-                        firebase.orderBy('updatedAt','desc'),
-                        firebase.limit(50)
-                    );
-                    const s = await firebase.getDocs(q);
-                    s.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
-                }catch{
-                    try{
-                        const q2 = firebase.query(
-                            firebase.collection(window.firebaseService.db,'chatConnections'),
-                            firebase.where(field,'array-contains', me.uid)
-                        );
-                        const s2 = await firebase.getDocs(q2);
-                        s2.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
-                    }catch(_){ }
-                }
-            }
-            const myData = await window.firebaseService.getUserData(me.uid) || {};
-            const myNameLower = (myData.username||'').toLowerCase();
-            // Unify and dedupe by stable participant key, prefer non-archived, then most recent
-            const items = Array.from(byId.values()).map((c)=>{
-                const parts = Array.isArray(c.participants)
-                    ? c.participants
-                    : (Array.isArray(c.users) ? c.users : (Array.isArray(c.memberIds) ? c.memberIds : []));
-                return { ...c, participants: parts };
-            });
-            const groups = new Map();
-            const computeKey = (parts)=> (Array.isArray(parts)? parts.slice().sort().join('|') : '');
-            for (const c of items){
-                const key = c.key || computeKey(c.participants||[]);
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key).push(c);
-            }
-            const pickList = [];
-            for (const [k, arr] of groups.entries()){
-                arr.sort((a,b)=>{
-                    const aArchived = !!a.archived; const bArchived = !!b.archived;
-                    if (aArchived !== bArchived) return aArchived ? 1 : -1;
-                    return new Date(b.updatedAt||0) - new Date(a.updatedAt||0);
-                });
-                // Only take non-archived connections for Personal Space
-                const firstActive = arr.find(x=> !x.archived);
-                if (firstActive) pickList.push(firstActive);
-            }
-            // Prepare live username map for participants to avoid stale labels
-            const nameMap = new Map();
+            let snap;
             try{
-                const uidSet = new Set();
-                pickList.forEach(c=> (Array.isArray(c.participants)?c.participants:[]).forEach(u=>{ if (u!==me.uid) uidSet.add(u); }));
-                const fetches = Array.from(uidSet).map(async uid=>{
-                    try{ const d = await window.firebaseService.getUserData(uid); nameMap.set(uid, (d&&d.username)||d?.email||uid); }catch(_){ nameMap.set(uid, uid); }
-                });
-                await Promise.all(fetches);
-            }catch(_){ }
-
-            // Render
-            pickList.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-            pickList.forEach(c=>{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db,'connections',me.uid,'peers'),
+                    firebase.orderBy('updatedAt','desc'),
+                    firebase.limit(100)
+                );
+                snap = await firebase.getDocs(q);
+            }catch{
+                snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'connections',me.uid,'peers'));
+            }
+            const rows = [];
+            snap.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+            rows.sort((a,b)=> new Date(b.updatedAt||b.connectedAt||0) - new Date(a.updatedAt||a.connectedAt||0));
+            if (!rows.length){
+                list.innerHTML = '<li style="opacity:.8">No connections yet.</li>';
+                return;
+            }
+            rows.forEach((r)=>{
                 const li = document.createElement('li');
-                let label = 'Chat';
-                const parts = Array.isArray(c.participants)? c.participants: [];
-                if (parts.length){
-                    const names = parts.map((uid,i)=> uid===me.uid? (myData.username||me.email||'me') : (nameMap.get(uid) || (Array.isArray(c.participantUsernames)? c.participantUsernames[i] : uid)) );
-                    const others = names.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
-                    if (others.length===1) label = others[0];
-                    else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
-                } else if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-                    const others = c.participantUsernames.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
-                    if (others.length===1) label = others[0];
-                    else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
-                }
-                li.textContent = label;
-                li.style.cursor = 'pointer';
-                // Prefer stable key if present; else use the document id
-                const target = encodeURIComponent(c.key || c.id);
-                li.onclick = ()=>{ window.location.href = `apps/secure-chat/index.html?connId=${target}`; };
+                li.style.cssText = 'display:flex;gap:10px;align-items:center;padding:8px;border-radius:10px;cursor:pointer;';
+                const avatar = r.avatarUrl || 'images/default-bird.png';
+                const uname = (r.username || r.email || r.uid || r.id || 'User').toString().replace(/</g,'&lt;');
+                const email = (r.email || '').toString().replace(/</g,'&lt;');
+                li.innerHTML = `<img src="${avatar}" style="width:34px;height:34px;border-radius:50%;object-fit:cover"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${uname}</div><div style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${email}</div></div>`;
+                li.onclick = ()=> this.showUserPreviewModal({ uid: r.uid || r.id, username: r.username, email: r.email, avatarUrl: r.avatarUrl });
                 list.appendChild(li);
             });
         }catch(_){ }
@@ -2948,41 +2850,87 @@ Do you want to proceed?`);
       // ... 
     }
 
-    // Enhance showUserPreviewModal
+    // User profile popup from search/connections.
     async showUserPreviewModal(u) {
-      const uid = u.uid || u.id;
-      const data = u.username ? u : (await window.firebaseService.getUserData(uid))||{};
-      const me = await window.firebaseService.getCurrentUser();
+      const uid = (u && (u.uid || u.id)) || u;
+      if (!uid) return;
+      const data = (u && u.username) ? u : ((await window.firebaseService.getUserData(uid)) || {});
+      const me = await this.resolveCurrentUser();
+      if (!me || !me.uid) return;
       let isFollowing = false;
+      let isConnected = false;
       try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
+      try { const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid)); isConnected = c.exists(); } catch(_) {}
+
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `
-        <div class="modal" style="max-width:720px">
+        <div class="modal" style="max-width:860px">
           <div class="modal-header"><h3>${data.username || data.email || 'User'}</h3><button class="modal-close">&times;</button></div>
           <div class="modal-body">
-            <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:12px">
               <img src="${data.avatarUrl || 'images/default-bird.png'}" style="width:64px;height:64px;border-radius:12px;object-fit:cover">
               <div style="flex:1">
                 <div style="font-weight:700">${data.username || ''}</div>
                 <div style="opacity:.8">${data.email || ''}</div>
               </div>
               <button id="follow-toggle" class="btn ${isFollowing ? 'btn-secondary' : 'btn-primary'}">${isFollowing ? 'Unfollow' : 'Follow'}</button>
+              <button id="connect-toggle" class="btn btn-secondary">${isConnected ? '<i class="fas fa-unlink"></i> Disconnect' : '<i class="fas fa-link"></i> Connect'}</button>
               <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
             </div>
             <div id="preview-feed"></div>
+            <div id="preview-audio" style="margin-top:12px"></div>
+            <div id="preview-video" style="margin-top:12px"></div>
           </div>
         </div>`;
       document.body.appendChild(overlay);
       overlay.querySelector('.modal-close').onclick = () => overlay.remove();
       overlay.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
+
       const toggle = overlay.querySelector('#follow-toggle');
       toggle.onclick = async () => {
         try {
-          if (toggle.textContent === 'Follow') { await window.firebaseService.followUser(me.uid, uid); toggle.textContent = 'Unfollow'; toggle.className = 'btn btn-secondary'; }
-          else { await window.firebaseService.unfollowUser(me.uid, uid); toggle.textContent = 'Follow'; toggle.className = 'btn btn-primary'; }
+          toggle.disabled = true;
+          if (toggle.textContent === 'Follow') {
+            await window.firebaseService.followUser(me.uid, uid);
+            toggle.textContent = 'Unfollow';
+            toggle.className = 'btn btn-secondary';
+          } else {
+            await window.firebaseService.unfollowUser(me.uid, uid);
+            toggle.textContent = 'Follow';
+            toggle.className = 'btn btn-primary';
+          }
         } catch(_) {}
+        finally { toggle.disabled = false; }
       };
+
+      const connectBtn = overlay.querySelector('#connect-toggle');
+      connectBtn.onclick = async ()=>{
+        try{
+          connectBtn.disabled = true;
+          const now = new Date().toISOString();
+          const meData = (await window.firebaseService.getUserData(me.uid)) || {};
+          const mePeer = { uid: me.uid, username: meData.username || me.email || me.uid, email: meData.email || me.email || '', avatarUrl: meData.avatarUrl || 'images/default-bird.png', updatedAt: now, connectedAt: now };
+          const otherPeer = { uid, username: data.username || data.email || uid, email: data.email || '', avatarUrl: data.avatarUrl || 'images/default-bird.png', updatedAt: now, connectedAt: now };
+          const aRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid);
+          const bRef = firebase.doc(window.firebaseService.db,'connections',uid,'peers',me.uid);
+          if (!isConnected){
+            await firebase.setDoc(aRef, otherPeer, { merge: true });
+            await firebase.setDoc(bRef, mePeer, { merge: true });
+            isConnected = true;
+            connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
+            await this.loadConnectionsForSpace();
+          } else {
+            await firebase.deleteDoc(aRef);
+            await firebase.deleteDoc(bRef);
+            isConnected = false;
+            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+            await this.loadConnectionsForSpace();
+          }
+        }catch(_){ }
+        finally{ connectBtn.disabled = false; }
+      };
+
       const chatBtn = overlay.querySelector('#start-chat');
       if (chatBtn) {
         chatBtn.onclick = async () => {
@@ -2993,20 +2941,62 @@ Do you want to proceed?`);
           } catch(_) {}
         };
       }
-      // Load recent public posts
+
+      // Public posts with safe fallback (no-index fallback).
       const feed = overlay.querySelector('#preview-feed');
-      try {
-        const q = firebase.query(
-          firebase.collection(window.firebaseService.db, 'posts'),
-          firebase.where('authorId', '==', uid),
-          firebase.where('visibility', '==', 'public'),
-          firebase.orderBy('createdAtTS', 'desc'),
-          firebase.limit(10)
-        );
-        const s = await firebase.getDocs(q);
-        const list = []; s.forEach(d => list.push(d.data()));
-        feed.innerHTML = list.map(p => `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text || '').replace(/</g, '&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>';
-      } catch(_) { feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
+      try{
+        let list = [];
+        try{
+          const q = firebase.query(
+            firebase.collection(window.firebaseService.db, 'posts'),
+            firebase.where('authorId', '==', uid),
+            firebase.where('visibility', '==', 'public'),
+            firebase.orderBy('createdAtTS', 'desc'),
+            firebase.limit(10)
+          );
+          const s = await firebase.getDocs(q);
+          s.forEach(d => list.push(d.data()));
+        }catch{
+          const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'posts'), firebase.where('authorId', '==', uid));
+          const s2 = await firebase.getDocs(q2);
+          s2.forEach(d=>{ const p=d.data(); if ((p.visibility||'public')==='public') list.push(p); });
+          list.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0)-(a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0)-new Date(a.createdAt||0));
+          list = list.slice(0,10);
+        }
+        feed.innerHTML = `<h4 style="margin:4px 0 8px">Posts</h4>` + (list.map(p => `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text || '').replace(/</g, '&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>');
+      }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
+
+      // Audio preview section.
+      const audioEl = overlay.querySelector('#preview-audio');
+      try{
+        let rows = [];
+        try{
+          const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(8));
+          const s = await firebase.getDocs(q); s.forEach(d=> rows.push(d.data()));
+        }catch{
+          const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
+          const s2 = await firebase.getDocs(q2); s2.forEach(d=> rows.push(d.data()));
+          rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+          rows = rows.slice(0,8);
+        }
+        audioEl.innerHTML = `<h4 style="margin:4px 0 8px">Audio</h4>` + (rows.length ? rows.map(w=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(w.title||'Audio').replace(/</g,'&lt;')}</div><audio controls style="width:100%" src="${w.url||''}"></audio></div>`).join('') : '<div style="opacity:.8">No audio uploaded.</div>');
+      }catch(_){ audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4><div style="opacity:.8">Unable to load audio.</div>'; }
+
+      // Video preview section.
+      const videoEl = overlay.querySelector('#preview-video');
+      try{
+        let rows = [];
+        try{
+          const q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(8));
+          const s = await firebase.getDocs(q); s.forEach(d=> rows.push(d.data()));
+        }catch{
+          const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
+          const s2 = await firebase.getDocs(q2); s2.forEach(d=> rows.push(d.data()));
+          rows.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0)-(a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0)-new Date(a.createdAt||0));
+          rows = rows.slice(0,8);
+        }
+        videoEl.innerHTML = `<h4 style="margin:4px 0 8px">Videos</h4>` + (rows.length ? rows.map(v=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Video').replace(/</g,'&lt;')}</div><video controls playsinline style="width:100%;max-height:260px" src="${v.url||''}"></video></div>`).join('') : '<div style="opacity:.8">No videos uploaded.</div>');
+      }catch(_){ videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4><div style="opacity:.8">Unable to load videos.</div>'; }
     }
 
     activatePostActions(container = document) {

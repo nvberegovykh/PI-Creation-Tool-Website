@@ -1262,14 +1262,16 @@ class AuthManager {
             widget.style.display = 'none';
         }
         
-        // Prefill email for quick account switching
+        // One-time prefill email for switch-account fallback.
         try{
-            const email = localStorage.getItem('liber_prefill_email');
+            const email = sessionStorage.getItem('liber_switch_prefill_email') || localStorage.getItem('liber_prefill_email');
             if (email){
                 const el = document.getElementById('loginUsername');
                 if (el){ el.value = email; }
-                // Do not remove immediately; keep for page reloads. It will be overwritten on next switch.
             }
+            // Always clear persistent prefill to avoid leaking into unrelated fields.
+            sessionStorage.removeItem('liber_switch_prefill_email');
+            localStorage.removeItem('liber_prefill_email');
         }catch(_){ }
 
         // Setup mobile WALL-E toggle for login screen
