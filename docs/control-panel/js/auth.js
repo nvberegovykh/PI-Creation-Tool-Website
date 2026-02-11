@@ -243,23 +243,7 @@ class AuthManager {
         }
 
         try {
-            // Check if it's admin login
-            const adminCredentials = await this.getAdminCredentials().catch(()=>null);
-            if (adminCredentials && email === adminCredentials.username) {
-                const adminHash = await this.generateAdminHash(password);
-                if (adminHash === adminCredentials.passwordHash) {
-                    this.currentUser = {
-                        username: adminCredentials.username,
-                        email: adminCredentials.email,
-                        role: 'admin'
-                    };
-                    this.createSession();
-                    this.showDashboard();
-                    return;
-                }
-            }
-
-                    // Wait for Firebase to be fully initialized
+            // Wait for Firebase to be fully initialized
         let attempts = 0;
         const maxAttempts = 50; // 5 seconds
         

@@ -504,21 +504,12 @@ import { runTransaction } from 'firebase/firestore';
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 lastMessage:''
-              }, { merge:false });
+              }, { merge:true });
               connId = key;
             }catch(errStable){
-              const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-              connId = newRef.id;
-              await firebase.setDoc(newRef,{
-                id: connId,
-                key,
-                participants: participantUids,
-                participantUsernames: participantNames,
-                admins: [this.currentUser.uid],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                lastMessage:''
-              });
+              // If key already exists or race happened, resolve canonical id by key.
+              connId = await this.findConnectionByKey(key);
+              if (!connId) throw errStable;
             }
           }
           this.isGroupMode = false;
@@ -562,6 +553,27 @@ import { runTransaction } from 'firebase/firestore';
             }
           }
         }
+        // Key-only legacy docs fallback (no participants/users/memberIds arrays).
+        try{
+          let allSnap;
+          try{
+            const qAll = firebase.query(
+              firebase.collection(this.db,'chatConnections'),
+              firebase.orderBy('updatedAt','desc'),
+              firebase.limit(600)
+            );
+            allSnap = await firebase.getDocs(qAll);
+          }catch(_){
+            allSnap = await firebase.getDocs(firebase.collection(this.db,'chatConnections'));
+          }
+          allSnap.forEach(d=>{
+            const row = { id: d.id, ...d.data() };
+            const key = String(row.key || '');
+            if (!key) return;
+            const keyParts = key.split('|').filter(Boolean);
+            if (keyParts.includes(this.currentUser.uid)) byId.set(d.id, row);
+          });
+        }catch(_){ }
         const temp = Array.from(byId.values());
         temp.forEach((c)=>{
           const fallbackParts = this.getConnParticipants(c);
@@ -691,7 +703,7 @@ import { runTransaction } from 'firebase/firestore';
                       li.setAttribute('data-id', c.id);
                     });
                   }
-                  if (this.activeConnection) this.setActive(this.activeConnection);
+                  // Keep active chat stable; do not re-open chat on every profile update.
                 }catch(_){ }
               }
             });
@@ -808,8 +820,7 @@ import { runTransaction } from 'firebase/firestore';
             firebase.limit(500)
           );
         }
-        // Also include archived/sibling histories so duplicate-chat states still refresh correctly.
-        const relatedConnIds = await this.getRelatedConnIds(this.activeConnection);
+        // Keep live rendering stable on canonical active connection only.
         const keyByConn = new Map();
         const getKeyForConn = async (cid)=>{
           if (keyByConn.has(cid)) return keyByConn.get(cid);
@@ -917,30 +928,6 @@ import { runTransaction } from 'firebase/firestore';
           for (const d of (snap.docs || [])) {
             await renderOne(d);
           }
-          // Fetch and render related chains (best-effort).
-          for (const aid of relatedConnIds){
-            if (aid === this.activeConnection) continue;
-            try{
-              let qa;
-              try{
-                qa = firebase.query(
-                  firebase.collection(this.db,'chatMessages',aid,'messages'),
-                  firebase.orderBy('createdAtTS','asc'),
-                  firebase.limit(200)
-                );
-              }catch(_){
-                qa = firebase.query(
-                  firebase.collection(this.db,'chatMessages',aid,'messages'),
-                  firebase.orderBy('createdAt','asc'),
-                  firebase.limit(200)
-                );
-              }
-              const s2 = await firebase.getDocs(qa);
-              for (const d of (s2.docs || [])) {
-                await renderOne(d, aid);
-              }
-            }catch(_){ /* ignore per-archive failure */ }
-          }
           if (pinnedBefore){
             box.scrollTop = box.scrollHeight;
           }else{
@@ -960,12 +947,7 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           );
-          // Only poll when there are sibling/duplicate chat docs still present.
-          if ((relatedConnIds || []).length > 1){
-            this._msgPoll = setInterval(async ()=>{
-              try{ const s = await firebase.getDocs(q); await handleSnap(s); }catch(_){ }
-            }, 3000);
-          }
+          // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
           this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); handleSnap(s); }, 2500);
@@ -1646,21 +1628,11 @@ import { runTransaction } from 'firebase/firestore';
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                         lastMessage:''
-                      }, { merge:false });
+                      }, { merge:true });
                       connId = key;
                     }catch(errSet){
-                      const newRef = firebase.doc(firebase.collection(this.db,'chatConnections'));
-                      connId = newRef.id;
-                      await firebase.setDoc(newRef,{
-                        id: connId,
-                        key,
-                        participants: uids,
-                        participantUsernames:[myName, u.username||u.email],
-                        admins: [this.currentUser.uid],
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                        lastMessage:''
-                      });
+                      connId = await this.findConnectionByKey(key);
+                      if (!connId) throw errSet;
                     }
                   }
                   await this.loadConnections();

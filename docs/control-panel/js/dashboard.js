@@ -838,6 +838,8 @@ class DashboardManager {
         feed.innerHTML='';
         feed.__useAdvancedComments = true;
         try{
+            const meUser = await this.resolveCurrentUser();
+            const meProfile = (meUser && meUser.uid) ? ((await window.firebaseService.getUserData(meUser.uid)) || {}) : {};
             // Try ordered query for my posts (both public and private)
             let snap;
             try{
@@ -858,6 +860,34 @@ class DashboardManager {
                 const p = d.data();
                 if (p && p.id) postsById.set(p.id, p);
             });
+            // Legacy admin fallback: some old posts were not keyed by authorId.
+            if (postsById.size === 0 && meUser && meUser.uid){
+                try{
+                    let allSnap;
+                    try{
+                        const qAll = firebase.query(
+                            firebase.collection(window.firebaseService.db,'posts'),
+                            firebase.orderBy('createdAtTS','desc'),
+                            firebase.limit(300)
+                        );
+                        allSnap = await firebase.getDocs(qAll);
+                    }catch(_){
+                        allSnap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'posts'));
+                    }
+                    const myEmail = String(meUser.email || '').toLowerCase();
+                    const myName = String(meProfile.username || meUser.email || '').toLowerCase();
+                    allSnap.forEach(d=>{
+                        const p = d.data() || {};
+                        if (!p.id) return;
+                        const authorId = String(p.authorId || '');
+                        const authorEmail = String(p.authorEmail || '').toLowerCase();
+                        const authorName = String(p.authorName || '').toLowerCase();
+                        if (authorId === meUser.uid || (myEmail && authorEmail === myEmail) || (myName && authorName === myName)){
+                            postsById.set(p.id, p);
+                        }
+                    });
+                }catch(_){ }
+            }
             // Include public posts that current user reposted so they appear in My Feed.
             try{
                 let recent;
@@ -917,7 +947,6 @@ class DashboardManager {
                 this.activatePlayers(div);
             });
             // Bind actions for my posts
-            const meUser = await this.resolveCurrentUser();
             if (!meUser || !meUser.uid) return;
             document.querySelectorAll('#space-section .post-actions').forEach(async (pa)=>{
                 const postId = pa.getAttribute('data-post-id');
