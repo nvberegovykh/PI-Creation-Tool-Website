@@ -563,8 +563,9 @@ class DashboardManager {
                             // Cache-proof same-device switch (requires both accounts seeded on this device).
                             const byDevice = await callFnMaybe('switchToByDevice', { uid, deviceId });
                             customToken = byDevice?.customToken || null;
-                            // Admin fallback: direct admin-issued custom token.
-                            if (!customToken && isAdmin){
+                            // Secondary fallback: direct admin-issued custom token.
+                            // Server enforces admin role, so it's safe to attempt unconditionally.
+                            if (!customToken){
                                 const adminSw = await callFnMaybe('adminSwitchToUser', { uid });
                                 customToken = adminSw?.customToken || null;
                             }
