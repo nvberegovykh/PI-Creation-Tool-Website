@@ -43,10 +43,18 @@ class AppsManager {
             newSearchInput.setAttribute('autocorrect', 'off');
             newSearchInput.setAttribute('autocapitalize', 'off');
             newSearchInput.setAttribute('spellcheck', 'false');
-            // Keep this as a regular search field while avoiding login heuristics.
-            newSearchInput.setAttribute('autocomplete', 'off');
-            newSearchInput.setAttribute('name', 'app-search-field');
+            // Keep regular field behavior but defeat browser account-autofill heuristics.
+            newSearchInput.setAttribute('type', 'search');
+            newSearchInput.setAttribute('name', `app-search-${Date.now()}`);
             if (/@/.test((newSearchInput.value || '').trim())) newSearchInput.value = '';
+            const clearAutofill = ()=>{
+                const v = (newSearchInput.value || '').trim();
+                // Clear likely account autofill content (email-like or long single token).
+                if (/@/.test(v) || /^[A-Za-z0-9._-]{16,}$/.test(v)) newSearchInput.value = '';
+            };
+            setTimeout(clearAutofill, 0);
+            setTimeout(clearAutofill, 300);
+            setTimeout(clearAutofill, 1200);
             
             // Add new event listener
             newSearchInput.addEventListener('input', (e) => {

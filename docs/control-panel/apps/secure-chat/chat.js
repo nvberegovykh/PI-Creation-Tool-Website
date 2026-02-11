@@ -42,10 +42,27 @@ import { runTransaction } from 'firebase/firestore';
       try{ return (uids||[]).slice().sort().join('|'); }catch(_){ return ''; }
     }
 
+    getConnParticipants(data){
+      const parts = Array.isArray(data?.participants)
+        ? data.participants
+        : (Array.isArray(data?.users) ? data.users : (Array.isArray(data?.memberIds) ? data.memberIds : []));
+      if (parts.length) return parts.filter(Boolean);
+      if (typeof data?.key === 'string' && data.key.includes('|')) return data.key.split('|').filter(Boolean);
+      return [];
+    }
+
     async findConnectionByKey(key){
       try{
-        const q = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('key','==', key), firebase.limit(1));
-        const s = await firebase.getDocs(q); let id=null; s.forEach(d=> id=d.id); return id;
+        const q = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('key','==', key));
+        const s = await firebase.getDocs(q);
+        const rows = [];
+        s.forEach(d=> rows.push({ id:d.id, ...d.data() }));
+        rows.sort((a,b)=>{
+          const aa = !!a.archived; const bb = !!b.archived;
+          if (aa !== bb) return aa ? 1 : -1;
+          return new Date(b.updatedAt||0) - new Date(a.updatedAt||0);
+        });
+        return rows[0]?.id || null;
       }catch(_){ return null; }
     }
 
@@ -318,12 +335,32 @@ import { runTransaction } from 'firebase/firestore';
 
     async fixDuplicateConnections(){
       try{
-        const all = [];
-        const q = firebase.query(
-          firebase.collection(this.db,'chatConnections'),
-          firebase.where('participants','array-contains', this.currentUser.uid)
-        );
-        const snap = await firebase.getDocs(q); snap.forEach(d=> all.push({ id:d.id, ...d.data() }));
+        const byId = new Map();
+        const fields = ['participants', 'users', 'memberIds'];
+        for (const field of fields){
+          try{
+            const q = firebase.query(
+              firebase.collection(this.db,'chatConnections'),
+              firebase.where(field,'array-contains', this.currentUser.uid)
+            );
+            const s = await firebase.getDocs(q);
+            s.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
+          }catch(_){ }
+        }
+        // Include key-only docs that may not have participant arrays.
+        try{
+          const qAll = firebase.query(firebase.collection(this.db,'chatConnections'), firebase.orderBy('updatedAt','desc'), firebase.limit(400));
+          const sAll = await firebase.getDocs(qAll);
+          sAll.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
+        }catch(_){
+          try{
+            const sAll2 = await firebase.getDocs(firebase.collection(this.db,'chatConnections'));
+            sAll2.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
+          }catch(__){ }
+        }
+        const all = Array.from(byId.values())
+          .map(c=> ({ ...c, participants: this.getConnParticipants(c) }))
+          .filter(c=> Array.isArray(c.participants) && c.participants.includes(this.currentUser.uid));
         // Group by stable key of participants
         const groups = new Map();
         for (const c of all){
@@ -350,7 +387,13 @@ import { runTransaction } from 'firebase/firestore';
             }catch(err){ console.warn('Archive duplicate failed', r.id, err); }
           }
           // Normalize keep doc fields and ensure key present
-          try{ await firebase.updateDoc(firebase.doc(this.db,'chatConnections', keep.id),{ key, updatedAt: new Date().toISOString() }); }catch(_){ }
+          try{
+            await firebase.updateDoc(firebase.doc(this.db,'chatConnections', keep.id),{
+              key,
+              participants: keep.participants || [],
+              updatedAt: new Date().toISOString()
+            });
+          }catch(_){ }
         }
         alert(archived>0 ? `Archived ${archived} duplicate chats.` : 'No duplicates found.');
         await this.loadConnections();
@@ -521,9 +564,7 @@ import { runTransaction } from 'firebase/firestore';
         }
         const temp = Array.from(byId.values());
         temp.forEach((c)=>{
-          const fallbackParts = Array.isArray(c.participants)
-            ? c.participants
-            : (Array.isArray(c.users) ? c.users : (Array.isArray(c.memberIds) ? c.memberIds : []));
+          const fallbackParts = this.getConnParticipants(c);
           if (!Array.isArray(c.participants) && fallbackParts.length) c.participants = fallbackParts;
         });
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
@@ -754,7 +795,13 @@ import { runTransaction } from 'firebase/firestore';
             const m=d.data();
             let text='';
             try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-              try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              try {
+                const peerUid = await this.getPeerUid();
+                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+                text = await chatCrypto.decryptWithKey(m.cipher, legacy);
+              } catch {
+                try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              }
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
@@ -858,9 +905,8 @@ import { runTransaction } from 'firebase/firestore';
               }
             }catch(_){ /* ignore per-archive failure */ }
           }
-          // Keep current reading position unless user was already near the bottom.
-          if (wasNearBottom) box.scrollTop = box.scrollHeight;
-          else box.scrollTop = prevTop;
+          // Keep chat pinned to newest message for smoother live conversation flow.
+          box.scrollTop = box.scrollHeight;
         };
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(q, handleSnap);
@@ -882,7 +928,13 @@ import { runTransaction } from 'firebase/firestore';
             const m=d.data();
             let text='';
             try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-              try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              try {
+                const peerUid = await this.getPeerUid();
+                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+                text = await chatCrypto.decryptWithKey(m.cipher, legacy);
+              } catch {
+                try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              }
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
@@ -1328,8 +1380,16 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async getFallbackKey(){
-      const peerUid = await this.getPeerUid();
       const connId = this.activeConnection;
+      try{
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        const parts = snap.exists() ? this.getConnParticipants(snap.data()) : [];
+        if (parts.length > 2){
+          const groupSecret = `${parts.slice().sort().join('|')}|${connId}|liber_group_fallback_v2`;
+          return window.chatCrypto.deriveChatKey(groupSecret);
+        }
+      }catch(_){ }
+      const peerUid = await this.getPeerUid();
       if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
         return window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connId);
       }
@@ -1357,7 +1417,16 @@ import { runTransaction } from 'firebase/firestore';
         const payload = ct.includes('application/json') ? await res.json() : JSON.parse(await res.text());
         let b64;
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
-        catch { const alt = await this.getOrCreateSharedAesKey(); b64 = await chatCrypto.decryptWithKey(payload, alt); }
+        catch {
+          try{
+            const peerUid = await this.getPeerUid();
+            const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+            b64 = await chatCrypto.decryptWithKey(payload, legacy);
+          }catch{
+            const alt = await this.getOrCreateSharedAesKey();
+            b64 = await chatCrypto.decryptWithKey(payload, alt);
+          }
+        }
         if (this.isImageFilename(fileName)){
           const mime = fileName.toLowerCase().endsWith('.png') ? 'image/png'
                       : fileName.toLowerCase().endsWith('.webp') ? 'image/webp'
@@ -1900,7 +1969,9 @@ import { runTransaction } from 'firebase/firestore';
           const v = d.data();
           if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
             if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-            pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
+            if (pc.signalingState === 'closed') return;
+            if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
+            pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
           }
         });
       }));
@@ -2077,7 +2148,9 @@ import { runTransaction } from 'firebase/firestore';
         if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === myUid && v.candidate) {
           // Guard against calling before remoteDescription set
           if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-          pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(err => console.error('addIceCandidate failed:', err));
+          if (pc.signalingState === 'closed') return;
+          if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
+          pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
         }
       });
     }));
@@ -2229,7 +2302,16 @@ import { runTransaction } from 'firebase/firestore';
           });
           unsubs.push(u1);
           const u2 = firebase.onSnapshot(candsRef, (snap)=>{
-            snap.forEach(d=>{ const v=d.data(); if(v.type==='answer' && v.candidate){ try{ if (pc.signalingState!=='closed'){ pc.addIceCandidate(new RTCIceCandidate(v.candidate)); } }catch(_){ } }});
+            snap.forEach(d=>{
+              const v=d.data();
+              if(v.type==='answer' && v.candidate){
+                try{
+                  if (pc.signalingState==='closed') return;
+                  if (!pc.remoteDescription) return;
+                  pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
+                }catch(_){ }
+              }
+            });
           });
           unsubs.push(u2);
           this._activeCall = { pc, unsubs };
@@ -2299,7 +2381,15 @@ import { runTransaction } from 'firebase/firestore';
         if (firebase.onSnapshot){
           const added = new Set();
           firebase.onSnapshot(candsRef, (snap)=>{
-            snap.forEach(d=>{ const v=d.data(); const key=v && v.candidate && (v.candidate.sdpMid+':'+v.candidate.sdpMLineIndex+':'+v.candidate.candidate); if (v.type==='offer' && v.candidate && !added.has(key)){ added.add(key); pc.addIceCandidate(new RTCIceCandidate(v.candidate)); } });
+            snap.forEach(d=>{
+              const v=d.data();
+              const key=v && v.candidate && (v.candidate.sdpMid+':'+v.candidate.sdpMLineIndex+':'+v.candidate.candidate);
+              if (v.type==='offer' && v.candidate && !added.has(key)){
+                added.add(key);
+                if (pc.signalingState==='closed' || !pc.remoteDescription) return;
+                pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
+              }
+            });
           });
         }
         const endBtn = document.getElementById('end-call-btn');

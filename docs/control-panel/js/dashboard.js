@@ -824,15 +824,45 @@ class DashboardManager {
                 snap = await firebase.getDocs(q2);
                 snap = { docs: snap.docs.sort((a,b)=> (b.data()?.createdAtTS?.toMillis?.()||0) - (a.data()?.createdAtTS?.toMillis?.()||0) || new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
             }
+            const postsById = new Map();
             snap.forEach(d=>{
                 const p = d.data();
+                if (p && p.id) postsById.set(p.id, p);
+            });
+            // Include public posts that current user reposted so they appear in My Feed.
+            try{
+                const qRecent = firebase.query(
+                    firebase.collection(window.firebaseService.db,'posts'),
+                    firebase.where('visibility','==','public'),
+                    firebase.orderBy('createdAtTS','desc'),
+                    firebase.limit(80)
+                );
+                const recent = await firebase.getDocs(qRecent);
+                for (const d of recent.docs || []){
+                    const p = d.data();
+                    if (!p || !p.id || postsById.has(p.id)) continue;
+                    try{
+                        const repRef = firebase.doc(window.firebaseService.db,'posts', p.id, 'reposts', uid);
+                        const rep = await firebase.getDoc(repRef);
+                        if (rep.exists()){
+                            postsById.set(p.id, { ...p, _isRepostInMyFeed: true });
+                        }
+                    }catch(_){ }
+                }
+            }catch(_){ }
+            const mergedPosts = Array.from(postsById.values()).sort((a,b)=>
+                (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) ||
+                new Date(b.createdAt||0) - new Date(a.createdAt||0)
+            );
+            mergedPosts.forEach((p)=>{
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const by = p.authorName ? `<div class=\"byline\" style=\"display:flex;align-items:center;gap:8px;margin:4px 0\"><img src=\"${p.coverUrl||p.thumbnailUrl||'images/default-bird.png'}\" alt=\"cover\" style=\"width:20px;height:20px;border-radius:50%;object-fit:cover\"><span style=\"font-size:12px;color:#aaa\">by ${(p.authorName||'').replace(/</g,'&lt;')}</span></div>` : '';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
-                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
+                const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
+                div.innerHTML = `${repostBadge}<div>${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
                 // double-tap like on post content
                 const contentArea = div.querySelector('.post-text') || div;
@@ -857,6 +887,7 @@ class DashboardManager {
                 const commentBtn = pa.querySelector('.comment-btn');
                 const repostBtn = pa.querySelector('.repost-btn');
                 const visBtn = pa.querySelector('.visibility-btn');
+                const authorId = pa.getAttribute('data-author') || '';
                 const likesCount = pa.querySelector('.likes-count');
                 const rCount = pa.querySelector('.reposts-count');
                 const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0}`; if (rCount) rCount.textContent = `${s.reposts||0}`;
@@ -873,11 +904,16 @@ class DashboardManager {
                         try{
                             const me = await this.resolveCurrentUser();
                             if (!me || !me.uid) return;
-                            const stats = await window.firebaseService.getPostStats(postId);
-                            // naive toggle: if I already reposted, unRepost; else repost
-                            // we don't have hasReposted; attempt delete then add fallback
-                            try{ await window.firebaseService.unRepost(postId, me.uid); }catch(_){ await window.firebaseService.repost(postId, me.uid); }
+                            const already = await window.firebaseService.hasReposted(postId, me.uid);
+                            if (already){
+                                await window.firebaseService.unRepost(postId, me.uid);
+                                repostBtn.classList.remove('active');
+                            } else {
+                                await window.firebaseService.repost(postId, me.uid);
+                                repostBtn.classList.add('active');
+                            }
                             const s3 = await window.firebaseService.getPostStats(postId); if (rCount) rCount.textContent = `${s3.reposts||0}`;
+                            this.loadMyPosts(uid);
                         }catch(_){ }
                     };
                 }
@@ -958,7 +994,9 @@ class DashboardManager {
                     });
                 };
                 if (visBtn){
+                    if (authorId !== meUser.uid){ visBtn.style.display = 'none'; }
                     visBtn.onclick = async ()=>{
+                        if (authorId !== meUser.uid) return;
                         try{
                             const ref = firebase.doc(window.firebaseService.db, 'posts', postId);
                             const doc = await firebase.getDoc(ref);
