@@ -379,7 +379,7 @@ class DashboardManager {
                     return;
                 }
                 if (commentEl){
-                    const tree = document.getElementById(`comments-${pid}`);
+                    const tree = postItem?.querySelector('.comment-tree') || document.getElementById(`comments-${pid}`);
                     if (tree) return; // Advanced comments are handled at container/post level.
                     const text = prompt('Add comment:');
                     if (text && text.trim()){ try{ await firebase.addDoc(firebase.collection(window.firebaseService.db,'posts',pid,'comments'), { userId:me.uid, text:text.trim(), createdAt:new Date().toISOString() }); }catch(_){ } }
@@ -1035,7 +1035,7 @@ class DashboardManager {
                     };
                 }
                 commentBtn.onclick = async ()=>{
-                    const tree = document.getElementById(`comments-${postId}`);
+                    const tree = pa.closest('.post-item')?.querySelector('.comment-tree') || document.getElementById(`comments-${postId}`);
                     if (!tree) return;
                     const forceOpen = tree.dataset.forceOpen === '1';
                     tree.dataset.forceOpen = '0';
@@ -1289,7 +1289,7 @@ class DashboardManager {
                     if (editBtn && canEditPost){ editBtn.onclick = async ()=>{ const container = pa.closest('.post-item'); const textDiv = container && container.querySelector('.post-text'); const current = textDiv ? textDiv.textContent : ''; const newText = prompt('Edit post:', current); if (newText===null) return; await window.firebaseService.updatePost(postId, { text: newText.trim() }); this.loadGlobalFeed(); }; }
                     if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
                     if (commentBtn){ commentBtn.onclick = async ()=>{
-                        const tree = document.getElementById(`comments-${postId}`); if (!tree) return;
+                        const tree = pa.closest('.post-item')?.querySelector('.comment-tree') || document.getElementById(`comments-${postId}`); if (!tree) return;
                         const forceOpen = tree.dataset.forceOpen === '1';
                         tree.dataset.forceOpen = '0';
                         if (tree.style.display === 'none' || forceOpen){ tree.style.display='block'; } else { tree.style.display='none'; return; }
@@ -1443,7 +1443,7 @@ class DashboardManager {
                     };
                 }
                 commentBtn.onclick = async ()=>{
-                    const tree = document.getElementById(`comments-${postId}`);
+                    const tree = pa.closest('.post-item')?.querySelector('.comment-tree') || document.getElementById(`comments-${postId}`);
                     if (!tree) return;
                     const forceOpen = tree.dataset.forceOpen === '1';
                     tree.dataset.forceOpen = '0';
@@ -3456,7 +3456,7 @@ Do you want to proceed?`);
                 try { await firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), { userId: me.uid, text: text.trim(), createdAt: new Date().toISOString() }); } catch(_) {}
               }
             } else if (typeof commentEl.onclick !== 'function') {
-              const tree = document.getElementById(`comments-${pid}`);
+              const tree = postItem?.querySelector('.comment-tree') || document.getElementById(`comments-${pid}`);
               if (!tree) return;
               try { await this.openAdvancedCommentsFallback(pid, tree, me.uid); } catch (_) {}
             }
