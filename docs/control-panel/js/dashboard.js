@@ -624,8 +624,11 @@ class DashboardManager {
                                     console.warn('Instant switch call errors:', fnErrors.join(' | '));
                                 }
                                 const onlyByDeviceDenied = fnErrors.length > 0 && fnErrors.every((s)=> /switchToByDevice/i.test(s) && /permission-denied/i.test(s));
+                                const tokenRejected = fnErrors.some((s)=> /switchTo/i.test(s) && /(permission-denied|invalid token|no session|session missing)/i.test(s));
                                 if (onlyByDeviceDenied){
                                     this.showInfo('Target account needs one login on this device first, then instant switch will work.');
+                                } else if (tokenRejected){
+                                    this.showInfo('Saved switch token expired or missing. Log in to that account once, then instant switch will work.');
                                 } else {
                                     this.showError('Instant switch unavailable. Log in once for this account on this device.');
                                 }
