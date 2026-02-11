@@ -50,8 +50,16 @@ class FirebaseService {
             if ('Notification' in window && Notification.permission !== 'granted'){
                 try { await Notification.requestPermission(); } catch(_) {}
             }
-            // Requires a service worker at /sw.js
-            const token = await window.firebaseModular.getToken(messaging, { vapidKey: vapid, serviceWorkerRegistration: await navigator.serviceWorker.getRegistration() });
+            // Ensure an explicit SW registration exists, to avoid default
+            // firebase-messaging-sw.js fetch attempts that can 404.
+            let swReg = null;
+            try{
+                swReg = await navigator.serviceWorker.getRegistration('/sw.js');
+                if (!swReg) swReg = await navigator.serviceWorker.register('/sw.js');
+            }catch(_){
+                swReg = await navigator.serviceWorker.getRegistration();
+            }
+            const token = await window.firebaseModular.getToken(messaging, { vapidKey: vapid, serviceWorkerRegistration: swReg || undefined });
             if (!token) return;
             // Store token under user doc for later server-side delivery if needed
             try{

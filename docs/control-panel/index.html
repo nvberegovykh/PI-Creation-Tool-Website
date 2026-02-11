@@ -647,18 +647,27 @@
         });
     </script>
     
-    <!-- Scripts -->
-    <script src="js/crypto.js?v=20260211r16"></script>
-    <script src="js/secure-keys.js?v=20260211r16"></script>
-    <script src="js/email-service.js?v=20260211r16"></script>
-    <script src="js/firebase-service.js?v=20260211r18"></script>
-    <script src="js/migration-helper.js?v=20260211r16"></script>
-    <script src="js/auth.js?v=20260211r16"></script>
-    <script src="js/dashboard.js?v=20260211r20"></script>
-    <script src="js/apps.js?v=20260211r16"></script>
-    <script src="js/users.js?v=20260211r16"></script>
-    <script src="js/main.js?v=20260211r16"></script>
-    <script src="js/chatgpt-integration.js?v=20260211r16"></script>
+    <!-- Scripts (single-source cache version) -->
+    <script>
+      window.LIBER_APP_VERSION = '20260211r21';
+      (function loadVersionedScripts() {
+        const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
+        const scripts = [
+          'js/crypto.js',
+          'js/secure-keys.js',
+          'js/email-service.js',
+          'js/firebase-service.js',
+          'js/migration-helper.js',
+          'js/auth.js',
+          'js/dashboard.js',
+          'js/apps.js',
+          'js/users.js',
+          'js/main.js',
+          'js/chatgpt-integration.js'
+        ];
+        document.write(scripts.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
+      })();
+    </script>
     <script>
       (function(){
         const block = (el)=>{

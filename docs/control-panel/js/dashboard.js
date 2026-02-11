@@ -500,8 +500,49 @@ class DashboardManager {
                         const uid = row.getAttribute('data-uid'); if (!uid) return;
                         try{
                             const fnErrors = [];
+                            const callSwitchFn = async (name, payload)=>{
+                                const fs = window.firebaseService;
+                                const projectId = fs?.app?.options?.projectId || (await fs.getFirebaseConfig())?.projectId;
+                                const preferred = (()=>{ try{ return localStorage.getItem('liber_functions_region') || 'europe-west1'; }catch(_){ return 'europe-west1'; } })();
+                                const regions = [preferred, 'europe-west1', 'us-central1'].filter((v,i,a)=> v && a.indexOf(v)===i);
+                                const errs = [];
+                                for (const r of regions){
+                                    try{
+                                        if (window.firebaseModular?.httpsCallable && fs?.app){
+                                            const f = (fs.functionsByRegion && fs.functionsByRegion[r])
+                                                ? fs.functionsByRegion[r]
+                                                : (window.firebaseModular.getFunctions ? window.firebaseModular.getFunctions(fs.app, r) : null);
+                                            if (!f) throw new Error('functions unavailable');
+                                            const callable = window.firebaseModular.httpsCallable(f, name);
+                                            const res = await callable(payload);
+                                            return (res && res.data) || null;
+                                        }
+                                    }catch(e){
+                                        errs.push(`${name}@${r}[callable]: ${e?.code || e?.message || e}`);
+                                    }
+                                }
+                                for (const r of regions){
+                                    try{
+                                        const user = fs?.auth?.currentUser;
+                                        if (!projectId || !user) throw new Error('missing project/auth');
+                                        const idToken = await firebase.getIdToken(user, true);
+                                        const url = `https://${r}-${projectId}.cloudfunctions.net/${name}`;
+                                        const resp = await fetch(url, {
+                                            method:'POST',
+                                            headers:{ 'Content-Type':'application/json', 'Authorization': `Bearer ${idToken}` },
+                                            body: JSON.stringify({ data: payload })
+                                        });
+                                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                        const json = await resp.json().catch(()=>({}));
+                                        return json && (json.data || json.result || null);
+                                    }catch(e){
+                                        errs.push(`${name}@${r}[http]: ${e?.message || e}`);
+                                    }
+                                }
+                                throw new Error(errs.join(' | '));
+                            };
                             const callFnMaybe = async (name, payload)=>{
-                                try{ return await window.firebaseService.callFunction(name, payload); }
+                                try{ return await callSwitchFn(name, payload); }
                                 catch(e){
                                     fnErrors.push(`${name}: ${e?.message || e}`);
                                     return null;

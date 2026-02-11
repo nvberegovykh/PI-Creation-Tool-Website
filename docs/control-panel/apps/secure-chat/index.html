@@ -99,14 +99,30 @@
         </main>
     </div>
 
-    <!-- Load core platform services (secure keys + Firebase) -->
-    <script src="../../js/secure-keys.js?v=20260211r9"></script>
-    <script src="../../js/firebase-loader.js?v=20260211r9"></script>
-    <script src="../../js/firebase-service.js?v=20260211r9"></script>
-    <!-- Chat crypto and app -->
-    <script src="../../js/crypto.js?v=20260211r9"></script>
-    <script src="chat-crypto.js?v=20260211r9"></script>
-    <script type="module" src="chat.js?v=20260211r12"></script>
+    <!-- Scripts (single-source cache version) -->
+    <script>
+      window.LIBER_CHAT_VERSION = '20260211r12';
+      (function loadChatScripts() {
+        const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
+        const scripts = [
+          '../../js/secure-keys.js',
+          '../../js/firebase-loader.js',
+          '../../js/firebase-service.js',
+          '../../js/crypto.js',
+          'chat-crypto.js'
+        ];
+        document.write(scripts.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
+      })();
+    </script>
+    <script>
+      (function loadChatModule() {
+        const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
+        const m = document.createElement('script');
+        m.type = 'module';
+        m.src = `chat.js?v=${v}`;
+        document.body.appendChild(m);
+      })();
+    </script>
 </body>
 </html>
 
