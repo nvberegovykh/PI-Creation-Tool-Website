@@ -35,6 +35,8 @@ import { runTransaction } from 'firebase/firestore';
       this._joinRetryTimer = null;
       this._forceRelay = false; // Prefer mixed ICE; TURN is still included in iceServers.
       this._pcWatchdogs = new Map(); // key: callId:peerUid -> {t1,t2}
+      this._msgLoadSeq = 0;
+      this._lastRenderSigByConn = new Map();
       this.init();
     }
 
@@ -91,6 +93,27 @@ import { runTransaction } from 'firebase/firestore';
         });
         return withMsgTs[0]?.row?.id || rows[0]?.id || null;
       }catch(_){ return null; }
+    }
+
+    async resolveCanonicalConnectionId(connId){
+      try{
+        if (!connId) return connId;
+        let key = '';
+        // If deep link passes a key directly, use it as-is.
+        if (String(connId).includes('|')) key = String(connId);
+        if (!key){
+          const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+          if (snap.exists()){
+            const data = snap.data() || {};
+            key = String(data.key || this.computeConnKey(this.getConnParticipants(data)) || '');
+          }
+        }
+        if (!key) return connId;
+        const canonical = await this.findConnectionByKey(key);
+        return canonical || connId;
+      }catch(_){
+        return connId;
+      }
     }
 
     async getIceServers(){
@@ -670,13 +693,20 @@ import { runTransaction } from 'firebase/firestore';
         li.textContent = label; // Initial set, async will update
         // Admin badge in header when active
         li.addEventListener('mouseenter', ()=> li.classList.add('active-hover'));
-        li.addEventListener('click',()=>{
-          this.setActive(c.id);
+        li.addEventListener('click', async ()=>{
+          let targetId = c.id;
+          try{ targetId = await this.resolveCanonicalConnectionId(c.id); }catch(_){ targetId = c.id; }
+          if (targetId && this.activeConnection === targetId){
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) sidebar.classList.remove('open');
+            return;
+          }
+          await this.setActive(targetId || c.id);
           const sidebar = document.querySelector('.sidebar');
           if (sidebar) sidebar.classList.remove('open');
           setTimeout(async()=>{
             try{
-              const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', c.id));
+              const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', targetId || c.id));
               const data = snap.exists()? snap.data():null;
               const admins = Array.isArray(data?.admins)? data.admins: [];
               const hdr = document.querySelector('.chat-header h3');
@@ -742,10 +772,13 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async setActive(connId, displayName){
-      this.activeConnection = connId;
+      // Always resolve to one canonical chat doc for this participant key, so
+      // chat search / sidebar / personal-space popup all open the same thread.
+      const resolvedConnId = await this.resolveCanonicalConnectionId(connId);
+      this.activeConnection = resolvedConnId || connId;
       // Resolve displayName if not provided
       if (!displayName) {
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
         if (snap.exists()) {
           const data = snap.data();
           const parts = Array.isArray(data.participants)
@@ -764,7 +797,7 @@ import { runTransaction } from 'firebase/firestore';
       await this.loadMessages();
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
         if (snap.exists()){
           const data = snap.data();
           const parts = Array.isArray(data.participants)
@@ -805,8 +838,11 @@ import { runTransaction } from 'firebase/firestore';
 
     async loadMessages(){
       const box = document.getElementById('messages');
-      box.innerHTML='';
+      if (!box) return;
       if (!this.activeConnection) return;
+      const activeConnId = this.activeConnection;
+      this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
+      const loadSeq = this._msgLoadSeq;
       // Ensure a persistent scroll-to-latest affordance exists.
       let toBottomBtn = document.getElementById('chat-scroll-bottom-btn');
       if (!toBottomBtn){
@@ -836,13 +872,13 @@ import { runTransaction } from 'firebase/firestore';
         let q;
         try{
           q = firebase.query(
-            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAtTS','asc'),
             firebase.limit(500)
           );
         }catch(_){
           q = firebase.query(
-            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
             firebase.limit(500)
           );
@@ -856,14 +892,16 @@ import { runTransaction } from 'firebase/firestore';
           return k;
         };
         const handleSnap = async (snap)=>{
+          if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
           const sigBase = (snap.docs || []).map(d=> `${d.id}:${d.data()?.updatedAt||d.data()?.createdAt||''}`).join('|');
-          const sig = `${this.activeConnection}::${sigBase}`;
-          if (this._lastRenderSig === sig) return;
-          this._lastRenderSig = sig;
+          const sig = `${activeConnId}::${sigBase}`;
+          if (this._lastRenderSigByConn.get(activeConnId) === sig) return;
+          this._lastRenderSigByConn.set(activeConnId, sig);
           const prevTop = box.scrollTop;
           const pinnedBefore = box.dataset.pinnedBottom !== '0';
           box.innerHTML='';
-          const renderOne = async (d, sourceConnId = this.activeConnection)=>{
+          const renderOne = async (d, sourceConnId = activeConnId)=>{
+            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const m=d.data();
             const aesKey = await getKeyForConn(sourceConnId);
             let text='';
@@ -924,11 +962,11 @@ import { runTransaction } from 'firebase/firestore';
                   if (next===null) return;
                   const key = await this.getFallbackKey();
                   const cipher2 = await chatCrypto.encryptWithKey(next, key);
-                  await firebase.updateDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid),{ cipher: cipher2, updatedAt: new Date().toISOString() });
+                  await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: cipher2, updatedAt: new Date().toISOString() });
                 };
                 delIcon.onclick = async ()=>{
                   if (!confirm('Delete this message?')) return;
-                  await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid));
+                  await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid));
                 };
                 repIcon.onclick = async ()=>{
                   const picker = document.createElement('input'); picker.type='file'; picker.accept='*/*'; picker.style.display='none'; document.body.appendChild(picker);
@@ -939,10 +977,10 @@ import { runTransaction } from 'firebase/firestore';
                       const base64 = await new Promise((resolve, reject)=>{ const r = new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
                       const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2);
                       const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'});
-                      const sref = firebase.ref(this.storage, `chat/${this.activeConnection}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`);
+                      const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`);
                       await firebase.uploadBytes(sref, blob, { contentType: 'application/json' });
                       const url = await firebase.getDownloadURL(sref);
-                      await firebase.updateDoc(firebase.doc(this.db,'chatMessages',this.activeConnection,'messages', mid),{ fileUrl:url, fileName:f.name, updatedAt: new Date().toISOString() });
+                      await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl:url, fileName:f.name, updatedAt: new Date().toISOString() });
                     }catch(_){ alert('Failed to replace file'); }
                     finally{ document.body.removeChild(picker); }
                   };
@@ -965,7 +1003,7 @@ import { runTransaction } from 'firebase/firestore';
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
-            handleSnap,
+            (snap)=>{ handleSnap(snap); },
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
               try{
@@ -977,17 +1015,19 @@ import { runTransaction } from 'firebase/firestore';
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
-          this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); handleSnap(s); }, 2500);
-          const snap = await firebase.getDocs(q); handleSnap(snap);
+          this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); await handleSnap(s); }, 2500);
+          const snap = await firebase.getDocs(q); await handleSnap(snap);
         }
       }catch{
         try{
           const q = firebase.query(
-            firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'),
+            firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
             firebase.limit(200)
           );
           const snap = await firebase.getDocs(q);
+          if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+          box.innerHTML='';
           let aesKey = await this.getFallbackKey();
           snap.forEach(async d=>{
             const m=d.data();
@@ -1316,7 +1356,7 @@ import { runTransaction } from 'firebase/firestore';
           }
         }
       }catch(_){ /* ignore optional push errors */ }
-      await this.loadMessages();
+      // Live listener updates UI; avoid forcing reload here to prevent race/flicker.
     }
 
     /* Group admin management */

@@ -504,7 +504,14 @@ class DashboardManager {
                             let token = tokenMap[uid];
                             // If selecting current account, just close
                             if (uid === currentUid){ try{ layer.remove(); }catch(_){ } return; }
-                            if (!token){
+                            let customToken = null;
+                            // First try cache-proof same-device switch; this works even when local
+                            // token map was cleared, as long as both accounts were logged in once.
+                            try{
+                                const byDevice = await window.firebaseService.callFunction('switchToByDevice', { uid, deviceId });
+                                customToken = byDevice?.customToken || null;
+                            }catch(_){ }
+                            if (!customToken && !token){
                                 // Admin fallback: mint a device token for the target account on demand.
                                 try{
                                     const acc = (accounts||[]).find(a=> (a.uid===uid));
@@ -520,28 +527,10 @@ class DashboardManager {
                                     }
                                 }catch(_){ /* non-admin or mint failed */ }
                             }
-                            if (!token){
-                                // No token available -> one-time login prefill for this switch attempt.
-                                try{ layer.remove(); }catch(_){ }
-                                const acc = (accounts||[]).find(a=> (a.uid===uid));
-                                const email = acc && acc.email;
-                                try{
-                                    const prefill = email || (acc && acc.username) || '';
-                                    if (prefill){
-                                        sessionStorage.setItem('liber_switch_prefill_email', prefill);
-                                        localStorage.setItem('liber_prefill_email', prefill);
-                                    }
-                                }catch(_){ }
-                                const authScreen = document.getElementById('auth-screen');
-                                const dashboard = document.getElementById('dashboard');
-                                if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
-                                if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
-                                const emailInput = document.getElementById('loginUsername'); if (emailInput && (email || (acc && acc.username))){ emailInput.value = email || acc.username; emailInput.focus(); }
-                                this.showInfo && this.showInfo('Log in to this account once to enable instant switching.');
-                                return;
+                            if (!customToken && token){
+                                let res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                                customToken = res2?.customToken;
                             }
-                            let res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
-                            let customToken = res2?.customToken;
                             if (!customToken){
                                 // Retry once after admin mint (when possible).
                                 try{
@@ -554,17 +543,10 @@ class DashboardManager {
                                             token = minted2;
                                             tokenMap[uid] = token;
                                             localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                                            res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
-                                            customToken = res2?.customToken;
+                                            const res3 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                                            customToken = res3?.customToken;
                                         }
                                     }
-                                }catch(_){ }
-                            }
-                            if (!customToken){
-                                // Cache-proof same-device fallback when local token map was cleared.
-                                try{
-                                    const byDevice = await window.firebaseService.callFunction('switchToByDevice', { uid, deviceId });
-                                    customToken = byDevice?.customToken || null;
                                 }catch(_){ }
                             }
                             if (!customToken){
@@ -583,7 +565,7 @@ class DashboardManager {
                                 if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
                                 if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
                                 const emailInput = document.getElementById('loginUsername'); if (emailInput && prefill){ emailInput.value = prefill; emailInput.focus(); }
-                                this.showError('Instant switch token failed. Please log in once for this account.');
+                                this.showError('Instant switch unavailable. Log in once for this account on this device.');
                                 return;
                             }
                             await firebase.signInWithCustomToken(window.firebaseService.auth, customToken);
@@ -1137,7 +1119,48 @@ class DashboardManager {
                 const avatar = r.avatarUrl || 'images/default-bird.png';
                 const uname = (r.username || r.email || r.uid || r.id || 'User').toString().replace(/</g,'&lt;');
                 const email = (r.email || '').toString().replace(/</g,'&lt;');
-                li.innerHTML = `<img src="${avatar}" style="width:34px;height:34px;border-radius:50%;object-fit:cover"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${uname}</div><div style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${email}</div></div>`;
+                const status = String(r.status || 'connected');
+                const requestedBy = String(r.requestedBy || '');
+                const requestedTo = String(r.requestedTo || '');
+                const incomingPending = status === 'pending' && requestedTo === me.uid;
+                const outgoingPending = status === 'pending' && requestedBy === me.uid;
+                li.innerHTML = `<img src="${avatar}" style="width:34px;height:34px;border-radius:50%;object-fit:cover"><div style="min-width:0;flex:1"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${uname}</div><div style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${email}</div></div>`;
+                const actions = document.createElement('div');
+                actions.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:auto';
+                if (incomingPending){
+                    const confirmBtn = document.createElement('button');
+                    confirmBtn.className = 'btn btn-primary';
+                    confirmBtn.textContent = 'Confirm';
+                    confirmBtn.onclick = async (ev)=>{
+                        ev.stopPropagation();
+                        try{
+                            confirmBtn.disabled = true;
+                            await window.firebaseService.callFunction('respondConnection', { peerUid: r.uid || r.id, action: 'accept' });
+                            await this.loadConnectionsForSpace();
+                        }catch(_){ this.showError('Failed to confirm connection'); }
+                        finally{ confirmBtn.disabled = false; }
+                    };
+                    const denyBtn = document.createElement('button');
+                    denyBtn.className = 'btn btn-secondary';
+                    denyBtn.textContent = 'Deny';
+                    denyBtn.onclick = async (ev)=>{
+                        ev.stopPropagation();
+                        try{
+                            denyBtn.disabled = true;
+                            await window.firebaseService.callFunction('respondConnection', { peerUid: r.uid || r.id, action: 'deny' });
+                            await this.loadConnectionsForSpace();
+                        }catch(_){ this.showError('Failed to deny request'); }
+                        finally{ denyBtn.disabled = false; }
+                    };
+                    actions.appendChild(confirmBtn);
+                    actions.appendChild(denyBtn);
+                } else {
+                    const badge = document.createElement('span');
+                    badge.style.cssText = 'font-size:12px;opacity:.85';
+                    badge.textContent = outgoingPending ? 'Pending' : 'Connected';
+                    actions.appendChild(badge);
+                }
+                li.appendChild(actions);
                 li.onclick = ()=> this.showUserPreviewModal({ uid: r.uid || r.id, username: r.username, email: r.email, avatarUrl: r.avatarUrl });
                 list.appendChild(li);
             });
@@ -2996,15 +3019,32 @@ Do you want to proceed?`);
       const me = await this.resolveCurrentUser();
       if (!me || !me.uid) return;
       let isFollowing = false;
-      let isConnected = false;
+      let connState = { status: 'none', requestedBy: '', requestedTo: '' };
       try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
-      try { const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid)); isConnected = c.exists(); } catch(_) {}
+      try {
+        const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
+        if (c.exists()){
+          const d = c.data() || {};
+          connState = {
+            status: d.status || ((d.requestedBy || d.requestedTo) ? 'pending' : 'connected'),
+            requestedBy: d.requestedBy || '',
+            requestedTo: d.requestedTo || ''
+          };
+        }
+      } catch(_) {}
+      const isConnected = connState.status === 'connected';
+      const isOutgoingPending = connState.status === 'pending' && connState.requestedBy === me.uid;
+      const isIncomingPending = connState.status === 'pending' && connState.requestedTo === me.uid;
+      const connectLabel = isConnected
+        ? '<i class="fas fa-unlink"></i> Disconnect'
+        : (isOutgoingPending ? '<i class="fas fa-hourglass-half"></i> Cancel request'
+          : (isIncomingPending ? '<i class="fas fa-check"></i> Accept request' : '<i class="fas fa-link"></i> Connect'));
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
       overlay.innerHTML = `
-        <div class="modal" style="max-width:860px">
+        <div class="modal" style="max-width:860px;width:min(860px,96vw);max-height:calc(100vh - 32px);overflow:auto;margin:0 auto;">
           <div class="modal-header"><h3>${data.username || data.email || 'User'}</h3><button class="modal-close">&times;</button></div>
           <div class="modal-body">
             <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:12px">
@@ -3014,7 +3054,7 @@ Do you want to proceed?`);
                 <div style="opacity:.8">${data.email || ''}</div>
               </div>
               <button id="follow-toggle" class="btn ${isFollowing ? 'btn-secondary' : 'btn-primary'}">${isFollowing ? 'Unfollow' : 'Follow'}</button>
-              <button id="connect-toggle" class="btn btn-secondary">${isConnected ? '<i class="fas fa-unlink"></i> Disconnect' : '<i class="fas fa-link"></i> Connect'}</button>
+              <button id="connect-toggle" class="btn btn-secondary">${connectLabel}</button>
               <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
             </div>
             <div id="preview-feed"></div>
@@ -3047,26 +3087,29 @@ Do you want to proceed?`);
       connectBtn.onclick = async ()=>{
         try{
           connectBtn.disabled = true;
-          const now = new Date().toISOString();
-          const meData = (await window.firebaseService.getUserData(me.uid)) || {};
-          const mePeer = { uid: me.uid, username: meData.username || me.email || me.uid, email: meData.email || me.email || '', avatarUrl: meData.avatarUrl || 'images/default-bird.png', updatedAt: now, connectedAt: now };
-          const otherPeer = { uid, username: data.username || data.email || uid, email: data.email || '', avatarUrl: data.avatarUrl || 'images/default-bird.png', updatedAt: now, connectedAt: now };
-          const aRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid);
-          const bRef = firebase.doc(window.firebaseService.db,'connections',uid,'peers',me.uid);
-          if (!isConnected){
-            await firebase.setDoc(aRef, otherPeer, { merge: true });
-            await firebase.setDoc(bRef, mePeer, { merge: true });
-            isConnected = true;
-            connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
-            await this.loadConnectionsForSpace();
-          } else {
-            await firebase.deleteDoc(aRef);
-            await firebase.deleteDoc(bRef);
-            isConnected = false;
-            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
-            await this.loadConnectionsForSpace();
+          const stateSnap = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
+          let status = 'none'; let requestedBy = ''; let requestedTo = '';
+          if (stateSnap.exists()){
+            const d = stateSnap.data() || {};
+            status = d.status || ((d.requestedBy || d.requestedTo) ? 'pending' : 'connected');
+            requestedBy = d.requestedBy || '';
+            requestedTo = d.requestedTo || '';
           }
-        }catch(_){ }
+          if (status === 'connected'){
+            await window.firebaseService.callFunction('removeConnection', { peerUid: uid });
+            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+          } else if (status === 'pending' && requestedBy === me.uid){
+            await window.firebaseService.callFunction('removeConnection', { peerUid: uid });
+            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+          } else if (status === 'pending' && requestedTo === me.uid){
+            await window.firebaseService.callFunction('respondConnection', { peerUid: uid, action: 'accept' });
+            connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
+          } else {
+            await window.firebaseService.callFunction('requestConnection', { peerUid: uid });
+            connectBtn.innerHTML = '<i class="fas fa-hourglass-half"></i> Cancel request';
+          }
+          await this.loadConnectionsForSpace();
+        }catch(_){ this.showError('Connection update failed'); }
         finally{ connectBtn.disabled = false; }
       };
 
