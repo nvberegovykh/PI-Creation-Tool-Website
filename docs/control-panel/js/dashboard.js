@@ -376,8 +376,19 @@ class DashboardManager {
                     return;
                 }
                 if (commentEl){
-                    // Advanced in-place comment trees should handle this click.
-                    if (document.getElementById(`comments-${pid}`)) return;
+                    // Prefer advanced in-place comment trees; fallback if bound handler was missed.
+                    const tree = document.getElementById(`comments-${pid}`);
+                    if (tree){
+                        // If per-post handler exists, try it first.
+                        if (tree.style.display === 'none' && typeof commentEl.onclick === 'function'){
+                            try{ await commentEl.onclick(); }catch(_){ }
+                            if (tree.style.display !== 'none') return;
+                        }
+                        try{
+                            await this.openAdvancedCommentsFallback(pid, tree, me.uid);
+                        }catch(_){ }
+                        return;
+                    }
                     const text = prompt('Add comment:');
                     if (text && text.trim()){ try{ await firebase.addDoc(firebase.collection(window.firebaseService.db,'posts',pid,'comments'), { userId:me.uid, text:text.trim(), createdAt:new Date().toISOString() }); }catch(_){ } }
                     return;
@@ -3280,6 +3291,127 @@ Do you want to proceed?`);
       }catch(_){ videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4><div style="opacity:.8">Unable to load videos.</div>'; }
     }
 
+    async openAdvancedCommentsFallback(postId, tree, myUid){
+      if (!tree || !postId) return;
+      const forceOpen = tree.dataset.forceOpen === '1';
+      tree.dataset.forceOpen = '0';
+      if (tree.style.display === 'none' || forceOpen) tree.style.display = 'block';
+      else { tree.style.display = 'none'; return; }
+
+      const renderTree = async () => {
+        tree.innerHTML = '';
+        const currentLimit = Number(tree.dataset.limit || 5);
+        const comments = await window.firebaseService.getComments(postId, currentLimit);
+        const map = new Map();
+        comments.forEach(c => map.set(c.id, { ...c, children: [] }));
+        const roots = [];
+        comments.forEach(c => {
+          if (c.parentId && map.has(c.parentId)) map.get(c.parentId).children.push(map.get(c.id));
+          else roots.push(map.get(c.id));
+        });
+
+        const renderNode = (node, parent) => {
+          const item = document.createElement('div');
+          item.className = 'comment-item';
+          item.innerHTML = `<div class="comment-text"><i class="fas fa-comment"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+          <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
+            <span class="reply-btn" style="cursor:pointer"><i class="fas fa-reply"></i> Reply</span>
+            <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
+            <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
+          </div>`;
+          parent.appendChild(item);
+
+          const replyBox = document.createElement('div');
+          replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
+          replyBox.innerHTML = '<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">';
+          item.appendChild(replyBox);
+          item.querySelector('.reply-btn').onclick = () => {
+            replyBox.style.display = replyBox.style.display === 'none' ? 'block' : 'none';
+            if (replyBox.style.display === 'block'){
+              const i = replyBox.querySelector('.reply-input'); if (i) i.focus();
+            }
+          };
+
+          const inp = replyBox.querySelector('.reply-input');
+          if (inp){
+            inp.onkeydown = async (ev) => {
+              if (ev.key === 'Enter' && inp.value.trim()){
+                await window.firebaseService.addComment(postId, myUid, inp.value.trim(), node.id);
+                inp.value = '';
+                tree.dataset.forceOpen = '1';
+                await this.openAdvancedCommentsFallback(postId, tree, myUid);
+              }
+            };
+          }
+
+          if (node.children && node.children.length){
+            const sub = document.createElement('div');
+            sub.className = 'comment-tree';
+            item.appendChild(sub);
+            node.children.forEach(ch => renderNode(ch, sub));
+          }
+        };
+        roots.reverse().forEach(n => renderNode(n, tree));
+
+        if (comments.length >= currentLimit){
+          const more = document.createElement('button');
+          more.className = 'btn btn-secondary';
+          more.style.marginTop = '8px';
+          more.textContent = 'See more comments';
+          more.onclick = async () => {
+            tree.dataset.limit = String(currentLimit + 10);
+            tree.dataset.forceOpen = '1';
+            await this.openAdvancedCommentsFallback(postId, tree, myUid);
+          };
+          tree.appendChild(more);
+        }
+
+        const addWrap = document.createElement('div');
+        addWrap.style.cssText = 'margin-top:8px';
+        addWrap.innerHTML = '<input type="text" class="reply-input" placeholder="Add a comment..." style="width:100%">';
+        tree.appendChild(addWrap);
+        const addInp = addWrap.querySelector('.reply-input');
+        if (addInp){
+          addInp.onkeydown = async (ev) => {
+            if (ev.key === 'Enter' && addInp.value.trim()){
+              await window.firebaseService.addComment(postId, myUid, addInp.value.trim(), null);
+              addInp.value = '';
+              tree.dataset.forceOpen = '1';
+              await this.openAdvancedCommentsFallback(postId, tree, myUid);
+            }
+          };
+        }
+
+        tree.querySelectorAll('.comment-actions').forEach((act) => {
+          const cid = act.getAttribute('data-comment-id');
+          const author = act.getAttribute('data-author');
+          const canEdit = !!myUid && author === myUid;
+          const eb = act.querySelector('.edit-comment-btn');
+          const db = act.querySelector('.delete-comment-btn');
+          if (!canEdit){ if (eb) eb.style.display = 'none'; if (db) db.style.display = 'none'; return; }
+          if (eb){
+            eb.onclick = async () => {
+              const newText = prompt('Edit comment:');
+              if (newText === null) return;
+              await window.firebaseService.updateComment(postId, cid, newText.trim());
+              tree.dataset.forceOpen = '1';
+              await this.openAdvancedCommentsFallback(postId, tree, myUid);
+            };
+          }
+          if (db){
+            db.onclick = async () => {
+              if (!confirm('Delete this comment?')) return;
+              await window.firebaseService.deleteComment(postId, cid);
+              tree.dataset.forceOpen = '1';
+              await this.openAdvancedCommentsFallback(postId, tree, myUid);
+            };
+          }
+        });
+      };
+
+      try { await renderTree(); } catch (_) { tree.innerHTML = '<div style="opacity:.8">Unable to load comments.</div>'; }
+    }
+
     activatePostActions(container = document) {
       if (!this._postActionUnsubsByContainer) this._postActionUnsubsByContainer = new WeakMap();
       if (!this._postActionUnsubsByContainer.get(container)) this._postActionUnsubsByContainer.set(container, []);
@@ -3332,79 +3464,9 @@ Do you want to proceed?`);
                 try { await firebase.addDoc(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), { userId: me.uid, text: text.trim(), createdAt: new Date().toISOString() }); } catch(_) {}
               }
             } else if (typeof commentEl.onclick !== 'function') {
-              // Fallback for cases where per-post binding was missed (regular feed race/mixed legacy posts).
               const tree = document.getElementById(`comments-${pid}`);
               if (!tree) return;
-              if (tree.style.display === 'none') tree.style.display = 'block';
-              else { tree.style.display = 'none'; return; }
-
-              const renderTree = async () => {
-                tree.innerHTML = '';
-                const currentLimit = Number(tree.dataset.limit || 5);
-                const comments = await window.firebaseService.getComments(pid, currentLimit);
-                const map = new Map();
-                comments.forEach(c => map.set(c.id, { ...c, children: [] }));
-                const roots = [];
-                comments.forEach(c => {
-                  if (c.parentId && map.has(c.parentId)) map.get(c.parentId).children.push(map.get(c.id));
-                  else roots.push(map.get(c.id));
-                });
-                const renderNode = (node, parent) => {
-                  const item = document.createElement('div');
-                  item.className = 'comment-item';
-                  item.innerHTML = `<div class="comment-text"><i class="fas fa-comment"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
-                  <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
-                    <span class="reply-btn" style="cursor:pointer"><i class="fas fa-reply"></i> Reply</span>
-                    <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
-                    <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
-                  </div>`;
-                  parent.appendChild(item);
-
-                  const replyBox = document.createElement('div');
-                  replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
-                  replyBox.innerHTML = '<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">';
-                  item.appendChild(replyBox);
-                  item.querySelector('.reply-btn').onclick = () => {
-                    replyBox.style.display = replyBox.style.display === 'none' ? 'block' : 'none';
-                  };
-
-                  const inp = replyBox.querySelector('.reply-input');
-                  if (inp) {
-                    inp.onkeydown = async (ev) => {
-                      if (ev.key === 'Enter' && inp.value.trim()) {
-                        await window.firebaseService.addComment(pid, me.uid, inp.value.trim(), node.id);
-                        inp.value = '';
-                        await renderTree();
-                      }
-                    };
-                  }
-
-                  if (node.children && node.children.length) {
-                    const sub = document.createElement('div');
-                    sub.className = 'comment-tree';
-                    item.appendChild(sub);
-                    node.children.forEach(ch => renderNode(ch, sub));
-                  }
-                };
-                roots.reverse().forEach(n => renderNode(n, tree));
-
-                const addWrap = document.createElement('div');
-                addWrap.style.cssText = 'margin-top:8px';
-                addWrap.innerHTML = '<input type="text" class="reply-input" placeholder="Add a comment..." style="width:100%">';
-                tree.appendChild(addWrap);
-                const addInp = addWrap.querySelector('.reply-input');
-                if (addInp) {
-                  addInp.onkeydown = async (ev) => {
-                    if (ev.key === 'Enter' && addInp.value.trim()) {
-                      await window.firebaseService.addComment(pid, me.uid, addInp.value.trim(), null);
-                      addInp.value = '';
-                      await renderTree();
-                    }
-                  };
-                }
-              };
-
-              try { await renderTree(); } catch (_) { tree.innerHTML = '<div style="opacity:.8">Unable to load comments.</div>'; }
+              try { await this.openAdvancedCommentsFallback(pid, tree, me.uid); } catch (_) {}
             }
             return;
           }
