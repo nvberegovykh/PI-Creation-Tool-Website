@@ -54,8 +54,11 @@ class FirebaseService {
             // firebase-messaging-sw.js fetch attempts that can 404.
             let swReg = null;
             try{
-                swReg = await navigator.serviceWorker.getRegistration('/sw.js');
-                if (!swReg) swReg = await navigator.serviceWorker.register('/sw.js');
+                const swPath = (location.pathname && location.pathname.includes('/control-panel/'))
+                    ? '/control-panel/sw.js'
+                    : '/sw.js';
+                swReg = await navigator.serviceWorker.getRegistration(swPath);
+                if (!swReg) swReg = await navigator.serviceWorker.register(swPath);
             }catch(_){
                 swReg = await navigator.serviceWorker.getRegistration();
             }
@@ -1040,7 +1043,7 @@ class FirebaseService {
                 const keys = await window.secureKeyManager.getKeys().catch(()=>({}));
                 const preferred = (keys && (keys.functionsRegion || keys.firebase?.functionsRegion)) || 'europe-west1';
                 const regions = [preferred, 'us-central1', 'europe-west1'].filter((v,i,a)=> v && a.indexOf(v)===i);
-                const idToken = await firebase.getIdToken(this.auth.currentUser, true);
+                const idToken = await this.auth.currentUser.getIdToken(true);
                 for (const r of regions){
                     const url = `https://${r}-${projectId}.cloudfunctions.net/${name}`;
                     try{

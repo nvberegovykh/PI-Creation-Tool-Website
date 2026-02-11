@@ -328,7 +328,12 @@ class DashboardManager {
         this.updateNavigation();
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
-        if ('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+        if ('serviceWorker' in navigator){
+            const swPath = (location.pathname && location.pathname.includes('/control-panel/'))
+                ? '/control-panel/sw.js'
+                : '/sw.js';
+            navigator.serviceWorker.register(swPath).catch(()=>{});
+        }
 
         // Cache current user for feed actions
         (async()=>{
@@ -525,7 +530,7 @@ class DashboardManager {
                                     try{
                                         const user = fs?.auth?.currentUser;
                                         if (!projectId || !user) throw new Error('missing project/auth');
-                                        const idToken = await firebase.getIdToken(user, true);
+                                        const idToken = await user.getIdToken(true);
                                         const url = `https://${r}-${projectId}.cloudfunctions.net/${name}`;
                                         const resp = await fetch(url, {
                                             method:'POST',
