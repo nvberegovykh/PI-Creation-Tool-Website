@@ -573,7 +573,7 @@ import { runTransaction } from 'firebase/firestore';
         let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-          const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
+          const others = c.participantUsernames.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
           if (others.length===1) label = others[0];
           else if (others.length>1){
             label = others.slice(0,2).join(', ');
@@ -644,7 +644,7 @@ import { runTransaction } from 'firebase/firestore';
                       const parts = Array.isArray(c.participants)?c.participants:[];
                       const stored = Array.isArray(c.participantUsernames)?c.participantUsernames:[];
                       const names = parts.map((p,i)=> this.usernameCache.get(p) || stored[i] || p);
-                      const others = names.filter(n => (n||'').toLowerCase() !== myNameLower);
+                      const others = names.filter(n => String(n ?? '').toLowerCase() !== myNameLower);
                       const label = others.length===1? others[0] : (others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''));
                       li.textContent = label || 'Chat';
                       li.setAttribute('data-id', c.id);
@@ -675,7 +675,7 @@ import { runTransaction } from 'firebase/firestore';
           const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
           const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
           const myNameLower = (this.me?.username || '').toLowerCase();
-          const others = names.filter(n => (n||'').toLowerCase() !== myNameLower);
+          const others = names.filter(n => String(n ?? '').toLowerCase() !== myNameLower);
           displayName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
         }
         displayName = displayName || 'Chat';
@@ -1385,9 +1385,22 @@ import { runTransaction } from 'firebase/firestore';
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const url = URL.createObjectURL(blob);
-          const frame = document.createElement('iframe');
-          frame.src = url; frame.style.width = '100%'; frame.style.height = '380px'; frame.style.border = 'none';
-          containerEl.appendChild(frame);
+          const row = document.createElement('div');
+          row.style.display = 'flex';
+          row.style.gap = '8px';
+          row.style.alignItems = 'center';
+          row.style.flexWrap = 'wrap';
+          const info = document.createElement('span');
+          info.textContent = fileName || 'document.pdf';
+          info.style.opacity = '0.9';
+          const btn = document.createElement('a');
+          btn.href = url;
+          btn.download = fileName || 'document.pdf';
+          btn.className = 'btn btn-secondary';
+          btn.textContent = 'Download PDF';
+          row.appendChild(info);
+          row.appendChild(btn);
+          containerEl.appendChild(row);
         } else {
           const blob = this.base64ToBlob(b64, 'application/octet-stream');
           const url = URL.createObjectURL(blob);

@@ -977,22 +977,41 @@ class DashboardManager {
     async loadConnectionsForSpace(){
         try{
             if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
-            const me = await window.firebaseService.getCurrentUser(); if (!me) return;
+            const me = await this.resolveCurrentUser(); if (!me || !me.uid) return;
             const list = document.getElementById('space-connections-list'); if (!list) return;
             list.innerHTML = '';
-            let snap;
-            try{
-                const q = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('participants','array-contains', me.uid), firebase.orderBy('updatedAt','desc'), firebase.limit(50));
-                snap = await firebase.getDocs(q);
-            }catch{
-                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('participants','array-contains', me.uid));
-                snap = await firebase.getDocs(q2);
+            const byId = new Map();
+            const fields = ['participants', 'users', 'memberIds'];
+            for (const field of fields){
+                try{
+                    const q = firebase.query(
+                        firebase.collection(window.firebaseService.db,'chatConnections'),
+                        firebase.where(field,'array-contains', me.uid),
+                        firebase.orderBy('updatedAt','desc'),
+                        firebase.limit(50)
+                    );
+                    const s = await firebase.getDocs(q);
+                    s.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
+                }catch{
+                    try{
+                        const q2 = firebase.query(
+                            firebase.collection(window.firebaseService.db,'chatConnections'),
+                            firebase.where(field,'array-contains', me.uid)
+                        );
+                        const s2 = await firebase.getDocs(q2);
+                        s2.forEach(d=> byId.set(d.id, { id:d.id, ...d.data() }));
+                    }catch(_){ }
+                }
             }
             const myData = await window.firebaseService.getUserData(me.uid) || {};
             const myNameLower = (myData.username||'').toLowerCase();
             // Unify and dedupe by stable participant key, prefer non-archived, then most recent
-            const items = [];
-            snap.forEach(d=> items.push({ id:d.id, ...d.data() }));
+            const items = Array.from(byId.values()).map((c)=>{
+                const parts = Array.isArray(c.participants)
+                    ? c.participants
+                    : (Array.isArray(c.users) ? c.users : (Array.isArray(c.memberIds) ? c.memberIds : []));
+                return { ...c, participants: parts };
+            });
             const groups = new Map();
             const computeKey = (parts)=> (Array.isArray(parts)? parts.slice().sort().join('|') : '');
             for (const c of items){
@@ -1030,11 +1049,11 @@ class DashboardManager {
                 const parts = Array.isArray(c.participants)? c.participants: [];
                 if (parts.length){
                     const names = parts.map((uid,i)=> uid===me.uid? (myData.username||me.email||'me') : (nameMap.get(uid) || (Array.isArray(c.participantUsernames)? c.participantUsernames[i] : uid)) );
-                    const others = names.filter(n=> (n||'').toLowerCase() !== myNameLower);
+                    const others = names.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
                     if (others.length===1) label = others[0];
                     else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
                 } else if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-                    const others = c.participantUsernames.filter(n=> (n||'').toLowerCase() !== myNameLower);
+                    const others = c.participantUsernames.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
                     if (others.length===1) label = others[0];
                     else if (others.length>1){ label = others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''); }
                 }
@@ -1090,8 +1109,12 @@ class DashboardManager {
                 feedEl.appendChild(div);
             });
             if (suggEl){
-                const trending = await window.firebaseService.getTrendingPosts('', 10);
-                suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
+                try{
+                    const trending = await window.firebaseService.getTrendingPosts('', 10);
+                    suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
+                }catch(_){
+                    suggEl.innerHTML = '';
+                }
             }
             this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
             // owner-only controls and advanced comments UI parity with personal space
@@ -1173,17 +1196,17 @@ class DashboardManager {
         feed.innerHTML = '';
         try{
             const meUser = await this.resolveCurrentUser();
-            if (!meUser || !meUser.uid) return;
-            const following = await window.firebaseService.getFollowingIds(meUser.uid);
+            const meUid = meUser?.uid || '';
+            const following = meUid ? await window.firebaseService.getFollowingIds(meUid) : [];
             const fb = document.getElementById('follow-btn');
             const ub = document.getElementById('unfollow-btn');
             if (fb && ub){
-                if (uid !== meUser.uid){
+                if (meUid && uid !== meUid){
                     const isFollowing = following.includes(uid);
                     fb.style.display = isFollowing? 'none':'inline-block';
                     ub.style.display = isFollowing? 'inline-block':'none';
-                    fb.onclick = async ()=>{ await window.firebaseService.followUser(meUser.uid, uid); this.loadFeed(uid, titleName); };
-                    ub.onclick = async ()=>{ await window.firebaseService.unfollowUser(meUser.uid, uid); this.loadFeed(uid, titleName); };
+                    fb.onclick = async ()=>{ if (!meUid) return; await window.firebaseService.followUser(meUid, uid); this.loadFeed(uid, titleName); };
+                    ub.onclick = async ()=>{ if (!meUid) return; await window.firebaseService.unfollowUser(meUid, uid); this.loadFeed(uid, titleName); };
                 } else { fb.style.display='none'; ub.style.display='none'; }
             }
             let snap;
@@ -1223,7 +1246,8 @@ class DashboardManager {
                 feed.appendChild(div);
             });
             // Bind like/comment actions
-            const me2 = await window.firebaseService.getCurrentUser();
+            const me2 = await this.resolveCurrentUser();
+            const me2Uid = me2?.uid || '';
             feed.querySelectorAll('.post-actions').forEach(async (pa)=>{
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
@@ -1235,11 +1259,14 @@ class DashboardManager {
                 const likesCount = pa.querySelector('.likes-count');
                 const rCount = pa.querySelector('.reposts-count');
                 const stats = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${stats.likes||0}`; if (rCount) rCount.textContent = `${stats.reposts||0}`;
-                if (await window.firebaseService.hasLiked(postId, me2.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
+                if (me2Uid){
+                    if (await window.firebaseService.hasLiked(postId, me2Uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
+                }
                 likeBtn.onclick = async ()=>{
-                    const liked = await window.firebaseService.hasLiked(postId, me2.uid);
-                    if (liked){ await window.firebaseService.unlikePost(postId, me2.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
-                    else { await window.firebaseService.likePost(postId, me2.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
+                    if (!me2Uid) return;
+                    const liked = await window.firebaseService.hasLiked(postId, me2Uid);
+                    if (liked){ await window.firebaseService.unlikePost(postId, me2Uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
+                    else { await window.firebaseService.likePost(postId, me2Uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
                     const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0}`; if (rCount) rCount.textContent = `${s.reposts||0}`;
                 };
                 if (repostBtn){
@@ -3010,9 +3037,11 @@ Do you want to proceed?`);
         const likeSpan = item.querySelector('.likes-count');
         const likeIcon = likeBtn?.querySelector('i');
         if (likeBtn) {
-          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'), snap => {
-            likeSpan.textContent = snap.size;
-          });
+          const unsub = firebase.onSnapshot(
+            firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'),
+            snap => { if (likeSpan) likeSpan.textContent = snap.size; },
+            async ()=>{ try{ const s = await window.firebaseService.getPostStats(pid); if (likeSpan) likeSpan.textContent = `${s.likes||0}`; }catch(_){ } }
+          );
           this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }
@@ -3021,9 +3050,11 @@ Do you want to proceed?`);
         const commentBtn = item.querySelector('.comment-btn');
         const commentSpan = item.querySelector('.comments-count');
         if (commentBtn) {
-          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), snap => {
-            commentSpan.textContent = snap.size;
-          });
+          const unsub = firebase.onSnapshot(
+            firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'),
+            snap => { if (commentSpan) commentSpan.textContent = snap.size; },
+            ()=>{}
+          );
           this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }
@@ -3033,9 +3064,11 @@ Do you want to proceed?`);
         const repostSpan = item.querySelector('.reposts-count');
         const repostIcon = repostBtn?.querySelector('i');
         if (repostBtn) {
-          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'), snap => {
-            repostSpan.textContent = snap.size;
-          });
+          const unsub = firebase.onSnapshot(
+            firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'),
+            snap => { if (repostSpan) repostSpan.textContent = snap.size; },
+            async ()=>{ try{ const s = await window.firebaseService.getPostStats(pid); if (repostSpan) repostSpan.textContent = `${s.reposts||0}`; }catch(_){ } }
+          );
           this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }

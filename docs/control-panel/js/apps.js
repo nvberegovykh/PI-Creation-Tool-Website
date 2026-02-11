@@ -43,6 +43,9 @@ class AppsManager {
             newSearchInput.setAttribute('autocorrect', 'off');
             newSearchInput.setAttribute('autocapitalize', 'off');
             newSearchInput.setAttribute('spellcheck', 'false');
+            // Keep this as a regular search field while avoiding login heuristics.
+            newSearchInput.setAttribute('autocomplete', 'off');
+            newSearchInput.setAttribute('name', 'app-search-field');
             if (/@/.test((newSearchInput.value || '').trim())) newSearchInput.value = '';
             
             // Add new event listener
