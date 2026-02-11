@@ -560,49 +560,13 @@ class DashboardManager {
                                 isAdmin = String(meData?.role || 'user') === 'admin';
                             }catch(_){ isAdmin = false; }
                             let customToken = null;
-                            // Prefer explicit cached token first to avoid permission-denied noise.
-                            if (!customToken && token){
-                                const res2 = await callFnMaybe('switchTo', { uid, deviceId, token });
-                                customToken = res2?.customToken || null;
-                            }
-                            // Then try cache-proof same-device switch (requires both accounts seeded on this device).
-                            if (!customToken && !token){
-                                const byDevice = await callFnMaybe('switchToByDevice', { uid, deviceId });
-                                customToken = byDevice?.customToken || null;
-                            }
-                            if (!customToken && !token && isAdmin){
-                                // Admin fallback: mint a device token for the target account on demand.
-                                try{
-                                    const acc = (accounts||[]).find(a=> (a.uid===uid));
-                                    const email = acc && acc.email;
-                                    if (email){
-                                        const mint = await window.firebaseService.callFunction('adminMintSwitchToken', { deviceId, email });
-                                        const mintedToken = mint && mint.token;
-                                        if (mintedToken){
-                                            token = mintedToken;
-                                            tokenMap[uid] = token;
-                                            localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                                        }
-                                    }
-                                }catch(_){ /* non-admin or mint failed */ }
-                            }
+                            // Cache-proof same-device switch (requires both accounts seeded on this device).
+                            const byDevice = await callFnMaybe('switchToByDevice', { uid, deviceId });
+                            customToken = byDevice?.customToken || null;
+                            // Admin fallback: direct admin-issued custom token.
                             if (!customToken && isAdmin){
-                                // Retry once after admin mint (when possible).
-                                try{
-                                    const acc = (accounts||[]).find(a=> (a.uid===uid));
-                                    const email = acc && acc.email;
-                                    if (email){
-                                        const mint2 = await window.firebaseService.callFunction('adminMintSwitchToken', { deviceId, email });
-                                        const minted2 = mint2 && mint2.token;
-                                        if (minted2){
-                                            token = minted2;
-                                            tokenMap[uid] = token;
-                                            localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                                            const res3 = await callFnMaybe('switchTo', { uid, deviceId, token });
-                                            customToken = res3?.customToken;
-                                        }
-                                    }
-                                }catch(_){ }
+                                const adminSw = await callFnMaybe('adminSwitchToUser', { uid });
+                                customToken = adminSw?.customToken || null;
                             }
                             if (!customToken){
                                 // Do NOT reload on failed switch. Route to login with one-time prefill.
@@ -624,11 +588,8 @@ class DashboardManager {
                                     console.warn('Instant switch call errors:', fnErrors.join(' | '));
                                 }
                                 const onlyByDeviceDenied = fnErrors.length > 0 && fnErrors.every((s)=> /switchToByDevice/i.test(s) && /permission-denied/i.test(s));
-                                const tokenRejected = fnErrors.some((s)=> /switchTo/i.test(s) && /(permission-denied|invalid token|no session|session missing)/i.test(s));
                                 if (onlyByDeviceDenied){
                                     this.showInfo('Target account needs one login on this device first, then instant switch will work.');
-                                } else if (tokenRejected){
-                                    this.showInfo('Saved switch token expired or missing. Log in to that account once, then instant switch will work.');
                                 } else {
                                     this.showError('Instant switch unavailable. Log in once for this account on this device.');
                                 }
