@@ -522,7 +522,9 @@ class DashboardManager {
                                             return (res && res.data) || null;
                                         }
                                     }catch(e){
-                                        errs.push(`${name}@${r}[callable]: ${e?.code || e?.message || e}`);
+                                        const code = e?.code || '';
+                                        const msg = e?.message || '';
+                                        errs.push(`${name}@${r}[callable]: ${code}${msg ? ` (${msg})` : ''}`.trim());
                                     }
                                 }
                                 throw new Error(errs.join(' | '));
@@ -565,7 +567,7 @@ class DashboardManager {
                             customToken = byDevice?.customToken || null;
                             // Secondary fallback: direct admin-issued custom token.
                             // Server enforces admin role, so it's safe to attempt unconditionally.
-                            if (!customToken){
+                            if (!customToken && isAdmin){
                                 const adminSw = await callFnMaybe('adminSwitchToUser', { uid });
                                 customToken = adminSw?.customToken || null;
                             }
