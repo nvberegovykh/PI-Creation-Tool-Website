@@ -499,16 +499,14 @@ class DashboardManager {
                     row.onclick = async ()=>{
                         const uid = row.getAttribute('data-uid'); if (!uid) return;
                         try{
-                            const callFnStrict = async (name, payload)=>{
-                                const res = await window.firebaseService.callFunction(name, payload);
-                                if (res == null) throw new Error(`Function ${name} unavailable`);
-                                return res;
+                            const callFnMaybe = async (name, payload)=>{
+                                try{ return await window.firebaseService.callFunction(name, payload); }catch(_){ return null; }
                             };
                             const deviceId = this.getOrCreateDeviceId();
                             // Refresh current account seed token before attempting a switch.
                             try{
                                 const ua = navigator.userAgent || '';
-                                const seed = await callFnStrict('saveSwitchToken', { deviceId, ua });
+                                const seed = await callFnMaybe('saveSwitchToken', { deviceId, ua });
                                 const tok = seed && seed.token;
                                 if (tok){
                                     const meNow = await window.firebaseService.getCurrentUser();
@@ -528,7 +526,7 @@ class DashboardManager {
                             // First try cache-proof same-device switch; this works even when local
                             // token map was cleared, as long as both accounts were logged in once.
                             try{
-                                const byDevice = await callFnStrict('switchToByDevice', { uid, deviceId });
+                                const byDevice = await callFnMaybe('switchToByDevice', { uid, deviceId });
                                 customToken = byDevice?.customToken || null;
                             }catch(_){ }
                             if (!customToken && !token){
@@ -548,7 +546,7 @@ class DashboardManager {
                                 }catch(_){ /* non-admin or mint failed */ }
                             }
                             if (!customToken && token){
-                                let res2 = await callFnStrict('switchTo', { uid, deviceId, token });
+                                let res2 = await callFnMaybe('switchTo', { uid, deviceId, token });
                                 customToken = res2?.customToken;
                             }
                             if (!customToken){
@@ -563,7 +561,7 @@ class DashboardManager {
                                             token = minted2;
                                             tokenMap[uid] = token;
                                             localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                                            const res3 = await callFnStrict('switchTo', { uid, deviceId, token });
+                                            const res3 = await callFnMaybe('switchTo', { uid, deviceId, token });
                                             customToken = res3?.customToken;
                                         }
                                     }
@@ -3138,7 +3136,12 @@ Do you want to proceed?`);
             this.showError('Connection request service unavailable. Deploy cloud functions and reload.');
           }
           await this.loadConnectionsForSpace();
-        }catch(_){ this.showError('Connection update failed'); }
+        }catch(e){
+          console.error('Connection update failed', e);
+          const msg = String(e?.message || '');
+          if (/unavailable/i.test(msg)) this.showError('Connection service unavailable. Deploy functions and reload.');
+          else this.showError('Connection update failed');
+        }
         finally{ connectBtn.disabled = false; }
       };
 
