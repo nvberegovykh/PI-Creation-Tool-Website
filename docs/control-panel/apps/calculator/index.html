@@ -22,6 +22,7 @@
             color: #ffffff;
             min-height: 100vh;
             padding: 0;
+            overflow-x: hidden;
         }
 
         .container {
@@ -35,6 +36,15 @@
             align-items: center;
             padding: 20px;
             overflow: visible;
+        }
+        .container, .calculator-section, .plot-container, .triangle-calculator, .conversion-section {
+            max-width: 100%;
+            min-width: 0;
+        }
+        canvas {
+            display: block;
+            max-width: 100% !important;
+            height: auto;
         }
 
         .calculator-section {
@@ -296,7 +306,7 @@
         }
 
         @media (max-width: 768px) {
-            .container { padding: 12px; }
+            .container { padding: 10px; max-width: 100vw; }
             .tabs { overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
             .tab { min-width: max-content; }
             .buttons { grid-template-columns: repeat(4, 1fr); gap: 8px; }

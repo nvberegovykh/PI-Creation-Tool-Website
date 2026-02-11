@@ -493,27 +493,44 @@ import { runTransaction } from 'firebase/firestore';
     async loadConnections(){
       const listEl = document.getElementById('connections-list');
       listEl.innerHTML = '';
-      let snap;
+      let permissionDenied = false;
       try{
-        const q = firebase.query(
-          firebase.collection(this.db,'chatConnections'),
-          firebase.where('participants','array-contains', this.currentUser.uid),
-          firebase.orderBy('updatedAt','desc')
-        );
-        snap = await firebase.getDocs(q);
-        this.connections = [];
-        snap.forEach(d=> this.connections.push(d.data()));
-      } catch (e){
-        // Fallback without orderBy if index missing; sort client-side
-        const q2 = firebase.query(
-          firebase.collection(this.db,'chatConnections'),
-          firebase.where('participants','array-contains', this.currentUser.uid)
-        );
-        const snap2 = await firebase.getDocs(q2);
-        const temp = [];
-        snap2.forEach(d=> temp.push(d.data()));
+        const fields = ['participants', 'users', 'memberIds'];
+        const byId = new Map();
+        for (const field of fields){
+          try{
+            const q = firebase.query(
+              firebase.collection(this.db,'chatConnections'),
+              firebase.where(field,'array-contains', this.currentUser.uid),
+              firebase.orderBy('updatedAt','desc')
+            );
+            const s = await firebase.getDocs(q);
+            s.forEach(d=> byId.set(d.id, { id: d.id, ...d.data() }));
+          }catch(_){
+            try{
+              const q2 = firebase.query(
+                firebase.collection(this.db,'chatConnections'),
+                firebase.where(field,'array-contains', this.currentUser.uid)
+              );
+              const s2 = await firebase.getDocs(q2);
+              s2.forEach(d=> byId.set(d.id, { id: d.id, ...d.data() }));
+            }catch(e2){
+              if (e2 && e2.code === 'permission-denied') permissionDenied = true;
+            }
+          }
+        }
+        const temp = Array.from(byId.values());
+        temp.forEach((c)=>{
+          const fallbackParts = Array.isArray(c.participants)
+            ? c.participants
+            : (Array.isArray(c.users) ? c.users : (Array.isArray(c.memberIds) ? c.memberIds : []));
+          if (!Array.isArray(c.participants) && fallbackParts.length) c.participants = fallbackParts;
+        });
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         this.connections = temp;
+      }
+      if (permissionDenied && this.connections.length === 0){
+        listEl.innerHTML = '<li style="opacity:.8">No access to chat connections. Please redeploy Firestore rules and reload.</li>';
       }
       const seen = new Set();
       // Backfill participantUsernames if missing

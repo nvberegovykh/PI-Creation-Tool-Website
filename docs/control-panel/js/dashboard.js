@@ -173,7 +173,13 @@ class DashboardManager {
         // Prevent browser-autofill from leaking login email into dashboard search fields.
         ['app-search', 'space-search', 'user-search', 'wave-search', 'video-search'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.value = '';
+            if (el){
+                el.value = '';
+                el.setAttribute('autocomplete', 'off');
+                el.setAttribute('autocorrect', 'off');
+                el.setAttribute('autocapitalize', 'off');
+                el.setAttribute('spellcheck', 'false');
+            }
         });
         try{
             const fromHash = (window.location.hash||'').replace('#','');
@@ -273,6 +279,22 @@ class DashboardManager {
         // Settings form handlers
         this.setupSettingsHandlers();
         this.setupMobileSectionSwipe();
+
+        // Prevent browser autofill in dynamic search/comment fields.
+        if (!this._autofillGuardBound){
+            this._autofillGuardBound = true;
+            document.addEventListener('focusin', (e)=>{
+                const t = e.target;
+                if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return;
+                const isTarget = t.matches('#app-search,#space-search,#user-search,#wave-search,#video-search,.reply-input');
+                if (!isTarget) return;
+                t.setAttribute('autocomplete', 'off');
+                t.setAttribute('autocorrect', 'off');
+                t.setAttribute('autocapitalize', 'off');
+                t.setAttribute('spellcheck', 'false');
+                if (/@/.test((t.value || '').trim())) t.value = '';
+            }, true);
+        }
 
         // Simple account switcher UI: fill a dropdown if exists
         const switcher = document.getElementById('account-switcher');
