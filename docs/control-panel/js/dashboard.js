@@ -2338,6 +2338,13 @@ Do you want to proceed?`);
     }
 
     /**
+     * Show info message
+     */
+    showInfo(message) {
+        this.showNotification(message, 'info');
+    }
+
+    /**
      * Show notification
      */
     showNotification(message, type = 'info') {
