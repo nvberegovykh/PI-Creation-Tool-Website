@@ -598,7 +598,13 @@ class DashboardManager {
                                 }
                                 return;
                             }
-                            await firebase.signInWithCustomToken(window.firebaseService.auth, customToken);
+                            if (firebase.signInWithCustomToken) {
+                                await firebase.signInWithCustomToken(window.firebaseService.auth, customToken);
+                            } else if (window.firebaseModular && window.firebaseModular.signInWithCustomToken) {
+                                await window.firebaseModular.signInWithCustomToken(window.firebaseService.auth, customToken);
+                            } else {
+                                throw new Error('signInWithCustomToken API not available');
+                            }
                             window.location.reload();
                         }catch(e){ console.error('Switch failed', e); this.showError('Switch failed'); }
                     };
