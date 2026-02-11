@@ -57,12 +57,39 @@ import { runTransaction } from 'firebase/firestore';
         const s = await firebase.getDocs(q);
         const rows = [];
         s.forEach(d=> rows.push({ id:d.id, ...d.data() }));
-        rows.sort((a,b)=>{
-          const aa = !!a.archived; const bb = !!b.archived;
+        if (!rows.length) return null;
+        const withMsgTs = [];
+        for (const r of rows){
+          let ts = 0;
+          try{
+            let qMsg;
+            try{
+              qMsg = firebase.query(
+                firebase.collection(this.db,'chatMessages',r.id,'messages'),
+                firebase.orderBy('createdAtTS','desc'),
+                firebase.limit(1)
+              );
+            }catch(_){
+              qMsg = firebase.query(
+                firebase.collection(this.db,'chatMessages',r.id,'messages'),
+                firebase.orderBy('createdAt','desc'),
+                firebase.limit(1)
+              );
+            }
+            const sm = await firebase.getDocs(qMsg);
+            const d = sm.docs && sm.docs[0] ? sm.docs[0].data() : null;
+            ts = (d?.createdAtTS?.toMillis?.() || new Date(d?.createdAt || 0).getTime() || 0);
+          }catch(_){ ts = 0; }
+          withMsgTs.push({ row: r, msgTs: ts });
+        }
+        withMsgTs.sort((a,b)=>{
+          const am = a.msgTs || 0; const bm = b.msgTs || 0;
+          if (am !== bm) return bm - am;
+          const aa = !!a.row.archived; const bb = !!b.row.archived;
           if (aa !== bb) return aa ? 1 : -1;
-          return new Date(b.updatedAt||0) - new Date(a.updatedAt||0);
+          return new Date(b.row.updatedAt||0) - new Date(a.row.updatedAt||0);
         });
-        return rows[0]?.id || null;
+        return withMsgTs[0]?.row?.id || rows[0]?.id || null;
       }catch(_){ return null; }
     }
 

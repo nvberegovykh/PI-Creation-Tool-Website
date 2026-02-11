@@ -45,6 +45,27 @@ class DashboardManager {
         }, 320);
     }
 
+    getOrCreateDeviceId(){
+        try{
+            const existing = localStorage.getItem('liber_device_id');
+            if (existing) return existing;
+            const base = [
+                navigator.userAgent || '',
+                navigator.platform || '',
+                navigator.language || '',
+                Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+            ].join('|');
+            const encoded = btoa(unescape(encodeURIComponent(base))).replace(/[^a-zA-Z0-9]/g, '');
+            const id = `dv_${encoded.slice(0, 64)}`;
+            localStorage.setItem('liber_device_id', id);
+            return id;
+        }catch(_){
+            const id = `dv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,10)}`;
+            try{ localStorage.setItem('liber_device_id', id); }catch(__){ }
+            return id;
+        }
+    }
+
     async updateVerificationBanner(){
         try{
             let banner = document.getElementById('verify-warning-banner');
@@ -478,7 +499,7 @@ class DashboardManager {
                     row.onclick = async ()=>{
                         const uid = row.getAttribute('data-uid'); if (!uid) return;
                         try{
-                            const deviceId = localStorage.getItem('liber_device_id') || (()=>{ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
+                            const deviceId = this.getOrCreateDeviceId();
                             let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
                             let token = tokenMap[uid];
                             // If selecting current account, just close
@@ -537,6 +558,13 @@ class DashboardManager {
                                             customToken = res2?.customToken;
                                         }
                                     }
+                                }catch(_){ }
+                            }
+                            if (!customToken){
+                                // Cache-proof same-device fallback when local token map was cleared.
+                                try{
+                                    const byDevice = await window.firebaseService.callFunction('switchToByDevice', { uid, deviceId });
+                                    customToken = byDevice?.customToken || null;
                                 }catch(_){ }
                             }
                             if (!customToken){
@@ -787,7 +815,7 @@ class DashboardManager {
                         li.innerHTML = `<img class="avatar" src="${u.avatarUrl||'images/default-bird.png'}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">`+
                                        `<div style="min-width:0"><div class="uname" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.username||''}</div>`+
                                        `<div class="email" style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.email||''}</div></div>`;
-                        li.onclick = ()=>{ layer.style.display='none'; this.showUserPreviewModal(u); };
+                        li.onclick = (ev)=>{ ev.stopPropagation(); layer.style.display='none'; this.showUserPreviewModal(u); };
                         ul.appendChild(li);
                     });
                     layer.appendChild(ul);
@@ -2974,6 +3002,7 @@ Do you want to proceed?`);
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
       overlay.innerHTML = `
         <div class="modal" style="max-width:860px">
           <div class="modal-header"><h3>${data.username || data.email || 'User'}</h3><button class="modal-close">&times;</button></div>

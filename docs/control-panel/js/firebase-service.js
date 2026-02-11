@@ -14,6 +14,27 @@ class FirebaseService {
         this.init();
     }
 
+    getOrCreateDeviceId() {
+        try{
+            const existing = localStorage.getItem('liber_device_id');
+            if (existing) return existing;
+            const base = [
+                navigator.userAgent || '',
+                navigator.platform || '',
+                navigator.language || '',
+                Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+            ].join('|');
+            const encoded = btoa(unescape(encodeURIComponent(base))).replace(/[^a-zA-Z0-9]/g, '');
+            const id = `dv_${encoded.slice(0, 64)}`;
+            localStorage.setItem('liber_device_id', id);
+            return id;
+        }catch(_){
+            const id = `dv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,10)}`;
+            try{ localStorage.setItem('liber_device_id', id); }catch(__){ }
+            return id;
+        }
+    }
+
     /**
      * Register Firebase Messaging (Web) using VAPID key from secure keys
      */
@@ -223,7 +244,7 @@ class FirebaseService {
                     // Seed device-bound switch token for this account (for instant switching later)
                     (async ()=>{
                         try{
-                            const deviceId = localStorage.getItem('liber_device_id') || (function(){ const id = Math.random().toString(36).slice(2)+Date.now(); localStorage.setItem('liber_device_id', id); return id; })();
+                            const deviceId = this.getOrCreateDeviceId();
                             const ua = navigator.userAgent || '';
                             const res = await this.callFunction('saveSwitchToken', { deviceId, ua });
                             const token = res && res.token;
