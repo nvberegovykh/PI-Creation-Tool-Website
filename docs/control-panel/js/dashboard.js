@@ -554,14 +554,23 @@ class DashboardManager {
                             let token = tokenMap[uid];
                             // If selecting current account, just close
                             if (uid === currentUid){ try{ layer.remove(); }catch(_){ } return; }
-                            let customToken = null;
-                            // First try cache-proof same-device switch; this works even when local
-                            // token map was cleared, as long as both accounts were logged in once.
+                            let isAdmin = false;
                             try{
+                                const meData = await window.firebaseService.getUserData(currentUid);
+                                isAdmin = String(meData?.role || 'user') === 'admin';
+                            }catch(_){ isAdmin = false; }
+                            let customToken = null;
+                            // Prefer explicit cached token first to avoid permission-denied noise.
+                            if (!customToken && token){
+                                const res2 = await callFnMaybe('switchTo', { uid, deviceId, token });
+                                customToken = res2?.customToken || null;
+                            }
+                            // Then try cache-proof same-device switch (requires both accounts seeded on this device).
+                            if (!customToken && !token){
                                 const byDevice = await callFnMaybe('switchToByDevice', { uid, deviceId });
                                 customToken = byDevice?.customToken || null;
-                            }catch(_){ }
-                            if (!customToken && !token){
+                            }
+                            if (!customToken && !token && isAdmin){
                                 // Admin fallback: mint a device token for the target account on demand.
                                 try{
                                     const acc = (accounts||[]).find(a=> (a.uid===uid));
@@ -577,11 +586,7 @@ class DashboardManager {
                                     }
                                 }catch(_){ /* non-admin or mint failed */ }
                             }
-                            if (!customToken && token){
-                                let res2 = await callFnMaybe('switchTo', { uid, deviceId, token });
-                                customToken = res2?.customToken;
-                            }
-                            if (!customToken){
+                            if (!customToken && isAdmin){
                                 // Retry once after admin mint (when possible).
                                 try{
                                     const acc = (accounts||[]).find(a=> (a.uid===uid));
@@ -618,7 +623,12 @@ class DashboardManager {
                                 if (fnErrors.length){
                                     console.warn('Instant switch call errors:', fnErrors.join(' | '));
                                 }
-                                this.showError('Instant switch unavailable. Log in once for this account on this device.');
+                                const onlyByDeviceDenied = fnErrors.length > 0 && fnErrors.every((s)=> /switchToByDevice/i.test(s) && /permission-denied/i.test(s));
+                                if (onlyByDeviceDenied){
+                                    this.showInfo('Target account needs one login on this device first, then instant switch will work.');
+                                } else {
+                                    this.showError('Instant switch unavailable. Log in once for this account on this device.');
+                                }
                                 return;
                             }
                             await firebase.signInWithCustomToken(window.firebaseService.auth, customToken);
