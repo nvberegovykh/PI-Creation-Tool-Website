@@ -841,6 +841,8 @@ import { runTransaction } from 'firebase/firestore';
       if (!box) return;
       if (!this.activeConnection) return;
       const activeConnId = this.activeConnection;
+      // Force a fresh first render whenever this chat is opened again.
+      this._lastRenderSigByConn.delete(activeConnId);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       // Ensure a persistent scroll-to-latest affordance exists.

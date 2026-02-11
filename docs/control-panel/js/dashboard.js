@@ -499,7 +499,27 @@ class DashboardManager {
                     row.onclick = async ()=>{
                         const uid = row.getAttribute('data-uid'); if (!uid) return;
                         try{
+                            const callFnStrict = async (name, payload)=>{
+                                const res = await window.firebaseService.callFunction(name, payload);
+                                if (res == null) throw new Error(`Function ${name} unavailable`);
+                                return res;
+                            };
                             const deviceId = this.getOrCreateDeviceId();
+                            // Refresh current account seed token before attempting a switch.
+                            try{
+                                const ua = navigator.userAgent || '';
+                                const seed = await callFnStrict('saveSwitchToken', { deviceId, ua });
+                                const tok = seed && seed.token;
+                                if (tok){
+                                    const meNow = await window.firebaseService.getCurrentUser();
+                                    if (meNow && meNow.uid){
+                                        const rawT = localStorage.getItem('liber_switch_tokens');
+                                        const mapT = rawT ? JSON.parse(rawT) : {};
+                                        mapT[meNow.uid] = tok;
+                                        localStorage.setItem('liber_switch_tokens', JSON.stringify(mapT));
+                                    }
+                                }
+                            }catch(_){ }
                             let tokenMap = JSON.parse(localStorage.getItem('liber_switch_tokens')||'{}');
                             let token = tokenMap[uid];
                             // If selecting current account, just close
@@ -508,7 +528,7 @@ class DashboardManager {
                             // First try cache-proof same-device switch; this works even when local
                             // token map was cleared, as long as both accounts were logged in once.
                             try{
-                                const byDevice = await window.firebaseService.callFunction('switchToByDevice', { uid, deviceId });
+                                const byDevice = await callFnStrict('switchToByDevice', { uid, deviceId });
                                 customToken = byDevice?.customToken || null;
                             }catch(_){ }
                             if (!customToken && !token){
@@ -528,7 +548,7 @@ class DashboardManager {
                                 }catch(_){ /* non-admin or mint failed */ }
                             }
                             if (!customToken && token){
-                                let res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                                let res2 = await callFnStrict('switchTo', { uid, deviceId, token });
                                 customToken = res2?.customToken;
                             }
                             if (!customToken){
@@ -543,7 +563,7 @@ class DashboardManager {
                                             token = minted2;
                                             tokenMap[uid] = token;
                                             localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
-                                            const res3 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                                            const res3 = await callFnStrict('switchTo', { uid, deviceId, token });
                                             customToken = res3?.customToken;
                                         }
                                     }
@@ -3018,27 +3038,39 @@ Do you want to proceed?`);
       const data = (u && u.username) ? u : ((await window.firebaseService.getUserData(uid)) || {});
       const me = await this.resolveCurrentUser();
       if (!me || !me.uid) return;
-      let isFollowing = false;
-      let connState = { status: 'none', requestedBy: '', requestedTo: '' };
-      try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
-      try {
-        const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
-        if (c.exists()){
+      const callFnStrict = async (name, payload)=>{
+        const res = await window.firebaseService.callFunction(name, payload);
+        if (res == null) throw new Error(`Function ${name} unavailable`);
+        return res;
+      };
+      const readConnState = async ()=>{
+        try{
+          const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
+          if (!c.exists()) return { status: 'none', requestedBy: '', requestedTo: '' };
           const d = c.data() || {};
-          connState = {
+          return {
             status: d.status || ((d.requestedBy || d.requestedTo) ? 'pending' : 'connected'),
             requestedBy: d.requestedBy || '',
             requestedTo: d.requestedTo || ''
           };
+        }catch(_){
+          return { status: 'none', requestedBy: '', requestedTo: '' };
         }
-      } catch(_) {}
-      const isConnected = connState.status === 'connected';
-      const isOutgoingPending = connState.status === 'pending' && connState.requestedBy === me.uid;
-      const isIncomingPending = connState.status === 'pending' && connState.requestedTo === me.uid;
-      const connectLabel = isConnected
-        ? '<i class="fas fa-unlink"></i> Disconnect'
-        : (isOutgoingPending ? '<i class="fas fa-hourglass-half"></i> Cancel request'
-          : (isIncomingPending ? '<i class="fas fa-check"></i> Accept request' : '<i class="fas fa-link"></i> Connect'));
+      };
+      const connectLabelFor = (state)=>{
+        const isConnected = state.status === 'connected';
+        const isOutgoingPending = state.status === 'pending' && state.requestedBy === me.uid;
+        const isIncomingPending = state.status === 'pending' && state.requestedTo === me.uid;
+        if (isConnected) return '<i class="fas fa-unlink"></i> Disconnect';
+        if (isOutgoingPending) return '<i class="fas fa-hourglass-half"></i> Pending';
+        if (isIncomingPending) return '<i class="fas fa-check"></i> Accept request';
+        return '<i class="fas fa-link"></i> Connect';
+      };
+      let isFollowing = false;
+      let connState = { status: 'none', requestedBy: '', requestedTo: '' };
+      try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
+      connState = await readConnState();
+      const connectLabel = connectLabelFor(connState);
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
@@ -3087,26 +3119,23 @@ Do you want to proceed?`);
       connectBtn.onclick = async ()=>{
         try{
           connectBtn.disabled = true;
-          const stateSnap = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
-          let status = 'none'; let requestedBy = ''; let requestedTo = '';
-          if (stateSnap.exists()){
-            const d = stateSnap.data() || {};
-            status = d.status || ((d.requestedBy || d.requestedTo) ? 'pending' : 'connected');
-            requestedBy = d.requestedBy || '';
-            requestedTo = d.requestedTo || '';
-          }
+          const currentState = await readConnState();
+          const status = currentState.status;
+          const requestedBy = currentState.requestedBy;
+          const requestedTo = currentState.requestedTo;
           if (status === 'connected'){
-            await window.firebaseService.callFunction('removeConnection', { peerUid: uid });
-            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+            await callFnStrict('removeConnection', { peerUid: uid });
           } else if (status === 'pending' && requestedBy === me.uid){
-            await window.firebaseService.callFunction('removeConnection', { peerUid: uid });
-            connectBtn.innerHTML = '<i class="fas fa-link"></i> Connect';
+            await callFnStrict('removeConnection', { peerUid: uid });
           } else if (status === 'pending' && requestedTo === me.uid){
-            await window.firebaseService.callFunction('respondConnection', { peerUid: uid, action: 'accept' });
-            connectBtn.innerHTML = '<i class="fas fa-unlink"></i> Disconnect';
+            await callFnStrict('respondConnection', { peerUid: uid, action: 'accept' });
           } else {
-            await window.firebaseService.callFunction('requestConnection', { peerUid: uid });
-            connectBtn.innerHTML = '<i class="fas fa-hourglass-half"></i> Cancel request';
+            await callFnStrict('requestConnection', { peerUid: uid });
+          }
+          const nextState = await readConnState();
+          connectBtn.innerHTML = connectLabelFor(nextState);
+          if (nextState.status === 'none' && status === 'none'){
+            this.showError('Connection request service unavailable. Deploy cloud functions and reload.');
           }
           await this.loadConnectionsForSpace();
         }catch(_){ this.showError('Connection update failed'); }

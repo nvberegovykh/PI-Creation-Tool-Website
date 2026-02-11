@@ -109,7 +109,7 @@ class FirebaseService {
             // Optional Functions (for future FCM/webhooks)
             try {
                 // Determine preferred region from secure keys if provided
-                let preferredRegion = 'us-central1';
+                let preferredRegion = 'europe-west1';
                 try {
                     const keys = await window.secureKeyManager.getKeys();
                     preferredRegion = keys.functionsRegion || keys.firebase?.functionsRegion || 'us-central1';
@@ -1030,7 +1030,7 @@ class FirebaseService {
                 const appOptions = (this.app && this.app.options) || {};
                 const projectId = appOptions.projectId || appOptions.project || (await this.getFirebaseConfig())?.projectId;
                 const keys = await window.secureKeyManager.getKeys().catch(()=>({}));
-                const preferred = (keys && (keys.functionsRegion || keys.firebase?.functionsRegion)) || 'us-central1';
+                const preferred = (keys && (keys.functionsRegion || keys.firebase?.functionsRegion)) || 'europe-west1';
                 const regions = [preferred, 'us-central1', 'europe-west1'].filter((v,i,a)=> v && a.indexOf(v)===i);
                 const idToken = await firebase.getIdToken(this.auth.currentUser, true);
                 for (const r of regions){
