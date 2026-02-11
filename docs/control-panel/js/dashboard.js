@@ -343,6 +343,7 @@ class DashboardManager {
                 firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{
                     this.currentUser = u || null;
                     this.updateVerificationBanner();
+                    this.updateNavigation();
                 });
             }catch(_){ }
             this.updateVerificationBanner();
@@ -1230,7 +1231,11 @@ class DashboardManager {
                 firebase.collection(window.firebaseService.db,'posts'),
                 firebase.where('visibility','==','public')
             ));
-            const list = []; snap.forEach(d=> list.push(d.data()));
+            const list = [];
+            snap.forEach((d) => {
+                const row = d.data() || {};
+                list.push({ ...row, id: row.id || d.id });
+            });
             list.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
             list.slice(0,20).forEach(p=>{
                 const div = document.createElement('div');
@@ -1264,7 +1269,7 @@ class DashboardManager {
             this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
             // owner-only controls and advanced comments UI parity with personal space
             try{
-                const meUser = await this.resolveCurrentUser();
+                const meUser = await this.resolveCurrentUserWithRetry(1200);
                 const myUid = meUser?.uid || '';
                 feedEl.querySelectorAll('.post-actions').forEach(pa=>{
                     const postId = pa.getAttribute('data-post-id');
@@ -1888,14 +1893,24 @@ class DashboardManager {
     /**
      * Update navigation visibility based on user role
      */
-    updateNavigation() {
-        const currentUser = authManager.getCurrentUser();
-        if (currentUser) {
-            const adminElements = document.querySelectorAll('.admin-only');
-            adminElements.forEach(el => {
-                el.style.display = currentUser.role === 'admin' ? 'block' : 'none';
-            });
+    async updateNavigation() {
+        let isAdmin = false;
+        try {
+            const me = await this.resolveCurrentUserWithRetry(1200);
+            if (me && me.uid && window.firebaseService?.getUserData) {
+                const data = await window.firebaseService.getUserData(me.uid);
+                isAdmin = String(data?.role || '').toLowerCase() === 'admin';
+            } else {
+                const fallback = authManager.getCurrentUser();
+                isAdmin = String(fallback?.role || '').toLowerCase() === 'admin';
+            }
+        } catch (_) {
+            const fallback = authManager.getCurrentUser();
+            isAdmin = String(fallback?.role || '').toLowerCase() === 'admin';
         }
+        document.querySelectorAll('.admin-only').forEach((el) => {
+            el.style.display = isAdmin ? '' : 'none';
+        });
     }
 
     /**
