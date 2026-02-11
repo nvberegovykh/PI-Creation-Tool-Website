@@ -668,7 +668,9 @@ import { runTransaction } from 'firebase/firestore';
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
         if (snap.exists()) {
           const data = snap.data();
-          const parts = Array.isArray(data.participants) ? data.participants : [];
+          const parts = Array.isArray(data.participants)
+            ? data.participants
+            : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
           // Prefer live cache, fallback to stored usernames
           const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
           const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
@@ -685,7 +687,9 @@ import { runTransaction } from 'firebase/firestore';
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
         if (snap.exists()){
           const data = snap.data();
-          const parts = Array.isArray(data.participants)? data.participants:[];
+          const parts = Array.isArray(data.participants)
+            ? data.participants
+            : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
           const header = document.querySelector('.chat-header');
           const existing = document.getElementById('chat-access-banner');
           if (!parts.includes(this.currentUser.uid)){
@@ -946,7 +950,13 @@ import { runTransaction } from 'firebase/firestore';
       try{
         const cRef = firebase.doc(this.db, 'chatConnections', this.activeConnection);
         const cSnap = await firebase.getDoc(cRef);
-        const participants = cSnap.exists() && Array.isArray(cSnap.data().participants) ? cSnap.data().participants : [];
+        const participants = cSnap.exists()
+          ? (Array.isArray(cSnap.data().participants)
+              ? cSnap.data().participants
+              : (Array.isArray(cSnap.data().users)
+                  ? cSnap.data().users
+                  : (Array.isArray(cSnap.data().memberIds) ? cSnap.data().memberIds : [])))
+          : [];
         if (!participants.includes(this.currentUser.uid)) {
           alert('You are not a participant of this chat. Please reopen the chat and try again.');
           return;

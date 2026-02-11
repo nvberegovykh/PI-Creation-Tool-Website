@@ -9,6 +9,22 @@ class DashboardManager {
         this.init();
     }
 
+    async resolveCurrentUser(){
+        try{
+            const u = await window.firebaseService.getCurrentUser();
+            if (u && u.uid) return u;
+        }catch(_){ }
+        try{
+            const u2 = window.firebaseService?.auth?.currentUser;
+            if (u2 && u2.uid) return u2;
+        }catch(_){ }
+        try{
+            const am = window.authManager?.currentUser;
+            if (am && am.id) return { uid: am.id, email: am.email || '' };
+        }catch(_){ }
+        return null;
+    }
+
     renderPostMedia(media){
         const urls = Array.isArray(media) ? media : (media ? [media] : []);
         if (!urls.length) return '';
@@ -181,6 +197,30 @@ class DashboardManager {
                 el.setAttribute('spellcheck', 'false');
             }
         });
+        // Harden against browser autofill on dynamically rendered fields.
+        document.querySelectorAll('#dashboard input, #dashboard textarea').forEach((el)=>{
+            try{
+                if ((el.type || '').toLowerCase() === 'password') return;
+                el.setAttribute('autocomplete', 'off');
+                el.setAttribute('autocorrect', 'off');
+                el.setAttribute('autocapitalize', 'off');
+                el.setAttribute('spellcheck', 'false');
+                if (!el.getAttribute('name')) el.setAttribute('name', 'fld-' + Math.random().toString(36).slice(2, 9));
+                if (/@/.test((el.value || '').trim())) el.value = '';
+            }catch(_){ }
+        });
+        document.addEventListener('focusin', (e)=>{
+            const el = e.target;
+            if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+            try{
+                if ((el.type || '').toLowerCase() === 'password') return;
+                el.setAttribute('autocomplete', 'off');
+                el.setAttribute('autocorrect', 'off');
+                el.setAttribute('autocapitalize', 'off');
+                el.setAttribute('spellcheck', 'false');
+                if (/@/.test((el.value || '').trim())) el.value = '';
+            }catch(_){ }
+        }, true);
         try{
             const fromHash = (window.location.hash||'').replace('#','');
             const stored = localStorage.getItem('liber_last_section') || '';
@@ -194,7 +234,7 @@ class DashboardManager {
 
         // Cache current user for feed actions
         (async()=>{
-            try{ this.currentUser = await window.firebaseService.getCurrentUser(); }catch(_){ this.currentUser = null; }
+            try{ this.currentUser = await this.resolveCurrentUser(); }catch(_){ this.currentUser = null; }
             // Keep it fresh
             try{ firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{ this.currentUser = u || null; }); }catch(_){ }
         })();
@@ -215,7 +255,8 @@ class DashboardManager {
                 const pid = actionsWrap?.dataset.postId || postItem?.dataset.postId;
                 if (!pid) return;
                 let me = this.currentUser;
-                if (!me){ try{ me = await window.firebaseService.getCurrentUser(); this.currentUser = me; }catch(_){ return; } }
+                if (!me){ try{ me = await this.resolveCurrentUser(); this.currentUser = me; }catch(_){ return; } }
+                if (!me || !me.uid) return;
                 if (likeEl){
                     try{ const likeRef = firebase.doc(window.firebaseService.db,'posts',pid,'likes', me.uid); const s=await firebase.getDoc(likeRef); if(s.exists()) await firebase.deleteDoc(likeRef); else await firebase.setDoc(likeRef,{ userId:me.uid, createdAt:new Date().toISOString() }); }catch(_){ }
                     return;
@@ -464,7 +505,8 @@ class DashboardManager {
     async loadSpace(){
         try{
             if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
-            const user = await window.firebaseService.getCurrentUser();
+            const user = await this.resolveCurrentUser();
+            if (!user || !user.uid) return;
             const data = await window.firebaseService.getUserData(user.uid) || {};
             const unameEl = document.getElementById('space-username');
             const moodEl = document.getElementById('space-mood');
@@ -632,7 +674,8 @@ class DashboardManager {
             this.showUserPreviewModal = async (u)=>{
                 const uid = u.uid||u.id;
                 const data = u.username ? u : (await window.firebaseService.getUserData(uid))||{};
-                const me = await window.firebaseService.getCurrentUser();
+                const me = await this.resolveCurrentUser();
+                if (!me || !me.uid) return;
                 let isFollowing = false;
                 try{ const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following||[]).includes(uid);}catch(_){ }
                 const overlay = document.createElement('div');
@@ -806,7 +849,8 @@ class DashboardManager {
                 this.activatePlayers(div);
             });
             // Bind actions for my posts
-            const meUser = await window.firebaseService.getCurrentUser();
+            const meUser = await this.resolveCurrentUser();
+            if (!meUser || !meUser.uid) return;
             document.querySelectorAll('#space-section .post-actions').forEach(async (pa)=>{
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
@@ -827,7 +871,8 @@ class DashboardManager {
                 if (repostBtn){
                     repostBtn.onclick = async ()=>{
                         try{
-                            const me = await window.firebaseService.getCurrentUser();
+                            const me = await this.resolveCurrentUser();
+                            if (!me || !me.uid) return;
                             const stats = await window.firebaseService.getPostStats(postId);
                             // naive toggle: if I already reposted, unRepost; else repost
                             // we don't have hasReposted; attempt delete then add fallback
@@ -867,7 +912,7 @@ class DashboardManager {
                         item.appendChild(replyBox);
                         item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
                         const inp = replyBox.querySelector('.reply-input');
-                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         if (node.children && node.children.length){
                             const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
                             node.children.forEach(ch=> renderNode(ch, sub));
@@ -888,7 +933,7 @@ class DashboardManager {
                     addWrap.innerHTML = `<input type="text" class="reply-input" id="add-comment-${postId}" placeholder="Add a comment..." style="width:100%">`;
                     tree.appendChild(addWrap);
                     const addInp = document.getElementById(`add-comment-${postId}`);
-                    if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
+                    if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                     // bind comment edit/delete
                     tree.querySelectorAll('.comment-actions').forEach(act=>{
                         const cid = act.getAttribute('data-comment-id');
@@ -1051,11 +1096,12 @@ class DashboardManager {
             this.activatePostActions(feedEl);  // Activate actions after rendering (delegated like/comment/repost)
             // owner-only controls and advanced comments UI parity with personal space
             try{
-                const meUser = await window.firebaseService.getCurrentUser();
+                const meUser = await this.resolveCurrentUser();
+                const myUid = meUser?.uid || '';
                 feedEl.querySelectorAll('.post-actions').forEach(pa=>{
                     const postId = pa.getAttribute('data-post-id');
                     const postAuthor = pa.getAttribute('data-author');
-                    const canEditPost = postAuthor === meUser.uid;
+                    const canEditPost = !!myUid && postAuthor === myUid;
                     const editBtn = pa.querySelector('.edit-post-btn');
                     const delBtn = pa.querySelector('.delete-post-btn');
                     const menuBtn = pa.querySelector('.post-menu');
@@ -1088,7 +1134,7 @@ class DashboardManager {
                             container.appendChild(item);
                             const replyBox = document.createElement('div'); replyBox.style.cssText='margin:6px 0 0 0; display:none'; replyBox.innerHTML = `<input type=\"text\" class=\"reply-input\" placeholder=\"Reply...\" style=\"width:100%\">`; item.appendChild(replyBox);
                             item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
-                            const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
+                            const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                             if (node.children && node.children.length){ const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub); node.children.forEach(ch=> renderNode(ch, sub)); }
                         };
                         roots.reverse().forEach(n=> renderNode(n, tree));
@@ -1105,9 +1151,9 @@ class DashboardManager {
                             tree.appendChild(more);
                         }
                         const addWrap = document.createElement('div'); addWrap.style.cssText='margin-top:8px'; addWrap.innerHTML = `<input type=\"text\" class=\"reply-input\" id=\"add-comment-${postId}\" placeholder=\"Add a comment...\" style=\"width:100%\">`; tree.appendChild(addWrap);
-                        const addInp = document.getElementById(`add-comment-${postId}`); if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
+                        const addInp = document.getElementById(`add-comment-${postId}`); if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         tree.querySelectorAll('.comment-actions').forEach(act=>{
-                            const cid = act.getAttribute('data-comment-id'); const author = act.getAttribute('data-author'); const canEdit = author === meUser.uid; const eb = act.querySelector('.edit-comment-btn'); const db = act.querySelector('.delete-comment-btn');
+                            const cid = act.getAttribute('data-comment-id'); const author = act.getAttribute('data-author'); const canEdit = !!myUid && author === myUid; const eb = act.querySelector('.edit-comment-btn'); const db = act.querySelector('.delete-comment-btn');
                             if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
                             if (canEdit){ if (eb){ eb.onclick = async ()=>{ const newText = prompt('Edit comment:'); if (newText===null) return; await window.firebaseService.updateComment(postId, cid, newText.trim()); this.loadGlobalFeed(); }; }
                                 if (db){ db.onclick = async ()=>{ if (!confirm('Delete this comment?')) return; await window.firebaseService.deleteComment(postId, cid); this.loadGlobalFeed(); }; }
@@ -1126,7 +1172,8 @@ class DashboardManager {
         if (!feed) return;
         feed.innerHTML = '';
         try{
-            const meUser = await window.firebaseService.getCurrentUser();
+            const meUser = await this.resolveCurrentUser();
+            if (!meUser || !meUser.uid) return;
             const following = await window.firebaseService.getFollowingIds(meUser.uid);
             const fb = document.getElementById('follow-btn');
             const ub = document.getElementById('unfollow-btn');
@@ -1246,7 +1293,7 @@ class DashboardManager {
                         item.appendChild(replyBox);
                         item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
                         const inp = replyBox.querySelector('.reply-input');
-                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         if (node.children && node.children.length){
                             const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
                             node.children.forEach(ch=> renderNode(ch, sub));
@@ -2917,8 +2964,9 @@ Do you want to proceed?`);
 
           let me = this.currentUser;
           if (!me) {
-            try { me = await window.firebaseService.getCurrentUser(); this.currentUser = me; } catch(_) { return; }
+            try { me = await this.resolveCurrentUser(); this.currentUser = me; } catch(_) { return; }
           }
+          if (!me || !me.uid) return;
 
           if (likeEl) {
             try {

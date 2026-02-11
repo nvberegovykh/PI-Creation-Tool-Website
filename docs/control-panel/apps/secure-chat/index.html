@@ -33,7 +33,7 @@
             </div>
             <div class="connections-panel" id="connections-panel">
                 <div class="search-box">
-                    <input id="user-search" type="text" placeholder="Search users or messages..." list="user-suggestions" />
+                    <input id="user-search" type="text" placeholder="Search users or messages..." list="user-suggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                     <datalist id="user-suggestions"></datalist>
                     <div id="search-results" class="search-results" style="display:none">
                         <div class="results-group" id="user-results-group" style="display:none">
@@ -67,7 +67,7 @@
                 <input id="file-input" type="file" multiple style="display:none" />
                 <button id="attach-btn" class="icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
                 <button id="sticker-btn" class="icon-btn" title="Stickers"><i class="fas fa-note-sticky"></i></button>
-                <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
+                <textarea id="message-input" rows="1" placeholder="Type a message..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
                 <button id="action-btn" class="icon-btn" title="Send"><i class="fas fa-microphone"></i></button>
                 <div id="recording-indicator" class="recording-indicator hidden">
                     <div class="record-dot"><i class="fas fa-microphone"></i></div>
@@ -100,13 +100,13 @@
     </div>
 
     <!-- Load core platform services (secure keys + Firebase) -->
-    <script src="../../js/secure-keys.js?v=20250818"></script>
-    <script src="../../js/firebase-loader.js?v=20250818"></script>
-    <script src="../../js/firebase-service.js?v=20250818"></script>
+    <script src="../../js/secure-keys.js?v=20260211r4"></script>
+    <script src="../../js/firebase-loader.js?v=20260211r4"></script>
+    <script src="../../js/firebase-service.js?v=20260211r4"></script>
     <!-- Chat crypto and app -->
-    <script src="../../js/crypto.js?v=20250818"></script>
-    <script src="chat-crypto.js?v=20250818b"></script>
-    <script type="module" src="chat.js?v=20250818b"></script>
+    <script src="../../js/crypto.js?v=20260211r4"></script>
+    <script src="chat-crypto.js?v=20260211r4"></script>
+    <script type="module" src="chat.js?v=20260211r4"></script>
 </body>
 </html>
 

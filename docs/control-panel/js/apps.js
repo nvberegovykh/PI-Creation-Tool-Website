@@ -318,7 +318,7 @@ class AppsManager {
                             <i class="fas fa-info-circle"></i> Info
                         </button>
                         <!-- Mobile-friendly direct link (hidden on desktop) -->
-                        <a href="${appUrl}" class="app-btn mobile-launch-link" target="_blank" style="display: none;">
+                        <a href="${appUrl}" class="app-btn mobile-launch-link" style="display: none;">
                             <i class="fas fa-external-link-alt"></i> Open
                         </a>
                     </div>
@@ -408,22 +408,8 @@ class AppsManager {
             // Show success message
             this.showSuccess(`Launching ${app.name}...`);
             
-            // Open app immediately (no delay for mobile compatibility)
-            const newWindow = window.open(appUrl, '_blank');
-            
-            // Check if popup was blocked (especially on mobile)
-            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                // Popup was blocked, try alternative approach for mobile
-                if (this.isMobileDevice()) {
-                    // For mobile, try to navigate in the same window
-                    this.showWarning('Popup blocked. Opening app in current window...');
-                    setTimeout(() => {
-                        window.location.href = appUrl;
-                    }, 500);
-                } else {
-                    this.showError('Popup blocked. Please allow popups for this site.');
-                }
-            }
+            // Always open apps in the same tab to keep a single-tab workflow.
+            window.location.href = appUrl;
 
         } catch (error) {
             console.error('Error launching app:', error);
