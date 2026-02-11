@@ -13,6 +13,7 @@ async function loadFirebaseVersion(version) {
 	const authMod = await import(`${base}/firebase-auth.js`);
 	const fsMod = await import(`${base}/firebase-firestore.js`);
 	const storageMod = await import(`${base}/firebase-storage.js`);
+	let fnMod = null; try { fnMod = await import(`${base}/firebase-functions.js`); } catch(_) { fnMod = null; }
 	let msgMod = null; try { msgMod = await import(`${base}/firebase-messaging.js`); } catch(_) { msgMod = null; }
 
 	const {
@@ -73,6 +74,10 @@ async function loadFirebaseVersion(version) {
 		getDownloadURL,
 		deleteObject
 	} = storageMod;
+
+	const functionsFns = fnMod
+		? (function(){ const { getFunctions, httpsCallable } = fnMod; return { getFunctions, httpsCallable }; })()
+		: {};
 
 	const messagingFns = msgMod ? (function(){ const { getMessaging, getToken, onMessage, isSupported } = msgMod; return { getMessaging, getToken, onMessage, isSupported }; })() : {};
 
@@ -180,6 +185,8 @@ async function loadFirebaseVersion(version) {
 		uploadBytesResumable,
 		getDownloadURL,
 		deleteObject,
+		// Functions (optional)
+		...(functionsFns || {}),
 		// Messaging (optional)
 		...(messagingFns || {})
 	};
