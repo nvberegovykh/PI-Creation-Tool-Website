@@ -1270,8 +1270,12 @@ class AuthManager {
                 if (el){ el.value = email; }
             }
             // Always clear persistent prefill to avoid leaking into unrelated fields.
-            sessionStorage.removeItem('liber_switch_prefill_email');
-            localStorage.removeItem('liber_prefill_email');
+            setTimeout(()=>{
+                try{
+                    sessionStorage.removeItem('liber_switch_prefill_email');
+                    localStorage.removeItem('liber_prefill_email');
+                }catch(_){ }
+            }, 800);
         }catch(_){ }
 
         // Setup mobile WALL-E toggle for login screen

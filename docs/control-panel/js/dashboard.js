@@ -45,6 +45,39 @@ class DashboardManager {
         }, 320);
     }
 
+    async updateVerificationBanner(){
+        try{
+            let banner = document.getElementById('verify-warning-banner');
+            const authUser = window.firebaseService?.auth?.currentUser || null;
+            const shouldShow = !!(authUser && authUser.uid && authUser.email && !authUser.emailVerified);
+            if (!shouldShow){
+                if (banner) banner.remove();
+                return;
+            }
+            if (!banner){
+                banner = document.createElement('div');
+                banner.id = 'verify-warning-banner';
+                banner.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:1200;background:#b91c1c;color:#fff;padding:10px 12px;border-radius:10px;display:flex;gap:10px;align-items:center;max-width:min(92vw,560px);box-shadow:0 8px 24px rgba(0,0,0,.35)';
+                banner.innerHTML = `<span style="font-size:13px;line-height:1.3">Accounts not verified in 7 days after register are being deleted.</span>
+                                    <button id="verify-warning-resend" class="btn btn-secondary" style="white-space:nowrap">Resend verification</button>`;
+                document.body.appendChild(banner);
+            }
+            const resendBtn = banner.querySelector('#verify-warning-resend');
+            if (resendBtn && !resendBtn._bound){
+                resendBtn._bound = true;
+                resendBtn.onclick = async ()=>{
+                    try{
+                        resendBtn.disabled = true;
+                        const ok = await window.firebaseService.sendEmailVerification();
+                        if (ok !== false) this.showSuccess('Verification email sent');
+                        else this.showError('Failed to send verification email');
+                    }catch(_){ this.showError('Failed to send verification email'); }
+                    finally{ resendBtn.disabled = false; }
+                };
+            }
+        }catch(_){ }
+    }
+
     renderPostMedia(media){
         const urls = Array.isArray(media) ? media : (media ? [media] : []);
         if (!urls.length) return '';
@@ -280,7 +313,13 @@ class DashboardManager {
         (async()=>{
             try{ this.currentUser = await this.resolveCurrentUser(); }catch(_){ this.currentUser = null; }
             // Keep it fresh
-            try{ firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{ this.currentUser = u || null; }); }catch(_){ }
+            try{
+                firebase.onAuthStateChanged(window.firebaseService.auth, (u)=>{
+                    this.currentUser = u || null;
+                    this.updateVerificationBanner();
+                });
+            }catch(_){ }
+            this.updateVerificationBanner();
         })();
 
         // Global delegated handlers for feed interactions (Feed tab and Personal Space feed)
@@ -466,19 +505,60 @@ class DashboardManager {
                                 const acc = (accounts||[]).find(a=> (a.uid===uid));
                                 const email = acc && acc.email;
                                 try{
-                                    if (email) sessionStorage.setItem('liber_switch_prefill_email', email);
+                                    const prefill = email || (acc && acc.username) || '';
+                                    if (prefill){
+                                        sessionStorage.setItem('liber_switch_prefill_email', prefill);
+                                        localStorage.setItem('liber_prefill_email', prefill);
+                                    }
                                 }catch(_){ }
                                 const authScreen = document.getElementById('auth-screen');
                                 const dashboard = document.getElementById('dashboard');
                                 if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
                                 if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
-                                const emailInput = document.getElementById('loginUsername'); if (emailInput && email){ emailInput.value = email; emailInput.focus(); }
+                                const emailInput = document.getElementById('loginUsername'); if (emailInput && (email || (acc && acc.username))){ emailInput.value = email || acc.username; emailInput.focus(); }
                                 this.showInfo && this.showInfo('Log in to this account once to enable instant switching.');
                                 return;
                             }
-                            const res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
-                            const customToken = res2?.customToken;
-                            if (customToken){ await firebase.signInWithCustomToken(window.firebaseService.auth, customToken); }
+                            let res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                            let customToken = res2?.customToken;
+                            if (!customToken){
+                                // Retry once after admin mint (when possible).
+                                try{
+                                    const acc = (accounts||[]).find(a=> (a.uid===uid));
+                                    const email = acc && acc.email;
+                                    if (email){
+                                        const mint2 = await window.firebaseService.callFunction('adminMintSwitchToken', { deviceId, email });
+                                        const minted2 = mint2 && mint2.token;
+                                        if (minted2){
+                                            token = minted2;
+                                            tokenMap[uid] = token;
+                                            localStorage.setItem('liber_switch_tokens', JSON.stringify(tokenMap));
+                                            res2 = await window.firebaseService.callFunction('switchTo', { uid, deviceId, token });
+                                            customToken = res2?.customToken;
+                                        }
+                                    }
+                                }catch(_){ }
+                            }
+                            if (!customToken){
+                                // Do NOT reload on failed switch. Route to login with one-time prefill.
+                                const acc = (accounts||[]).find(a=> (a.uid===uid));
+                                const prefill = (acc && (acc.email || acc.username)) || '';
+                                try{
+                                    if (prefill){
+                                        sessionStorage.setItem('liber_switch_prefill_email', prefill);
+                                        localStorage.setItem('liber_prefill_email', prefill);
+                                    }
+                                }catch(_){ }
+                                try{ layer.remove(); }catch(_){ }
+                                const authScreen = document.getElementById('auth-screen');
+                                const dashboard = document.getElementById('dashboard');
+                                if (authScreen && dashboard){ dashboard.classList.add('hidden'); authScreen.classList.remove('hidden'); }
+                                if (window.authManager && typeof window.authManager.switchTab==='function'){ window.authManager.switchTab('login'); }
+                                const emailInput = document.getElementById('loginUsername'); if (emailInput && prefill){ emailInput.value = prefill; emailInput.focus(); }
+                                this.showError('Instant switch token failed. Please log in once for this account.');
+                                return;
+                            }
+                            await firebase.signInWithCustomToken(window.firebaseService.auth, customToken);
                             window.location.reload();
                         }catch(e){ console.error('Switch failed', e); this.showError('Switch failed'); }
                     };
@@ -1403,6 +1483,7 @@ class DashboardManager {
      * Switch between dashboard sections
      */
     switchSection(section) {
+        this.updateVerificationBanner();
         // Update desktop navigation
         const navBtns = document.querySelectorAll('.nav-btn');
         navBtns.forEach(btn => btn.classList.remove('active'));
@@ -2841,9 +2922,9 @@ Do you want to proceed?`);
             <div class="email">${u.email}</div>
           </div>
         `;
-        li.dataset.uid = u.uid;
+        li.dataset.uid = u.uid || u.id || '';
         li.addEventListener('click', () => {
-          this.showUserPreviewModal(u.uid);
+          this.showUserPreviewModal(u.uid || u.id || u);
         });
         resultsEl.appendChild(li);
       });

@@ -818,6 +818,10 @@ import { runTransaction } from 'firebase/firestore';
           return k;
         };
         const handleSnap = async (snap)=>{
+          const sigBase = (snap.docs || []).map(d=> `${d.id}:${d.data()?.updatedAt||d.data()?.createdAt||''}`).join('|');
+          const sig = `${this.activeConnection}::${sigBase}`;
+          if (this._lastRenderSig === sig) return;
+          this._lastRenderSig = sig;
           const prevTop = box.scrollTop;
           const pinnedBefore = box.dataset.pinnedBottom !== '0';
           box.innerHTML='';
@@ -956,10 +960,12 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           );
-          // Safety poll to catch messages posted into duplicate/sibling connection docs.
-          this._msgPoll = setInterval(async ()=>{
-            try{ const s = await firebase.getDocs(q); await handleSnap(s); }catch(_){ }
-          }, 3000);
+          // Only poll when there are sibling/duplicate chat docs still present.
+          if ((relatedConnIds || []).length > 1){
+            this._msgPoll = setInterval(async ()=>{
+              try{ const s = await firebase.getDocs(q); await handleSnap(s); }catch(_){ }
+            }, 3000);
+          }
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
           this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); handleSnap(s); }, 2500);

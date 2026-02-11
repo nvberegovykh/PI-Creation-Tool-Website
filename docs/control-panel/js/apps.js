@@ -39,14 +39,14 @@ class AppsManager {
             const newSearchInput = searchInput.cloneNode(true);
             searchInput.parentNode.replaceChild(newSearchInput, searchInput);
             // Keep anti-autofill settings after cloning.
-            newSearchInput.setAttribute('autocomplete', 'off');
+            newSearchInput.setAttribute('autocomplete', 'new-password');
             newSearchInput.setAttribute('autocorrect', 'off');
             newSearchInput.setAttribute('autocapitalize', 'off');
             newSearchInput.setAttribute('spellcheck', 'false');
             // Keep regular field behavior but defeat browser account-autofill heuristics.
             newSearchInput.setAttribute('type', 'search');
             newSearchInput.setAttribute('name', `app-search-${Date.now()}`);
-            if (/@/.test((newSearchInput.value || '').trim())) newSearchInput.value = '';
+            newSearchInput.value = '';
             const clearAutofill = ()=>{
                 const v = (newSearchInput.value || '').trim();
                 // Clear likely account autofill content (email-like or long single token).
@@ -63,8 +63,10 @@ class AppsManager {
             setTimeout(clearAutofill, 0);
             setTimeout(clearAutofill, 300);
             setTimeout(clearAutofill, 1200);
+            setTimeout(clearAutofill, 2500);
             newSearchInput.addEventListener('focus', clearAutofill);
             newSearchInput.addEventListener('input', clearAutofill);
+            window.addEventListener('pageshow', clearAutofill);
             
             // Add new event listener
             newSearchInput.addEventListener('input', (e) => {
