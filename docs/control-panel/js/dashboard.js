@@ -170,6 +170,11 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
+        // Prevent browser-autofill from leaking login email into dashboard search fields.
+        ['app-search', 'space-search', 'user-search', 'wave-search', 'video-search'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
         try{
             const fromHash = (window.location.hash||'').replace('#','');
             const stored = localStorage.getItem('liber_last_section') || '';
@@ -214,6 +219,8 @@ class DashboardManager {
                     return;
                 }
                 if (commentEl){
+                    // Advanced in-place comment trees should handle this click.
+                    if (document.getElementById(`comments-${pid}`)) return;
                     const text = prompt('Add comment:');
                     if (text && text.trim()){ try{ await firebase.addDoc(firebase.collection(window.firebaseService.db,'posts',pid,'comments'), { userId:me.uid, text:text.trim(), createdAt:new Date().toISOString() }); }catch(_){ } }
                     return;
@@ -265,6 +272,7 @@ class DashboardManager {
 
         // Settings form handlers
         this.setupSettingsHandlers();
+        this.setupMobileSectionSwipe();
 
         // Simple account switcher UI: fill a dropdown if exists
         const switcher = document.getElementById('account-switcher');
@@ -385,6 +393,48 @@ class DashboardManager {
                 }catch(_){ this.showError('Failed to broadcast'); }
             };
         }
+    }
+
+    setupMobileSectionSwipe() {
+        const host = document.querySelector('.dashboard-content');
+        if (!host || host._swipeBound) return;
+        host._swipeBound = true;
+
+        let startX = 0;
+        let startY = 0;
+        let startTs = 0;
+
+        host.addEventListener('touchstart', (e) => {
+            if (!e.touches || !e.touches.length) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startTs = Date.now();
+        }, { passive: true });
+
+        host.addEventListener('touchend', (e) => {
+            if (!e.changedTouches || !e.changedTouches.length) return;
+            const endX = e.changedTouches[0].clientX;
+            const endY = e.changedTouches[0].clientY;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const dt = Date.now() - startTs;
+            // Horizontal swipe only: fast and clearly stronger than vertical movement.
+            if (dt > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+
+            const navBtns = Array.from(document.querySelectorAll('.mobile-nav-btn[data-section]'));
+            const sections = navBtns
+                .map(btn => btn.dataset.section)
+                .filter(Boolean)
+                .filter((section, index, arr) => arr.indexOf(section) === index);
+            if (!sections.length) return;
+
+            const current = this.currentSection || 'apps';
+            const idx = sections.indexOf(current);
+            if (idx < 0) return;
+
+            if (dx < 0 && idx < sections.length - 1) this.switchSection(sections[idx + 1]);
+            if (dx > 0 && idx > 0) this.switchSection(sections[idx - 1]);
+        }, { passive: true });
     }
     /**
      * Load Personal Space
@@ -692,6 +742,7 @@ class DashboardManager {
         const feed = document.getElementById('space-feed'); if (!feed) return;
         const feedTitle = document.getElementById('space-feed-title');
         feed.innerHTML='';
+        feed.__useAdvancedComments = true;
         try{
             // Try ordered query for my posts (both public and private)
             let snap;
@@ -766,9 +817,12 @@ class DashboardManager {
                 commentBtn.onclick = async ()=>{
                     const tree = document.getElementById(`comments-${postId}`);
                     if (!tree) return;
-                    if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                    const forceOpen = tree.dataset.forceOpen === '1';
+                    tree.dataset.forceOpen = '0';
+                    if (tree.style.display === 'none' || forceOpen){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                     tree.innerHTML = '';
-                    const comments = await window.firebaseService.getComments(postId, 100);
+                    const currentLimit = Number(tree.dataset.limit || 5);
+                    const comments = await window.firebaseService.getComments(postId, currentLimit);
                     // Build threaded structure
                     const map = new Map();
                     comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
@@ -791,20 +845,28 @@ class DashboardManager {
                         item.appendChild(replyBox);
                         item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
                         const inp = replyBox.querySelector('.reply-input');
-                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         if (node.children && node.children.length){
                             const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
                             node.children.forEach(ch=> renderNode(ch, sub));
                         }
                     };
                     roots.reverse().forEach(n=> renderNode(n, tree));
+                    if (comments.length >= currentLimit){
+                        const more = document.createElement('button');
+                        more.className = 'btn btn-secondary';
+                        more.style.marginTop = '8px';
+                        more.textContent = 'See more comments';
+                        more.onclick = async ()=>{ tree.dataset.limit = String(currentLimit + 10); tree.dataset.forceOpen = '1'; await commentBtn.onclick(); };
+                        tree.appendChild(more);
+                    }
                     // Inline add comment (top-level)
                     const addWrap = document.createElement('div');
                     addWrap.style.cssText = 'margin-top:8px';
                     addWrap.innerHTML = `<input type="text" class="reply-input" id="add-comment-${postId}" placeholder="Add a comment..." style="width:100%">`;
                     tree.appendChild(addWrap);
                     const addInp = document.getElementById(`add-comment-${postId}`);
-                    if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
+                    if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                     // bind comment edit/delete
                     tree.querySelectorAll('.comment-actions').forEach(act=>{
                         const cid = act.getAttribute('data-comment-id');
@@ -924,7 +986,14 @@ class DashboardManager {
             const feedEl = document.getElementById('global-feed');
             const suggEl = document.getElementById('global-suggestions');
             if (!feedEl) return;
+            // Prevent snapshot listener accumulation across re-renders.
+            if (this._postActionUnsubsByContainer && this._postActionUnsubsByContainer.get(feedEl)) {
+                this._postActionUnsubsByContainer.get(feedEl).forEach((u) => { try { u(); } catch (_) {} });
+                this._postActionUnsubsByContainer.set(feedEl, []);
+            }
             feedEl.innerHTML = '';
+            // Prevent prompt-based fallback comment UI in delegated handlers.
+            feedEl.__useAdvancedComments = true;
             // Recent public posts
             const snap = await firebase.getDocs(firebase.query(
                 firebase.collection(window.firebaseService.db,'posts'),
@@ -977,9 +1046,12 @@ class DashboardManager {
                     if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
                     if (commentBtn){ commentBtn.onclick = async ()=>{
                         const tree = document.getElementById(`comments-${postId}`); if (!tree) return;
-                        if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                        const forceOpen = tree.dataset.forceOpen === '1';
+                        tree.dataset.forceOpen = '0';
+                        if (tree.style.display === 'none' || forceOpen){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                         tree.innerHTML = '';
-                        const comments = await window.firebaseService.getComments(postId, 100);
+                        const currentLimit = Number(tree.dataset.limit || 5);
+                        const comments = await window.firebaseService.getComments(postId, currentLimit);
                         const map = new Map(); comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
                         const roots = []; comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
                         const renderNode = (node, container)=>{
@@ -994,12 +1066,24 @@ class DashboardManager {
                             container.appendChild(item);
                             const replyBox = document.createElement('div'); replyBox.style.cssText='margin:6px 0 0 0; display:none'; replyBox.innerHTML = `<input type=\"text\" class=\"reply-input\" placeholder=\"Reply...\" style=\"width:100%\">`; item.appendChild(replyBox);
                             item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
-                            const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                            const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                             if (node.children && node.children.length){ const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub); node.children.forEach(ch=> renderNode(ch, sub)); }
                         };
                         roots.reverse().forEach(n=> renderNode(n, tree));
+                        if (comments.length >= currentLimit){
+                            const more = document.createElement('button');
+                            more.className = 'btn btn-secondary';
+                            more.style.marginTop = '8px';
+                            more.textContent = 'See more comments';
+                            more.onclick = async ()=>{
+                                tree.dataset.limit = String(currentLimit + 10);
+                                tree.dataset.forceOpen = '1';
+                                await commentBtn.onclick();
+                            };
+                            tree.appendChild(more);
+                        }
                         const addWrap = document.createElement('div'); addWrap.style.cssText='margin-top:8px'; addWrap.innerHTML = `<input type=\"text\" class=\"reply-input\" id=\"add-comment-${postId}\" placeholder=\"Add a comment...\" style=\"width:100%\">`; tree.appendChild(addWrap);
-                        const addInp = document.getElementById(`add-comment-${postId}`); if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
+                        const addInp = document.getElementById(`add-comment-${postId}`); if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         tree.querySelectorAll('.comment-actions').forEach(act=>{
                             const cid = act.getAttribute('data-comment-id'); const author = act.getAttribute('data-author'); const canEdit = author === meUser.uid; const eb = act.querySelector('.edit-comment-btn'); const db = act.querySelector('.delete-comment-btn');
                             if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
@@ -1071,7 +1155,7 @@ class DashboardManager {
             });
             // Bind like/comment actions
             const me2 = await window.firebaseService.getCurrentUser();
-            document.querySelectorAll('.post-actions').forEach(async (pa)=>{
+            feed.querySelectorAll('.post-actions').forEach(async (pa)=>{
                 const postId = pa.getAttribute('data-post-id');
                 const likeBtn = pa.querySelector('.like-btn');
                 const commentBtn = pa.querySelector('.comment-btn');
@@ -1112,9 +1196,12 @@ class DashboardManager {
                 commentBtn.onclick = async ()=>{
                     const tree = document.getElementById(`comments-${postId}`);
                     if (!tree) return;
-                    if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
+                    const forceOpen = tree.dataset.forceOpen === '1';
+                    tree.dataset.forceOpen = '0';
+                    if (tree.style.display === 'none' || forceOpen){ tree.style.display='block'; } else { tree.style.display='none'; return; }
                     tree.innerHTML = '';
-                    const comments = await window.firebaseService.getComments(postId, 100);
+                    const currentLimit = Number(tree.dataset.limit || 5);
+                    const comments = await window.firebaseService.getComments(postId, currentLimit);
                     // Build threaded structure
                     const map = new Map();
                     comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
@@ -1137,13 +1224,21 @@ class DashboardManager {
                         item.appendChild(replyBox);
                         item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
                         const inp = replyBox.querySelector('.reply-input');
-                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
+                        if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
                         if (node.children && node.children.length){
                             const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
                             node.children.forEach(ch=> renderNode(ch, sub));
                         }
                     };
                     roots.reverse().forEach(n=> renderNode(n, tree));
+                    if (comments.length >= currentLimit){
+                        const more = document.createElement('button');
+                        more.className = 'btn btn-secondary';
+                        more.style.marginTop = '8px';
+                        more.textContent = 'See more comments';
+                        more.onclick = async ()=>{ tree.dataset.limit = String(currentLimit + 10); tree.dataset.forceOpen = '1'; await commentBtn.onclick(); };
+                        tree.appendChild(more);
+                    }
                     // bind comment edit/delete
                     tree.querySelectorAll('.comment-actions').forEach(act=>{
                         const cid = act.getAttribute('data-comment-id');
@@ -1188,142 +1283,7 @@ class DashboardManager {
                     }; }
                 }
             });
-            if (uid === meUser.uid && false){
-                try{
-                    const posts = await window.firebaseService.getFeedPosts(meUser.uid, following, 10);
-                    feed.innerHTML = '';
-                    posts.forEach(p=>{
-                        const div = document.createElement('div');
-                        div.className = 'post-item';
-                        div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                        const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                        div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
-                                         <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-                                           <i class="fas fa-heart like-btn" style="cursor:pointer"></i>
-                                           <span class="likes-count"></span>
-                                           <i class="fas fa-comment comment-btn" style="cursor:pointer"></i>
-                                           <button class="btn btn-secondary visibility-btn">${p.visibility==='public'?'Make Private':'Make Public'}</button>
-                                           <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
-                                           <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
-                                         </div>
-                                         <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
-                        feed.appendChild(div);
-                    });
-                    // bind actions
-                    document.querySelectorAll('.post-actions').forEach(async (pa)=>{
-                        const postId = pa.getAttribute('data-post-id');
-                        const likeBtn = pa.querySelector('.like-btn');
-                        const commentBtn = pa.querySelector('.comment-btn');
-                        const visBtn = pa.querySelector('.visibility-btn');
-                        const editBtn = pa.querySelector('.edit-post-btn');
-                        const delBtn = pa.querySelector('.delete-post-btn');
-                        const likesCount = pa.querySelector('.likes-count');
-                        const s = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s.likes||0} likes`;
-                        if (await window.firebaseService.hasLiked(postId, meUser.uid)){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff4d4f'; }
-                        likeBtn.onclick = async ()=>{
-                            const liked = await window.firebaseService.hasLiked(postId, meUser.uid);
-                            if (liked){ await window.firebaseService.unlikePost(postId, meUser.uid); likeBtn.classList.remove('active'); likeBtn.style.color=''; }
-                            else { await window.firebaseService.likePost(postId, meUser.uid); likeBtn.classList.add('active'); likeBtn.style.color='#ff4d4f'; }
-                            const s2 = await window.firebaseService.getPostStats(postId); likesCount.textContent = `${s2.likes||0} likes`;
-                        };
-                        commentBtn.onclick = async ()=>{
-                            const tree = document.getElementById(`comments-${postId}`);
-                            if (!tree) return;
-                            if (tree.style.display === 'none'){ tree.style.display='block'; } else { tree.style.display='none'; return; }
-                            tree.innerHTML = '';
-                            const comments = await window.firebaseService.getComments(postId, 100);
-                            // Build threaded structure
-                            const map = new Map();
-                            comments.forEach(c=> map.set(c.id, { ...c, children: [] }));
-                            const roots = [];
-                            comments.forEach(c=>{ if (c.parentId && map.has(c.parentId)){ map.get(c.parentId).children.push(map.get(c.id)); } else { roots.push(map.get(c.id)); } });
-                            const renderNode = (node, container)=>{
-                                const item = document.createElement('div');
-                                item.className = 'comment-item';
-                                item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
-                                <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
-                                  <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
-                                  <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
-                                  <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
-                                </div>`;
-                                container.appendChild(item);
-                                // Reply input (hidden until click)
-                                const replyBox = document.createElement('div');
-                                replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
-                                replyBox.innerHTML = `<input type="text" class="reply-input" placeholder="Reply..." style="width:100%">`;
-                                item.appendChild(replyBox);
-                                item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
-                                const inp = replyBox.querySelector('.reply-input');
-                                if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; await commentBtn.onclick(); } }; }
-                                if (node.children && node.children.length){
-                                    const sub = document.createElement('div'); sub.className='comment-tree'; item.appendChild(sub);
-                                    node.children.forEach(ch=> renderNode(ch, sub));
-                                }
-                            };
-                            roots.reverse().forEach(n=> renderNode(n, tree));
-                            const addWrap = document.createElement('div'); addWrap.style.cssText='margin-top:8px';
-                            addWrap.innerHTML = `<input type="text" class="reply-input" id="add-comment-${postId}" placeholder="Add a comment..." style="width:100%">`;
-                            tree.appendChild(addWrap);
-                            const addInp = document.getElementById(`add-comment-${postId}`);
-                            if (addInp){ addInp.onkeydown = async (e)=>{ if (e.key==='Enter' && addInp.value.trim()){ const meU = await window.firebaseService.getCurrentUser(); await window.firebaseService.addComment(postId, meU.uid, addInp.value.trim(), null); addInp.value=''; await commentBtn.onclick(); } }; }
-                            // bind comment edit/delete
-                            tree.querySelectorAll('.comment-actions').forEach(act=>{
-                                const cid = act.getAttribute('data-comment-id');
-                                const author = act.getAttribute('data-author');
-                                const canEdit = author === meUser.uid;
-                                const eb = act.querySelector('.edit-comment-btn');
-                                const db = act.querySelector('.delete-comment-btn');
-                                if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
-                                if (canEdit){
-                                    if (eb){ eb.onclick = async ()=>{
-                                        const newText = prompt('Edit comment:');
-                                        if (newText===null) return;
-                                        await window.firebaseService.updateComment(postId, cid, newText.trim());
-                                        this.loadFeed(uid, titleName);
-                                    }; }
-                                    if (db){ db.onclick = async ()=>{
-                                        if (!confirm('Delete this comment?')) return;
-                                        await window.firebaseService.deleteComment(postId, cid);
-                                        this.loadFeed(uid, titleName);
-                                    }; }
-                                }
-                            });
-                        };
-                        if (visBtn){
-                            visBtn.onclick = async ()=>{
-                                try{
-                                    const ref = firebase.doc(window.firebaseService.db, 'posts', postId);
-                                    const doc = await firebase.getDoc(ref);
-                                    const p = doc.data()||{};
-                                    const next = p.visibility==='public' ? 'private' : 'public';
-                                    await firebase.updateDoc(ref, { visibility: next, updatedAt: new Date().toISOString() });
-                                    visBtn.textContent = next==='public' ? 'Make Private' : 'Make Public';
-                                }catch(_){ }
-                            };
-                        }
-                        // post edit/delete for owner only
-                        const postAuthor = pa.getAttribute('data-author');
-                        const canEditPost = postAuthor === meUser.uid;
-                        if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; }
-                        if (canEditPost){
-                            if (editBtn){ editBtn.onclick = async ()=>{
-                                const container = pa.closest('.post-item');
-                                const textDiv = container && container.querySelector('.post-text');
-                                const current = textDiv ? textDiv.textContent : '';
-                                const newText = prompt('Edit post:', current);
-                                if (newText===null) return;
-                                await window.firebaseService.updatePost(postId, { text: newText.trim() });
-                                this.loadFeed(uid, titleName);
-                            }; }
-                            if (delBtn){ delBtn.onclick = async ()=>{
-                                if (!confirm('Delete this post?')) return;
-                                await window.firebaseService.deletePost(postId);
-                                this.loadFeed(uid, titleName);
-                            }; }
-                        }
-                    });
-                }catch(_){ /* ignore */ }
-            }
+            // Removed legacy unreachable duplicate feed renderer block.
             // Suggestions (simple): recent posts by others
             const sugg = document.getElementById('space-suggestions');
             if (sugg){
@@ -2916,6 +2876,8 @@ Do you want to proceed?`);
     }
 
     activatePostActions(container = document) {
+      if (!this._postActionUnsubsByContainer) this._postActionUnsubsByContainer = new WeakMap();
+      if (!this._postActionUnsubsByContainer.get(container)) this._postActionUnsubsByContainer.set(container, []);
       // Delegate clicks once per container to ensure handlers always work
       if (!container.__postActionsDelegated) {
         container.__postActionsDelegated = true;
@@ -2978,9 +2940,10 @@ Do you want to proceed?`);
         const likeSpan = item.querySelector('.likes-count');
         const likeIcon = likeBtn?.querySelector('i');
         if (likeBtn) {
-          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'), snap => {
+          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'), snap => {
             likeSpan.textContent = snap.size;
           });
+          this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }
         
@@ -2988,9 +2951,10 @@ Do you want to proceed?`);
         const commentBtn = item.querySelector('.comment-btn');
         const commentSpan = item.querySelector('.comments-count');
         if (commentBtn) {
-          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), snap => {
+          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'comments'), snap => {
             commentSpan.textContent = snap.size;
           });
+          this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }
         
@@ -2999,9 +2963,10 @@ Do you want to proceed?`);
         const repostSpan = item.querySelector('.reposts-count');
         const repostIcon = repostBtn?.querySelector('i');
         if (repostBtn) {
-          firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'), snap => {
+          const unsub = firebase.onSnapshot(firebase.collection(window.firebaseService.db, 'posts', pid, 'reposts'), snap => {
             repostSpan.textContent = snap.size;
           });
+          this._postActionUnsubsByContainer.get(container).push(unsub);
           // Clicks handled by delegated listener above
         }
       });

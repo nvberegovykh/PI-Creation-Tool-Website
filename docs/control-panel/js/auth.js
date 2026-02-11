@@ -1246,6 +1246,9 @@ class AuthManager {
     showAuthScreen() {
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('dashboard').classList.add('hidden');
+        // Login screen uses normal page scrolling.
+        document.body.style.overflowY = 'auto';
+        document.body.style.overflowX = 'hidden';
         
         // Restore mobile WALL-E toggle button if it was hidden
         const toggleBtn = document.getElementById('mobile-wall-e-toggle-btn');
@@ -1276,6 +1279,8 @@ class AuthManager {
     showDashboard() {
         document.getElementById('auth-screen').classList.add('hidden');
         document.getElementById('dashboard').classList.remove('hidden');
+        // Lock page scroll and keep scrolling inside active dashboard sections.
+        document.body.style.overflow = 'hidden';
         
         // Initialize dashboard
         if (window.dashboardManager) {

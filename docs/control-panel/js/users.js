@@ -69,9 +69,17 @@ class UsersManager {
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 try {
                     console.log('Loading users from Firebase...');
-                    // Get users with pagination and stats
-                    const result = await window.firebaseService.getUsersWithPagination(50);
-                    this.users = result.users;
+                    // Load all users across pages so admin sees full user base.
+                    const all = [];
+                    let cursor = null;
+                    let hasMore = true;
+                    while (hasMore) {
+                        const result = await window.firebaseService.getUsersWithPagination(100, cursor);
+                        all.push(...(result.users || []));
+                        cursor = result.lastDoc || null;
+                        hasMore = !!result.hasMore;
+                    }
+                    this.users = all;
                     console.log('Firebase users loaded:', this.users.length);
                     
                     // Update user statistics

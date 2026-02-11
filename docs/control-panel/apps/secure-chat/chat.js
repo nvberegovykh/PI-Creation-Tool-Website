@@ -660,8 +660,6 @@ import { runTransaction } from 'firebase/firestore';
       }
       document.getElementById('active-connection-name').textContent = displayName;
       await this.loadMessages();
-      // Force scroll to bottom after messages render
-      try{ const box=document.getElementById('messages'); if(box){ setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 50); } }catch(_){ }
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
@@ -724,6 +722,8 @@ import { runTransaction } from 'firebase/firestore';
         // Also include archived/merged message histories
         const archivedConnIds = await this.getArchivedConnIds(this.activeConnection);
         const handleSnap = async (snap)=>{
+          const prevTop = box.scrollTop;
+          const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 100;
           box.innerHTML='';
           let aesKey = await this.getFallbackKey();
           const renderOne = async (d)=>{
@@ -807,8 +807,10 @@ import { runTransaction } from 'firebase/firestore';
               }
             }
           };
-          // Render primary messages
-          snap.forEach(async d=>{ await renderOne(d); });
+          // Render primary messages in deterministic order.
+          for (const d of (snap.docs || [])) {
+            await renderOne(d);
+          }
           // Fetch and render archived chains (best-effort, no onSnapshot for archives to reduce listeners)
           for (const aid of archivedConnIds){
             try{
@@ -827,11 +829,14 @@ import { runTransaction } from 'firebase/firestore';
                 );
               }
               const s2 = await firebase.getDocs(qa);
-              s2.forEach(async d=>{ await renderOne(d); });
+              for (const d of (s2.docs || [])) {
+                await renderOne(d);
+              }
             }catch(_){ /* ignore per-archive failure */ }
           }
-          // Scroll to last message
-          box.scrollTop = box.scrollHeight;
+          // Keep current reading position unless user was already near the bottom.
+          if (wasNearBottom) box.scrollTop = box.scrollHeight;
+          else box.scrollTop = prevTop;
         };
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(q, handleSnap);
@@ -914,6 +919,19 @@ import { runTransaction } from 'firebase/firestore';
 
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
+      if (!this.storage) {
+        alert('File upload is not available because Firebase Storage is not configured.');
+        return;
+      }
+      try{
+        const cRef = firebase.doc(this.db, 'chatConnections', this.activeConnection);
+        const cSnap = await firebase.getDoc(cRef);
+        const participants = cSnap.exists() && Array.isArray(cSnap.data().participants) ? cSnap.data().participants : [];
+        if (!participants.includes(this.currentUser.uid)) {
+          alert('You are not a participant of this chat. Please reopen the chat and try again.');
+          return;
+        }
+      }catch(_){ /* best-effort pre-check */ }
       console.log('Auth state before sendFiles:', !!this.currentUser, firebase.auth().currentUser?.uid);
       try {
         await firebase.auth().currentUser?.getIdToken(true); // Force refresh

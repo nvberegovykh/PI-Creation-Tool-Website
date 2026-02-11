@@ -1,13 +1,15 @@
 /* Dashboard Layout */
 .dashboard {
     min-height: 100svh;
+    height: 100svh;
     background: var(--primary-bg);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 /* Ensure internal sections scroll while the page remains locked */
-.dashboard-content { min-height: 0; overflow: hidden; }
+.dashboard-content { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .content-section { min-height: 0; }
 #apps-section,
 #space-section,
@@ -180,20 +182,19 @@
 .content-section {
     display: none;
     animation: fadeIn 0.3s ease-in;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
 }
 
-.content-section.active {
-    display: block;
-}
+.content-section.active { display: block; }
 
 /* Explicit heights for sections that were not scrolling */
 #apps-section,
-#waveconnect-section {
-    min-height: 0;
-    height: calc(100vh - 140px); /* header/nav + padding */
-    overflow-y: auto;
-    overflow-x: hidden;
-}
+#waveconnect-section { min-height: 0; height: 100%; }
 
 #apps-section #apps-grid {
     min-height: 0;
