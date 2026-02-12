@@ -51,6 +51,7 @@ class AppsManager {
         if (frame && !frame._boundBackRelay){
             frame._boundBackRelay = true;
             frame.addEventListener('load', ()=> this.handleShellFrameLoad(frame));
+            frame.addEventListener('error', ()=> this.closeAppShell());
         }
         if (!window._liberAppShellMsgBound){
             window._liberAppShellMsgBound = true;
@@ -75,11 +76,16 @@ class AppsManager {
             doc._liberBackBridgeBound = true;
             doc.addEventListener('click', (e)=>{
                 const t = e.target && e.target.closest
-                    ? e.target.closest('#back-btn, [data-close-shell], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
+                    ? e.target.closest('#back-btn, [data-close-shell], [onclick*="history.back"], [id*="back"], [class*="back"], [id*="close"], [class*="close"], [id*="quit"], [class*="quit"], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
                     : null;
                 if (!t) return;
                 const href = (t.getAttribute && t.getAttribute('href')) || '';
-                const isBack = t.id === 'back-btn' || t.hasAttribute('data-close-shell') || /index\.html(\?|$)/i.test(href);
+                const idClass = `${(t.id || '')} ${(t.className || '')}`.toLowerCase();
+                const isBack = t.id === 'back-btn'
+                    || t.hasAttribute('data-close-shell')
+                    || /index\.html(\?|$)/i.test(href)
+                    || t.hasAttribute('onclick')
+                    || /\b(back|close|quit)\b/.test(idClass);
                 if (!isBack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -95,7 +101,10 @@ class AppsManager {
         try{
             if (this._closingShell) return;
             const href = String(frame?.contentWindow?.location?.href || '');
-            if (!href || href === 'about:blank') return;
+            if (!href || href === 'about:blank'){
+                if (document.body.classList.contains('app-shell-open')) this.closeAppShell();
+                return;
+            }
             const url = new URL(href, window.location.href);
             const sameOrigin = url.origin === window.location.origin;
             if (!sameOrigin) return;

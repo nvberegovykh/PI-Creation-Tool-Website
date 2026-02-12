@@ -10,10 +10,15 @@ class DashboardManager {
         this._playQueue = [];
         this._playQueueIndex = -1;
         this._miniTitleTicker = null;
+        this._repeatMode = 'off';
         this._waveLibraryVisible = 5;
         this._playlistsVisible = 5;
         this._videoLibraryVisible = 5;
         this._videoSuggestionsVisible = 5;
+        try{
+            const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
+            if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
+        }catch(_){ }
         this.init();
     }
 
@@ -193,6 +198,62 @@ class DashboardManager {
         btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
     }
 
+    cycleRepeatMode(){
+        const next = this._repeatMode === 'off'
+            ? 'all'
+            : this._repeatMode === 'all'
+                ? 'one'
+                : 'off';
+        this._repeatMode = next;
+        try{ localStorage.setItem('liber_mini_repeat_mode', next); }catch(_){ }
+        this.updateMiniRepeatButton();
+    }
+
+    updateMiniRepeatButton(){
+        const btn = document.getElementById('mini-repeat');
+        if (!btn) return;
+        const mode = this._repeatMode || 'off';
+        const icon = mode === 'one' ? 'fa-repeat-1' : 'fa-repeat';
+        const title = mode === 'all'
+            ? 'Repeat playlist'
+            : mode === 'one'
+                ? 'Repeat song'
+                : 'Repeat off';
+        btn.innerHTML = `<i class="fas ${icon}"></i>`;
+        btn.dataset.mode = mode;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+    }
+
+    handleMiniPlaybackEnded(source){
+        const queue = this._playQueue || [];
+        const len = queue.length;
+        const idx = Number.isFinite(Number(this._playQueueIndex)) ? Number(this._playQueueIndex) : -1;
+
+        if (this._repeatMode === 'one'){
+            if (len > 0 && idx >= 0){
+                this.playQueueIndex(idx);
+                return;
+            }
+            if (source){
+                try{
+                    source.currentTime = 0;
+                    source.play().catch(()=>{});
+                }catch(_){ }
+            }
+            return;
+        }
+
+        if (len > 0 && (idx + 1) < len){
+            this.playQueueIndex(idx + 1);
+            return;
+        }
+
+        if (this._repeatMode === 'all' && len > 0){
+            this.playQueueIndex(0);
+        }
+    }
+
     formatDuration(seconds){
         const s = Math.max(0, Math.floor(Number(seconds || 0)));
         const m = Math.floor(s / 60);
@@ -369,6 +430,7 @@ class DashboardManager {
         const miniBy = document.getElementById('mini-by');
         const miniCover = document.querySelector('#mini-player .cover');
         const playBtn = document.getElementById('mini-play');
+        const repeatBtn = document.getElementById('mini-repeat');
         const addBtn = document.getElementById('mini-add-playlist');
         const closeBtn = document.getElementById('mini-close');
         const miniProgress = document.getElementById('mini-progress');
@@ -379,6 +441,10 @@ class DashboardManager {
         if (miniCover && item.cover) miniCover.src = item.cover;
         if (mini) mini.classList.add('show');
         if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play().catch(()=>{}); } else { bg.pause(); } }; }
+        if (repeatBtn){
+            repeatBtn.onclick = ()=> this.cycleRepeatMode();
+            this.updateMiniRepeatButton();
+        }
         const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !bg.paused);
         const syncProgress = ()=>{
             if (!miniFill || !miniTime) return;
@@ -405,7 +471,7 @@ class DashboardManager {
         bg.onloadedmetadata = syncProgress;
         bg.onended = ()=>{
             syncMiniBtn();
-            if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
+            this.handleMiniPlaybackEnded(bg);
         };
         if (addBtn){
             addBtn.onclick = ()=> this.openAddToPlaylistPopup({
@@ -545,6 +611,7 @@ class DashboardManager {
             const mBy = document.getElementById('mini-by');
             const mCover = mini.querySelector('.cover');
             const playBtn = document.getElementById('mini-play');
+            const repeatBtn = document.getElementById('mini-repeat');
             const addBtn = document.getElementById('mini-add-playlist');
             const queueBtn = document.getElementById('mini-queue');
             const queuePanel = document.getElementById('mini-queue-panel');
@@ -584,6 +651,10 @@ class DashboardManager {
                 }
             }catch(_){ }
             if (playBtn){ playBtn.onclick = ()=>{ if (source.paused){ source.play(); } else { source.pause(); } }; }
+            if (repeatBtn){
+                repeatBtn.onclick = ()=> this.cycleRepeatMode();
+                this.updateMiniRepeatButton();
+            }
             const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !source.paused);
             const syncProgress = ()=>{
                 if (!miniFill || !miniTime) return;
@@ -610,7 +681,7 @@ class DashboardManager {
             source.onloadedmetadata = syncProgress;
             source.onended = ()=>{
                 syncMiniBtn();
-                if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
+                this.handleMiniPlaybackEnded(source);
             };
             syncMiniBtn(); syncProgress();
             if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
@@ -721,7 +792,7 @@ class DashboardManager {
         window.addEventListener('liber:app-shell-open', ()=> this.suspendDashboardActivity());
         window.addEventListener('liber:app-shell-close', ()=> this.resumeDashboardActivity());
         // Prevent browser-autofill from leaking login email into dashboard search fields.
-        ['app-search', 'space-search', 'user-search', 'wave-search', 'video-search'].forEach((id) => {
+        ['app-search', 'space-search', 'user-search', 'wave-search', 'video-search', 'wall-search'].forEach((id) => {
             const el = document.getElementById(id);
             if (el){
                 el.value = '';
@@ -729,6 +800,7 @@ class DashboardManager {
                 el.setAttribute('autocorrect', 'off');
                 el.setAttribute('autocapitalize', 'off');
                 el.setAttribute('spellcheck', 'false');
+                el.setAttribute('name', `${id}-${Date.now()}`);
             }
         });
         // Harden against browser autofill on dynamically rendered fields.
@@ -753,7 +825,7 @@ class DashboardManager {
                     if (a && typeof a.email === 'string' && a.email) bad.add(a.email.trim().toLowerCase());
                     if (a && typeof a.username === 'string' && a.username) bad.add(a.username.trim().toLowerCase());
                 });
-                ['app-search','space-search','user-search','wave-search','video-search'].forEach((id)=>{
+                ['app-search','space-search','user-search','wave-search','video-search','wall-search'].forEach((id)=>{
                     const el = document.getElementById(id);
                     if (!el) return;
                     const v = String(el.value || '').trim();
@@ -784,6 +856,9 @@ class DashboardManager {
             const stored = localStorage.getItem('liber_last_section') || '';
             const preferred = fromHash || stored || 'apps';
             this.switchSection(preferred);
+            if (preferred === 'feed'){
+                setTimeout(()=> this.loadGlobalFeed(this._wallSearchTerm || ''), 120);
+            }
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         this.handleWallETransitionToDashboard();
@@ -900,12 +975,13 @@ class DashboardManager {
             document.addEventListener('focusin', (e)=>{
                 const t = e.target;
                 if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return;
-                const isTarget = t.matches('#app-search,#space-search,#user-search,#wave-search,#video-search,.reply-input');
+                const isTarget = t.matches('#app-search,#space-search,#user-search,#wave-search,#video-search,#wall-search,.reply-input');
                 if (!isTarget) return;
                 t.setAttribute('autocomplete', 'off');
                 t.setAttribute('autocorrect', 'off');
                 t.setAttribute('autocapitalize', 'off');
                 t.setAttribute('spellcheck', 'false');
+                if (!t.getAttribute('name')) t.setAttribute('name', 'fld-' + Math.random().toString(36).slice(2, 9));
                 if (/@/.test((t.value || '').trim())) t.value = '';
             }, true);
         }
@@ -2291,6 +2367,11 @@ class DashboardManager {
         suggBtn.onclick = ()=> open('suggestions');
         if (wallSearch && !wallSearch._bound){
             wallSearch._bound = true;
+            wallSearch.setAttribute('autocomplete', 'off');
+            wallSearch.setAttribute('autocorrect', 'off');
+            wallSearch.setAttribute('autocapitalize', 'off');
+            wallSearch.setAttribute('spellcheck', 'false');
+            wallSearch.setAttribute('name', `wall-search-${Date.now()}`);
             wallSearch.addEventListener('input', ()=>{
                 const term = String(wallSearch.value || '').trim();
                 this._wallSearchTerm = term;

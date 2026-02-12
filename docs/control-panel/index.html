@@ -641,6 +641,7 @@
             <div class="mini-controls">
                 <button id="mini-add-playlist" class="btn btn-secondary" title="Add to playlist"><i class="fas fa-plus"></i></button>
                 <button id="mini-queue" class="btn btn-secondary" title="Queue"><i class="fas fa-list"></i></button>
+                <button id="mini-repeat" class="btn btn-secondary" title="Repeat off" aria-label="Repeat off"><i class="fas fa-repeat"></i></button>
                 <button id="mini-play" class="btn btn-secondary"><i class="fas fa-play"></i></button>
                 <button id="mini-close" class="btn btn-secondary" title="Close"><i class="fas fa-xmark"></i></button>
             </div>
@@ -713,7 +714,7 @@
     
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_APP_VERSION = '20260212r08';
+      window.LIBER_APP_VERSION = '20260212r11';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
         const scripts = [

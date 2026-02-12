@@ -175,6 +175,39 @@ import { runTransaction } from 'firebase/firestore';
         };
         return row;
       };
+      const makeTile = (a, type)=>{
+        const tile = document.createElement('button');
+        tile.className = 'btn secondary';
+        tile.style.cssText = 'display:inline-flex;flex-direction:column;align-items:stretch;justify-content:flex-start;width:108px;height:124px;padding:6px;margin:0 6px 8px 0;vertical-align:top;overflow:hidden';
+        const mediaWrap = document.createElement('div');
+        mediaWrap.style.cssText = 'width:100%;height:84px;border-radius:8px;overflow:hidden;background:#0b0f16;display:flex;align-items:center;justify-content:center';
+        if (type === 'video'){
+          const video = document.createElement('video');
+          video.src = a.fileUrl || '';
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = 'metadata';
+          video.style.cssText = 'width:100%;height:100%;object-fit:cover';
+          mediaWrap.appendChild(video);
+        } else {
+          const img = document.createElement('img');
+          img.src = a.fileUrl || '';
+          img.alt = a.fileName || 'Image';
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+          mediaWrap.appendChild(img);
+        }
+        const label = document.createElement('div');
+        label.style.cssText = 'margin-top:6px;font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92';
+        label.textContent = a.fileName || 'Media';
+        tile.appendChild(mediaWrap);
+        tile.appendChild(label);
+        tile.onclick = async ()=>{
+          panel.remove();
+          backdrop.remove();
+          await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+        };
+        return tile;
+      };
       this.loadMyMediaQuickChoices().then((items)=>{
         const rows = (items || []).slice(0, 60);
         const byKind = {
@@ -194,7 +227,14 @@ import { runTransaction } from 'firebase/firestore';
             listHost.appendChild(empty);
             return;
           }
-          group.forEach((a)=> listHost.appendChild(makeRow(a)));
+          if (kind === 'video' || kind === 'pics'){
+            const tileWrap = document.createElement('div');
+            tileWrap.style.cssText = 'display:flex;flex-wrap:wrap;align-items:flex-start';
+            group.forEach((a)=> tileWrap.appendChild(makeTile(a, kind === 'video' ? 'video' : 'pics')));
+            listHost.appendChild(tileWrap);
+          } else {
+            group.forEach((a)=> listHost.appendChild(makeRow(a)));
+          }
         };
         tabVideo.onclick = ()=> activate('video');
         tabAudio.onclick = ()=> activate('audio');
@@ -448,11 +488,14 @@ import { runTransaction } from 'firebase/firestore';
         // Restore last opened chat when reopening chat app.
         try{
           const last = localStorage.getItem('liber_last_chat_conn');
-          if (last){
-            const inList = (this.connections || []).some((c)=> c && c.id === last);
-            if (inList) await this.setActive(last);
-          }
+          if (last) await this.setActive(last);
         }catch(_){ }
+      }
+      if (!this.activeConnection){
+        const firstConn = (this.connections && this.connections[0] && this.connections[0].id) || '';
+        if (firstConn){
+          try{ await this.setActive(firstConn); }catch(_){ }
+        }
       }
 
       // Add debug method to check Firebase config
@@ -490,7 +533,7 @@ import { runTransaction } from 'firebase/firestore';
         actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
       }
       actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
-      ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
+      ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         if (this.isMobileViewport()) return this.showAttachmentQuickActions();
         document.getElementById('file-input').click();
@@ -1305,7 +1348,7 @@ import { runTransaction } from 'firebase/firestore';
               || m.fileName
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
-            const hasFile = !!m.fileUrl && !!inferredFileName;
+            const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
@@ -1475,7 +1518,7 @@ import { runTransaction } from 'firebase/firestore';
               || m.fileName
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
-            const hasFile = !!m.fileUrl && !!inferredFileName;
+            const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
@@ -2731,7 +2774,51 @@ import { runTransaction } from 'firebase/firestore';
           const a = document.createElement('a'); a.href = url; a.download = fileName; a.textContent = 'Download decrypted file';
           containerEl.appendChild(a);
         }
-      } catch (e) { /* noop */ }
+      } catch (e) {
+        this.renderDirectAttachment(containerEl, fileUrl, fileName);
+      }
+    }
+
+    renderDirectAttachment(containerEl, fileUrl, fileName){
+      try{
+        let name = String(fileName || '');
+        if (!name && fileUrl){
+          try{
+            const clean = String(fileUrl).split('?')[0].split('#')[0];
+            const tail = clean.split('/').pop() || '';
+            name = decodeURIComponent(tail);
+          }catch(_){ }
+        }
+        if (this.isImageFilename(name)){
+          const img = document.createElement('img');
+          img.src = fileUrl;
+          img.style.maxWidth = '100%';
+          img.style.height = 'auto';
+          img.style.borderRadius = '8px';
+          containerEl.appendChild(img);
+          return;
+        }
+        if (this.isVideoFilename(name)){
+          const v = document.createElement('video');
+          v.src = fileUrl;
+          v.controls = true;
+          v.playsInline = true;
+          v.style.maxWidth = '100%';
+          v.style.borderRadius = '8px';
+          containerEl.appendChild(v);
+          return;
+        }
+        if (this.isAudioFilename(name)){
+          this.renderWaveAttachment(containerEl, fileUrl, 'Voice message');
+          return;
+        }
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = name || 'Open attachment';
+        containerEl.appendChild(a);
+      }catch(_){ }
     }
 
     base64ToBlob(b64, mime){
