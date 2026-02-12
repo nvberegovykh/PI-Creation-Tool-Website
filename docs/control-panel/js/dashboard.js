@@ -222,32 +222,64 @@ class DashboardManager {
             const barsCount = 54;
             this.paintSeedWaveBars(wave, barsCount, seed);
             this.populateWaveBarsFromLoudness(media, wave, barsCount, seed);
+            const resolveSource = ()=> media._waveProxySource || media;
             const sync = ()=>{
-                const d = Number(media.duration || 0);
-                const c = Number(media.currentTime || 0);
+                const src = resolveSource();
+                const d = Number(src?.duration || 0);
+                const c = Number(src?.currentTime || 0);
                 const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
                 const bars = wave.querySelectorAll('.bar');
                 const played = Math.round(bars.length * ratio);
                 bars.forEach((b, i)=> b.classList.toggle('played', i < played));
-                playBtn.innerHTML = `<i class="fas ${media.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+                playBtn.innerHTML = `<i class="fas ${(src?.paused ?? true) ? 'fa-play' : 'fa-pause'}"></i>`;
                 time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
             };
+            const events = ['play','pause','timeupdate','loadedmetadata','ended'];
+            let boundSrc = null;
+            const boundHandlers = new Map();
+            const bindSource = (src)=>{
+                try{
+                    if (!src || boundSrc === src) return;
+                    if (boundSrc){
+                        events.forEach((ev)=>{
+                            const h = boundHandlers.get(ev);
+                            if (h) boundSrc.removeEventListener(ev, h);
+                        });
+                    }
+                    boundHandlers.clear();
+                    events.forEach((ev)=>{
+                        const h = ()=> sync();
+                        boundHandlers.set(ev, h);
+                        src.addEventListener(ev, h);
+                    });
+                    boundSrc = src;
+                    sync();
+                }catch(_){ }
+            };
+            bindSource(media);
+            media._waveAttachProxy = (proxy)=>{
+                media._waveProxySource = proxy || null;
+                bindSource(resolveSource());
+                sync();
+            };
             playBtn.addEventListener('click', ()=>{
-                if (media.paused){
-                    this.pauseAllMediaExcept(media);
-                    media.play().catch(()=>{});
+                const src = resolveSource();
+                if (src.paused){
+                    this.pauseAllMediaExcept(src);
+                    src.play().catch(()=>{});
                 } else {
-                    media.pause();
+                    src.pause();
                 }
                 sync();
             });
             const seekTo = (clientX)=>{
                 const rect = wave.getBoundingClientRect();
                 const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-                if (Number(media.duration) > 0) media.currentTime = ratio * media.duration;
-                if (media.paused){
-                    this.pauseAllMediaExcept(media);
-                    media.play().catch(()=>{});
+                const src = resolveSource();
+                if (Number(src.duration) > 0) src.currentTime = ratio * src.duration;
+                if (src.paused){
+                    this.pauseAllMediaExcept(src);
+                    src.play().catch(()=>{});
                 }
                 sync();
             };
@@ -256,11 +288,6 @@ class DashboardManager {
             wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekTo(e.clientX); });
             wave.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
             wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
-            media.addEventListener('play', sync);
-            media.addEventListener('pause', sync);
-            media.addEventListener('timeupdate', sync);
-            media.addEventListener('loadedmetadata', sync);
-            media.addEventListener('ended', sync);
             wrap.appendChild(playBtn);
             wrap.appendChild(wave);
             wrap.appendChild(time);
@@ -370,13 +397,12 @@ class DashboardManager {
         const btn = document.getElementById('mini-repeat');
         if (!btn) return;
         const mode = this._repeatMode || 'off';
-        const icon = mode === 'one' ? 'fa-repeat-1' : 'fa-repeat';
         const title = mode === 'all'
             ? 'Repeat playlist'
             : mode === 'one'
                 ? 'Repeat song'
                 : 'Repeat off';
-        btn.innerHTML = `<i class="fas ${icon}"></i>`;
+        btn.innerHTML = '<i class="fas fa-repeat"></i>';
         btn.dataset.mode = mode;
         btn.title = title;
         btn.setAttribute('aria-label', title);
@@ -757,7 +783,10 @@ class DashboardManager {
 
     showMiniPlayer(mediaEl, meta={}){
         try{
-            if (this._currentPlayer && this._currentPlayer !== mediaEl){ try{ this._currentPlayer.pause(); }catch(_){} }
+            if (this._currentPlayer && this._currentPlayer !== mediaEl){
+                try{ this._currentPlayer.pause(); }catch(_){}
+                try{ this._currentPlayer._waveAttachProxy && this._currentPlayer._waveAttachProxy(null); }catch(_){ }
+            }
             this._currentPlayer = mediaEl;
             // Promote playback to a hidden background audio so it persists across sections
             const bg = this.getBgPlayer();
@@ -802,8 +831,10 @@ class DashboardManager {
                     if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime;
                     bg.play().catch(()=>{});
                     mediaEl.pause();
+                    try{ mediaEl._waveAttachProxy && mediaEl._waveAttachProxy(bg); }catch(_){ }
                 }else{
                     try{ bg.pause(); }catch(_){ }
+                    try{ mediaEl._waveAttachProxy && mediaEl._waveAttachProxy(null); }catch(_){ }
                     if (mediaEl.paused) mediaEl.play().catch(()=>{});
                 }
             }catch(_){ }
@@ -841,7 +872,7 @@ class DashboardManager {
                 this.handleMiniPlaybackEnded(source);
             };
             syncMiniBtn(); syncProgress();
-            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} try{ mediaEl._waveAttachProxy && mediaEl._waveAttachProxy(null); }catch(_){ } if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
             if (queueBtn && queuePanel){
                 queueBtn.onclick = ()=>{ this.renderQueuePanel(); queuePanel.style.display = queuePanel.style.display === 'none' ? 'block' : 'none'; };
             }
@@ -2624,7 +2655,7 @@ class DashboardManager {
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
         const cover = w.coverUrl || 'images/default-bird.png';
         const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline.replace('<div style="font-size:12px;color:#aaa">','<div class="audio-byline" style="font-size:12px;color:#aaa">')}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();

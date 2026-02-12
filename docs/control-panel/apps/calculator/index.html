@@ -7,6 +7,7 @@
     <link rel="icon" type="image/png" href="../images/LIBER LOGO.png">
     <link rel="icon" type="image/svg+xml" href="../images/LIBER LOGO.svg">
     <link rel="stylesheet" href="../css/chatgpt-widget.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
@@ -17,12 +18,15 @@
 
         html, body { height:100%; overflow:auto; }
         body {
-            font-family: var(--app-font, "Courier Prime", "Courier New", "Lucida Console", monospace);
+            font-family: var(--app-font, "Montserrat", "Segoe UI", Roboto, Arial, sans-serif);
             background: #000000;
             color: #ffffff;
             min-height: 100vh;
             padding: 0;
             overflow-x: hidden;
+        }
+        input::placeholder, textarea::placeholder{
+            font-family: var(--typewriter-font, "Courier Prime", "Courier New", "Lucida Console", monospace);
         }
 
         .container {

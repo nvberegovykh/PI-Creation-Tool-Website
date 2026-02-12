@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
 /* Personal Space avatar sizing */
 #space-profile-card .avatar-field{ display:column; align-items:center; gap:16px; flex-wrap:wrap }
 #space-profile-card .avatar-preview{ flex:1 1 300px }
@@ -109,7 +110,8 @@
 }
 
 :root {
-    --app-font: "Courier Prime", "Courier New", "Lucida Console", monospace;
+    --app-font: "Montserrat", "Segoe UI", Roboto, Arial, sans-serif;
+    --typewriter-font: "Courier Prime", "Courier New", "Lucida Console", monospace;
     --primary-bg: #000000;
     --secondary-bg: #111111;
     --tertiary-bg: #1a1a1a;
@@ -179,6 +181,11 @@ img, video, canvas, svg, iframe {
 .mini-player .title-wrap{width:20ch;max-width:100%;overflow:hidden}
 .mini-player .title{ font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:clip; }
 .mini-player .by{ font-size:12px; color:#aaa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.mini-player .title,
+.mini-player .by,
+.mini-progress-row .time{
+  font-family: var(--typewriter-font);
+}
 .mini-controls{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .mini-player .btn,
 .mini-player .btn.secondary{
@@ -194,9 +201,9 @@ img, video, canvas, svg, iframe {
   transition:none;
 }
 .mini-player .btn:hover{ background:transparent; transform:none; }
-#mini-repeat[data-mode="off"]{ color:#7f8aa0; }
-#mini-repeat[data-mode="all"]{ color:#d6deeb; }
-#mini-repeat[data-mode="one"]{ color:#93c5fd; }
+#mini-repeat[data-mode="off"]{ color:#d6deeb; opacity:.35; filter:brightness(.7); }
+#mini-repeat[data-mode="all"]{ color:#d6deeb; opacity:.7; filter:brightness(.95); }
+#mini-repeat[data-mode="one"]{ color:#d6deeb; opacity:1; filter:brightness(1.2); }
 .mini-progress-row{display:flex;align-items:center;gap:10px}
 .mini-progress-row .progress{position:relative;flex:1;height:6px;background:#1b1e28;border-radius:999px;overflow:hidden;cursor:pointer}
 .mini-progress-row .fill{position:absolute;left:0;top:0;bottom:0;width:0%;background:#ff6a00}
@@ -248,6 +255,15 @@ img, video, canvas, svg, iframe {
 }
 .dbl-like-pulse{ position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); pointer-events:none; color:#ff4d4f; font-size:56px; opacity:0; animation: liber-like-pulse .6s ease forwards }
 .post-item{ position:relative }
+.post-item .post-text,
+.post-item .byline,
+.post-item .byline span{
+  font-family: var(--typewriter-font);
+}
+.wave-item .audio-title,
+.wave-item .audio-byline{
+  font-family: var(--typewriter-font);
+}
 
 /* Desktop card tiling and compact media widths */
 @media (min-width: 1024px){
@@ -277,7 +293,8 @@ img, video, canvas, svg, iframe {
   /* WaveConnect desktop: normal flow, only audio Upload + Library in one row */
   #wave-audio-pane{
     width:100%;
-    max-width:none;
+    max-width:1200px;
+    margin:0 auto;
     display:grid;
     grid-template-columns:minmax(320px, 1fr) minmax(320px, 1fr);
     gap:16px;
@@ -293,16 +310,19 @@ img, video, canvas, svg, iframe {
   }
   #wave-audio-pane > .settings-grid{
     grid-column:1;
+    grid-row:2;
     margin:0;
   }
   #wave-audio-pane > .settings-grid .settings-card{
     margin:0;
   }
-  #wave-audio-pane > .settings-card:nth-of-type(1){
+  /* Direct sibling after upload block is "My Library" */
+  #wave-audio-pane > .settings-grid + .settings-card{
     grid-column:2;
+    grid-row:2;
     margin-top:0 !important;
   }
-  #wave-audio-pane > .settings-card:nth-of-type(n+2){
+  #wave-audio-pane > .settings-grid + .settings-card ~ .settings-card{
     grid-column:1 / -1;
   }
   #wave-video-pane > .settings-grid{
@@ -466,7 +486,12 @@ input:focus, textarea:focus, select:focus {
 
 input::placeholder {
     color: var(--secondary-text);
-    font-family: inherit;
+    font-family: var(--typewriter-font);
+}
+
+textarea::placeholder {
+    color: var(--secondary-text);
+    font-family: var(--typewriter-font);
 }
 
 /* Cards */

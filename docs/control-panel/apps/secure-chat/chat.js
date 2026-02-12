@@ -49,6 +49,7 @@ import { runTransaction } from 'firebase/firestore';
       this._voiceHydrateRunning = 0;
       this._voiceHydrateMax = 1;
       this._voiceHydrateSession = 0;
+      this._senderLookupInFlight = new Set();
       this._typingUnsub = null;
       this._typingTicker = null;
       this._typingByUid = {};
@@ -888,17 +889,22 @@ import { runTransaction } from 'firebase/firestore';
       });
       close.addEventListener('click', ()=>{
         const m = this._topMediaEl;
+        const p = this.ensureChatBgPlayer();
         if (m && m.isConnected){
           try{ m.pause(); }catch(_){ }
           this._topMediaEl = null;
+          try{ p.pause(); }catch(_){ }
+          p.src = '';
+          try{ p.load(); }catch(_){ }
+          this._voiceCurrentSrc = '';
           this._voiceCurrentTitle = 'Voice message';
           strip.classList.add('hidden');
           this.updateVoiceWidgets();
           return;
         }
-        const p = this.ensureChatBgPlayer();
         try{ p.pause(); }catch(_){ }
         p.src = '';
+        try{ p.load(); }catch(_){ }
         this._voiceCurrentSrc = '';
         this._voiceCurrentTitle = 'Voice message';
         strip.classList.add('hidden');
@@ -1475,20 +1481,21 @@ import { runTransaction } from 'firebase/firestore';
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAtTS','asc'),
-            firebase.limit(90)
+            firebase.limit(60)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
-            firebase.limit(90)
+            firebase.limit(60)
           );
         }
         // Keep live rendering stable on canonical active connection only.
         const keyByConn = new Map();
         const getKeyForConn = async (cid)=>{
           if (keyByConn.has(cid)) return keyByConn.get(cid);
-          const k = await this.getFallbackKeyForConn(cid);
+          let k = null;
+          try{ k = await this.getFallbackKeyForConn(cid); }catch(_){ k = null; }
           keyByConn.set(cid, k);
           return k;
         };
@@ -1499,13 +1506,13 @@ import { runTransaction } from 'firebase/firestore';
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAtTS','asc'),
-                firebase.limit(120)
+                firebase.limit(80)
               );
             }catch(_){
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAt','asc'),
-                firebase.limit(120)
+                firebase.limit(80)
               );
             }
             const s2 = await firebase.getDocs(q2);
@@ -1582,21 +1589,27 @@ import { runTransaction } from 'firebase/firestore';
             }
             // Resolve sender name async
             let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
-            if (!this.usernameCache.has(m.sender)) {
-              try {
-                const user = await window.firebaseService.getUserData(m.sender);
-                senderName = (user?.username || user?.email || m.sender.slice(0,8));
-                this.usernameCache.set(m.sender, senderName);
-              } catch (err) {
-                console.error('Sender name resolution failed:', err);
-                senderName = 'Unknown';
-              }
+            if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
+              this._senderLookupInFlight.add(m.sender);
+              Promise.resolve().then(async ()=>{
+                try {
+                  const user = await window.firebaseService.getUserData(m.sender);
+                  const resolved = (user?.username || user?.email || m.sender.slice(0,8));
+                  this.usernameCache.set(m.sender, resolved);
+                } catch (_err) {
+                  this.usernameCache.set(m.sender, senderName || 'Unknown');
+                } finally {
+                  this._senderLookupInFlight.delete(m.sender);
+                }
+              });
             }
             const inferredFileName = this.inferAttachmentFileName(m, text);
             const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
+            const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+            if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
@@ -1679,8 +1692,12 @@ import { runTransaction } from 'firebase/firestore';
           };
           const docsToRender = appendOnly ? docs.slice(prevIds.length) : docs;
           // Render primary messages in deterministic order.
-          for (const d of docsToRender) {
+          for (let i = 0; i < docsToRender.length; i++) {
+            const d = docsToRender[i];
             await renderOne(d, d.sourceConnId || activeConnId);
+            if ((i % 8) === 7){
+              await new Promise((r)=> setTimeout(r, 0));
+            }
           }
           // Keep DOM size bounded to avoid jitter on long chats.
           while (box.childElementCount > 220){
@@ -1718,14 +1735,16 @@ import { runTransaction } from 'firebase/firestore';
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
-            firebase.limit(120)
+            firebase.limit(80)
           );
           const snap = await firebase.getDocs(q);
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          for (const d of (snap.docs || [])){
+          const fallbackDocs = (snap.docs || []);
+          for (let i = 0; i < fallbackDocs.length; i++){
+            const d = fallbackDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const m=d.data();
             let text='';
@@ -1759,21 +1778,27 @@ import { runTransaction } from 'firebase/firestore';
             }
             // Resolve sender name async
             let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
-            if (!this.usernameCache.has(m.sender)) {
-              try {
-                const user = await window.firebaseService.getUserData(m.sender);
-                senderName = (user?.username || user?.email || m.sender.slice(0,8));
-                this.usernameCache.set(m.sender, senderName);
-              } catch (err) {
-                console.error('Sender name resolution failed:', err);
-                senderName = 'Unknown';
-              }
+            if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
+              this._senderLookupInFlight.add(m.sender);
+              Promise.resolve().then(async ()=>{
+                try {
+                  const user = await window.firebaseService.getUserData(m.sender);
+                  const resolved = (user?.username || user?.email || m.sender.slice(0,8));
+                  this.usernameCache.set(m.sender, resolved);
+                } catch (_err) {
+                  this.usernameCache.set(m.sender, senderName || 'Unknown');
+                } finally {
+                  this._senderLookupInFlight.delete(m.sender);
+                }
+              });
             }
             const inferredFileName = this.inferAttachmentFileName(m, text);
             const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
+            const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+            if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
@@ -1810,6 +1835,9 @@ import { runTransaction } from 'firebase/firestore';
             const shareBtn = el.querySelector('.msg-share');
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
+            }
+            if ((i % 8) === 7){
+              await new Promise((r)=> setTimeout(r, 0));
             }
           }
           box.scrollTop = box.scrollHeight;
@@ -2751,37 +2779,45 @@ import { runTransaction } from 'firebase/firestore';
     async getFallbackKeyCandidatesForConn(connId){
       const out = [];
       const add = (k)=>{ if (k && !out.includes(k)) out.push(k); };
+      const tryAdd = async (factory)=>{
+        try{
+          const k = await factory();
+          add(k);
+        }catch(_){ }
+      };
       const salts = await this.getConnSaltForConn(connId);
       const parts = Array.isArray(salts.parts) ? salts.parts : [];
       const stableSalt = String(salts.stableSalt || connId || '');
       const connIdSalt = String(salts.connIdSalt || connId || '');
       if (parts.length > 2){
-        add(await window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${stableSalt}|liber_group_fallback_v2`));
+        await tryAdd(()=> window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${stableSalt}|liber_group_fallback_v2`));
         if (connIdSalt && connIdSalt !== stableSalt){
-          add(await window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${connIdSalt}|liber_group_fallback_v2`));
+          await tryAdd(()=> window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${connIdSalt}|liber_group_fallback_v2`));
         }
         return out;
       }
       const peerUid = await this.getPeerUidForConn(connId);
       if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
-        add(await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, stableSalt));
+        await tryAdd(()=> window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, stableSalt));
         if (connIdSalt && connIdSalt !== stableSalt){
-          add(await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connIdSalt));
+          await tryAdd(()=> window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connIdSalt));
         }
       }
       // Legacy fallback variants
-      add(await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${stableSalt}|liber_secure_chat_fallback_v1`));
+      await tryAdd(()=> window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid || ''].sort().join('|')}|${stableSalt}|liber_secure_chat_fallback_v1`));
       if (connIdSalt && connIdSalt !== stableSalt){
-        add(await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${connIdSalt}|liber_secure_chat_fallback_v1`));
+        await tryAdd(()=> window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid || ''].sort().join('|')}|${connIdSalt}|liber_secure_chat_fallback_v1`));
       }
       return out;
     }
 
     async getFallbackKeyForConn(connId){
-      const keys = await this.getFallbackKeyCandidatesForConn(connId);
-      if (keys && keys.length) return keys[0];
+      try{
+        const keys = await this.getFallbackKeyCandidatesForConn(connId);
+        if (keys && keys.length) return keys[0];
+      }catch(_){ }
       const peerUid = await this.getPeerUidForConn(connId);
-      return window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`);
+      return window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid || ''].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`);
     }
 
     async getFallbackKey(){
@@ -2901,7 +2937,7 @@ import { runTransaction } from 'firebase/firestore';
       const stripTitle = document.getElementById('voice-top-title');
       const stripToggle = document.getElementById('voice-top-toggle');
       const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
-      const canShowStrip = !!topMedia || (!!p.src && (!!this._voiceCurrentSrc || this._voiceWidgets.size > 0));
+      const canShowStrip = (!!topMedia && !topMedia.paused) || (!!p.src && !p.paused);
       if (strip && stripToggle){
         if (canShowStrip){
           strip.classList.remove('hidden');
@@ -3081,38 +3117,17 @@ import { runTransaction } from 'firebase/firestore';
             const cx = w / 2;
             const cy = h / 2;
             const r = Math.min(w, h) / 2;
-            const minDeg = 30;
-            const minRad = (minDeg * Math.PI) / 180;
             const tau = Math.PI * 2;
-            const clamp = (v)=> Math.max(-1, Math.min(1, v));
-            const angleAt = (a, b, c)=>{
-              const abx = b.x - a.x; const aby = b.y - a.y;
-              const acx = c.x - a.x; const acy = c.y - a.y;
-              const d1 = Math.hypot(abx, aby);
-              const d2 = Math.hypot(acx, acy);
-              if (!(d1 > 0 && d2 > 0)) return 0;
-              const cos = clamp((abx * acx + aby * acy) / (d1 * d2));
-              return Math.acos(cos);
-            };
-            const mkPoints = (angles)=> angles.map((a)=> ({ x: cx + (Math.cos(a) * r), y: cy + (Math.sin(a) * r) }));
-            let best = null;
-            for (let i = 0; i < 140; i++){
-              const angles = [Math.random() * tau, Math.random() * tau, Math.random() * tau].sort((a,b)=> a-b);
-              const pts = mkPoints(angles);
-              const a0 = angleAt(pts[0], pts[1], pts[2]);
-              const a1 = angleAt(pts[1], pts[2], pts[0]);
-              const a2 = angleAt(pts[2], pts[0], pts[1]);
-              if (a0 >= minRad && a1 >= minRad && a2 >= minRad){
-                best = pts;
-                break;
-              }
-            }
-            if (!best){
-              // Fallback: equilateral-like triangle on the same centered max circle.
-              const start = Math.random() * tau;
-              best = mkPoints([start, start + (tau / 3), start + ((tau * 2) / 3)]);
-            }
-            const points = best.map((p)=> `${((p.x / w) * 100).toFixed(2)}% ${((p.y / h) * 100).toFixed(2)}%`);
+            // Vertices stay on the centered outer circle; random rotation keeps it random.
+            // This guarantees the mask crosses center and contains an inner centered circle of radius R/2.
+            const start = Math.random() * tau;
+            const dir = Math.random() < 0.5 ? 1 : -1;
+            const angles = [start, start + dir * (tau / 3), start + dir * ((tau * 2) / 3)];
+            const points = angles.map((a)=>{
+              const x = cx + (Math.cos(a) * r);
+              const y = cy + (Math.sin(a) * r);
+              return `${((x / w) * 100).toFixed(2)}% ${((y / h) * 100).toFixed(2)}%`;
+            });
             mediaEl.style.clipPath = `polygon(${points.join(',')})`;
             mediaEl.style.webkitClipPath = `polygon(${points.join(',')})`;
           }catch(_){ }
@@ -3203,7 +3218,6 @@ import { runTransaction } from 'firebase/firestore';
           video.playsInline = true;
           video.style.maxWidth = '100%';
           video.style.borderRadius='8px';
-          this.applyRandomTriangleMask(video);
           this.bindInlineVideoPlayback(video, fileName || 'Video message');
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
@@ -3274,7 +3288,6 @@ import { runTransaction } from 'firebase/firestore';
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
-          this.applyRandomTriangleMask(v);
           this.bindInlineVideoPlayback(v, name || 'Video message');
           containerEl.appendChild(v);
           return;
