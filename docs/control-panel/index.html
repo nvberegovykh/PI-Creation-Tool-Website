@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LIBER">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="manifest.webmanifest">
             <title>LIBER/APPS</title>
     <link rel="icon" type="image/png" href="images/LIBER LOGO.png">
     <link rel="icon" type="image/svg+xml" href="images/LIBER LOGO.svg">
@@ -434,6 +439,10 @@
                             <button id="resend-verify-btn" class="btn btn-secondary" style="margin-left:8px">Resend Verification</button>
                         </div>
                         <div class="setting-item">
+                            <label for="profile-allow-unconnected-msg">Allow messages from unconnected users</label>
+                            <input type="checkbox" id="profile-allow-unconnected-msg" checked>
+                        </div>
+                        <div class="setting-item">
                             <label>Force Reload</label>
                             <button id="profile-force-reload-btn" class="btn btn-warning">Force Reload</button>
                         </div>
@@ -579,6 +588,19 @@
         </main>
     </div>
 
+    <!-- App Shell Overlay -->
+    <div id="app-shell" class="app-shell hidden" aria-hidden="true">
+        <div class="app-shell-header">
+            <button id="app-shell-close" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+            <div id="app-shell-title" class="app-shell-title">App</div>
+            <div class="app-shell-actions">
+                <button id="app-shell-reload" class="btn btn-secondary" title="Reload app"><i class="fas fa-rotate-right"></i></button>
+                <button id="app-shell-open-tab" class="btn btn-secondary" title="Open in new tab"><i class="fas fa-up-right-from-square"></i></button>
+            </div>
+        </div>
+        <iframe id="app-shell-frame" title="App shell content" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    </div>
+
     <!-- Mini Player (global) -->
     <div id="mini-player" class="mini-player">
         <img class="cover" src="images/default-bird.png" alt="cover">
@@ -593,7 +615,6 @@
             </div>
         </div>
         <button id="mini-play" class="btn btn-secondary"><i class="fas fa-play"></i></button>
-        <button id="mini-close" class="btn btn-secondary"><i class="fas fa-times"></i></button>
     </div>
 
     <!-- Legacy modal container (kept for backward compatibility but hidden by default) -->

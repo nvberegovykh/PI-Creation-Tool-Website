@@ -95,13 +95,16 @@ img, video, canvas, svg, iframe {
     display: block;
 }
 
-/* Sticky mini player */
-.mini-player{ position:fixed; left:12px; right:12px; bottom:72px; background:#0f1116; border:1px solid var(--border-color); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.4); padding:8px 12px; display:none; align-items:center; gap:10px; z-index:900 }
-.mini-player{ border-radius:10px }
-.mini-player.show{ display:flex }
-.mini-player .cover{ width:40px; height:40px; border-radius:8px; object-fit:cover }
+/* Sticky mini player (soundcloud-like) */
+.mini-player{ position:fixed; left:8px; right:8px; bottom:72px; background:linear-gradient(180deg,#121722,#0c1018); border:1px solid #2b3445; border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.45); padding:10px 12px; display:none; align-items:center; gap:10px; z-index:1200; transition:transform .22s ease, opacity .22s ease }
+.mini-player.show{ display:flex; animation:miniRise .2s ease }
+.mini-player .cover{ width:42px; height:42px; border-radius:8px; object-fit:cover }
 .mini-player .title{ font-weight:600 }
 .mini-player .by{ font-size:12px; color:#aaa }
+@keyframes miniRise{
+  from{ transform:translateY(10px); opacity:.5; }
+  to{ transform:translateY(0); opacity:1; }
+}
 
 /* Micro-interactions */
 .post-actions .fa-heart,.post-actions .fa-retweet,.post-actions .fa-comment,.post-actions .post-menu{ transition: transform .12s ease, color .12s ease }

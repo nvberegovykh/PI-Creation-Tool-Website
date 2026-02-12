@@ -1155,3 +1155,26 @@
   margin-top: 0 !important;
   padding-top: 0 !important;
 }
+
+/* Mobile width + black band fixes */
+@media (max-width: 767px) {
+  .dashboard {
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+  .dashboard-content {
+    width: 100%;
+    padding: 10px 10px calc(92px + env(safe-area-inset-bottom));
+  }
+  .content-section,
+  .content-section.active {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .settings-card {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

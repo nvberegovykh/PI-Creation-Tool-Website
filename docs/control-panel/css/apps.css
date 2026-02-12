@@ -484,3 +484,48 @@
         margin-top: 8px;
     }
 }
+
+/* App shell overlay */
+.app-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    background: #05070c;
+    display: flex;
+    flex-direction: column;
+}
+.app-shell.hidden {
+    display: none;
+}
+.app-shell-header {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: calc(6px + env(safe-area-inset-top)) 10px 6px;
+    border-bottom: 1px solid var(--border-color);
+    background: #0c1018;
+}
+.app-shell-title {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.app-shell-actions {
+    display: flex;
+    gap: 6px;
+}
+#app-shell-frame {
+    width: 100%;
+    height: calc(100dvh - 52px - env(safe-area-inset-top));
+    border: none;
+    background: #000;
+}
+body.app-shell-open .mini-player {
+    display: none !important;
+}

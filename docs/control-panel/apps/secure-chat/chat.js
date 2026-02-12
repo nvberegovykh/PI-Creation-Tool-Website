@@ -37,11 +37,109 @@ import { runTransaction } from 'firebase/firestore';
       this._pcWatchdogs = new Map(); // key: callId:peerUid -> {t1,t2}
       this._msgLoadSeq = 0;
       this._lastRenderSigByConn = new Map();
+      this._lastDocIdsByConn = new Map();
+      this._lastDayByConn = new Map();
+      this._requestMessageSentForConn = new Set();
+      this._voiceWidgets = new Map();
+      this._voiceCurrentSrc = '';
+      this._voiceCurrentTitle = 'Voice message';
       this.init();
     }
 
     computeConnKey(uids){
       try{ return (uids||[]).slice().sort().join('|'); }catch(_){ return ''; }
+    }
+
+    isMobileViewport(){
+      return !!window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    setMobileMenuOpen(open){
+      const sidebar = document.querySelector('.sidebar');
+      const app = document.getElementById('chat-app');
+      if (!sidebar || !app) return;
+      sidebar.classList.toggle('open', !!open);
+      app.classList.toggle('mobile-menu-open', !!open);
+      const tip = document.getElementById('mobile-sidebar-tip');
+      if (tip){
+        tip.setAttribute('aria-label', open ? 'Collapse chat menu' : 'Expand chat menu');
+      }
+    }
+
+    formatMessageTime(value){
+      const d = new Date(value || Date.now());
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    formatMessageDay(value){
+      const d = new Date(value || Date.now());
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    formatDuration(seconds){
+      const s = Math.max(0, Math.floor(Number(seconds || 0)));
+      const m = Math.floor(s / 60);
+      const ss = String(s % 60).padStart(2, '0');
+      return `${m}:${ss}`;
+    }
+
+    stripPlaceholderText(text){
+      const raw = String(text || '').trim();
+      if (!raw) return '';
+      if (/^\[file\]/i.test(raw)) return '';
+      if (/^\[sticker\]/i.test(raw)) return '';
+      if (/^\[(voice|video) message\]/i.test(raw)) return '';
+      return raw;
+    }
+
+    getRecentAttachments(){
+      try{
+        const raw = localStorage.getItem('liber_recent_attachments');
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      }catch(_){ return []; }
+    }
+
+    pushRecentAttachment(item){
+      try{
+        const list = this.getRecentAttachments().filter(x=> x && x.fileUrl !== item.fileUrl);
+        list.unshift(item);
+        list.sort((a,b)=> new Date(b.sentAt||0) - new Date(a.sentAt||0));
+        localStorage.setItem('liber_recent_attachments', JSON.stringify(list.slice(0, 40)));
+      }catch(_){ }
+    }
+
+    showAttachmentQuickActions(){
+      const existing = document.getElementById('attachment-quick-actions');
+      if (existing){ existing.remove(); return; }
+      const panel = document.createElement('div');
+      panel.id = 'attachment-quick-actions';
+      panel.style.cssText = 'position:absolute;left:8px;right:8px;bottom:72px;z-index:95;background:#10141c;border:1px solid #2a2f36;border-radius:10px;padding:8px;max-height:220px;overflow:auto';
+      const upload = document.createElement('button');
+      upload.className = 'btn secondary';
+      upload.textContent = 'Choose files';
+      upload.style.marginBottom = '8px';
+      upload.onclick = ()=>{
+        panel.remove();
+        const picker = document.getElementById('file-input');
+        if (picker) picker.click();
+      };
+      panel.appendChild(upload);
+      this.getRecentAttachments().forEach((a)=>{
+        const row = document.createElement('button');
+        row.className = 'btn secondary';
+        row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        row.textContent = `${a.fileName || 'Attachment'} • ${this.formatMessageTime(a.sentAt)}`;
+        row.onclick = async ()=>{
+          panel.remove();
+          await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+        };
+        panel.appendChild(row);
+      });
+      const root = document.querySelector('.main');
+      if (root) root.appendChild(panel);
     }
 
     getConnParticipants(data){
@@ -217,6 +315,7 @@ import { runTransaction } from 'firebase/firestore';
       try{
         const params = new URLSearchParams(location.search);
         this._deepLinkConnId = params.get('connId') || null;
+        this._deepLinkRequestMsg = params.get('requestMsg') || '';
       }catch(_){ this._deepLinkConnId = null; }
       await this.loadConnections();
       // If deep link provided, activate it after list is ready (supports key or doc id)
@@ -231,7 +330,19 @@ import { runTransaction } from 'firebase/firestore';
               try{ const test = await firebase.getDoc(firebase.doc(this.db,'chatConnections', id)); if (!test.exists()) id = null; }catch(_){ id = null; }
             }
           }
-          if (id) this.setActive(id);
+          if (id){
+            await this.setActive(id);
+            if (this._deepLinkRequestMsg){
+              const text = String(this._deepLinkRequestMsg || '').trim();
+              if (text && !this._requestMessageSentForConn.has(this.activeConnection)){
+                const can = await this.canSendToActiveConnection({ allowRequestIntro: true });
+                if (can.ok){
+                  await this.saveMessage({ text });
+                  this._requestMessageSentForConn.add(this.activeConnection);
+                }
+              }
+            }
+          }
         }catch(_){ /* ignore deep link issues */ }
       }
 
@@ -251,7 +362,10 @@ import { runTransaction } from 'firebase/firestore';
       }
       actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
       ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
-      document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
+      document.getElementById('attach-btn').addEventListener('click', ()=>{
+        if (this.isMobileViewport()) return this.showAttachmentQuickActions();
+        document.getElementById('file-input').click();
+      });
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       const stickerBtn = document.getElementById('sticker-btn');
       if (stickerBtn){ stickerBtn.addEventListener('click', ()=> this.toggleStickers()); }
@@ -283,12 +397,12 @@ import { runTransaction } from 'firebase/firestore';
       }
       const userSearch = document.getElementById('user-search');
       if (userSearch){
-        const openSidebar = ()=>{ const sidebar = document.querySelector('.sidebar'); if (sidebar && !sidebar.classList.contains('open')) sidebar.classList.add('open'); };
+        const openSidebar = ()=> this.setMobileMenuOpen(true);
         userSearch.addEventListener('focus', openSidebar);
         userSearch.addEventListener('click', openSidebar);
         // iOS Safari sometimes needs a short delay to compute layout; force open on input with rAF
         userSearch.addEventListener('input', ()=>{ requestAnimationFrame(()=> openSidebar()); });
-        userSearch.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ const s=document.querySelector('.sidebar'); if(s) s.classList.remove('open'); }});
+        userSearch.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.setMobileMenuOpen(false); }});
         // Prevent header container from swallowing the tap
         const header = document.getElementById('sidebar-header');
         if (header){
@@ -355,7 +469,14 @@ import { runTransaction } from 'firebase/firestore';
           if (tgt && (tgt.tagName === 'A' || tgt.tagName === 'BUTTON' || tgt.closest('button') || tgt.closest('a'))) return;
           const sidebar = document.querySelector('.sidebar');
           if (!sidebar) return;
-          if (sidebar.classList.contains('open')) sidebar.classList.remove('open'); else sidebar.classList.add('open');
+          this.setMobileMenuOpen(!sidebar.classList.contains('open'));
+        });
+      }
+      const mobileTip = document.getElementById('mobile-sidebar-tip');
+      if (mobileTip){
+        mobileTip.addEventListener('click', ()=>{
+          const sidebar = document.querySelector('.sidebar');
+          this.setMobileMenuOpen(!(sidebar && sidebar.classList.contains('open')));
         });
       }
       // Enter to send, Shift+Enter for newline (desktop & mobile)
@@ -375,11 +496,31 @@ import { runTransaction } from 'firebase/firestore';
       }
       document.addEventListener('keydown', (e)=>{
         if (e.key === 'Escape'){
-          const sidebar = document.querySelector('.sidebar');
-          if (sidebar && sidebar.classList.contains('open')){
-            sidebar.classList.remove('open');
-          }
+          this.setMobileMenuOpen(false);
         }
+      });
+      if (this.isMobileViewport()) this.setMobileMenuOpen(false);
+      this.bindVoiceTopStrip();
+    }
+
+    bindVoiceTopStrip(){
+      const strip = document.getElementById('voice-top-strip');
+      const toggle = document.getElementById('voice-top-toggle');
+      const close = document.getElementById('voice-top-close');
+      if (!strip || !toggle || !close) return;
+      toggle.addEventListener('click', ()=>{
+        const p = this.ensureChatBgPlayer();
+        if (p.paused) p.play().catch(()=>{});
+        else p.pause();
+      });
+      close.addEventListener('click', ()=>{
+        const p = this.ensureChatBgPlayer();
+        try{ p.pause(); }catch(_){ }
+        p.src = '';
+        this._voiceCurrentSrc = '';
+        this._voiceCurrentTitle = 'Voice message';
+        strip.classList.add('hidden');
+        this.updateVoiceWidgets();
       });
     }
 
@@ -648,20 +789,9 @@ import { runTransaction } from 'firebase/firestore';
             const enriched = [];
             for (const uid of parts){
               if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              let cached = this.usernameCache.get(uid);
-              if (!cached) {
-                try {
-                  const u = await window.firebaseService.getUserData(uid);
-                  cached = { username: (u && u.username) || u?.email || 'User ' + uid.slice(0,6), avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
-                  this.usernameCache.set(uid, cached);
-                } catch (err) {
-                  console.error('Failed to resolve user for', uid, err);
-                  cached = { username: 'Unknown', avatarUrl: '../../images/default-bird.png' };
-                }
-              }
-              enriched.push(cached.username);
+              const cached = this.usernameCache.get(uid);
+              enriched.push((cached && cached.username) || names[parts.indexOf(uid)] || ('User ' + String(uid).slice(0,6)));
             }
-            await firebase.updateDoc(firebase.doc(this.db,'chatConnections', c.id),{ participantUsernames: enriched, updatedAt: new Date().toISOString() });
             c.participantUsernames = enriched;
           }
         }catch(_){ }
@@ -694,16 +824,13 @@ import { runTransaction } from 'firebase/firestore';
         // Admin badge in header when active
         li.addEventListener('mouseenter', ()=> li.classList.add('active-hover'));
         li.addEventListener('click', async ()=>{
-          let targetId = c.id;
-          try{ targetId = await this.resolveCanonicalConnectionId(c.id); }catch(_){ targetId = c.id; }
+          const targetId = c.id;
           if (targetId && this.activeConnection === targetId){
-            const sidebar = document.querySelector('.sidebar');
-            if (sidebar) sidebar.classList.remove('open');
+            this.setMobileMenuOpen(false);
             return;
           }
           await this.setActive(targetId || c.id);
-          const sidebar = document.querySelector('.sidebar');
-          if (sidebar) sidebar.classList.remove('open');
+          this.setMobileMenuOpen(false);
           setTimeout(async()=>{
             try{
               const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', targetId || c.id));
@@ -774,7 +901,8 @@ import { runTransaction } from 'firebase/firestore';
     async setActive(connId, displayName){
       // Always resolve to one canonical chat doc for this participant key, so
       // chat search / sidebar / personal-space popup all open the same thread.
-      const resolvedConnId = await this.resolveCanonicalConnectionId(connId);
+      const shouldResolve = String(connId || '').includes('|');
+      const resolvedConnId = shouldResolve ? await this.resolveCanonicalConnectionId(connId) : connId;
       this.activeConnection = resolvedConnId || connId;
       // Resolve displayName if not provided
       if (!displayName) {
@@ -794,6 +922,9 @@ import { runTransaction } from 'firebase/firestore';
         displayName = displayName || 'Chat';
       }
       document.getElementById('active-connection-name').textContent = displayName;
+      const topTitle = document.getElementById('chat-top-title');
+      if (topTitle) topTitle.textContent = displayName;
+      if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       await this.loadMessages();
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
@@ -843,6 +974,8 @@ import { runTransaction } from 'firebase/firestore';
       const activeConnId = this.activeConnection;
       // Force a fresh first render whenever this chat is opened again.
       this._lastRenderSigByConn.delete(activeConnId);
+      this._lastDocIdsByConn.delete(activeConnId);
+      this._lastDayByConn.delete(activeConnId);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       // Ensure a persistent scroll-to-latest affordance exists.
@@ -876,13 +1009,13 @@ import { runTransaction } from 'firebase/firestore';
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAtTS','asc'),
-            firebase.limit(500)
+            firebase.limit(90)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
-            firebase.limit(500)
+            firebase.limit(90)
           );
         }
         // Keep live rendering stable on canonical active connection only.
@@ -895,13 +1028,21 @@ import { runTransaction } from 'firebase/firestore';
         };
         const handleSnap = async (snap)=>{
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-          const sigBase = (snap.docs || []).map(d=> `${d.id}:${d.data()?.updatedAt||d.data()?.createdAt||''}`).join('|');
+          const docs = (snap.docs || []);
+          const sigBase = docs.map(d=> `${d.id}:${d.data()?.createdAt||''}`).join('|');
           const sig = `${activeConnId}::${sigBase}`;
           if (this._lastRenderSigByConn.get(activeConnId) === sig) return;
           this._lastRenderSigByConn.set(activeConnId, sig);
           const prevTop = box.scrollTop;
           const pinnedBefore = box.dataset.pinnedBottom !== '0';
-          box.innerHTML='';
+          let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
+          const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
+          const appendOnly = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
+          if (!appendOnly){
+            box.innerHTML='';
+            lastRenderedDay = '';
+            this._voiceWidgets.clear();
+          }
           const renderOne = async (d, sourceConnId = activeConnId)=>{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const m=d.data();
@@ -931,17 +1072,29 @@ import { runTransaction } from 'firebase/firestore';
               }
             }
             const hasFile = !!m.fileUrl && !!m.fileName;
-            const fileText = hasFile ? `Attachment from ${senderName}` : '';
             // Render call invites as buttons
-            let bodyHtml = this.renderText(text);
+            const cleanedText = this.stripPlaceholderText(text);
+            let bodyHtml = this.renderText(cleanedText);
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
               const kind = callMatch[1]; const callId = callMatch[2];
               const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
               bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
             }
+            const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
+            if (gifMatch){
+              bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
+            }
             const canModify = m.sender === this.currentUser.uid;
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${fileText}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${new Date(m.createdAt).toLocaleString()}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
+            const dayLabel = this.formatMessageDay(m.createdAt);
+            if (dayLabel !== lastRenderedDay){
+              const sep = document.createElement('div');
+              sep.className = 'message-day-separator';
+              sep.textContent = dayLabel;
+              box.appendChild(sep);
+              lastRenderedDay = dayLabel;
+            }
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
@@ -991,10 +1144,17 @@ import { runTransaction } from 'firebase/firestore';
               }
             }
           };
+          const docsToRender = appendOnly ? docs.slice(prevIds.length) : docs;
           // Render primary messages in deterministic order.
-          for (const d of (snap.docs || [])) {
+          for (const d of docsToRender) {
             await renderOne(d);
           }
+          // Keep DOM size bounded to avoid jitter on long chats.
+          while (box.childElementCount > 220){
+            box.removeChild(box.firstElementChild);
+          }
+          this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
+          this._lastDayByConn.set(activeConnId, lastRenderedDay);
           if (pinnedBefore){
             box.scrollTop = box.scrollHeight;
           }else{
@@ -1025,11 +1185,12 @@ import { runTransaction } from 'firebase/firestore';
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','asc'),
-            firebase.limit(200)
+            firebase.limit(120)
           );
           const snap = await firebase.getDocs(q);
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
           box.innerHTML='';
+          let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
           snap.forEach(async d=>{
             const m=d.data();
@@ -1058,16 +1219,28 @@ import { runTransaction } from 'firebase/firestore';
               }
             }
             const hasFile = !!m.fileUrl && !!m.fileName;
-            const fileText = hasFile ? `Attachment from ${senderName}` : '';
             // Render call invites as buttons
-            let bodyHtml = this.renderText(text);
+            const cleanedText = this.stripPlaceholderText(text);
+            let bodyHtml = this.renderText(cleanedText);
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
               const kind = callMatch[1]; const callId = callMatch[2];
               const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
               bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
             }
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${fileText}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${new Date(m.createdAt).toLocaleString()}</div>`;
+            const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
+            if (gifMatch){
+              bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
+            }
+            const dayLabel = this.formatMessageDay(m.createdAt);
+            if (dayLabel !== lastRenderedDay2){
+              const sep = document.createElement('div');
+              sep.className = 'message-day-separator';
+              sep.textContent = dayLabel;
+              box.appendChild(sep);
+              lastRenderedDay2 = dayLabel;
+            }
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -1114,16 +1287,68 @@ import { runTransaction } from 'firebase/firestore';
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
 
+    async getConnectionStateWithPeer(peerUid){
+      if (!peerUid) return { status: 'none' };
+      try{
+        const ref = firebase.doc(this.db, 'connections', this.currentUser.uid, 'peers', peerUid);
+        const snap = await firebase.getDoc(ref);
+        if (!snap.exists()) return { status: 'none' };
+        const d = snap.data() || {};
+        return { status: d.status || 'none', requestedBy: d.requestedBy || '', requestedTo: d.requestedTo || '' };
+      }catch(_){ return { status: 'none' }; }
+    }
+
+    async canSendToActiveConnection(options = {}){
+      const allowRequestIntro = !!options.allowRequestIntro;
+      if (!this.activeConnection) return { ok: false, reason: 'No active chat' };
+      let conn;
+      try{
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+        if (!snap.exists()) return { ok: false, reason: 'Chat not found' };
+        conn = snap.data() || {};
+      }catch(_){ return { ok: true }; }
+      const participants = this.getConnParticipants(conn);
+      if (participants.length !== 2) return { ok: true };
+      const peerUid = participants.find(u=> u !== this.currentUser.uid);
+      if (!peerUid) return { ok: true };
+      try{
+        const meData = await window.firebaseService.getUserData(this.currentUser.uid);
+        if (meData && meData.allowMessagesFromUnconnected !== false) return { ok: true };
+      }catch(_){ return { ok: true }; }
+      const state = await this.getConnectionStateWithPeer(peerUid);
+      if (state.status === 'connected') return { ok: true };
+      if (allowRequestIntro && state.status === 'pending' && state.requestedBy === this.currentUser.uid && !this._requestMessageSentForConn.has(this.activeConnection)) {
+        return { ok: true, oneShot: true };
+      }
+      return { ok: false, reason: 'Messaging is disabled for unconnected users in your profile settings.' };
+    }
+
     async sendCurrent(){
       const input = document.getElementById('message-input');
       const text = input.value.trim();
       if (!text || !this.activeConnection) return;
-      await this.saveMessage({text});
-      input.value='';
+      const can = await this.canSendToActiveConnection({ allowRequestIntro: true });
+      if (!can.ok){
+        alert(can.reason || 'Cannot send message');
+        return;
+      }
+      input.value = '';
+      try{
+        await this.saveMessage({text});
+        if (can.oneShot) this._requestMessageSentForConn.add(this.activeConnection);
+      }catch(e){
+        input.value = text;
+        throw e;
+      }
     }
 
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
+      const can = await this.canSendToActiveConnection({ allowRequestIntro: false });
+      if (!can.ok){
+        alert(can.reason || 'Cannot send attachments');
+        return;
+      }
       if (!this.storage) {
         alert('File upload is not available because Firebase Storage is not configured.');
         return;
@@ -1180,6 +1405,7 @@ import { runTransaction } from 'firebase/firestore';
           const url = await firebase.getDownloadURL(r);
           console.log('File upload completed');
           await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
+          this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
           alert('Failed to send file: ' + err.message);
@@ -1194,22 +1420,34 @@ import { runTransaction } from 'firebase/firestore';
       const panel = document.createElement('div'); panel.id='sticker-panel'; panel.className='sticker-panel';
       panel.innerHTML = `
         <div class="panel-header">
-          <strong>Stickers</strong>
-          <div class="sticker-pack-actions">
-            <button class="btn secondary" id="add-pack-btn">Add pack</button>
-            <button class="btn secondary" id="manage-packs-btn">Manage</button>
-            <button class="btn secondary" id="close-stickers-btn">Close</button>
-          </div>
+          <strong>Library</strong>
         </div>
+        <div class="sticker-top-tabs">
+          <button class="tab active" data-tab="stickers">Stickers</button>
+          <button class="tab" data-tab="emoji">Emoji</button>
+          <button class="tab" data-tab="gifs">GIFs</button>
+        </div>
+        <div class="sticker-pack-manage" id="sticker-pack-manage">
+          <button class="icon-btn add" id="add-pack-btn" title="Add pack"><i class="fas fa-plus"></i></button>
+          <button class="icon-btn" id="manage-packs-btn" title="Manage packs"><i class="fas fa-gear"></i></button>
+        </div>
+        <div id="sticker-pack-list" class="sticker-pack-list"></div>
         <div id="sticker-grid" class="sticker-grid"></div>
-        <input id="sticker-pack-input" type="file" accept="image/png" multiple style="display:none" />
+        <input id="sticker-pack-input" type="file" accept="image/*" multiple style="display:none" />
+        <input id="sticker-pack-add-image" type="file" accept="image/*" multiple style="display:none" />
       `;
       document.querySelector('.main').appendChild(panel);
-      document.getElementById('close-stickers-btn').onclick = ()=> panel.remove();
       document.getElementById('add-pack-btn').onclick = ()=> document.getElementById('sticker-pack-input').click();
       document.getElementById('sticker-pack-input').onchange = (e)=> this.addStickerFiles(e.target.files);
       document.getElementById('manage-packs-btn').onclick = ()=> this.manageStickerpacks();
-      await this.renderStickerGrid();
+      panel.querySelectorAll('[data-tab]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          panel.querySelectorAll('[data-tab]').forEach(b=> b.classList.remove('active'));
+          btn.classList.add('active');
+          await this.renderStickerGrid(btn.dataset.tab || 'stickers');
+        });
+      });
+      await this.renderStickerGrid('stickers');
     }
 
     async getStickerIndex(){
@@ -1230,7 +1468,7 @@ import { runTransaction } from 'firebase/firestore';
       const pack = { id: packId, name: 'My pack '+new Date().toLocaleDateString(), items: [] };
       // Store PNGs to Firebase Storage encrypted, keep manifest locally with storage URLs
       for (const f of fileList){
-        if (!/\.png$/i.test(f.name)) continue;
+        if (!/^image\//i.test(f.type || '')) continue;
         try{
           const aesKey = await this.getFallbackKey();
           const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
@@ -1246,58 +1484,185 @@ import { runTransaction } from 'firebase/firestore';
       if (pack.items.length){ idx.packs.unshift(pack); await this.setStickerIndex(idx); await this.renderStickerGrid(); }
     }
 
-    async renderStickerGrid(){
+    async renderStickerGrid(tab = 'stickers'){
       const grid = document.getElementById('sticker-grid'); if (!grid) return;
+      const packList = document.getElementById('sticker-pack-list');
+      const manageBar = document.getElementById('sticker-pack-manage');
       grid.innerHTML='';
-      const idx = await this.getStickerIndex();
-      // Most used quick row
-      const rec = JSON.parse(localStorage.getItem('liber_sticker_recents')||'[]');
-      if (Array.isArray(rec) && rec.length){
-        const frag = document.createElement('div'); frag.className='sticker-grid';
-        rec.slice(0,8).forEach(item=>{
+      if (packList) packList.innerHTML = '';
+      if (manageBar) manageBar.style.display = tab === 'stickers' ? 'flex' : 'none';
+      if (packList) packList.style.display = tab === 'stickers' ? 'grid' : 'none';
+
+      if (tab === 'emoji'){
+        const emojis = ['😀','😂','😍','😎','🥹','🔥','👍','🙏','🎉','❤️','🤖','😴','🎵','🚀','💙','✨'];
+        emojis.forEach(ch=>{
           const cell = document.createElement('div');
-          const img = document.createElement('img'); img.alt = item.name;
-          (async()=>{
-            try{ const res=await fetch(item.url); const payload=await res.json(); const b64=await chatCrypto.decryptWithKey(payload, await this.getFallbackKey()); const blob=this.base64ToBlob(b64,'image/png'); img.src=URL.createObjectURL(blob);}catch(_){ }
-          })();
-          cell.appendChild(img); cell.addEventListener('click', ()=> this.sendSticker(item)); frag.appendChild(cell);
+          cell.className = 'sticker-pack-chip';
+          cell.textContent = ch;
+          cell.style.fontSize = '24px';
+          cell.addEventListener('click', async ()=> this.saveMessage({ text: ch }));
+          grid.appendChild(cell);
         });
-        grid.appendChild(frag);
+        return;
       }
-      const aesKey = await this.getFallbackKey();
-      for (const p of idx.packs){
-        for (const it of p.items){
-          const cell = document.createElement('div');
-          const img = document.createElement('img');
-          img.alt = it.name;
-          // Lazy load with decrypted thumb (best-effort)
+
+      if (tab === 'gifs'){
+        try{
+          const resp = await fetch('https://tenor.googleapis.com/v2/featured?key=LIVDSRZULELA&limit=18&media_filter=tinygif');
+          const json = await resp.json();
+          const rows = Array.isArray(json?.results) ? json.results : [];
+          rows.forEach((g)=>{
+            const media = g?.media_formats?.tinygif || g?.media_formats?.gif;
+            const url = media?.url;
+            if (!url) return;
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = g?.content_description || 'gif';
+            img.style.width = '70px';
+            img.style.height = '70px';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '8px';
+            img.style.cursor = 'pointer';
+            img.addEventListener('click', async ()=> this.saveMessage({ text: `[gif] ${url}` }));
+            grid.appendChild(img);
+          });
+        }catch(_){
+          grid.innerHTML = '<div style="opacity:.8;padding:8px">Unable to load GIFs right now.</div>';
+        }
+        return;
+      }
+
+      const idx = await this.getStickerIndex();
+      const selectedPackId = this._selectedStickerPackId || (idx.packs[0] && idx.packs[0].id) || null;
+      this._selectedStickerPackId = selectedPackId;
+      idx.packs.forEach((p)=>{
+        const chip = document.createElement('button');
+        chip.className = 'sticker-pack-chip' + (p.id === selectedPackId ? ' active' : '');
+        chip.title = p.name;
+        if (p.items && p.items[0]){
+          const thumb = document.createElement('img');
+          thumb.alt = p.name;
+          thumb.style.width = '48px';
+          thumb.style.height = '48px';
+          thumb.style.objectFit = 'cover';
+          thumb.style.borderRadius = '6px';
+          chip.appendChild(thumb);
           (async()=>{
             try{
-              const res = await fetch(it.url); const payload = await res.json();
-              const b64 = await chatCrypto.decryptWithKey(payload, aesKey);
-              const blob = this.base64ToBlob(b64, 'image/png');
-              img.src = URL.createObjectURL(blob);
-            }catch(_){ img.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABdQh3VwAAAABJRU5ErkJggg=='; }
+              const res = await fetch(p.items[0].url);
+              const payload = await res.json();
+              const b64 = await chatCrypto.decryptWithKey(payload, await this.getFallbackKey());
+              thumb.src = URL.createObjectURL(this.base64ToBlob(b64, 'image/png'));
+            }catch(_){ }
           })();
-          cell.appendChild(img);
-          cell.addEventListener('click', ()=> this.sendSticker(it));
-          grid.appendChild(cell);
+        } else {
+          chip.textContent = p.name.slice(0, 2).toUpperCase();
         }
+        chip.addEventListener('click', async ()=>{
+          this._selectedStickerPackId = p.id;
+          await this.renderStickerGrid('stickers');
+        });
+        if (packList) packList.appendChild(chip);
+      });
+
+      const pack = idx.packs.find(p=> p.id === selectedPackId);
+      if (!pack || !Array.isArray(pack.items) || !pack.items.length){
+        grid.innerHTML = '<div style="opacity:.8;padding:8px">Add a pack to start using stickers.</div>';
+        return;
+      }
+      const aesKey = await this.getFallbackKey();
+      for (const it of pack.items){
+        const cell = document.createElement('div');
+        const img = document.createElement('img');
+        img.alt = it.name;
+        (async()=>{
+          try{
+            const res = await fetch(it.url); const payload = await res.json();
+            const b64 = await chatCrypto.decryptWithKey(payload, aesKey);
+            img.src = URL.createObjectURL(this.base64ToBlob(b64, 'image/png'));
+          }catch(_){ img.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABdQh3VwAAAABJRU5ErkJggg=='; }
+        })();
+        cell.appendChild(img);
+        cell.addEventListener('click', ()=> this.sendSticker(it));
+        grid.appendChild(cell);
       }
     }
 
     async manageStickerpacks(){
-      try{
-        const idx = await this.getStickerIndex();
-        const names = idx.packs.map((p,i)=> `${i+1}. ${p.name} (${p.items.length})`).join('\n');
-        const pick = prompt(`Your stickerpacks:\n${names}\n\nType number to delete or rename, or leave blank to close:`);
-        if (!pick) return;
-        const n = parseInt(pick,10); if (!Number.isFinite(n) || n<1 || n>idx.packs.length) return;
-        const act = prompt('Type "d" to delete, or enter new name to rename:');
-        if (!act) return;
-        if (act.toLowerCase()==='d'){ idx.packs.splice(n-1,1); await this.setStickerIndex(idx); await this.renderStickerGrid(); return; }
-        idx.packs[n-1].name = act; await this.setStickerIndex(idx); await this.renderStickerGrid();
-      }catch(_){ }
+      const idx = await this.getStickerIndex();
+      const pack = idx.packs.find(p=> p.id === this._selectedStickerPackId) || idx.packs[0];
+      if (!pack) return;
+      const grid = document.getElementById('sticker-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      const top = document.createElement('div');
+      top.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+      const addBtn = document.createElement('button');
+      addBtn.className = 'icon-btn add';
+      addBtn.title = 'Add image';
+      addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+      const delPackBtn = document.createElement('button');
+      delPackBtn.className = 'btn secondary';
+      delPackBtn.textContent = 'Delete pack';
+      top.appendChild(addBtn);
+      top.appendChild(delPackBtn);
+      grid.appendChild(top);
+      addBtn.onclick = ()=>{
+        const picker = document.getElementById('sticker-pack-add-image');
+        if (!picker) return;
+        picker.onchange = async (e)=>{
+          const files = e.target.files;
+          if (!files || !files.length) return;
+          for (const f of files){
+            if (!/^image\//i.test(f.type || '')) continue;
+            try{
+              const aesKey = await this.getFallbackKey();
+              const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
+              const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
+              const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+              const path = `stickers/${this.currentUser.uid}/${Date.now()}_${safeName}.enc.json`;
+              const sref = firebase.ref(this.storage, path);
+              await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
+              const url = await firebase.getDownloadURL(sref);
+              pack.items.push({ name: safeName, url });
+            }catch(_){ }
+          }
+          await this.setStickerIndex(idx);
+          await this.manageStickerpacks();
+        };
+        picker.click();
+      };
+      delPackBtn.onclick = async ()=>{
+        idx.packs = idx.packs.filter(p=> p.id !== pack.id);
+        await this.setStickerIndex(idx);
+        this._selectedStickerPackId = idx.packs[0] ? idx.packs[0].id : null;
+        await this.renderStickerGrid('stickers');
+      };
+      for (const it of (pack.items || [])){
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
+        const img = document.createElement('img');
+        img.style.cssText = 'width:50px;height:50px;object-fit:cover;border-radius:8px;border:1px solid #2a2f36';
+        const del = document.createElement('button');
+        del.className = 'icon-btn';
+        del.style.background = '#c62828';
+        del.innerHTML = '<i class="fas fa-minus"></i>';
+        (async()=>{
+          try{
+            const res = await fetch(it.url); const payload = await res.json();
+            const b64 = await chatCrypto.decryptWithKey(payload, await this.getFallbackKey());
+            img.src = URL.createObjectURL(this.base64ToBlob(b64, 'image/png'));
+          }catch(_){ }
+        })();
+        del.onclick = async ()=>{
+          pack.items = (pack.items || []).filter(x=> x.url !== it.url);
+          await this.setStickerIndex(idx);
+          await this.manageStickerpacks();
+        };
+        row.appendChild(img);
+        row.appendChild(del);
+        grid.appendChild(row);
+      }
     }
 
     async sendSticker(item){
@@ -1318,6 +1683,7 @@ import { runTransaction } from 'firebase/firestore';
     async saveMessage({text,fileUrl,fileName}){
       const aesKey = await this.getFallbackKey();
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
+      const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'));
       await firebase.setDoc(msgRef,{
         id: msgRef.id,
@@ -1326,6 +1692,7 @@ import { runTransaction } from 'firebase/firestore';
         cipher,
         fileUrl: fileUrl||null,
         fileName: fileName||null,
+        previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
       });
@@ -1333,6 +1700,9 @@ import { runTransaction } from 'firebase/firestore';
         lastMessage: text.slice(0,200),
         updatedAt: new Date().toISOString()
       });
+      if (fileUrl){
+        this.pushRecentAttachment({ fileUrl, fileName: fileName || 'file', sentAt: new Date().toISOString() });
+      }
       // Notify recipients (best-effort)
       this.notifyParticipants(text);
       // Optional push notification via Firebase Functions; fallback to email if no tokens
@@ -1446,11 +1816,13 @@ import { runTransaction } from 'firebase/firestore';
       try{
         // Local device notification
         if ('Notification' in window){
+          const chatName = (document.getElementById('active-connection-name')?.textContent || 'Chat').trim();
+          const body = (this.stripPlaceholderText(plaintext) || plaintext || 'New message').slice(0, 120);
           if (Notification.permission === 'granted'){
-            new Notification('New message', { body: plaintext.slice(0,80) });
+            new Notification(chatName, { body });
           } else if (Notification.permission !== 'denied'){
             // Request once
-            Notification.requestPermission().then(p=>{ if(p==='granted'){ new Notification('New message', { body: plaintext.slice(0,80) }); } });
+            Notification.requestPermission().then(p=>{ if(p==='granted'){ new Notification(chatName, { body }); } });
           }
         }
       }catch(_){}
@@ -1542,6 +1914,221 @@ import { runTransaction } from 'firebase/firestore';
       return n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
     }
 
+    getGlobalBgPlayer(){
+      try{
+        const topDoc = window.top && window.top.document ? window.top.document : document;
+        return topDoc.getElementById('bg-player') || null;
+      }catch(_){ return document.getElementById('bg-player') || null; }
+    }
+
+    ensureChatBgPlayer(){
+      if (this._chatBgPlayer) return this._chatBgPlayer;
+      let p = document.getElementById('chat-bg-player');
+      if (!p){
+        p = document.createElement('audio');
+        p.id = 'chat-bg-player';
+        p.style.display = 'none';
+        document.body.appendChild(p);
+      }
+      this._chatBgPlayer = p;
+      if (!p._voiceBound){
+        p._voiceBound = true;
+        const sync = ()=> this.updateVoiceWidgets();
+        p.addEventListener('timeupdate', sync);
+        p.addEventListener('play', sync);
+        p.addEventListener('pause', sync);
+        p.addEventListener('loadedmetadata', sync);
+        p.addEventListener('ended', sync);
+      }
+      // Keep a single-track experience across host and app shell.
+      if (!p._singleTrackBound){
+        p._singleTrackBound = true;
+        p.addEventListener('play', ()=>{
+          try{
+            const hostBg = this.getGlobalBgPlayer();
+            if (hostBg && hostBg !== p && !hostBg.paused) hostBg.pause();
+          }catch(_){ }
+        });
+      }
+      return p;
+    }
+
+    updateVoiceWidgets(){
+      const p = this.ensureChatBgPlayer();
+      const stale = [];
+      this._voiceWidgets.forEach((w, k)=>{ if (!w.wave || !w.wave.isConnected) stale.push(k); });
+      stale.forEach((k)=> this._voiceWidgets.delete(k));
+      const strip = document.getElementById('voice-top-strip');
+      const stripTitle = document.getElementById('voice-top-title');
+      const stripToggle = document.getElementById('voice-top-toggle');
+      const canShowStrip = this.isMobileViewport() && !!p.src && (!!this._voiceCurrentSrc || this._voiceWidgets.size > 0);
+      if (strip && stripToggle){
+        if (canShowStrip){
+          strip.classList.remove('hidden');
+          stripToggle.innerHTML = `<i class="fas ${p.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+        } else {
+          strip.classList.add('hidden');
+          stripToggle.innerHTML = '<i class="fas fa-play"></i>';
+        }
+      }
+      this._voiceWidgets.forEach((w)=>{
+        const active = !!p.src && w.src === p.src;
+        const duration = Number(p.duration || 0);
+        const ct = Number(p.currentTime || 0);
+        const ratio = active && duration > 0 ? Math.min(1, Math.max(0, ct / duration)) : 0;
+        const bars = w.wave.querySelectorAll('.bar');
+        const playedBars = Math.round(bars.length * ratio);
+        bars.forEach((b, i)=> b.classList.toggle('played', active && i < playedBars));
+        w.playBtn.innerHTML = `<i class="fas ${active && !p.paused ? 'fa-pause' : 'fa-play'}"></i>`;
+        const currentTxt = this.formatDuration(active ? ct : 0);
+        const totalTxt = this.formatDuration(active ? duration : (w.durationGuess || 0));
+        w.time.textContent = w.showRemaining
+          ? `-${this.formatDuration(Math.max(0, (active ? duration - ct : w.durationGuess || 0)))}`
+          : `${currentTxt}/${totalTxt}`;
+        if (active && stripTitle) stripTitle.textContent = w.title || 'Voice message';
+      });
+      if (stripTitle){
+        if (!p.src) stripTitle.textContent = 'Voice message';
+        else if (!this._voiceWidgets.size) stripTitle.textContent = this._voiceCurrentTitle || 'Voice message';
+      }
+    }
+
+    renderWaveAttachment(containerEl, url, fileName){
+      const wrapper = document.createElement('div');
+      wrapper.className = 'voice-wave-player';
+      const playBtn = document.createElement('button');
+      playBtn.className = 'play';
+      playBtn.innerHTML = '<i class="fas fa-play"></i>';
+      const wave = document.createElement('div');
+      wave.className = 'wave';
+      const time = document.createElement('div');
+      time.className = 'time';
+      time.textContent = '0:00/0:00';
+      const keySeed = String(fileName || url || 'voice');
+      const barsCount = 54;
+      for (let i = 0; i < barsCount; i++){
+        const bar = document.createElement('span');
+        bar.className = 'bar';
+        const seed = keySeed.charCodeAt(i % keySeed.length || 0) || 37;
+        const waveBase = (Math.sin((i / barsCount) * Math.PI * 2) + 1) * 0.5;
+        const jitter = ((seed * (i + 7)) % 9) / 10;
+        const h = 5 + Math.round((waveBase * 12) + (jitter * 6));
+        bar.style.height = `${h}px`;
+        wave.appendChild(bar);
+      }
+      wrapper.appendChild(playBtn);
+      wrapper.appendChild(wave);
+      wrapper.appendChild(time);
+      containerEl.appendChild(wrapper);
+      const widget = {
+        id: `vw_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+        src: url,
+        title: fileName || 'Voice message',
+        playBtn,
+        wave,
+        time,
+        showRemaining: false,
+        durationGuess: 0
+      };
+      this._voiceWidgets.set(widget.id, widget);
+
+      const p = this.ensureChatBgPlayer();
+      const startFromRatio = (ratio)=>{
+        const clamped = Math.min(1, Math.max(0, ratio));
+        if (p.src !== url){
+          this._voiceCurrentSrc = url;
+          this._voiceCurrentTitle = widget.title;
+          this.setupMediaSessionForVoice(widget.title);
+          p.src = url;
+          p.currentTime = 0;
+          p.play().catch(()=>{});
+          const onMeta = ()=>{
+            if (Number.isFinite(p.duration) && p.duration > 0){
+              p.currentTime = clamped * p.duration;
+              widget.durationGuess = p.duration;
+              this.updateVoiceWidgets();
+            }
+            p.removeEventListener('loadedmetadata', onMeta);
+          };
+          p.addEventListener('loadedmetadata', onMeta);
+          return;
+        }
+        if (Number.isFinite(p.duration) && p.duration > 0){
+          p.currentTime = clamped * p.duration;
+          widget.durationGuess = p.duration;
+        }
+        if (p.paused) p.play().catch(()=>{});
+        this.updateVoiceWidgets();
+      };
+
+      playBtn.addEventListener('click', ()=>{
+        if (p.src !== url){
+          this._voiceCurrentSrc = url;
+          this._voiceCurrentTitle = widget.title;
+          this.setupMediaSessionForVoice(widget.title);
+          p.src = url;
+          p.play().catch(()=>{});
+          this.updateVoiceWidgets();
+          return;
+        }
+        if (Number.isFinite(p.duration) && p.duration > 0){
+          widget.durationGuess = p.duration;
+        }
+        if (p.paused) p.play().catch(()=>{});
+        else p.pause();
+        this.updateVoiceWidgets();
+      });
+
+      let dragging = false;
+      const seekFromClientX = (clientX)=>{
+        const rect = wave.getBoundingClientRect();
+        const ratio = (clientX - rect.left) / rect.width;
+        startFromRatio(ratio);
+      };
+      wave.addEventListener('click', (e)=> seekFromClientX(e.clientX));
+      wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekFromClientX(e.clientX); });
+      wave.addEventListener('pointermove', (e)=>{ if (dragging) seekFromClientX(e.clientX); });
+      wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
+      time.addEventListener('click', ()=>{
+        widget.showRemaining = !widget.showRemaining;
+        this.updateVoiceWidgets();
+      });
+      this.updateVoiceWidgets();
+    }
+
+    handoffToPersistentVoicePlayer(mediaEl, meta = {}){
+      try{
+        const global = this.getGlobalBgPlayer();
+        if (global && !global.paused){ try{ global.pause(); }catch(_){ } }
+        const p = this.ensureChatBgPlayer();
+        const src = mediaEl.currentSrc || mediaEl.src || '';
+        if (!src) return;
+        this._voiceCurrentSrc = src;
+        this._voiceCurrentTitle = meta.title || 'Voice message';
+        if (p.src !== src) p.src = src;
+        if (!Number.isNaN(mediaEl.currentTime)) p.currentTime = mediaEl.currentTime;
+        p.play().catch(()=>{});
+        mediaEl.pause();
+        this.setupMediaSessionForVoice(this._voiceCurrentTitle);
+        this.updateVoiceWidgets();
+      }catch(_){ }
+    }
+
+    setupMediaSessionForVoice(title = 'Voice message'){
+      const p = this.ensureChatBgPlayer();
+      if (!('mediaSession' in navigator)) return;
+      try{
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title,
+          artist: 'LIBER Chat'
+        });
+        navigator.mediaSession.setActionHandler('play', ()=> p.play().catch(()=>{}));
+        navigator.mediaSession.setActionHandler('pause', ()=> p.pause());
+        navigator.mediaSession.setActionHandler('seekbackward', ()=>{ p.currentTime = Math.max(0, (p.currentTime||0)-10); });
+        navigator.mediaSession.setActionHandler('seekforward', ()=>{ p.currentTime = Math.min((p.duration||0), (p.currentTime||0)+10); });
+      }catch(_){ }
+    }
+
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection){
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
@@ -1568,6 +2155,17 @@ import { runTransaction } from 'firebase/firestore';
           const url = URL.createObjectURL(blob);
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
+          img.addEventListener('click', ()=>{
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<img src="${url}" alt="${(fileName||'image').replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;border-radius:10px;object-fit:contain" />`;
+            overlay.addEventListener('click', ()=> overlay.remove());
+            document.body.appendChild(overlay);
+          });
+          img.addEventListener('load', ()=>{
+            const box = document.getElementById('messages');
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+          });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
           const mime = 'video/webm';
@@ -1575,14 +2173,19 @@ import { runTransaction } from 'firebase/firestore';
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
           video.src = url; video.controls = true; video.playsInline = true; video.style.maxWidth = '100%'; video.style.borderRadius='8px';
+          video.addEventListener('play', ()=> this.handoffToPersistentVoicePlayer(video, { title: fileName || 'Video message', artist: 'LIBER Chat' }));
+          video.addEventListener('loadedmetadata', ()=>{
+            const box = document.getElementById('messages');
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+          });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = 'audio/webm';
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
-          const audio = document.createElement('audio');
-          audio.src = url; audio.controls = true; audio.style.width = '100%';
-          containerEl.appendChild(audio);
+          this.renderWaveAttachment(containerEl, url, fileName || 'Voice message');
+          const box = document.getElementById('messages');
+          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const url = URL.createObjectURL(blob);

@@ -1,3 +1,18 @@
+@media (max-width: 767px) {
+  .dashboard-content {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    padding-top: 10px !important;
+  }
+  #apps-section,
+  #space-section,
+  #feed-section,
+  #waveconnect-section,
+  #profile-section {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+}
 /* Responsive Design */
 /* Large screens (1200px and up) */
 @media (min-width: 1200px) {

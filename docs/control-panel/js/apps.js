@@ -9,6 +9,8 @@ class AppsManager {
         this.filteredApps = [];
         this.currentCategory = 'all';
         this.searchTerm = '';
+        this._autoRefreshTimer = null;
+        this._activeAppUrl = '';
         this.init();
     }
 
@@ -16,8 +18,39 @@ class AppsManager {
      * Initialize apps manager
      */
     init() {
+        this.setupAppShell();
         this.setupEventListeners();
         this.loadApps();
+    }
+
+    setupAppShell(){
+        const shell = document.getElementById('app-shell');
+        const closeBtn = document.getElementById('app-shell-close');
+        const reloadBtn = document.getElementById('app-shell-reload');
+        const openTabBtn = document.getElementById('app-shell-open-tab');
+        if (!shell) return;
+        if (closeBtn && !closeBtn._bound){
+            closeBtn._bound = true;
+            closeBtn.addEventListener('click', ()=> this.closeAppShell());
+        }
+        if (reloadBtn && !reloadBtn._bound){
+            reloadBtn._bound = true;
+            reloadBtn.addEventListener('click', ()=>{
+                const frame = document.getElementById('app-shell-frame');
+                if (frame && frame.src) frame.src = frame.src;
+            });
+        }
+        if (openTabBtn && !openTabBtn._bound){
+            openTabBtn._bound = true;
+            openTabBtn.addEventListener('click', ()=>{
+                if (this._activeAppUrl) window.open(this._activeAppUrl, '_blank', 'noopener,noreferrer');
+            });
+        }
+        window.addEventListener('keydown', (e)=>{
+            if (e.key === 'Escape' && document.body.classList.contains('app-shell-open')) {
+                this.closeAppShell();
+            }
+        });
     }
 
     /**
@@ -134,7 +167,8 @@ class AppsManager {
         const settings = dashboardManager.getSettings();
         if (settings.autoRefreshApps) {
             // Refresh apps every 5 minutes
-            setInterval(() => {
+            this._autoRefreshTimer = setInterval(() => {
+                if (document.body.classList.contains('app-shell-open')) return;
                 this.loadApps();
             }, 5 * 60 * 1000);
         }
@@ -430,14 +464,41 @@ class AppsManager {
             
             // Show success message
             this.showSuccess(`Launching ${app.name}...`);
-            
-            // Always open apps in the same tab to keep a single-tab workflow.
-            window.location.href = appUrl;
+            this.openAppInShell(app, appUrl);
 
         } catch (error) {
             console.error('Error launching app:', error);
             this.showError('Failed to launch app');
         }
+    }
+
+    openAppInShell(app, appUrl){
+        const shell = document.getElementById('app-shell');
+        const frame = document.getElementById('app-shell-frame');
+        const title = document.getElementById('app-shell-title');
+        if (!shell || !frame){
+            window.location.href = appUrl;
+            return;
+        }
+        this._activeAppUrl = appUrl;
+        const separator = appUrl.includes('?') ? '&' : '?';
+        frame.src = `${appUrl}${separator}inShell=1`;
+        if (title) title.textContent = app?.name || 'App';
+        shell.classList.remove('hidden');
+        shell.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('app-shell-open');
+        window.dispatchEvent(new CustomEvent('liber:app-shell-open', { detail: { appId: app?.id || '', appUrl } }));
+    }
+
+    closeAppShell(){
+        const shell = document.getElementById('app-shell');
+        const frame = document.getElementById('app-shell-frame');
+        if (!shell || !frame) return;
+        frame.src = 'about:blank';
+        shell.classList.add('hidden');
+        shell.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('app-shell-open');
+        window.dispatchEvent(new Event('liber:app-shell-close'));
     }
 
     /**

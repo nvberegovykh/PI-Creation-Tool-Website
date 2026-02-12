@@ -6,6 +6,7 @@
 class DashboardManager {
     constructor() {
         this.currentSection = 'apps';
+        this._dashboardSuspended = false;
         this.init();
     }
 
@@ -39,10 +40,35 @@ class DashboardManager {
         if (this._spaceRetryTimer) return;
         this._spaceRetryTimer = setTimeout(()=>{
             this._spaceRetryTimer = null;
+            if (this._dashboardSuspended) return;
             if (this.currentSection === 'space'){
                 this.loadSpace();
             }
         }, 320);
+    }
+
+    clearPostActionListeners(container){
+        try{
+            if (!container) return;
+            if (this._postActionUnsubsByContainer && this._postActionUnsubsByContainer.get(container)) {
+                this._postActionUnsubsByContainer.get(container).forEach((u) => { try { u(); } catch (_) {} });
+                this._postActionUnsubsByContainer.set(container, []);
+            }
+        }catch(_){ }
+    }
+
+    suspendDashboardActivity(){
+        this._dashboardSuspended = true;
+        this.clearPostActionListeners(document.getElementById('global-feed'));
+        this.clearPostActionListeners(document.getElementById('space-feed'));
+    }
+
+    resumeDashboardActivity(){
+        const wasSuspended = this._dashboardSuspended;
+        this._dashboardSuspended = false;
+        if (!wasSuspended) return;
+        if (this.currentSection === 'feed') this.loadGlobalFeed();
+        if (this.currentSection === 'space') this.loadSpace();
     }
 
     getOrCreateDeviceId(){
@@ -132,6 +158,34 @@ class DashboardManager {
         return `<div style="margin-top:8px;overflow:auto;-webkit-overflow-scrolling:touch"><div style="display:flex;gap:8px">${items}</div></div>`;
     }
 
+    pauseAllMediaExcept(current){
+        try{
+            const bg = document.getElementById('bg-player');
+            if (bg && bg !== current){ try{ bg.pause(); }catch(_){ } }
+            const localChatBg = document.getElementById('chat-bg-player');
+            if (localChatBg && localChatBg !== current){ try{ localChatBg.pause(); }catch(_){ } }
+            try{
+                const shellFrame = document.getElementById('app-shell-frame');
+                const iframeDoc = shellFrame?.contentWindow?.document;
+                const iframeChatBg = iframeDoc?.getElementById('chat-bg-player');
+                if (iframeChatBg && iframeChatBg !== current){ try{ iframeChatBg.pause(); }catch(_){ } }
+            }catch(_){ }
+            document.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video').forEach((m)=>{
+                if (m !== current){
+                    try{ m.pause(); }catch(_){ }
+                    const card = m.closest('.player-card');
+                    const btn = card && card.querySelector('.btn-icon');
+                    if (btn) this.setPlayIcon(btn, false);
+                }
+            });
+        }catch(_){ }
+    }
+
+    setPlayIcon(btn, isPlaying){
+        if (!btn) return;
+        btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
+    }
+
     showMiniPlayer(mediaEl, meta={}){
         try{
             if (this._currentPlayer && this._currentPlayer !== mediaEl){ try{ this._currentPlayer.pause(); }catch(_){} }
@@ -144,38 +198,25 @@ class DashboardManager {
             const mBy = document.getElementById('mini-by');
             const mCover = mini.querySelector('.cover');
             const playBtn = document.getElementById('mini-play');
-            const closeBtn = document.getElementById('mini-close');
             if (mTitle) mTitle.textContent = meta.title || 'Now playing';
             if (mBy) mBy.textContent = meta.by || '';
             if (mCover && meta.cover) mCover.src = meta.cover;
             mini.classList.add('show');
             // Hand off current media to bg player
-            try{ bg.src = mediaEl.currentSrc || mediaEl.src; if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime; bg.play().catch(()=>{}); mediaEl.pause(); }catch(_){ }
-            if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { bg.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
-            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+            try{
+                this.pauseAllMediaExcept(mediaEl);
+                bg.src = mediaEl.currentSrc || mediaEl.src;
+                if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime;
+                bg.play().catch(()=>{});
+                mediaEl.pause();
+            }catch(_){ }
+            if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); } else { bg.pause(); } }; }
+            const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !bg.paused);
+            bg.onplay = syncMiniBtn; bg.onpause = syncMiniBtn; bg.onended = syncMiniBtn; syncMiniBtn();
 
-            // Build autoplay queue based on context (library/feed/search)
-            const contextRoot = mediaEl.closest('#wave-library') || mediaEl.closest('#global-feed') || mediaEl.closest('#personal-space') || mediaEl.closest('.search-results') || mediaEl.closest('.main') || document;
-            const nodes = Array.from(contextRoot.querySelectorAll('audio.player-media, video.player-media, .player-card .player-media'));
-            const items = nodes.map(n=> ({ src: n.currentSrc || n.src || n.getAttribute('src') || '', el: n } )).filter(x=> x.src);
-            const currentSrc = mediaEl.currentSrc || mediaEl.src || '';
-            let idx = items.findIndex(x=> x.src === currentSrc);
-            if (idx < 0 && items.length){ idx = 0; }
-            this._playQueue = { items, index: idx, context: contextRoot };
-            const advance = ()=>{
-                if (!this._playQueue || !this._playQueue.items.length) return;
-                this._playQueue.index = (this._playQueue.index + 1) % this._playQueue.items.length;
-                const next = this._playQueue.items[this._playQueue.index];
-                if (!next) return;
-                try{
-                    bg.src = next.src; bg.currentTime = 0; bg.play().catch(()=>{});
-                    if (mTitle) mTitle.textContent = (next.el && next.el.dataset && next.el.dataset.title) || (meta.title||'Now playing');
-                    if (mBy) mBy.textContent = (next.el && next.el.dataset && next.el.dataset.by) || (meta.by||'');
-                }catch(_){ }
-            };
+            // Keep deterministic behavior: do not auto-jump to random next tracks.
             if (this._onBgEnded){ try{ bg.removeEventListener('ended', this._onBgEnded); }catch(_){ } }
-            this._onBgEnded = advance;
-            bg.addEventListener('ended', this._onBgEnded);
+            this._onBgEnded = null;
         }catch(_){ }
     }
 
@@ -183,6 +224,8 @@ class DashboardManager {
     activatePlayers(root=document){
         try{
             root.querySelectorAll('.player-card').forEach(card=>{
+                if (card.dataset.playerBound === '1') return;
+                card.dataset.playerBound = '1';
                 const media = card.querySelector('.player-media');
                 const btn = card.querySelector('.btn-icon');
                 const fill = card.querySelector('.progress .fill');
@@ -191,16 +234,30 @@ class DashboardManager {
                 const time = card.querySelector('.time');
                 const fmt = (s)=>{ const m=Math.floor(s/60); const ss=Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${ss}`; };
                 const sync = ()=>{ if (!media.duration) return; const p=(media.currentTime/media.duration)*100; if (fill) fill.style.width = `${p}%`; if (knob){ knob.style.left = `${p}%`; } if (time) time.textContent = `${fmt(media.currentTime)} / ${fmt(media.duration)}`; };
-                if (btn){ btn.onclick = ()=>{ if (media.paused){ media.play(); btn.innerHTML='<i class="fas fa-pause"></i>'; } else { media.pause(); btn.innerHTML='<i class="fas fa-play"></i>'; } }; }
+                if (btn){
+                    btn.onclick = ()=>{
+                        if (media.paused){
+                            this.pauseAllMediaExcept(media);
+                            media.play().catch(()=>{});
+                            this.setPlayIcon(btn, true);
+                        } else {
+                            media.pause();
+                            this.setPlayIcon(btn, false);
+                        }
+                    };
+                }
                 media.addEventListener('timeupdate', sync);
                 media.addEventListener('loadedmetadata', sync);
+                media.addEventListener('play', ()=> this.setPlayIcon(btn, true));
+                media.addEventListener('pause', ()=> this.setPlayIcon(btn, false));
+                media.addEventListener('ended', ()=> this.setPlayIcon(btn, false));
                 const bar = card.querySelector('.progress');
                 if (bar){
                     const seekTo = (clientX)=>{
                         const rect = bar.getBoundingClientRect();
                         const ratio = Math.min(1, Math.max(0, (clientX-rect.left)/rect.width));
                         if (media.duration){ media.currentTime = ratio * media.duration; }
-                        if (media.paused){ media.play().catch(()=>{}); if (btn) btn.innerHTML='<i class="fas fa-pause"></i>'; }
+                        if (media.paused){ this.pauseAllMediaExcept(media); media.play().catch(()=>{}); this.setPlayIcon(btn, true); }
                     };
                     bar.addEventListener('click', (e)=> seekTo(e.clientX));
                     let dragging = false;
@@ -216,41 +273,11 @@ class DashboardManager {
                     if (e.code === 'ArrowRight'){ media.currentTime = Math.min(media.duration||0, media.currentTime + 5); }
                 };
 
-                // hook up mini player when playing
-                const mini = document.getElementById('mini-player');
-                const mTitle = document.getElementById('mini-title');
-                const mBy = document.getElementById('mini-by');
-                const mCover = mini && mini.querySelector('.cover');
-                const playBtn = document.getElementById('mini-play');
-                const closeBtn = document.getElementById('mini-close');
-                const miniBar = document.getElementById('mini-progress');
-                const miniFill = document.getElementById('mini-fill');
-                const miniTime = document.getElementById('mini-time');
-                const showMini = ()=>{
-                    if (!mini) return;
-                    mini.classList.add('show');
-                    const parent = card.closest('.post-item');
-                    if (parent){
-                        const t = parent.querySelector('.post-text');
-                        mTitle && (mTitle.textContent = (t && t.textContent) ? t.textContent.slice(0,50) : 'Now playing');
-                    }
-                    if (mBy){ const by = card.closest('.post-item')?.querySelector('.byline')?.textContent || ''; mBy.textContent = by; }
-                    // Sync mini progress to media
-                    const syncMini = ()=>{
-                        try{
-                            if (miniFill && media.duration){ miniFill.style.width = `${(media.currentTime/media.duration)*100}%`; }
-                            if (miniTime && media.duration){ const m=Math.floor(media.currentTime/60); const ss=Math.floor(media.currentTime%60).toString().padStart(2,'0'); const M=Math.floor(media.duration/60); const SS=Math.floor(media.duration%60).toString().padStart(2,'0'); miniTime.textContent = `${m}:${ss} / ${M}:${SS}`; }
-                        }catch(_){ }
-                    };
-                    media.addEventListener('timeupdate', syncMini);
-                    if (miniBar){
-                        const seekMini = (clientX)=>{ const r=miniBar.getBoundingClientRect(); const ratio=Math.min(1,Math.max(0,(clientX-r.left)/r.width)); if (media.duration){ media.currentTime = ratio*media.duration; media.play().catch(()=>{}); } };
-                        miniBar.onclick = (e)=> seekMini(e.clientX);
-                    }
-                };
-                media.addEventListener('play', showMini);
-                if (playBtn){ playBtn.onclick = ()=>{ if (media.paused){ media.play(); playBtn.innerHTML='<i class="fas fa-pause"></i>'; } else { media.pause(); playBtn.innerHTML='<i class="fas fa-play"></i>'; } }; }
-                if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ media.pause(); }catch(_){} }; }
+                media.addEventListener('play', ()=>{
+                    const title = media.dataset?.title || card.closest('.post-item')?.querySelector('.post-text')?.textContent?.slice(0, 60) || 'Now playing';
+                    const by = media.dataset?.by || card.closest('.post-item')?.querySelector('.byline')?.textContent || '';
+                    this.showMiniPlayer(media, { title, by });
+                });
             });
         }catch(_){ }
     }
@@ -260,6 +287,8 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
+        window.addEventListener('liber:app-shell-open', ()=> this.suspendDashboardActivity());
+        window.addEventListener('liber:app-shell-close', ()=> this.resumeDashboardActivity());
         // Prevent browser-autofill from leaking login email into dashboard search fields.
         ['app-search', 'space-search', 'user-search', 'wave-search', 'video-search'].forEach((id) => {
             const el = document.getElementById(id);
@@ -694,6 +723,7 @@ class DashboardManager {
      * Load Personal Space
      */
     async loadSpace(){
+        if (this._dashboardSuspended) return;
         try{
             if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())){ this.scheduleSpaceRetry(); return; }
             const user = await this.resolveCurrentUserWithRetry(2600);
@@ -1217,6 +1247,7 @@ class DashboardManager {
     }
 
     async loadGlobalFeed(){
+        if (this._dashboardSuspended) return;
         try{
             const feedEl = document.getElementById('global-feed');
             const suggEl = document.getElementById('global-suggestions');
@@ -1616,6 +1647,7 @@ class DashboardManager {
      * Switch between dashboard sections
      */
     switchSection(section) {
+        if (this._dashboardSuspended) return;
         this.updateVerificationBanner();
         // Update desktop navigation
         const navBtns = document.querySelectorAll('.nav-btn');
@@ -2045,9 +2077,11 @@ Do you want to proceed?`);
                 const emailEl = document.getElementById('profil-email');
                 const unameEl = document.getElementById('profile-username');
                 const verifiedEl = document.getElementById('profile-verified');
+                const allowUnconnectedEl = document.getElementById('profile-allow-unconnected-msg');
                 if (emailEl) emailEl.value = user.email;
                 if (unameEl) unameEl.value = data.username || '';
                 if (verifiedEl) verifiedEl.textContent = user.emailVerified ? 'Verified' : 'Not verified';
+                if (allowUnconnectedEl) allowUnconnectedEl.checked = data.allowMessagesFromUnconnected !== false;
 
                 const saveBtn = document.getElementById('save-username-btn');
                 if (saveBtn) {
@@ -2065,9 +2099,21 @@ Do you want to proceed?`);
 
                 const rvBtn = document.getElementById('resend-verify-btn');
                 if (rvBtn) {
+                    rvBtn.style.display = user.emailVerified ? 'none' : 'inline-flex';
                     rvBtn.onclick = async () => {
                         try { await window.firebaseService.sendEmailVerification(); this.showSuccess('Verification email sent'); }
                         catch { this.showError('Failed to send verification'); }
+                    };
+                }
+                if (allowUnconnectedEl) {
+                    allowUnconnectedEl.onchange = async () => {
+                        try {
+                            await window.firebaseService.updateUserProfile(user.uid, {
+                                allowMessagesFromUnconnected: !!allowUnconnectedEl.checked
+                            });
+                        } catch (_) {
+                            this.showError('Failed to update message privacy');
+                        }
                     };
                 }
 
@@ -2716,23 +2762,35 @@ Do you want to proceed?`);
         const input = document.getElementById('wall-e-input');
         const message = input.value.trim();
         
-        if (!message) return;
+        if (!message || this._wallESending) return;
+        this._wallESending = true;
         
         // Add user message to chat
         this.addWallEMessage('user', message);
         input.value = '';
+        this.addWallEMessage('assistant', '...');
         
         // Call WALL-E API
         if (window.wallE && typeof window.wallE.callWALLE === 'function') {
             try {
                 const response = await window.wallE.callWALLE(message);
+                const msgs = document.querySelectorAll('#wall-e-messages .wall-e-message.assistant');
+                const last = msgs[msgs.length - 1];
+                if (last && last.textContent && last.textContent.includes('...')) last.remove();
                 this.addWallEMessage('assistant', response);
             } catch (error) {
+                const msgs = document.querySelectorAll('#wall-e-messages .wall-e-message.assistant');
+                const last = msgs[msgs.length - 1];
+                if (last && last.textContent && last.textContent.includes('...')) last.remove();
                 this.addWallEMessage('error', 'Sorry, I encountered an error. Please try again.');
             }
         } else {
+            const msgs = document.querySelectorAll('#wall-e-messages .wall-e-message.assistant');
+            const last = msgs[msgs.length - 1];
+            if (last && last.textContent && last.textContent.includes('...')) last.remove();
             this.addWallEMessage('assistant', 'Sorry, WALL-E is not available at the moment.');
         }
+        this._wallESending = false;
     }
 
     /**
@@ -3220,8 +3278,22 @@ Do you want to proceed?`);
         chatBtn.onclick = async () => {
           try {
             const key = [me.uid, uid].sort().join('|');
+            let requestMsg = '';
+            const state = await readConnState();
+            if (state.status !== 'connected') {
+              requestMsg = String(window.prompt('Add one intro message with your connection request:', '') || '').trim();
+              if (!requestMsg) return;
+            }
             overlay.remove();
-            window.location.href = `apps/secure-chat/index.html?connId=${encodeURIComponent(key)}`;
+            const qs = new URLSearchParams({ connId: key });
+            if (requestMsg) qs.set('requestMsg', requestMsg);
+            const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
+            const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
+            if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
+              window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+            } else {
+              window.location.href = localPath;
+            }
           } catch(_) {}
         };
       }
