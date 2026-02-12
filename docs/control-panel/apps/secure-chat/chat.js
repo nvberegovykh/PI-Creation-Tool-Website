@@ -42,6 +42,11 @@ import { runTransaction } from 'firebase/firestore';
       this._voiceWidgets = new Map();
       this._voiceCurrentSrc = '';
       this._voiceCurrentTitle = 'Voice message';
+      this._typingUnsub = null;
+      this._typingTicker = null;
+      this._typingByUid = {};
+      this._typingLastSent = false;
+      this._typingLastSentAt = 0;
       this.init();
     }
 
@@ -486,7 +491,12 @@ import { runTransaction } from 'firebase/firestore';
       // Enter to send, Shift+Enter for newline (desktop & mobile)
       const msgInput2 = document.getElementById('message-input');
       if (msgInput2){
-        msgInput2.addEventListener('input', ()=> this.refreshActionButton());
+        msgInput2.addEventListener('input', ()=>{
+          this.refreshActionButton();
+          this.syncTypingFromInput();
+        });
+        msgInput2.addEventListener('focus', ()=> this.syncTypingFromInput());
+        msgInput2.addEventListener('blur', ()=> this.publishTypingState(false, { force: true }));
         msgInput2.addEventListener('keydown', (e)=>{
           if (e.key === 'Enter'){
             if (e.shiftKey){
@@ -907,6 +917,11 @@ import { runTransaction } from 'firebase/firestore';
       // chat search / sidebar / personal-space popup all open the same thread.
       const shouldResolve = String(connId || '').includes('|');
       const resolvedConnId = shouldResolve ? await this.resolveCanonicalConnectionId(connId) : connId;
+      const prevConn = this.activeConnection;
+      if (prevConn && prevConn !== (resolvedConnId || connId)){
+        this.publishTypingState(false, { force: true, connId: prevConn }).catch(()=>{});
+      }
+      this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
       // Resolve displayName if not provided
       if (!displayName) {
@@ -929,6 +944,7 @@ import { runTransaction } from 'firebase/firestore';
       const topTitle = document.getElementById('chat-top-title');
       if (topTitle) topTitle.textContent = displayName;
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
+      this.startTypingListener(this.activeConnection);
       await this.loadMessages();
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
@@ -1359,11 +1375,93 @@ import { runTransaction } from 'firebase/firestore';
         return;
       }
       input.value = '';
+      this.publishTypingState(false, { force: true }).catch(()=>{});
       try{
         await this.saveMessage({text});
       }catch(e){
         input.value = text;
+        this.publishTypingState(!!text, { force: true }).catch(()=>{});
         throw e;
+      }
+    }
+
+    formatTypingText(names){
+      const list = (names || []).filter(Boolean);
+      if (!list.length) return '';
+      if (list.length === 1) return `${list[0]} is typing...`;
+      if (list.length === 2) return `${list[0]} and ${list[1]} are typing...`;
+      return `${list.slice(0, 2).join(', ')} and ${list.length - 2} others are typing...`;
+    }
+
+    renderTypingIndicator(){
+      const el = document.getElementById('typing-indicator');
+      if (!el) return;
+      const now = Date.now();
+      const names = Object.entries(this._typingByUid || {})
+        .filter(([uid, row])=>{
+          if (!uid || uid === this.currentUser.uid) return false;
+          if (!row || row.active !== true) return false;
+          const ts = new Date(row.updatedAt || 0).getTime() || 0;
+          return (now - ts) < 9000;
+        })
+        .map(([uid, row])=> row.username || this.usernameCache.get(uid) || 'Someone');
+      if (!names.length){
+        el.textContent = '';
+        el.classList.remove('show');
+        return;
+      }
+      el.textContent = this.formatTypingText(names);
+      el.classList.add('show');
+    }
+
+    async publishTypingState(active, options = {}){
+      try{
+        const connId = options.connId || this.activeConnection;
+        if (!connId || !this.currentUser?.uid) return;
+        const next = !!active;
+        const now = Date.now();
+        if (!options.force && this._typingLastSent === next && (now - this._typingLastSentAt) < 700){
+          return;
+        }
+        const uname = this.me?.username || this.currentUser.email || this.currentUser.uid;
+        const payload = { active: next, username: uname, updatedAt: new Date().toISOString() };
+        await firebase.updateDoc(firebase.doc(this.db,'chatConnections', connId), {
+          [`typing.${this.currentUser.uid}`]: payload
+        });
+        this._typingLastSent = next;
+        this._typingLastSentAt = now;
+      }catch(_){ }
+    }
+
+    syncTypingFromInput(){
+      const input = document.getElementById('message-input');
+      if (!input) return;
+      const hasText = !!String(input.value || '').trim();
+      this.publishTypingState(hasText).catch(()=>{});
+    }
+
+    startTypingListener(connId){
+      if (!connId || !firebase.onSnapshot) return;
+      this.stopTypingListener();
+      try{
+        const ref = firebase.doc(this.db,'chatConnections', connId);
+        this._typingUnsub = firebase.onSnapshot(ref, (snap)=>{
+          const data = snap.exists() ? (snap.data() || {}) : {};
+          this._typingByUid = (data && data.typing && typeof data.typing === 'object') ? data.typing : {};
+          this.renderTypingIndicator();
+        });
+        this._typingTicker = setInterval(()=> this.renderTypingIndicator(), 1500);
+      }catch(_){ }
+    }
+
+    stopTypingListener(){
+      try{ if (this._typingUnsub){ this._typingUnsub(); this._typingUnsub = null; } }catch(_){ }
+      if (this._typingTicker){ clearInterval(this._typingTicker); this._typingTicker = null; }
+      this._typingByUid = {};
+      const el = document.getElementById('typing-indicator');
+      if (el){
+        el.textContent = '';
+        el.classList.remove('show');
       }
     }
 
@@ -3576,6 +3674,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
 }
 
 window.addEventListener('beforeunload', () => {
+  try{ secureChatApp.publishTypingState(false, { force: true }); }catch(_){ }
+  try{ secureChatApp.stopTypingListener(); }catch(_){ }
   if (secureChatApp._inRoom) secureChatApp.cleanupActiveCall(false);
   if (secureChatApp._monitorStream) {
     secureChatApp._monitorStream.getTracks().forEach(t => t.stop());
