@@ -11,6 +11,7 @@ class AppsManager {
         this.searchTerm = '';
         this._autoRefreshTimer = null;
         this._activeAppUrl = '';
+        this._closingShell = false;
         this.init();
     }
 
@@ -49,7 +50,7 @@ class AppsManager {
         }
         if (frame && !frame._boundBackRelay){
             frame._boundBackRelay = true;
-            frame.addEventListener('load', ()=> this.bindShellBackBridge(frame));
+            frame.addEventListener('load', ()=> this.handleShellFrameLoad(frame));
         }
         if (!window._liberAppShellMsgBound){
             window._liberAppShellMsgBound = true;
@@ -85,6 +86,26 @@ class AppsManager {
                 this.closeAppShell();
             }, true);
         }catch(_){ /* cross-origin or transient frame state */ }
+    }
+
+    handleShellFrameLoad(frame){
+        this.bindShellBackBridge(frame);
+        // Recovery: if iframe navigates back to the control panel, close shell.
+        // Some in-app back links navigate instead of posting close messages.
+        try{
+            if (this._closingShell) return;
+            const href = String(frame?.contentWindow?.location?.href || '');
+            if (!href || href === 'about:blank') return;
+            const url = new URL(href, window.location.href);
+            const sameOrigin = url.origin === window.location.origin;
+            if (!sameOrigin) return;
+            const path = String(url.pathname || '').toLowerCase();
+            const isControlPanelPath = /\/control-panel(\/index\.html)?\/?$/.test(path);
+            const isSelfPath = path === String(window.location.pathname || '').toLowerCase();
+            if (isControlPanelPath || isSelfPath){
+                this.closeAppShell();
+            }
+        }catch(_){ }
     }
 
     /**
@@ -525,14 +546,31 @@ class AppsManager {
     }
 
     closeAppShell(){
+        if (this._closingShell) return;
+        this._closingShell = true;
         const shell = document.getElementById('app-shell');
         const frame = document.getElementById('app-shell-frame');
-        if (!shell || !frame) return;
-        frame.src = 'about:blank';
-        shell.classList.add('hidden');
-        shell.setAttribute('aria-hidden', 'true');
-        document.body.classList.remove('app-shell-open');
-        window.dispatchEvent(new Event('liber:app-shell-close'));
+        try{
+            if (!shell || !frame) return;
+            frame.src = 'about:blank';
+            shell.classList.add('hidden');
+            shell.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('app-shell-open');
+            this._activeAppUrl = '';
+            window.dispatchEvent(new Event('liber:app-shell-close'));
+            // Ensure control panel view is visible and has an active section.
+            const dashboard = document.getElementById('dashboard');
+            const authScreen = document.getElementById('auth-screen');
+            if (dashboard && authScreen && !dashboard.classList.contains('hidden') && authScreen.classList.contains('hidden')){
+                const activeSection = document.querySelector('.content-section.active');
+                if (!activeSection && window.dashboardManager && typeof window.dashboardManager.switchSection === 'function'){
+                    const preferred = (window.dashboardManager.getCurrentSection && window.dashboardManager.getCurrentSection()) || 'apps';
+                    window.dashboardManager.switchSection(preferred);
+                }
+            }
+        }finally{
+            setTimeout(()=>{ this._closingShell = false; }, 120);
+        }
     }
 
     /**

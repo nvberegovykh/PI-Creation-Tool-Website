@@ -200,19 +200,6 @@
     min-height: 0;
 }
 
-/* Add extra bottom padding on mobile so content is not hidden behind bottom nav */
-@media (max-width: 767px) {
-    .dashboard-content { padding-bottom: 140px; }
-    .content-section.active,
-    #apps-section,
-    #waveconnect-section,
-    #space-section,
-    #profile-section,
-    #feed-section {
-        padding-bottom: calc(150px + env(safe-area-inset-bottom));
-    }
-}
-
 /* If there are many icons in the bottom nav, allow horizontal scroll instead of hiding buttons */
 @media (max-width: 767px) {
     .mobile-bottom-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1048,12 +1035,6 @@
 @media (max-width: 767px) {
     .mobile-bottom-nav {
         display: flex;
-    }
-    
-    /* Add bottom padding to content to account for mobile nav */
-    .dashboard-content {
-        padding-bottom: 90px;
-        overflow: hidden;
     }
     
     /* Hide desktop navigation on mobile */

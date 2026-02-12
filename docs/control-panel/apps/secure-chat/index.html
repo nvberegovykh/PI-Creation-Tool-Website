@@ -60,7 +60,9 @@
                     </div>
                 </div>
                 <div class="mobile-quick-actions" id="mobile-quick-actions">
-                    <button id="mobile-fix-duplicates-btn" class="icon-btn" title="Fix duplicate chats"><i class="fas fa-wand-magic-sparkles"></i></button>
+                    <button id="mobile-voice-call-btn" class="icon-btn" title="Voice call"><i class="fas fa-phone"></i></button>
+                    <button id="mobile-video-call-btn" class="icon-btn" title="Video call"><i class="fas fa-video"></i></button>
+                    <button id="mobile-group-menu-btn" class="icon-btn" title="Chat settings"><i class="fas fa-users-gear"></i></button>
                     <button id="mobile-new-connection-btn" class="btn">+ Group</button>
                 </div>
                 <ul id="connections-list" class="connections-list"></ul>
@@ -121,7 +123,7 @@
 
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_CHAT_VERSION = '20260212r06';
+      window.LIBER_CHAT_VERSION = '20260212r09';
       (function loadChatScripts() {
         const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
         const scripts = [

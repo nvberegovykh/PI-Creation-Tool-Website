@@ -9,6 +9,7 @@ class DashboardManager {
         this._dashboardSuspended = false;
         this._playQueue = [];
         this._playQueueIndex = -1;
+        this._miniTitleTicker = null;
         this._waveLibraryVisible = 5;
         this._playlistsVisible = 5;
         this._videoLibraryVisible = 5;
@@ -199,6 +200,30 @@ class DashboardManager {
         return `${m}:${ss}`;
     }
 
+    setMiniTitleText(rawTitle){
+        const el = document.getElementById('mini-title');
+        if (!el) return;
+        const full = String(rawTitle || 'Now playing');
+        el.dataset.fullTitle = full;
+        if (this._miniTitleTicker){
+            clearInterval(this._miniTitleTicker);
+            this._miniTitleTicker = null;
+        }
+        if (full.length <= 20){
+            el.textContent = full;
+            return;
+        }
+        const pad = `${full}    `;
+        let i = 0;
+        const paint = ()=>{
+            const doubled = pad + pad;
+            el.textContent = doubled.slice(i, i + 20);
+            i = (i + 1) % pad.length;
+        };
+        paint();
+        this._miniTitleTicker = setInterval(paint, 220);
+    }
+
     getBgPlayer(){
         let bg = document.getElementById('bg-player');
         if (!bg){
@@ -329,7 +354,7 @@ class DashboardManager {
         const miniProgress = document.getElementById('mini-progress');
         const miniFill = document.getElementById('mini-fill');
         const miniTime = document.getElementById('mini-time');
-        if (miniTitle) miniTitle.textContent = item.title || 'Now playing';
+        this.setMiniTitleText(item.title || 'Now playing');
         if (miniBy) miniBy.textContent = item.by || '';
         if (miniCover && item.cover) miniCover.src = item.cover;
         if (mini) mini.classList.add('show');
@@ -365,12 +390,12 @@ class DashboardManager {
         if (addBtn){
             addBtn.onclick = ()=> this.openAddToPlaylistPopup({
                 src: bg.currentSrc || bg.src,
-                title: miniTitle?.textContent || item.title || 'Track',
+                title: miniTitle?.dataset?.fullTitle || miniTitle?.textContent || item.title || 'Track',
                 by: miniBy?.textContent || item.by || '',
                 cover: (miniCover && miniCover.src) || item.cover || ''
             });
         }
-        if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+        if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ bg.pause(); }catch(_){} if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
         syncMiniBtn();
         syncProgress();
         this.renderQueuePanel();
@@ -508,7 +533,7 @@ class DashboardManager {
             const miniProgress = document.getElementById('mini-progress');
             const miniFill = document.getElementById('mini-fill');
             const miniTime = document.getElementById('mini-time');
-            if (mTitle) mTitle.textContent = meta.title || 'Now playing';
+            this.setMiniTitleText(meta.title || 'Now playing');
             if (mBy) mBy.textContent = meta.by || '';
             if (mCover && meta.cover) mCover.src = meta.cover;
             if ('mediaSession' in navigator){
@@ -568,7 +593,7 @@ class DashboardManager {
                 if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
             };
             syncMiniBtn(); syncProgress();
-            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} }; }
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
             if (queueBtn && queuePanel){
                 queueBtn.onclick = ()=>{ this.renderQueuePanel(); queuePanel.style.display = queuePanel.style.display === 'none' ? 'block' : 'none'; };
             }
@@ -576,7 +601,7 @@ class DashboardManager {
             if (addBtn){
                 addBtn.onclick = ()=> this.openAddToPlaylistPopup({
                     src: source.currentSrc || source.src,
-                    title: mTitle?.textContent || meta.title || 'Track',
+                    title: mTitle?.dataset?.fullTitle || mTitle?.textContent || meta.title || 'Track',
                     by: mBy?.textContent || meta.by || '',
                     cover: (mCover && mCover.src) || meta.cover || ''
                 });
@@ -1395,8 +1420,8 @@ class DashboardManager {
                 const by = p.authorName ? `<div class=\"byline\" style=\"display:flex;align-items:center;gap:8px;margin:4px 0\"><img src=\"${p.coverUrl||p.thumbnailUrl||'images/default-bird.png'}\" alt=\"cover\" style=\"width:20px;height:20px;border-radius:50%;object-fit:cover\"><span style=\"font-size:12px;color:#aaa\">by ${(p.authorName||'').replace(/</g,'&lt;')}</span></div>` : '';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
-                div.innerHTML = `${repostBadge}<div>${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
-                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
+                div.innerHTML = `${repostBadge}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
+                                 <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <i class=\"fas fa-ellipsis-h post-menu\" title=\"More\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-edit edit-post-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-trash delete-post-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
                 // double-tap like on post content
                 const contentArea = div.querySelector('.post-text') || div;
@@ -1420,6 +1445,9 @@ class DashboardManager {
                 const commentBtn = pa.querySelector('.comment-btn');
                 const repostBtn = pa.querySelector('.repost-btn');
                 const visBtn = pa.querySelector('.visibility-btn');
+                const menuBtn = pa.querySelector('.post-menu');
+                const editBtn = pa.querySelector('.edit-post-btn');
+                const delBtn = pa.querySelector('.delete-post-btn');
                 const authorId = pa.getAttribute('data-author') || '';
                 const likesCount = pa.querySelector('.likes-count');
                 const rCount = pa.querySelector('.reposts-count');
@@ -1448,6 +1476,37 @@ class DashboardManager {
                             const s3 = await window.firebaseService.getPostStats(postId); if (rCount) rCount.textContent = `${s3.reposts||0}`;
                             this.loadMyPosts(uid);
                         }catch(_){ }
+                    };
+                }
+                if (menuBtn){
+                    menuBtn.onclick = async ()=>{
+                        try{
+                            const loc = `${location.origin}${location.pathname}#post-${postId}`;
+                            await navigator.clipboard.writeText(loc);
+                            this.showSuccess('Post link copied');
+                        }catch(_){ this.showError('Failed to copy'); }
+                    };
+                }
+                if (editBtn){
+                    if (authorId !== meUser.uid){ editBtn.style.display = 'none'; }
+                    editBtn.onclick = async ()=>{
+                        if (authorId !== meUser.uid) return;
+                        const container = pa.closest('.post-item');
+                        const textDiv = container && container.querySelector('.post-text');
+                        const current = textDiv ? textDiv.textContent : '';
+                        const next = prompt('Edit post:', current);
+                        if (next === null) return;
+                        await window.firebaseService.updatePost(postId, { text: String(next || '').trim() });
+                        this.loadMyPosts(uid);
+                    };
+                }
+                if (delBtn){
+                    if (authorId !== meUser.uid){ delBtn.style.display = 'none'; }
+                    delBtn.onclick = async ()=>{
+                        if (authorId !== meUser.uid) return;
+                        if (!confirm('Delete this post?')) return;
+                        await window.firebaseService.deletePost(postId);
+                        this.loadMyPosts(uid);
                     };
                 }
                 commentBtn.onclick = async ()=>{

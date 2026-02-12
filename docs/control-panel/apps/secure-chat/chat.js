@@ -47,6 +47,8 @@ import { runTransaction } from 'firebase/firestore';
       this._typingByUid = {};
       this._typingLastSent = false;
       this._typingLastSentAt = 0;
+      this._recordMode = 'audio';
+      this._recFacing = 'user';
       this.init();
     }
 
@@ -441,7 +443,9 @@ import { runTransaction } from 'firebase/firestore';
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
-      const fixDupMobileBtn = document.getElementById('mobile-fix-duplicates-btn'); if (fixDupMobileBtn) fixDupMobileBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
+      const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
+      const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(true));
+      const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=> this.toggleGroupPanel());
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       // Drag & Drop upload within chat app area
@@ -637,8 +641,9 @@ import { runTransaction } from 'firebase/firestore';
         actionBtn.style.borderRadius = '12px';
         actionBtn.style.color = '#fff';
       } else {
-        actionBtn.title = 'Voice message';
-        actionBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+        const isVideoMode = this._recordMode === 'video';
+        actionBtn.title = isVideoMode ? 'Video message' : 'Voice message';
+        actionBtn.innerHTML = `<i class="fas ${isVideoMode ? 'fa-video' : 'fa-microphone'}"></i>`;
         actionBtn.style.background = 'transparent';
         actionBtn.style.color = '';
       }
@@ -654,16 +659,9 @@ import { runTransaction } from 'firebase/firestore';
       if (input && input.value.trim().length){
         this.sendCurrent();
       } else {
-        // short click toggles to video icon then back to mic
-        const btn = document.getElementById('action-btn');
-        if (!this._lastActionToggle || (Date.now() - this._lastActionToggle) > 1200){
-          btn.innerHTML = '<i class="fas fa-video"></i>';
-          btn.title = 'Video message';
-          this._lastActionToggle = Date.now();
-          setTimeout(()=> this.refreshActionButton(), 1200);
-        } else {
-          this.refreshActionButton();
-        }
+        // Toggle stable recording mode (audio <-> video)
+        this._recordMode = this._recordMode === 'video' ? 'audio' : 'video';
+        this.refreshActionButton();
       }
     }
 
@@ -673,11 +671,33 @@ import { runTransaction } from 'firebase/firestore';
       const indicator = document.getElementById('recording-indicator');
       this._pressTimer = setTimeout(async()=>{
         try{
-          if (indicator) { indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-microphone'; }
-          await this.recordVoiceMessage();
+          const useVideo = this._recordMode === 'video';
+          if (indicator) { indicator.classList.remove('hidden'); indicator.querySelector('i').className = `fas ${useVideo ? 'fa-video' : 'fa-microphone'}`; }
+          if (useVideo) await this.recordVideoMessage();
+          else await this.recordVoiceMessage();
         }catch(err){ alert('Recording failed'); }
         finally{ if (indicator) indicator.classList.add('hidden'); }
       }, 400);
+    }
+
+    getPreferredMediaRecorderOptions(kind = 'audio'){
+      try{
+        const MR = window.MediaRecorder;
+        if (!MR || typeof MR.isTypeSupported !== 'function') return {};
+        if (kind === 'video'){
+          const videoTypes = [
+            'video/webm;codecs=vp9,opus',
+            'video/webm;codecs=vp8,opus',
+            'video/webm;codecs=h264,opus',
+            'video/webm'
+          ];
+          const chosen = videoTypes.find((t)=> MR.isTypeSupported(t));
+          return chosen ? { mimeType: chosen } : {};
+        }
+        const audioTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+        const chosen = audioTypes.find((t)=> MR.isTypeSupported(t));
+        return chosen ? { mimeType: chosen } : {};
+      }catch(_){ return {}; }
     }
 
     handleActionPressEnd(){
@@ -1156,7 +1176,12 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const hasFile = !!m.fileUrl && !!m.fileName;
+            const inferredFileName = m.fileName
+              || (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
+              || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
+              || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
+              || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
+            const hasFile = !!m.fileUrl && !!inferredFileName;
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
             let bodyHtml = this.renderText(cleanedText);
@@ -1184,13 +1209,13 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey, sourceConnId);
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, sourceConnId);
             }
             // Bind edit/delete/replace for own messages
             if (canModify){
@@ -1315,7 +1340,12 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const hasFile = !!m.fileUrl && !!m.fileName;
+            const inferredFileName = m.fileName
+              || (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
+              || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
+              || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
+              || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
+            const hasFile = !!m.fileUrl && !!inferredFileName;
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
             let bodyHtml = this.renderText(cleanedText);
@@ -1342,13 +1372,13 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay2 = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, m.fileName, aesKey);
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey);
             }
           });
           box.scrollTop = box.scrollHeight;
@@ -2445,6 +2475,7 @@ import { runTransaction } from 'firebase/firestore';
         if (userGroup) userGroup.style.display='none';
         if (msgGroup) msgGroup.style.display='none';
         this.updateSidebarSearchState(false);
+        if (this.isMobileViewport()) this.setMobileMenuOpen(false);
         return;
       }
       try{
@@ -2558,11 +2589,13 @@ import { runTransaction } from 'firebase/firestore';
           const hasResults = (filtered.length>0 || matches.length>0);
           wrapper.style.display = hasResults ? 'block':'none';
           this.updateSidebarSearchState(hasResults);
+          if (!hasResults && this.isMobileViewport()) this.setMobileMenuOpen(false);
         }
       }catch(e){
         console.warn('Search failed', e);
         if (wrapper) wrapper.style.display='none';
         this.updateSidebarSearchState(false);
+        if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       }
     }
 
@@ -3473,15 +3506,15 @@ import { runTransaction } from 'firebase/firestore';
     async recordVoiceMessage(){
       try{
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        await this.captureMedia(stream, { mimeType: 'audio/webm' }, 60_000, 'voice.webm');
+        await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('audio'), 60_000, 'voice.webm');
       }catch(e){ console.warn('Voice record unavailable', e); }
     }
     async recordVideoMessage(){
       try{
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: this._recFacing || 'user' } });
         const indicator = document.getElementById('recording-indicator');
         if (indicator){ indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-video'; }
-        await this.captureMedia(stream, { mimeType: 'video/webm;codecs=vp9' }, 30_000, 'video.webm');
+        await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('video'), 30_000, 'video.webm');
         if (indicator){ indicator.classList.add('hidden'); }
       }catch(e){ console.warn('Video record unavailable', e); }
     }
