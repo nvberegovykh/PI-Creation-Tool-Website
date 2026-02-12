@@ -76,16 +76,17 @@ class AppsManager {
             doc._liberBackBridgeBound = true;
             doc.addEventListener('click', (e)=>{
                 const t = e.target && e.target.closest
-                    ? e.target.closest('#back-btn, [data-close-shell], [onclick*="history.back"], [id*="back"], [class*="back"], [id*="close"], [class*="close"], [id*="quit"], [class*="quit"], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
+                    ? e.target.closest('#back-btn, [data-close-shell], [onclick*="history.back"], [id*="back"], [class*="back"], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
                     : null;
                 if (!t) return;
                 const href = (t.getAttribute && t.getAttribute('href')) || '';
                 const idClass = `${(t.id || '')} ${(t.className || '')}`.toLowerCase();
+                const hasBackToken = /(^|[\s_-])back([\s_-]|$)|\bgo-back\b|\bback-btn\b/.test(idClass);
                 const isBack = t.id === 'back-btn'
                     || t.hasAttribute('data-close-shell')
                     || /index\.html(\?|$)/i.test(href)
-                    || t.hasAttribute('onclick')
-                    || /\b(back|close|quit)\b/.test(idClass);
+                    || hasBackToken
+                    || (t.getAttribute && /history\.back\s*\(/i.test(String(t.getAttribute('onclick') || '')));
                 if (!isBack) return;
                 e.preventDefault();
                 e.stopPropagation();

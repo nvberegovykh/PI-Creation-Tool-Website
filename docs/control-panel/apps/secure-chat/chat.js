@@ -49,6 +49,11 @@ import { runTransaction } from 'firebase/firestore';
       this._typingLastSentAt = 0;
       this._recordMode = 'audio';
       this._recFacing = 'user';
+      this._setActiveSeq = 0;
+      this._actionPressArmed = false;
+      this._isRecordingByHold = false;
+      this._suppressActionClickUntil = 0;
+      this._recordingSendInFlight = false;
       this.init();
     }
 
@@ -106,6 +111,20 @@ import { runTransaction } from 'firebase/firestore';
       if (/^\[sticker\]/i.test(raw)) return '';
       if (/^\[(voice|video) message\]/i.test(raw)) return '';
       return raw;
+    }
+
+    inferAttachmentFileName(msg, text){
+      const fileName = String(msg?.fileName || '').trim();
+      if (fileName) return fileName;
+      const plain = String(text || '').trim();
+      const preview = String(msg?.previewText || '').trim();
+      const url = String(msg?.fileUrl || '');
+      if (/^\[voice message\]/i.test(plain) || /\bvoice\b|\baudio\b/i.test(preview) || /\bvoice\b|\baudio\b/i.test(url)) return 'voice.webm';
+      if (/^\[video message\]/i.test(plain) || /\bvideo\b/i.test(preview) || /\bvideo\b/i.test(url)) return 'video.webm';
+      if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video.mp4';
+      if (/\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.test(url)) return 'voice.webm';
+      if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return 'image.jpg';
+      return '';
     }
 
     getRecentAttachments(){
@@ -171,7 +190,7 @@ import { runTransaction } from 'firebase/firestore';
         row.onclick = async ()=>{
           panel.remove();
           backdrop.remove();
-          await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+          await this.saveMessage({ text: '[file]', fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
         };
         return row;
       };
@@ -204,7 +223,7 @@ import { runTransaction } from 'firebase/firestore';
         tile.onclick = async ()=>{
           panel.remove();
           backdrop.remove();
-          await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+          await this.saveMessage({ text: '[file]', fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
         };
         return tile;
       };
@@ -534,6 +553,12 @@ import { runTransaction } from 'firebase/firestore';
       }
       actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
       ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
+      if (!this._globalRecReleaseBound){
+        this._globalRecReleaseBound = true;
+        window.addEventListener('mouseup', ()=> this.handleActionPressEnd(), true);
+        window.addEventListener('touchend', ()=> this.handleActionPressEnd(), true);
+        window.addEventListener('touchcancel', ()=> this.handleActionPressEnd(), true);
+      }
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         if (this.isMobileViewport()) return this.showAttachmentQuickActions();
         document.getElementById('file-input').click();
@@ -800,8 +825,13 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     handleActionButton(){
+      if (Date.now() < (this._suppressActionClickUntil || 0)) return;
       const input = document.getElementById('message-input');
       const review = document.getElementById('recording-review');
+      if (this._activeRecorder && this._recStop){
+        try{ this._recStop(); }catch(_){ }
+        return;
+      }
       if (review && !review.classList.contains('hidden')){
         const sendBtn = document.getElementById('send-recording-btn');
         if (sendBtn){ sendBtn.click(); return; }
@@ -818,16 +848,27 @@ import { runTransaction } from 'firebase/firestore';
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
       if (input && input.value.trim().length) return; // only record when empty
+      if (this._activeRecorder) return;
+      this._actionPressArmed = true;
+      if (e && e.type === 'touchstart'){
+        // Ignore synthetic click fired after touchend.
+        this._suppressActionClickUntil = Date.now() + 650;
+      }
+      if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
       const indicator = document.getElementById('recording-indicator');
       this._pressTimer = setTimeout(async()=>{
+        this._isRecordingByHold = true;
         try{
           const useVideo = this._recordMode === 'video';
           if (indicator) { indicator.classList.remove('hidden'); indicator.querySelector('i').className = `fas ${useVideo ? 'fa-video' : 'fa-microphone'}`; }
           if (useVideo) await this.recordVideoMessage();
           else await this.recordVoiceMessage();
         }catch(err){ alert('Recording failed'); }
-        finally{ if (indicator) indicator.classList.add('hidden'); }
-      }, 400);
+        finally{
+          if (indicator) indicator.classList.add('hidden');
+          this._actionPressArmed = false;
+        }
+      }, 280);
     }
 
     getPreferredMediaRecorderOptions(kind = 'audio'){
@@ -852,8 +893,13 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     handleActionPressEnd(){
+      if (!this._actionPressArmed && !this._isRecordingByHold && !this._pressTimer) return;
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
-      try{ if (this._recStop) this._recStop(); }catch(_){ }
+      if (this._isRecordingByHold){
+        try{ if (this._recStop) this._recStop(); }catch(_){ }
+      }
+      this._isRecordingByHold = false;
+      this._actionPressArmed = false;
       const indicator = document.getElementById('recording-indicator'); if (indicator) indicator.classList.add('hidden');
       this.refreshActionButton();
     }
@@ -1097,10 +1143,13 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async setActive(connId, displayName){
+      const setSeq = (this._setActiveSeq || 0) + 1;
+      this._setActiveSeq = setSeq;
       // Always resolve to one canonical chat doc for this participant key, so
       // chat search / sidebar / personal-space popup all open the same thread.
       const shouldResolve = String(connId || '').includes('|');
       const resolvedConnId = shouldResolve ? await this.resolveCanonicalConnectionId(connId) : connId;
+      if (setSeq !== this._setActiveSeq) return;
       const prevConn = this.activeConnection;
       if (prevConn && prevConn !== (resolvedConnId || connId)){
         this.publishTypingState(false, { force: true, connId: prevConn }).catch(()=>{});
@@ -1112,6 +1161,7 @@ import { runTransaction } from 'firebase/firestore';
       let activeConnData = null;
       if (!displayName) {
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+        if (setSeq !== this._setActiveSeq) return;
         if (snap.exists()) {
           const data = snap.data();
           activeConnData = data;
@@ -1130,9 +1180,11 @@ import { runTransaction } from 'firebase/firestore';
       if (!activeConnData){
         try{
           const snap2 = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+          if (setSeq !== this._setActiveSeq) return;
           activeConnData = snap2.exists() ? (snap2.data() || null) : null;
         }catch(_){ activeConnData = null; }
       }
+      if (setSeq !== this._setActiveSeq) return;
       this.updateChatScopeUI(activeConnData);
       document.getElementById('active-connection-name').textContent = displayName;
       const topTitle = document.getElementById('chat-top-title');
@@ -1140,9 +1192,11 @@ import { runTransaction } from 'firebase/firestore';
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.startTypingListener(this.activeConnection);
       await this.loadMessages();
+      if (setSeq !== this._setActiveSeq) return;
       // If current user is not a participant of this connection, show banner to recreate with same users
       try{
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+        if (setSeq !== this._setActiveSeq) return;
         if (snap.exists()){
           const data = snap.data();
           const parts = Array.isArray(data.participants)
@@ -1343,11 +1397,7 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const inferredFileName = (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
-              || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
-              || m.fileName
-              || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
-              || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
+            const inferredFileName = this.inferAttachmentFileName(m, text);
             const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
@@ -1480,7 +1530,8 @@ import { runTransaction } from 'firebase/firestore';
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          snap.forEach(async d=>{
+          for (const d of (snap.docs || [])){
+            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const m=d.data();
             let text='';
             if (typeof m.text === 'string' && !m.cipher){
@@ -1513,11 +1564,7 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const inferredFileName = (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
-              || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
-              || m.fileName
-              || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
-              || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
+            const inferredFileName = this.inferAttachmentFileName(m, text);
             const hasFile = !!m.fileUrl;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
@@ -1537,6 +1584,7 @@ import { runTransaction } from 'firebase/firestore';
             if (stickerDataMatch){
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
+            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName);
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -1558,7 +1606,7 @@ import { runTransaction } from 'firebase/firestore';
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
-          });
+          }
           box.scrollTop = box.scrollHeight;
           updateBottomUi();
         }catch(e){
@@ -1661,9 +1709,9 @@ import { runTransaction } from 'firebase/firestore';
       if (fileUrl){
         if (this.isAudioFilename(inferredName)) nextText = '[voice message]';
         else if (this.isVideoFilename(inferredName)) nextText = '[video message]';
-        else if (!nextText || /^\[file\]/i.test(nextText)) nextText = `[file] ${inferredName || 'file'}`;
+        else if (!nextText || /^\[file\]/i.test(nextText)) nextText = '[file]';
       }
-      if (!nextText && fileUrl) nextText = `[file] ${inferredName || 'file'}`;
+      if (!nextText && fileUrl) nextText = '[file]';
       return { text: nextText, fileUrl: fileUrl || null, fileName: inferredName || null };
     }
 
@@ -1727,7 +1775,16 @@ import { runTransaction } from 'firebase/firestore';
       const existingBackdrop = document.getElementById('msg-share-backdrop');
       if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); }
       const targets = (this.connections || []).filter((c)=> c && c.id && c.id !== this.activeConnection);
-      if (!targets.length){ alert('No other chats to share into yet'); return; }
+      const seenShareTargetKeys = new Set();
+      const dedupedTargets = [];
+      targets.forEach((c)=>{
+        const participants = this.getConnParticipants(c).filter((uid)=> uid && uid !== this.currentUser.uid).sort();
+        const key = participants.length ? participants.join('|') : `id:${c.id}`;
+        if (seenShareTargetKeys.has(key)) return;
+        seenShareTargetKeys.add(key);
+        dedupedTargets.push(c);
+      });
+      if (!dedupedTargets.length){ alert('No other chats to share into yet'); return; }
 
       const backdrop = document.createElement('div');
       backdrop.id = 'msg-share-backdrop';
@@ -1742,7 +1799,7 @@ import { runTransaction } from 'firebase/firestore';
       const render = (term = '')=>{
         const q = String(term || '').trim().toLowerCase();
         list.innerHTML = '';
-        targets
+        dedupedTargets
           .filter((c)=> this.getConnectionDisplayName(c).toLowerCase().includes(q))
           .forEach((c)=>{
             const row = document.createElement('button');
@@ -3903,19 +3960,20 @@ import { runTransaction } from 'firebase/firestore';
         this._activeRecorder = rec; this._activeStream = stream; this._recStop = stopAll;
         this.showLiveRecordingPreview(stream);
         rec.ondataavailable = (e)=>{ if (e.data && e.data.size) chunks.push(e.data); };
+        const hardStopTimer = setTimeout(stopAll, maxMs);
         rec.onstop = async ()=>{
           try{
+            clearTimeout(hardStopTimer);
             this.hideLiveRecordingPreview();
             const blob = new Blob(chunks, { type: options.mimeType || 'application/octet-stream' });
             // stage for review
             this._pendingRecording = { blob, type: (options.mimeType||'application/octet-stream'), filename };
             this.showRecordingReview(blob, filename);
           }catch(_){ }
-          this._activeRecorder = null; this._activeStream = null; this._recStop = null;
+          this._activeRecorder = null; this._activeStream = null; this._recStop = null; this._isRecordingByHold = false;
           resolve();
         };
         rec.start();
-        setTimeout(stopAll, maxMs);
       });
     }
 
@@ -4148,6 +4206,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     const input = document.getElementById('message-input'); if (input) input.style.display='none';
     const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>'; actionBtn.title = 'Send'; }
     const self = window.secureChatApp;
+    self._recordingSendInFlight = false;
     if (switchBtn){ switchBtn.style.display = isVideo ? 'inline-block':'none'; }
     if (switchBtn && isVideo){
       switchBtn.onclick = async ()=>{
@@ -4163,10 +4222,26 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       };
     }
     sendBtn.onclick = async ()=>{
+      if (self._recordingSendInFlight) return;
+      self._recordingSendInFlight = true;
+      sendBtn.disabled = true;
+      discardBtn.disabled = true;
+      sendBtn.style.opacity = '0.65';
+      discardBtn.style.opacity = '0.65';
+      // Hide/clear review immediately to prevent duplicate sends and UI freeze.
+      review.classList.add('hidden');
+      player.innerHTML = '';
+      if (input) input.style.display='';
+      if (actionBtn){ actionBtn.innerHTML = `<i class="fas ${self._recordMode === 'video' ? 'fa-video' : 'fa-microphone'}"></i>`; actionBtn.title = self._recordMode === 'video' ? 'Video message' : 'Voice message'; }
       // Validate storage availability
       if (!self.storage) {
         console.error('Storage not available for recording');
         alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
+        self._recordingSendInFlight = false;
+        sendBtn.disabled = false;
+        discardBtn.disabled = false;
+        sendBtn.style.opacity = '';
+        discardBtn.style.opacity = '';
         return;
       }
 
@@ -4178,6 +4253,11 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       } catch (err) {
         console.error('Auth refresh failed before recording send:', err);
         alert('Auth error - please reload and re-login');
+        self._recordingSendInFlight = false;
+        sendBtn.disabled = false;
+        discardBtn.disabled = false;
+        sendBtn.style.opacity = '';
+        discardBtn.style.opacity = '';
         return;
       }
       try {
@@ -4203,10 +4283,24 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         }
       }
       finally{
-        review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton();
+        self._recordingSendInFlight = false;
+        sendBtn.disabled = false;
+        discardBtn.disabled = false;
+        sendBtn.style.opacity = '';
+        discardBtn.style.opacity = '';
+        review.classList.add('hidden');
+        player.innerHTML='';
+        if (input) input.style.display='';
+        self.refreshActionButton();
       }
     };
-    discardBtn.onclick = ()=>{ review.classList.add('hidden'); player.innerHTML=''; if (input) input.style.display=''; self.refreshActionButton(); };
+    discardBtn.onclick = ()=>{
+      if (self._recordingSendInFlight) return;
+      review.classList.add('hidden');
+      player.innerHTML='';
+      if (input) input.style.display='';
+      self.refreshActionButton();
+    };
   }catch(_){ }
 };
 }

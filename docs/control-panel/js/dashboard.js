@@ -1622,7 +1622,7 @@ class DashboardManager {
                     const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                        item.innerHTML = `<div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
                         <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
                           <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                           <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
@@ -1888,7 +1888,7 @@ class DashboardManager {
                         const renderNode = (node, container)=>{
                             const item = document.createElement('div');
                             item.className = 'comment-item';
-                            item.innerHTML = `<div class=\"comment-text\"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                            item.innerHTML = `<div class=\"comment-text\">${(node.text||'').replace(/</g,'&lt;')}</div>
                             <div class=\"comment-actions\" data-comment-id=\"${node.id}\" data-author=\"${node.authorId}\" style=\"display:flex;gap:8px;margin-top:4px\">
                               <span class=\"reply-btn\" style=\"cursor:pointer\"><i class=\"fas fa-reply\"></i> Reply</span>
                               <i class=\"fas fa-edit edit-comment-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>
@@ -2046,7 +2046,7 @@ class DashboardManager {
                     const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div class="comment-text"><i class=\"fas fa-comment\"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+                        item.innerHTML = `<div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
                         <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
                           <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                           <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
@@ -4081,7 +4081,7 @@ Do you want to proceed?`);
         const renderNode = (node, parent) => {
           const item = document.createElement('div');
           item.className = 'comment-item';
-          item.innerHTML = `<div class="comment-text"><i class="fas fa-comment"></i> ${(node.text||'').replace(/</g,'&lt;')}</div>
+          item.innerHTML = `<div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
           <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
             <span class="reply-btn" style="cursor:pointer"><i class="fas fa-reply"></i> Reply</span>
             <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
