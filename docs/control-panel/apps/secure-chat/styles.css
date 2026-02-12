@@ -91,7 +91,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .messages::-webkit-scrollbar{width:0;height:0}
 .message{max-width:72%;padding:12px 14px;border-radius:14px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere}
-.message{animation:msgPop .16s ease}
+.message{animation:none}
 .message,.connections-list li{word-break:break-word;overflow-wrap:anywhere}
 .message img,.message .file-link{max-width:100%}
 .message.self{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
@@ -179,7 +179,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .recording-review audio,.recording-review video{ max-width:100%; width:100%; border-radius:8px; background:#000 }
 .recording-review video.circular{ width:180px; height:180px; border-radius:50%; object-fit:cover }
 .review-actions{ display:flex; gap:8px; margin-left:auto }
-.review-actions #send-recording-btn{ display:none !important; }
+.review-actions #send-recording-btn{ display:inline-flex !important; }
 #recording-player{ flex:1; min-width: 0; }
 /* Group management */
 .group-panel{position:absolute;top:68px;right:16px;width:320px;max-height:320px;overflow:auto;background:#111418;border:1px solid #2a2f36;border-radius:10px;padding:10px;box-shadow:0 10px 24px rgba(0,0,0,.4);z-index:92}
@@ -249,11 +249,11 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
     position: fixed !important;
     left: 8px !important;
     right: 8px !important;
-    bottom: calc(104px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(146px + env(safe-area-inset-bottom)) !important;
     width: auto !important;
     max-width: none !important;
     max-height: min(56vh, 420px) !important;
-    z-index: 99 !important;
+    z-index: 110 !important;
   }
 }
 
@@ -265,8 +265,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .chat-header input{font-size:16px}
 
 .mobile-sidebar-tip{display:none;width:100%;height:24px;border:none;background:transparent;color:#8b97a8;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:transform .2s ease}
-.mobile-sidebar-tip i{transition:transform .2s ease}
-.sidebar.open .mobile-sidebar-tip i{transform:rotate(180deg)}
+.mobile-sidebar-tip i{transition:transform .2s ease;transform:rotate(180deg)}
+.sidebar.open .mobile-sidebar-tip i{transform:rotate(0deg)}
 @keyframes msgPop{
   from{transform:translateY(3px);opacity:.5}
   to{transform:translateY(0);opacity:1}

@@ -127,20 +127,43 @@ import { runTransaction } from 'firebase/firestore';
 
     showAttachmentQuickActions(){
       const existing = document.getElementById('attachment-quick-actions');
-      if (existing){ existing.remove(); return; }
+      const existingBackdrop = document.getElementById('attachment-quick-actions-backdrop');
+      if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); return; }
+      const backdrop = document.createElement('div');
+      backdrop.id = 'attachment-quick-actions-backdrop';
+      backdrop.style.cssText = 'position:fixed;inset:0;z-index:96;background:transparent';
       const panel = document.createElement('div');
       panel.id = 'attachment-quick-actions';
-      panel.style.cssText = 'position:absolute;left:8px;right:8px;bottom:72px;z-index:95;background:#10141c;border:1px solid #2a2f36;border-radius:10px;padding:8px;max-height:220px;overflow:auto';
+      panel.style.cssText = 'position:fixed;left:8px;right:8px;bottom:calc(118px + env(safe-area-inset-bottom));z-index:97;background:#10141c;border:1px solid #2a2f36;border-radius:10px;padding:8px;max-height:58vh;overflow:auto';
       const upload = document.createElement('button');
       upload.className = 'btn secondary';
       upload.textContent = 'Choose files';
       upload.style.marginBottom = '8px';
       upload.onclick = ()=>{
         panel.remove();
+        backdrop.remove();
         const picker = document.getElementById('file-input');
         if (picker) picker.click();
       };
       panel.appendChild(upload);
+      const mineTitle = document.createElement('div');
+      mineTitle.textContent = 'My media';
+      mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
+      panel.appendChild(mineTitle);
+      this.loadMyMediaQuickChoices().then((items)=>{
+        (items || []).slice(0, 24).forEach((a)=>{
+          const row = document.createElement('button');
+          row.className = 'btn secondary';
+          row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+          row.textContent = `${a.fileName || 'Media'} • ${this.formatMessageTime(a.sentAt)}`;
+          row.onclick = async ()=>{
+            panel.remove();
+            backdrop.remove();
+            await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+          };
+          panel.appendChild(row);
+        });
+      }).catch(()=>{});
       this.getRecentAttachments().forEach((a)=>{
         const row = document.createElement('button');
         row.className = 'btn secondary';
@@ -148,12 +171,54 @@ import { runTransaction } from 'firebase/firestore';
         row.textContent = `${a.fileName || 'Attachment'} • ${this.formatMessageTime(a.sentAt)}`;
         row.onclick = async ()=>{
           panel.remove();
+          backdrop.remove();
           await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
         };
         panel.appendChild(row);
       });
-      const root = document.querySelector('.main');
-      if (root) root.appendChild(panel);
+      const root = document.body;
+      if (root){ root.appendChild(backdrop); root.appendChild(panel); }
+      backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
+      panel.addEventListener('click', (e)=> e.stopPropagation());
+    }
+
+    async loadMyMediaQuickChoices(){
+      const out = [];
+      try{
+        if (!this.db || !this.currentUser?.uid) return out;
+        const me = this.currentUser.uid;
+        try{
+          const qWave = firebase.query(firebase.collection(this.db,'wave'), firebase.where('ownerId','==', me), firebase.limit(20));
+          const sWave = await firebase.getDocs(qWave);
+          sWave.forEach((d)=>{
+            const w = d.data() || {};
+            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, sentAt: w.createdAt || new Date().toISOString() });
+          });
+        }catch(_){ }
+        try{
+          const qVid = firebase.query(firebase.collection(this.db,'videos'), firebase.where('owner','==', me), firebase.limit(20));
+          const sVid = await firebase.getDocs(qVid);
+          sVid.forEach((d)=>{
+            const v = d.data() || {};
+            if (v.url) out.push({ fileUrl: v.url, fileName: `${v.title || 'Video'}.mp4`, sentAt: v.createdAt || new Date().toISOString() });
+          });
+        }catch(_){ }
+        try{
+          const qPost = firebase.query(firebase.collection(this.db,'posts'), firebase.where('authorId','==', me), firebase.limit(40));
+          const sPost = await firebase.getDocs(qPost);
+          sPost.forEach((d)=>{
+            const p = d.data() || {};
+            const media = Array.isArray(p.media) ? p.media : (p.mediaUrl ? [p.mediaUrl] : []);
+            media.forEach((u, idx)=>{
+              if (!u) return;
+              const ext = (String(u).match(/\.(png|jpe?g|gif|webp|mp4|webm|mov|mkv|mp3|wav|m4a|aac|ogg)(\?|$)/i) || [,'bin'])[1];
+              out.push({ fileUrl: u, fileName: `${p.text || 'Media'}_${idx + 1}.${ext}`, sentAt: p.createdAt || new Date().toISOString() });
+            });
+          });
+        }catch(_){ }
+      }catch(_){ }
+      out.sort((a,b)=> new Date(b.sentAt||0) - new Date(a.sentAt||0));
+      return out;
     }
 
     getConnParticipants(data){
@@ -441,11 +506,11 @@ import { runTransaction } from 'firebase/firestore';
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom(false));
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
-      const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
+      const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
       const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(true));
-      const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=> this.toggleGroupPanel());
+      const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       // Drag & Drop upload within chat app area
@@ -644,8 +709,9 @@ import { runTransaction } from 'firebase/firestore';
         const isVideoMode = this._recordMode === 'video';
         actionBtn.title = isVideoMode ? 'Video message' : 'Voice message';
         actionBtn.innerHTML = `<i class="fas ${isVideoMode ? 'fa-video' : 'fa-microphone'}"></i>`;
-        actionBtn.style.background = 'transparent';
-        actionBtn.style.color = '';
+        actionBtn.style.background = '#2563eb';
+        actionBtn.style.borderRadius = '12px';
+        actionBtn.style.color = '#fff';
       }
     }
 
@@ -689,7 +755,8 @@ import { runTransaction } from 'firebase/firestore';
             'video/webm;codecs=vp9,opus',
             'video/webm;codecs=vp8,opus',
             'video/webm;codecs=h264,opus',
-            'video/webm'
+            'video/webm',
+            'video/mp4'
           ];
           const chosen = videoTypes.find((t)=> MR.isTypeSupported(t));
           return chosen ? { mimeType: chosen } : {};
@@ -957,10 +1024,12 @@ import { runTransaction } from 'firebase/firestore';
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
       // Resolve displayName if not provided
+      let activeConnData = null;
       if (!displayName) {
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
         if (snap.exists()) {
           const data = snap.data();
+          activeConnData = data;
           const parts = Array.isArray(data.participants)
             ? data.participants
             : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
@@ -973,6 +1042,13 @@ import { runTransaction } from 'firebase/firestore';
         }
         displayName = displayName || 'Chat';
       }
+      if (!activeConnData){
+        try{
+          const snap2 = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+          activeConnData = snap2.exists() ? (snap2.data() || null) : null;
+        }catch(_){ activeConnData = null; }
+      }
+      this.updateChatScopeUI(activeConnData);
       document.getElementById('active-connection-name').textContent = displayName;
       const topTitle = document.getElementById('chat-top-title');
       if (topTitle) topTitle.textContent = displayName;
@@ -1020,15 +1096,21 @@ import { runTransaction } from 'firebase/firestore';
       const gp = document.getElementById('group-panel'); if (gp){ await this.renderGroupPanel(); }
     }
 
+    updateChatScopeUI(connData){
+      const parts = this.getConnParticipants(connData || {});
+      const isPersonal = parts.length <= 2;
+      this._isPersonalChat = isPersonal;
+      const groupBtn = document.getElementById('group-menu-btn');
+      const mobileGroupBtn = document.getElementById('mobile-group-menu-btn');
+      if (groupBtn) groupBtn.style.display = isPersonal ? 'none' : '';
+      if (mobileGroupBtn) mobileGroupBtn.style.display = isPersonal ? 'none' : '';
+    }
+
     async loadMessages(){
       const box = document.getElementById('messages');
       if (!box) return;
       if (!this.activeConnection) return;
       const activeConnId = this.activeConnection;
-      // Force a fresh first render whenever this chat is opened again.
-      this._lastRenderSigByConn.delete(activeConnId);
-      this._lastDocIdsByConn.delete(activeConnId);
-      this._lastDayByConn.delete(activeConnId);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       // Ensure a persistent scroll-to-latest affordance exists.
@@ -1176,9 +1258,9 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const inferredFileName = m.fileName
-              || (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
+            const inferredFileName = (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
               || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
+              || m.fileName
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
             const hasFile = !!m.fileUrl && !!inferredFileName;
@@ -1340,9 +1422,9 @@ import { runTransaction } from 'firebase/firestore';
                 senderName = 'Unknown';
               }
             }
-            const inferredFileName = m.fileName
-              || (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
+            const inferredFileName = (/^\[voice message\]/i.test(text||'') ? 'voice.webm' : '')
               || (/^\[video message\]/i.test(text||'') ? 'video.webm' : '')
+              || m.fileName
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
             const hasFile = !!m.fileUrl && !!inferredFileName;
@@ -1696,11 +1778,11 @@ import { runTransaction } from 'firebase/firestore';
       // Store PNGs to Firebase Storage encrypted, keep manifest locally with storage URLs
       for (const f of fileList){
         if (!/^image\//i.test(f.type || '')) continue;
+        const safeName = (f.name || 'sticker.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         try{
           const aesKey = await this.getFallbackKey();
           const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
           const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-          const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
           const path = `stickers/${this.currentUser.uid}/${Date.now()}_${safeName}.enc.json`;
           const sref = firebase.ref(this.storage, path);
           await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
@@ -1726,12 +1808,12 @@ import { runTransaction } from 'firebase/firestore';
       if (packList) packList.style.display = tab === 'stickers' ? 'grid' : 'none';
 
       if (tab === 'emoji'){
-        const emojis = ['😀','😂','😍','😎','🥹','🔥','👍','🙏','🎉','❤️','🤖','😴','🎵','🚀','💙','✨'];
+        const emojis = '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫡 🤭 🫢 🤫 🤥 😶 😐 😑 😬 🫠 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 😵‍💫 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 ❤️ 🩷 🧡 💛 💚 💙 🩵 💜 🤎 🖤 🤍 💯 👍 👎 🙌 👏 🙏 🤝 💪 👀 🚀 ✨ 🔥 🎉 🎵'.split(/\s+/);
         emojis.forEach(ch=>{
           const cell = document.createElement('div');
           cell.className = 'sticker-pack-chip';
           cell.textContent = ch;
-          cell.style.fontSize = '24px';
+          cell.style.fontSize = '56px';
           cell.addEventListener('click', async ()=> this.saveMessage({ text: ch }));
           grid.appendChild(cell);
         });
@@ -1743,6 +1825,7 @@ import { runTransaction } from 'firebase/firestore';
           const resp = await fetch('https://tenor.googleapis.com/v2/featured?key=LIVDSRZULELA&limit=18&media_filter=tinygif');
           const json = await resp.json();
           const rows = Array.isArray(json?.results) ? json.results : [];
+          if (!rows.length) throw new Error('No gifs');
           rows.forEach((g)=>{
             const media = g?.media_formats?.tinygif || g?.media_formats?.gif;
             const url = media?.url;
@@ -1759,7 +1842,26 @@ import { runTransaction } from 'firebase/firestore';
             grid.appendChild(img);
           });
         }catch(_){
-          grid.innerHTML = '<div style="opacity:.8;padding:8px">Unable to load GIFs right now.</div>';
+          const fallback = [
+            'https://media.tenor.com/3x63SNMKPogAAAAM/hello.gif',
+            'https://media.tenor.com/uR6w0kQx5jEAAAAM/happy-dance.gif',
+            'https://media.tenor.com/XC6F6o5s0rUAAAAM/thumbs-up.gif',
+            'https://media.tenor.com/VgG8o1HqzqgAAAAM/love-heart.gif',
+            'https://media.tenor.com/9ptm6v4jYQYAAAAM/party-celebrate.gif',
+            'https://media.tenor.com/eYQw9hVh7xMAAAAM/cat-funny.gif'
+          ];
+          fallback.forEach((url)=>{
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = 'gif';
+            img.style.width = '70px';
+            img.style.height = '70px';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '8px';
+            img.style.cursor = 'pointer';
+            img.addEventListener('click', async ()=> this.saveMessage({ text: `[gif] ${url}` }));
+            grid.appendChild(img);
+          });
         }
         return;
       }
@@ -1849,17 +1951,22 @@ import { runTransaction } from 'firebase/firestore';
           if (!files || !files.length) return;
           for (const f of files){
             if (!/^image\//i.test(f.type || '')) continue;
+            const safeName = (f.name || 'sticker.png').replace(/[^a-zA-Z0-9._-]/g,'_');
             try{
               const aesKey = await this.getFallbackKey();
               const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
               const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-              const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
               const path = `stickers/${this.currentUser.uid}/${Date.now()}_${safeName}.enc.json`;
               const sref = firebase.ref(this.storage, path);
               await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
               const url = await firebase.getDownloadURL(sref);
               pack.items.push({ name: safeName, url });
-            }catch(_){ }
+            }catch(_){
+              try{
+                const localDataUrl = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=> resolve(String(r.result||'')); r.onerror=reject; r.readAsDataURL(f); });
+                if (localDataUrl) pack.items.push({ name: safeName, dataUrl: localDataUrl, local: true });
+              }catch(__){ }
+            }
           }
           await this.setStickerIndex(idx);
           await this.manageStickerpacks();
@@ -1915,6 +2022,7 @@ import { runTransaction } from 'firebase/firestore';
           curr.unshift(item); localStorage.setItem('liber_sticker_recents', JSON.stringify(curr.slice(0,24)));
         }catch(_){ }
         const pnl = document.getElementById('sticker-panel'); if (pnl) pnl.remove();
+        const bd = document.getElementById('sticker-backdrop'); if (bd) bd.remove();
       }catch(_){ alert('Failed to send sticker'); }
     }
 
@@ -1941,32 +2049,33 @@ import { runTransaction } from 'firebase/firestore';
       if (fileUrl){
         this.pushRecentAttachment({ fileUrl, fileName: fileName || 'file', sentAt: new Date().toISOString() });
       }
-      // Notify recipients (best-effort)
-      this.notifyParticipants(text);
-      // Optional push notification via Firebase Functions; fallback to email if no tokens
+      // Push notify every sent message (receiver-only, never sender).
+      Promise.resolve().then(()=> this.sendPushForMessage(text));
+      // Live listener updates UI; avoid forcing reload here to prevent race/flicker.
+    }
+
+    async sendPushForMessage(text){
       try{
-        if (window.firebaseService && typeof window.firebaseService.callFunction === 'function'){
-          const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
-          const data = connSnap.exists()? connSnap.data():null;
-          const participantUids = (data && Array.isArray(data.participants)) ? data.participants : [];
-          const recipients = participantUids.filter(uid=> uid !== this.currentUser.uid);
-          const pushResp = await window.firebaseService.callFunction('sendPush', { connId: this.activeConnection, recipients, preview: text.slice(0,120) }) || {};
-          const sent = Number(pushResp.sent||0);
-          if (!sent && recipients && recipients.length){
-            // Fallback: sendMail per recipient (best-effort)
-            for (const uid of recipients){
-              try{
-                const u = await window.firebaseService.getUserData(uid);
-                const email = u && u.email;
-                if (email){
-                  await window.firebaseService.callFunction('sendMail', { to: email, subject: 'New message', html: `<p>You have a new message:</p><p>${(text||'').slice(0,200)}</p>` });
-                }
-              }catch(_){ }
-            }
+        if (!(window.firebaseService && typeof window.firebaseService.callFunction === 'function')) return;
+        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+        const data = connSnap.exists() ? (connSnap.data() || {}) : {};
+        const participantUids = this.getConnParticipants(data);
+        const recipients = participantUids.filter((uid)=> uid && uid !== this.currentUser.uid);
+        if (!recipients.length) return;
+        const payload = { connId: this.activeConnection, recipients, preview: String(text || '').slice(0,120) };
+        // Retry a few times to improve reliability without blocking message send UI.
+        let delayMs = 250;
+        for (let i = 0; i < 3; i++){
+          try{
+            await window.firebaseService.callFunction('sendPush', payload);
+            return;
+          }catch(_){
+            if (i === 2) return;
+            await new Promise((r)=> setTimeout(r, delayMs));
+            delayMs *= 2;
           }
         }
-      }catch(_){ /* ignore optional push errors */ }
-      // Live listener updates UI; avoid forcing reload here to prevent race/flicker.
+      }catch(_){ }
     }
 
     /* Group admin management */
@@ -3511,7 +3620,12 @@ import { runTransaction } from 'firebase/firestore';
     }
     async recordVideoMessage(){
       try{
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: this._recFacing || 'user' } });
+        let stream;
+        try{
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: this._recFacing || 'user' } });
+        }catch(_){
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        }
         const indicator = document.getElementById('recording-indicator');
         if (indicator){ indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-video'; }
         await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('video'), 30_000, 'video.webm');
@@ -3742,20 +3856,18 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       };
     }
     sendBtn.onclick = async ()=>{
-      console.log('Auth state before sending recording:', !!self.currentUser, firebase.auth().currentUser?.uid);
-      
       // Validate storage availability
       if (!self.storage) {
         console.error('Storage not available for recording');
         alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
         return;
       }
-      
-      console.log('Storage bucket configured');
-      
+
       try {
-        await firebase.auth().currentUser?.getIdToken(true);
-        if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
+        if (window.firebaseService?.auth?.currentUser?.getIdToken){
+          await window.firebaseService.auth.currentUser.getIdToken(true);
+        }
+        if (!window.firebaseService?.auth?.currentUser) throw new Error('Auth lost - please re-login');
       } catch (err) {
         console.error('Auth refresh failed before recording send:', err);
         alert('Auth error - please reload and re-login');

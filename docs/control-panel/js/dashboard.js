@@ -209,19 +209,29 @@ class DashboardManager {
             clearInterval(this._miniTitleTicker);
             this._miniTitleTicker = null;
         }
-        if (full.length <= 20){
+        el.textContent = full;
+        const shouldScroll = (el.scrollWidth - el.clientWidth) > 2;
+        if (!shouldScroll){
             el.textContent = full;
             return;
         }
-        const pad = `${full}    `;
+        const pad = `   ${full}   `;
         let i = 0;
+        let dir = 1;
+        const frame = 22;
         const paint = ()=>{
-            const doubled = pad + pad;
-            el.textContent = doubled.slice(i, i + 20);
-            i = (i + 1) % pad.length;
+            const windowChars = Math.max(8, Math.min(30, Math.floor(el.clientWidth / frame)));
+            const maxI = Math.max(0, pad.length - windowChars);
+            const doubled = pad + pad + pad;
+            el.textContent = doubled.slice(i, i + windowChars);
+            i += dir;
+            if (i >= maxI || i <= 0){
+                dir *= -1;
+                i = Math.max(0, Math.min(maxI, i));
+            }
         };
         paint();
-        this._miniTitleTicker = setInterval(paint, 220);
+        this._miniTitleTicker = setInterval(paint, 160);
     }
 
     getBgPlayer(){

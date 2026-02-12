@@ -1169,3 +1169,16 @@
     transform: translateZ(0);
   }
 }
+
+/* Personal Space desktop: profile + create post side by side */
+@media (min-width: 1024px){
+  #space-section > .settings-grid{
+    display:grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+    gap: 18px;
+  }
+  #space-section > .settings-grid > #space-profile-card,
+  #space-section > .settings-grid > #space-compose-card{
+    margin:0;
+  }
+}
