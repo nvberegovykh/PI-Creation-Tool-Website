@@ -366,6 +366,10 @@
                                 <input type="file" id="wave-file" accept="audio/mpeg">
                             </div>
                             <div class="setting-item">
+                                <label>Cover</label>
+                                <input type="file" id="wave-cover" accept="image/*">
+                            </div>
+                            <div class="setting-item">
                                 <button id="wave-upload-btn" class="btn btn-primary">Upload</button>
                             </div>
                         </div>
@@ -373,6 +377,13 @@
                     <div class="settings-card" style="margin-top:16px">
                         <h3>My Library</h3>
                         <div id="wave-library"></div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <h3>Playlists</h3>
+                        <div style="display:flex;gap:8px;margin-bottom:10px">
+                            <button id="wave-new-playlist-btn" class="btn btn-secondary"><i class="fas fa-plus"></i> New playlist</button>
+                        </div>
+                        <div id="wave-playlists"></div>
                     </div>
                     <div class="settings-card" style="margin-top:16px">
                         <h3>Search Results</h3>
@@ -398,6 +409,10 @@
                             <div class="setting-item">
                                 <label>File</label>
                                 <input type="file" id="video-file" accept="video/*">
+                            </div>
+                            <div class="setting-item">
+                                <label>Cover</label>
+                                <input type="file" id="video-cover" accept="image/*">
                             </div>
                             <div class="setting-item">
                                 <button id="video-upload-btn" class="btn btn-primary">Upload</button>
@@ -614,7 +629,17 @@
                 <div class="time" id="mini-time" style="font-size:12px;color:#ccc;min-width:60px;text-align:right"></div>
             </div>
         </div>
+        <button id="mini-add-playlist" class="btn btn-secondary" title="Add to playlist"><i class="fas fa-plus"></i></button>
+        <button id="mini-queue" class="btn btn-secondary" title="Queue"><i class="fas fa-list"></i></button>
         <button id="mini-play" class="btn btn-secondary"><i class="fas fa-play"></i></button>
+        <button id="mini-close" class="btn btn-secondary" title="Close"><i class="fas fa-xmark"></i></button>
+    </div>
+    <div id="mini-queue-panel" class="mini-queue-panel" style="display:none">
+        <div class="mini-queue-head">
+            <strong>Next in queue</strong>
+            <button id="mini-queue-close" class="btn btn-secondary"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div id="mini-queue-list"></div>
     </div>
 
     <!-- Legacy modal container (kept for backward compatibility but hidden by default) -->

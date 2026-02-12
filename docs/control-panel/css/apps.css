@@ -507,6 +507,7 @@
     border-bottom: 1px solid var(--border-color);
     background: #0c1018;
 }
+.app-shell-header{display:none !important;}
 .app-shell-title {
     flex: 1;
     min-width: 0;
@@ -522,7 +523,7 @@
 }
 #app-shell-frame {
     width: 100%;
-    height: calc(100dvh - 52px - env(safe-area-inset-top));
+    height: 100dvh;
     border: none;
     background: #000;
 }

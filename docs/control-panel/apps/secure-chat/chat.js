@@ -39,7 +39,6 @@ import { runTransaction } from 'firebase/firestore';
       this._lastRenderSigByConn = new Map();
       this._lastDocIdsByConn = new Map();
       this._lastDayByConn = new Map();
-      this._requestMessageSentForConn = new Set();
       this._voiceWidgets = new Map();
       this._voiceCurrentSrc = '';
       this._voiceCurrentTitle = 'Voice message';
@@ -315,7 +314,6 @@ import { runTransaction } from 'firebase/firestore';
       try{
         const params = new URLSearchParams(location.search);
         this._deepLinkConnId = params.get('connId') || null;
-        this._deepLinkRequestMsg = params.get('requestMsg') || '';
       }catch(_){ this._deepLinkConnId = null; }
       await this.loadConnections();
       // If deep link provided, activate it after list is ready (supports key or doc id)
@@ -332,16 +330,6 @@ import { runTransaction } from 'firebase/firestore';
           }
           if (id){
             await this.setActive(id);
-            if (this._deepLinkRequestMsg){
-              const text = String(this._deepLinkRequestMsg || '').trim();
-              if (text && !this._requestMessageSentForConn.has(this.activeConnection)){
-                const can = await this.canSendToActiveConnection({ allowRequestIntro: true });
-                if (can.ok){
-                  await this.saveMessage({ text });
-                  this._requestMessageSentForConn.add(this.activeConnection);
-                }
-              }
-            }
           }
         }catch(_){ /* ignore deep link issues */ }
       }
@@ -1048,17 +1036,24 @@ import { runTransaction } from 'firebase/firestore';
             const m=d.data();
             const aesKey = await getKeyForConn(sourceConnId);
             let text='';
-            try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-              try {
-                const peerUid = await this.getPeerUid();
-                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
-                text = await chatCrypto.decryptWithKey(m.cipher, legacy);
-              } catch {
-                try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+            if (typeof m.text === 'string' && !m.cipher){
+              text = m.text;
+            } else {
+              try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+                try {
+                  const peerUid = await this.getPeerUid();
+                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
+                  text = await chatCrypto.decryptWithKey(m.cipher, legacy);
+                } catch {
+                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+                }
               }
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            if (m.systemType === 'connection_request_intro'){
+              el.classList.add('message-system', 'message-connection-request');
+            }
             // Resolve sender name async
             let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
             if (!this.usernameCache.has(m.sender)) {
@@ -1085,6 +1080,10 @@ import { runTransaction } from 'firebase/firestore';
             if (gifMatch){
               bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
             }
+            const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
+            if (stickerDataMatch){
+              bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
+            }
             const canModify = m.sender === this.currentUser.uid;
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay){
@@ -1094,7 +1093,8 @@ import { runTransaction } from 'firebase/firestore';
               box.appendChild(sep);
               lastRenderedDay = dayLabel;
             }
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
+            const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
@@ -1195,17 +1195,24 @@ import { runTransaction } from 'firebase/firestore';
           snap.forEach(async d=>{
             const m=d.data();
             let text='';
-            try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-              try {
-                const peerUid = await this.getPeerUid();
-                const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
-                text = await chatCrypto.decryptWithKey(m.cipher, legacy);
-              } catch {
-                try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+            if (typeof m.text === 'string' && !m.cipher){
+              text = m.text;
+            } else {
+              try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
+                try {
+                  const peerUid = await this.getPeerUid();
+                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+                  text = await chatCrypto.decryptWithKey(m.cipher, legacy);
+                } catch {
+                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+                }
               }
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            if (m.systemType === 'connection_request_intro'){
+              el.classList.add('message-system', 'message-connection-request');
+            }
             // Resolve sender name async
             let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
             if (!this.usernameCache.has(m.sender)) {
@@ -1232,6 +1239,10 @@ import { runTransaction } from 'firebase/firestore';
             if (gifMatch){
               bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
             }
+            const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
+            if (stickerDataMatch){
+              bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
+            }
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -1240,7 +1251,8 @@ import { runTransaction } from 'firebase/firestore';
               box.appendChild(sep);
               lastRenderedDay2 = dayLabel;
             }
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
+            const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${m.fileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -1298,8 +1310,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ return { status: 'none' }; }
     }
 
-    async canSendToActiveConnection(options = {}){
-      const allowRequestIntro = !!options.allowRequestIntro;
+    async canSendToActiveConnection(){
       if (!this.activeConnection) return { ok: false, reason: 'No active chat' };
       let conn;
       try{
@@ -1311,23 +1322,22 @@ import { runTransaction } from 'firebase/firestore';
       if (participants.length !== 2) return { ok: true };
       const peerUid = participants.find(u=> u !== this.currentUser.uid);
       if (!peerUid) return { ok: true };
-      try{
-        const meData = await window.firebaseService.getUserData(this.currentUser.uid);
-        if (meData && meData.allowMessagesFromUnconnected !== false) return { ok: true };
-      }catch(_){ return { ok: true }; }
       const state = await this.getConnectionStateWithPeer(peerUid);
       if (state.status === 'connected') return { ok: true };
-      if (allowRequestIntro && state.status === 'pending' && state.requestedBy === this.currentUser.uid && !this._requestMessageSentForConn.has(this.activeConnection)) {
-        return { ok: true, oneShot: true };
-      }
-      return { ok: false, reason: 'Messaging is disabled for unconnected users in your profile settings.' };
+      let peerName = 'This user';
+      try{
+        const peerData = await window.firebaseService.getUserData(peerUid);
+        peerName = (peerData && (peerData.username || peerData.email)) || peerName;
+        if (!peerData || peerData.allowMessagesFromUnconnected !== false) return { ok: true };
+      }catch(_){ return { ok: true }; }
+      return { ok: false, reason: `${peerName} disallowed messages with unconnected users` };
     }
 
     async sendCurrent(){
       const input = document.getElementById('message-input');
       const text = input.value.trim();
       if (!text || !this.activeConnection) return;
-      const can = await this.canSendToActiveConnection({ allowRequestIntro: true });
+      const can = await this.canSendToActiveConnection();
       if (!can.ok){
         alert(can.reason || 'Cannot send message');
         return;
@@ -1335,7 +1345,6 @@ import { runTransaction } from 'firebase/firestore';
       input.value = '';
       try{
         await this.saveMessage({text});
-        if (can.oneShot) this._requestMessageSentForConn.add(this.activeConnection);
       }catch(e){
         input.value = text;
         throw e;
@@ -1344,7 +1353,7 @@ import { runTransaction } from 'firebase/firestore';
 
     async sendFiles(files){
       if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
-      const can = await this.canSendToActiveConnection({ allowRequestIntro: false });
+      const can = await this.canSendToActiveConnection();
       if (!can.ok){
         alert(can.reason || 'Cannot send attachments');
         return;
@@ -1479,7 +1488,12 @@ import { runTransaction } from 'firebase/firestore';
           await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(sref);
           pack.items.push({ name: safeName, url });
-        }catch(_){ /* skip failed file */ }
+        }catch(_){
+          try{
+            const localDataUrl = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=> resolve(String(r.result||'')); r.onerror=reject; r.readAsDataURL(f); });
+            if (localDataUrl) pack.items.push({ name: f.name || safeName, dataUrl: localDataUrl, local: true });
+          }catch(__){ /* skip failed file */ }
+        }
       }
       if (pack.items.length){ idx.packs.unshift(pack); await this.setStickerIndex(idx); await this.renderStickerGrid(); }
     }
@@ -1549,6 +1563,7 @@ import { runTransaction } from 'firebase/firestore';
           chip.appendChild(thumb);
           (async()=>{
             try{
+              if (p.items[0].local && p.items[0].dataUrl){ thumb.src = p.items[0].dataUrl; return; }
               const res = await fetch(p.items[0].url);
               const payload = await res.json();
               const b64 = await chatCrypto.decryptWithKey(payload, await this.getFallbackKey());
@@ -1577,6 +1592,7 @@ import { runTransaction } from 'firebase/firestore';
         img.alt = it.name;
         (async()=>{
           try{
+            if (it.local && it.dataUrl){ img.src = it.dataUrl; return; }
             const res = await fetch(it.url); const payload = await res.json();
             const b64 = await chatCrypto.decryptWithKey(payload, aesKey);
             img.src = URL.createObjectURL(this.base64ToBlob(b64, 'image/png'));
@@ -1649,6 +1665,7 @@ import { runTransaction } from 'firebase/firestore';
         del.innerHTML = '<i class="fas fa-minus"></i>';
         (async()=>{
           try{
+            if (it.local && it.dataUrl){ img.src = it.dataUrl; return; }
             const res = await fetch(it.url); const payload = await res.json();
             const b64 = await chatCrypto.decryptWithKey(payload, await this.getFallbackKey());
             img.src = URL.createObjectURL(this.base64ToBlob(b64, 'image/png'));
@@ -1668,12 +1685,15 @@ import { runTransaction } from 'firebase/firestore';
     async sendSticker(item){
       if (!this.activeConnection) return;
       try{
-        // Simply send as a file message with original encrypted JSON URL and filename
-        // The renderer already handles decryption and preview
-        await this.saveMessage({ text: '[sticker]', fileUrl: item.url, fileName: item.name });
+        if (item.local && item.dataUrl){
+          await this.saveMessage({ text: `[sticker-data]${item.dataUrl}` });
+        } else {
+          await this.saveMessage({ text: '[sticker]', fileUrl: item.url, fileName: item.name });
+        }
         // update recents
         try{
-          const curr = JSON.parse(localStorage.getItem('liber_sticker_recents')||'[]').filter(x=> x.url!==item.url);
+          const itemKey = item.url || item.dataUrl || '';
+          const curr = JSON.parse(localStorage.getItem('liber_sticker_recents')||'[]').filter(x=> (x.url||x.dataUrl||'')!==itemKey);
           curr.unshift(item); localStorage.setItem('liber_sticker_recents', JSON.stringify(curr.slice(0,24)));
         }catch(_){ }
         const pnl = document.getElementById('sticker-panel'); if (pnl) pnl.remove();

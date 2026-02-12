@@ -7,6 +7,8 @@ class DashboardManager {
     constructor() {
         this.currentSection = 'apps';
         this._dashboardSuspended = false;
+        this._playQueue = [];
+        this._playQueueIndex = -1;
         this.init();
     }
 
@@ -186,21 +188,265 @@ class DashboardManager {
         btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
     }
 
+    formatDuration(seconds){
+        const s = Math.max(0, Math.floor(Number(seconds || 0)));
+        const m = Math.floor(s / 60);
+        const ss = String(s % 60).padStart(2, '0');
+        return `${m}:${ss}`;
+    }
+
+    getBgPlayer(){
+        let bg = document.getElementById('bg-player');
+        if (!bg){
+            bg = document.createElement('audio');
+            bg.id = 'bg-player';
+            bg.style.display='none';
+            document.body.appendChild(bg);
+        }
+        return bg;
+    }
+
+    getPlaylistStorageKey(){
+        const uid = this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || 'anon';
+        return `liber_playlists_${uid}`;
+    }
+
+    getPlaylists(){
+        try{
+            const raw = localStorage.getItem(this.getPlaylistStorageKey());
+            const data = raw ? JSON.parse(raw) : [];
+            return Array.isArray(data) ? data : [];
+        }catch(_){ return []; }
+    }
+
+    savePlaylists(playlists){
+        try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(playlists || [])); }catch(_){ }
+    }
+
+    openAddToPlaylistPopup(track){
+        const playlists = this.getPlaylists();
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+        const options = playlists.map((p)=> `<option value="${p.id}">${(p.name||'Playlist').replace(/</g,'&lt;')}</option>`).join('');
+        overlay.innerHTML = `
+          <div style="width:min(96vw,420px);background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px">
+            <div style="font-weight:700;margin-bottom:10px">Add to playlist</div>
+            <div style="margin-bottom:8px">
+              <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Existing playlist</label>
+              <select id="pl-select" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445">
+                <option value="">Choose playlist...</option>
+                ${options}
+              </select>
+            </div>
+            <div style="margin-bottom:10px">
+              <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Or create new</label>
+              <input id="pl-new" type="text" placeholder="New playlist name" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445" />
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button id="pl-cancel" class="btn btn-secondary">Cancel</button>
+              <button id="pl-save" class="btn btn-primary">Save</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        overlay.querySelector('#pl-cancel').onclick = ()=> overlay.remove();
+        overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+        overlay.querySelector('#pl-save').onclick = ()=>{
+            const selectedId = String(overlay.querySelector('#pl-select').value || '').trim();
+            const newName = String(overlay.querySelector('#pl-new').value || '').trim();
+            let selected = null;
+            if (selectedId){
+                selected = playlists.find((p)=> p.id === selectedId) || null;
+            } else if (newName){
+                selected = { id: `pl_${Date.now()}`, name: newName, items: [] };
+                playlists.push(selected);
+            }
+            if (!selected){ this.showError('Choose or create a playlist'); return; }
+            if (!selected.items) selected.items = [];
+            selected.items.push({
+                id: `it_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+                src: track.src,
+                title: track.title || 'Track',
+                by: track.by || '',
+                cover: track.cover || ''
+            });
+            this.savePlaylists(playlists);
+            this.renderPlaylists();
+            overlay.remove();
+            this.showSuccess('Added to playlist');
+        };
+    }
+
+    renderQueuePanel(){
+        const panel = document.getElementById('mini-queue-panel');
+        const list = document.getElementById('mini-queue-list');
+        if (!panel || !list) return;
+        const queue = this._playQueue || [];
+        const next = queue.slice(Math.max(0, this._playQueueIndex + 1));
+        list.innerHTML = next.length
+            ? next.map((q,i)=> `<div class="mini-queue-item" data-idx="${this._playQueueIndex + 1 + i}">${(q.title||'Track').replace(/</g,'&lt;')}</div>`).join('')
+            : '<div class="mini-queue-item">Queue is empty</div>';
+        list.querySelectorAll('[data-idx]').forEach((el)=>{
+            el.onclick = ()=>{
+                const idx = Number(el.getAttribute('data-idx'));
+                this.playQueueIndex(idx);
+                panel.style.display = 'none';
+            };
+        });
+    }
+
+    playQueueIndex(idx){
+        const item = this._playQueue[idx];
+        if (!item) return;
+        this._playQueueIndex = idx;
+        const bg = this.getBgPlayer();
+        bg.src = item.src;
+        bg.currentTime = 0;
+        bg.play().catch(()=>{});
+        const miniTitle = document.getElementById('mini-title');
+        const miniBy = document.getElementById('mini-by');
+        const miniCover = document.querySelector('#mini-player .cover');
+        if (miniTitle) miniTitle.textContent = item.title || 'Now playing';
+        if (miniBy) miniBy.textContent = item.by || '';
+        if (miniCover && item.cover) miniCover.src = item.cover;
+        this.renderQueuePanel();
+    }
+
+    async renderPlaylists(){
+        const host = document.getElementById('wave-playlists');
+        if (!host) return;
+        const playlists = this.getPlaylists();
+        host.innerHTML = '';
+        if (!playlists.length){
+            host.innerHTML = '<div style="opacity:.8">No playlists yet.</div>';
+            return;
+        }
+        playlists.forEach((pl)=>{
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:8px;margin-bottom:10px;background:#0f1116';
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px';
+            head.innerHTML = `<strong>${(pl.name||'Playlist').replace(/</g,'&lt;')}</strong><button class="btn btn-secondary" data-del="${pl.id}"><i class="fas fa-trash"></i></button>`;
+            wrap.appendChild(head);
+            const list = document.createElement('div');
+            (pl.items || []).forEach((it, idx)=>{
+                const row = document.createElement('div');
+                row.className = 'playlist-row';
+                row.draggable = true;
+                row.dataset.idx = String(idx);
+                row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-radius:8px;border:1px solid #273247;margin-bottom:6px;cursor:grab';
+                row.innerHTML = `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.title||'Track').replace(/</g,'&lt;')}</span><div style="display:flex;gap:6px"><button class="btn btn-secondary" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="btn btn-secondary" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="btn btn-secondary" data-play="${it.id}"><i class="fas fa-play"></i></button><button class="btn btn-secondary" data-remove="${it.id}"><i class="fas fa-xmark"></i></button></div>`;
+                list.appendChild(row);
+            });
+            wrap.appendChild(list);
+            host.appendChild(wrap);
+
+            list.querySelectorAll('[data-play]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-play');
+                    const item = (pl.items || []).find((x)=> x.id === tid);
+                    if (!item) return;
+                    this._playQueue = (pl.items || []).map((x)=> ({ src: x.src, title: x.title, by: x.by, cover: x.cover }));
+                    this._playQueueIndex = Math.max(0, (pl.items || []).findIndex((x)=> x.id === tid));
+                    this.playQueueIndex(this._playQueueIndex);
+                };
+            });
+            list.querySelectorAll('[data-remove]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-remove');
+                    pl.items = (pl.items || []).filter((x)=> x.id !== tid);
+                    this.savePlaylists(playlists);
+                    this.renderPlaylists();
+                };
+            });
+            list.querySelectorAll('[data-up]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-up');
+                    const arr = pl.items || [];
+                    const i = arr.findIndex((x)=> x.id === tid);
+                    if (i <= 0) return;
+                    [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
+                    pl.items = arr;
+                    this.savePlaylists(playlists);
+                    this.renderPlaylists();
+                };
+            });
+            list.querySelectorAll('[data-down]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-down');
+                    const arr = pl.items || [];
+                    const i = arr.findIndex((x)=> x.id === tid);
+                    if (i < 0 || i >= arr.length - 1) return;
+                    [arr[i+1], arr[i]] = [arr[i], arr[i+1]];
+                    pl.items = arr;
+                    this.savePlaylists(playlists);
+                    this.renderPlaylists();
+                };
+            });
+            const delBtn = wrap.querySelector('[data-del]');
+            if (delBtn){
+                delBtn.onclick = ()=>{
+                    const next = playlists.filter((x)=> x.id !== pl.id);
+                    this.savePlaylists(next);
+                    this.renderPlaylists();
+                };
+            }
+
+            let dragSrc = -1;
+            list.querySelectorAll('.playlist-row').forEach((row)=>{
+                row.addEventListener('dragstart', ()=>{ dragSrc = Number(row.dataset.idx); row.style.opacity = '0.5'; });
+                row.addEventListener('dragend', ()=>{ row.style.opacity = '1'; });
+                row.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+                row.addEventListener('drop', (e)=>{
+                    e.preventDefault();
+                    const target = Number(row.dataset.idx);
+                    if (!Number.isFinite(dragSrc) || !Number.isFinite(target) || dragSrc === target) return;
+                    const arr = pl.items || [];
+                    const [moved] = arr.splice(dragSrc, 1);
+                    arr.splice(target, 0, moved);
+                    pl.items = arr;
+                    this.savePlaylists(playlists);
+                    this.renderPlaylists();
+                });
+            });
+        });
+    }
+
     showMiniPlayer(mediaEl, meta={}){
         try{
             if (this._currentPlayer && this._currentPlayer !== mediaEl){ try{ this._currentPlayer.pause(); }catch(_){} }
             this._currentPlayer = mediaEl;
             // Promote playback to a hidden background audio so it persists across sections
-            let bg = document.getElementById('bg-player');
-            if (!bg){ bg = document.createElement('audio'); bg.id='bg-player'; bg.style.display='none'; document.body.appendChild(bg); }
+            const bg = this.getBgPlayer();
             const mini = document.getElementById('mini-player'); if (!mini) return;
             const mTitle = document.getElementById('mini-title');
             const mBy = document.getElementById('mini-by');
             const mCover = mini.querySelector('.cover');
             const playBtn = document.getElementById('mini-play');
+            const addBtn = document.getElementById('mini-add-playlist');
+            const queueBtn = document.getElementById('mini-queue');
+            const queuePanel = document.getElementById('mini-queue-panel');
+            const queueClose = document.getElementById('mini-queue-close');
+            const closeBtn = document.getElementById('mini-close');
+            const miniProgress = document.getElementById('mini-progress');
+            const miniFill = document.getElementById('mini-fill');
+            const miniTime = document.getElementById('mini-time');
             if (mTitle) mTitle.textContent = meta.title || 'Now playing';
             if (mBy) mBy.textContent = meta.by || '';
             if (mCover && meta.cover) mCover.src = meta.cover;
+            if ('mediaSession' in navigator){
+                try{
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: meta.title || 'Now playing',
+                        artist: meta.by || 'LIBER',
+                        artwork: meta.cover ? [{ src: meta.cover, sizes: '512x512', type: 'image/png' }] : undefined
+                    });
+                    navigator.mediaSession.setActionHandler('play', ()=> bg.play().catch(()=>{}));
+                    navigator.mediaSession.setActionHandler('pause', ()=> bg.pause());
+                    navigator.mediaSession.setActionHandler('seekbackward', ()=>{ bg.currentTime = Math.max(0, (bg.currentTime||0)-10); });
+                    navigator.mediaSession.setActionHandler('seekforward', ()=>{ bg.currentTime = Math.min((bg.duration||0), (bg.currentTime||0)+10); });
+                }catch(_){ }
+            }
             mini.classList.add('show');
             // Hand off current media to bg player
             try{
@@ -212,7 +458,63 @@ class DashboardManager {
             }catch(_){ }
             if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); } else { bg.pause(); } }; }
             const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !bg.paused);
-            bg.onplay = syncMiniBtn; bg.onpause = syncMiniBtn; bg.onended = syncMiniBtn; syncMiniBtn();
+            const syncProgress = ()=>{
+                if (!miniFill || !miniTime) return;
+                const d = Number(bg.duration || 0);
+                const c = Number(bg.currentTime || 0);
+                if (d > 0){
+                    miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
+                    miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+                } else {
+                    miniFill.style.width = '0%';
+                    miniTime.textContent = '0:00 / 0:00';
+                }
+            };
+            if (miniProgress){
+                miniProgress.onclick = (e)=>{
+                    const rect = miniProgress.getBoundingClientRect();
+                    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                    if (Number(bg.duration) > 0) bg.currentTime = ratio * bg.duration;
+                };
+            }
+            bg.onplay = ()=>{ syncMiniBtn(); syncProgress(); };
+            bg.onpause = ()=>{ syncMiniBtn(); syncProgress(); };
+            bg.ontimeupdate = syncProgress;
+            bg.onloadedmetadata = syncProgress;
+            bg.onended = ()=>{
+                syncMiniBtn();
+                if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
+            };
+            syncMiniBtn(); syncProgress();
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+            if (queueBtn && queuePanel){
+                queueBtn.onclick = ()=>{ this.renderQueuePanel(); queuePanel.style.display = queuePanel.style.display === 'none' ? 'block' : 'none'; };
+            }
+            if (queueClose && queuePanel){ queueClose.onclick = ()=> queuePanel.style.display = 'none'; }
+            if (addBtn){
+                addBtn.onclick = ()=> this.openAddToPlaylistPopup({
+                    src: bg.currentSrc || bg.src,
+                    title: mTitle?.textContent || meta.title || 'Track',
+                    by: mBy?.textContent || meta.by || '',
+                    cover: (mCover && mCover.src) || meta.cover || ''
+                });
+            }
+
+            // Build deterministic queue from current context.
+            const contextRoot = mediaEl.closest('#wave-library') || mediaEl.closest('#global-feed') || mediaEl.closest('#space-feed') || mediaEl.closest('#video-library') || mediaEl.closest('#wave-results') || document;
+            const nodes = Array.from(contextRoot.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video'));
+            const queue = nodes
+                .map((n)=>({
+                    src: n.currentSrc || n.src || '',
+                    title: n.dataset?.title || n.closest('.wave-item,.video-item,.post-item')?.querySelector('.post-text')?.textContent?.trim() || 'Track',
+                    by: n.dataset?.by || '',
+                    cover: n.dataset?.cover || ''
+                }))
+                .filter((q)=> !!q.src);
+            const currentSrc = bg.currentSrc || bg.src || '';
+            this._playQueue = queue;
+            this._playQueueIndex = Math.max(0, queue.findIndex((q)=> q.src === currentSrc));
+            this.renderQueuePanel();
 
             // Keep deterministic behavior: do not auto-jump to random next tracks.
             if (this._onBgEnded){ try{ bg.removeEventListener('ended', this._onBgEnded); }catch(_){ } }
@@ -1734,6 +2036,7 @@ class DashboardManager {
                 upBtn.onclick = async ()=>{
                     try{
                         const file = document.getElementById('wave-file').files[0];
+                        const coverFile = document.getElementById('wave-cover')?.files?.[0] || null;
                         if (!file){ return this.showError('Select an audio file'); }
                         // Accept common audio types; cap size to 50 MB
                         const okTypes = ['audio/mpeg','audio/mp3','audio/wav','audio/x-wav','audio/ogg','audio/webm','audio/aac','audio/m4a'];
@@ -1749,14 +2052,21 @@ class DashboardManager {
                         const url = await firebase.getDownloadURL(ref);
                         let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
                         let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
+                        if (coverFile){
+                            const cRef = firebase.ref(s, `wave-covers/${me.uid}/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
+                            await firebase.uploadBytes(cRef, coverFile, { contentType: coverFile.type || 'image/jpeg' });
+                            coverUrl = await firebase.getDownloadURL(cRef);
+                        }
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
                         await firebase.setDoc(docRef, { id: docRef.id, ownerId: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
+                        this.renderPlaylists();
                     }catch(e){ console.error('Wave upload failed', e); this.showError('Upload failed'); }
                 };
             }
             const search = document.getElementById('wave-search');
+            const newPlaylistBtn = document.getElementById('wave-new-playlist-btn');
             if (search && !search._bound){
                 search._bound = true;
                 search.oninput = async (e)=>{
@@ -1768,7 +2078,19 @@ class DashboardManager {
                     snap.forEach(d=>{ const w=d.data(); if ((w.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderWaveItem(w)); } });
                 };
             }
+            if (newPlaylistBtn && !newPlaylistBtn._bound){
+                newPlaylistBtn._bound = true;
+                newPlaylistBtn.onclick = ()=>{
+                    const name = String(prompt('Playlist name:') || '').trim();
+                    if (!name) return;
+                    const playlists = this.getPlaylists();
+                    playlists.push({ id: `pl_${Date.now()}`, name, items: [] });
+                    this.savePlaylists(playlists);
+                    this.renderPlaylists();
+                };
+            }
             await this.renderWaveLibrary(me.uid);
+            await this.renderPlaylists();
         }catch(_){ }
     }
 
@@ -1791,7 +2113,7 @@ class DashboardManager {
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:column;gap:10px;align-items:center;justify-content:space-between';
         const cover = w.coverUrl || 'images/default-bird.png';
         const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -1828,6 +2150,7 @@ class DashboardManager {
                 upBtn.onclick = async ()=>{
                     try{
                         const f = document.getElementById('video-file').files[0];
+                        const coverFile = document.getElementById('video-cover')?.files?.[0] || null;
                         if (!f){ return this.showError('Select a video'); }
                         // 5 hours approximate cap enforced by size (assume <= 4GB for safety depending on codec)
                         if (f.size > 4*1024*1024*1024){ return this.showError('Max 4 GB'); }
@@ -1840,7 +2163,12 @@ class DashboardManager {
                         const url = await firebase.getDownloadURL(r);
                         const meProfile = await window.firebaseService.getUserData(me.uid);
                         const authorName = (meProfile && meProfile.username) || me.email || 'Unknown';
-                        const thumbnailUrl = (meProfile && meProfile.avatarUrl) || '';
+                        let thumbnailUrl = (meProfile && meProfile.avatarUrl) || '';
+                        if (coverFile){
+                            const cRef = firebase.ref(s, `video-covers/${me.uid}/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
+                            await firebase.uploadBytes(cRef, coverFile, { contentType: coverFile.type || 'image/jpeg' });
+                            thumbnailUrl = await firebase.getDownloadURL(cRef);
+                        }
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
                         await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: 'public', authorId: me.uid, authorName, thumbnailUrl });
                         this.showSuccess('Video uploaded');
@@ -1901,7 +2229,7 @@ class DashboardManager {
         const thumb = v.thumbnailUrl || 'images/default-bird.png';
         const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
-                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px"></video>
+                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>
                          <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
@@ -3242,6 +3570,7 @@ Do you want to proceed?`);
           };
           const myRef = firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid);
           const peerRef = firebase.doc(window.firebaseService.db,'connections',uid,'peers',me.uid);
+          let connectionRequestIntro = '';
           if (status === 'connected'){
             await firebase.deleteDoc(myRef).catch(()=>null);
             await firebase.deleteDoc(peerRef).catch(()=>null);
@@ -3256,12 +3585,45 @@ Do you want to proceed?`);
               ...mePeer, status:'connected', requestedBy, requestedTo, connectedAt:now, updatedAt:now
             }, { merge:true });
           } else {
+            const promptText = window.prompt('Add one intro message with your connection request:', '');
+            if (promptText === null){
+              return;
+            }
+            const requesterName = mePeer.username || me.email || 'User';
+            connectionRequestIntro = String(promptText || '').trim() || `${requesterName} just sent a connection request`;
             await firebase.setDoc(myRef, {
               ...otherPeer, status:'pending', requestedBy:me.uid, requestedTo:uid, requestedAt:now, updatedAt:now
             }, { merge:true });
             await firebase.setDoc(peerRef, {
               ...mePeer, status:'pending', requestedBy:me.uid, requestedTo:uid, requestedAt:now, updatedAt:now
             }, { merge:true });
+            try{
+              const key = [me.uid, uid].sort().join('|');
+              const connRef = firebase.doc(window.firebaseService.db, 'chatConnections', key);
+              await firebase.setDoc(connRef, {
+                id: key,
+                key,
+                participants: [me.uid, uid],
+                participantUsernames: [mePeer.username || me.email || me.uid, data.username || data.email || uid],
+                admins: [me.uid],
+                createdAt: now,
+                updatedAt: now,
+                lastMessage: connectionRequestIntro.slice(0, 200)
+              }, { merge: true });
+              const msgRef = firebase.doc(firebase.collection(window.firebaseService.db, 'chatMessages', key, 'messages'));
+              await firebase.setDoc(msgRef, {
+                id: msgRef.id,
+                connId: key,
+                sender: me.uid,
+                text: connectionRequestIntro,
+                previewText: connectionRequestIntro.slice(0, 220),
+                createdAt: new Date().toISOString(),
+                createdAtTS: firebase.serverTimestamp(),
+                systemType: 'connection_request_intro'
+              });
+            }catch(err){
+              console.warn('Failed to send connection intro message', err);
+            }
           }
           const nextState = await readConnState();
           connectBtn.innerHTML = connectLabelFor(nextState);
@@ -3278,15 +3640,8 @@ Do you want to proceed?`);
         chatBtn.onclick = async () => {
           try {
             const key = [me.uid, uid].sort().join('|');
-            let requestMsg = '';
-            const state = await readConnState();
-            if (state.status !== 'connected') {
-              requestMsg = String(window.prompt('Add one intro message with your connection request:', '') || '').trim();
-              if (!requestMsg) return;
-            }
             overlay.remove();
             const qs = new URLSearchParams({ connId: key });
-            if (requestMsg) qs.set('requestMsg', requestMsg);
             const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
             const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
             if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {

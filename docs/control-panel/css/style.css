@@ -22,7 +22,7 @@
 .player-card{ background:#0f1116; border:1px solid var(--border-color); border-radius:12px; padding:8px; }
 .player-media{ width:100%; border-radius:8px; background:#000 }
 .player-bar{ display:flex; align-items:center; gap:10px; margin-top:6px }
-.btn-icon{ background:#222737; border:none; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.btn-icon{ background:transparent; border:none; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
 .player-bar .progress{ position:relative; flex:1; height:6px; background:#1b1e28; border-radius:999px; overflow:hidden; cursor:pointer }
 .player-bar .progress .fill{ position:absolute; left:0; top:0; bottom:0; width:0%; background:#ff6a00 }
 .player-bar .progress .knob{ position:absolute; top:50%; transform:translate(-50%, -50%); width:12px; height:12px; background:#fff; border-radius:50%; box-shadow:0 0 0 2px rgba(255,255,255,.2) }
@@ -101,6 +101,32 @@ img, video, canvas, svg, iframe {
 .mini-player .cover{ width:42px; height:42px; border-radius:8px; object-fit:cover }
 .mini-player .title{ font-weight:600 }
 .mini-player .by{ font-size:12px; color:#aaa }
+.mini-player .btn,
+.mini-player .btn.secondary{
+  background: transparent;
+  border: none;
+  color:#d6deeb;
+  padding:8px;
+  box-shadow:none;
+}
+.mini-player .btn:hover{ background:rgba(255,255,255,.08); }
+.mini-queue-panel{
+  position:fixed;
+  right:8px;
+  bottom:126px;
+  width:min(92vw,360px);
+  max-height:42vh;
+  overflow:auto;
+  background:#0f1724;
+  border:1px solid #2b3445;
+  border-radius:12px;
+  z-index:1210;
+  box-shadow:0 14px 34px rgba(0,0,0,.45);
+  padding:8px;
+}
+.mini-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:6px;border-bottom:1px solid #2b3445;margin-bottom:8px}
+.mini-queue-item{padding:8px;border-radius:8px;color:#d6deeb}
+.mini-queue-item.active{background:#1b2638}
 @keyframes miniRise{
   from{ transform:translateY(10px); opacity:.5; }
   to{ transform:translateY(0); opacity:1; }

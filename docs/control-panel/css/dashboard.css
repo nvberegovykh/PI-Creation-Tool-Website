@@ -1161,20 +1161,27 @@
   .dashboard {
     min-height: 100dvh;
     height: 100dvh;
+    padding: 0;
   }
   .dashboard-content {
     width: 100%;
-    padding: 10px 10px calc(92px + env(safe-area-inset-bottom));
+    padding: 8px 10px calc(70px + env(safe-area-inset-bottom)) !important;
+    margin: 0;
   }
   .content-section,
   .content-section.active {
     width: 100%;
     padding: 0;
     margin: 0;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    padding-bottom: calc(4px + env(safe-area-inset-bottom));
   }
   .settings-card {
     margin-left: 0;
     margin-right: 0;
+  }
+  .mobile-bottom-nav{
+    margin:0 !important;
+    bottom:0 !important;
+    transform: translateZ(0);
   }
 }
