@@ -530,3 +530,8 @@
 body.app-shell-open .mini-player {
     display: none !important;
 }
+body.app-shell-open .chatgpt-widget,
+body.app-shell-open .wall-e-modal,
+body.app-shell-open #wall-e-modal {
+    z-index: 1200 !important;
+}

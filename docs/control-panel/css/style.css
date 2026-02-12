@@ -151,6 +151,34 @@ img, video, canvas, svg, iframe {
 .dbl-like-pulse{ position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); pointer-events:none; color:#ff4d4f; font-size:56px; opacity:0; animation: liber-like-pulse .6s ease forwards }
 .post-item{ position:relative }
 
+/* Desktop card tiling and compact media widths */
+@media (min-width: 1024px){
+  #global-feed,
+  #global-suggestions,
+  #wave-library,
+  #wave-playlists,
+  #video-library,
+  #video-suggestions,
+  #video-search-results{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(280px, 400px));
+    gap:12px;
+    justify-content:start;
+    align-items:start;
+  }
+  #global-feed .post-item,
+  #global-suggestions .post-item,
+  .wave-item,
+  .video-item{
+    margin:0 !important;
+    width:100%;
+    max-width:400px;
+  }
+  .player-card{
+    max-width:400px;
+  }
+}
+
 table {
     width: 100%;
     table-layout: fixed;

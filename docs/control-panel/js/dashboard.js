@@ -9,6 +9,10 @@ class DashboardManager {
         this._dashboardSuspended = false;
         this._playQueue = [];
         this._playQueueIndex = -1;
+        this._waveLibraryVisible = 5;
+        this._playlistsVisible = 5;
+        this._videoLibraryVisible = 5;
+        this._videoSuggestionsVisible = 5;
         this.init();
     }
 
@@ -299,6 +303,18 @@ class DashboardManager {
         const item = this._playQueue[idx];
         if (!item) return;
         this._playQueueIndex = idx;
+        const nodes = Array.from(document.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video'));
+        const inlineNode = nodes.find((n)=> (n.currentSrc || n.src || '') === (item.src || ''));
+        if (inlineNode && String(inlineNode.tagName || '').toUpperCase() === 'VIDEO'){
+            try{
+                this.pauseAllMediaExcept(inlineNode);
+                inlineNode.currentTime = 0;
+                inlineNode.play().catch(()=>{});
+                this.showMiniPlayer(inlineNode, { title: item.title, by: item.by, cover: item.cover });
+                this.renderQueuePanel();
+                return;
+            }catch(_){ }
+        }
         const bg = this.getBgPlayer();
         bg.src = item.src;
         bg.currentTime = 0;
@@ -321,7 +337,8 @@ class DashboardManager {
             host.innerHTML = '<div style="opacity:.8">No playlists yet.</div>';
             return;
         }
-        playlists.forEach((pl)=>{
+        const visible = Math.max(5, Number(this._playlistsVisible || 5));
+        playlists.slice(0, visible).forEach((pl)=>{
             const wrap = document.createElement('div');
             wrap.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:8px;margin-bottom:10px;background:#0f1116';
             const head = document.createElement('div');
@@ -410,6 +427,16 @@ class DashboardManager {
                 });
             });
         });
+        if (playlists.length > visible){
+            const more = document.createElement('button');
+            more.className = 'btn btn-secondary';
+            more.textContent = 'Show 5 more';
+            more.onclick = ()=>{
+                this._playlistsVisible = visible + 5;
+                this.renderPlaylists();
+            };
+            host.appendChild(more);
+        }
     }
 
     showMiniPlayer(mediaEl, meta={}){
@@ -418,6 +445,8 @@ class DashboardManager {
             this._currentPlayer = mediaEl;
             // Promote playback to a hidden background audio so it persists across sections
             const bg = this.getBgPlayer();
+            const isVideo = String(mediaEl?.tagName || '').toUpperCase() === 'VIDEO';
+            const source = isVideo ? mediaEl : bg;
             const mini = document.getElementById('mini-player'); if (!mini) return;
             const mTitle = document.getElementById('mini-title');
             const mBy = document.getElementById('mini-by');
@@ -441,27 +470,32 @@ class DashboardManager {
                         artist: meta.by || 'LIBER',
                         artwork: meta.cover ? [{ src: meta.cover, sizes: '512x512', type: 'image/png' }] : undefined
                     });
-                    navigator.mediaSession.setActionHandler('play', ()=> bg.play().catch(()=>{}));
-                    navigator.mediaSession.setActionHandler('pause', ()=> bg.pause());
-                    navigator.mediaSession.setActionHandler('seekbackward', ()=>{ bg.currentTime = Math.max(0, (bg.currentTime||0)-10); });
-                    navigator.mediaSession.setActionHandler('seekforward', ()=>{ bg.currentTime = Math.min((bg.duration||0), (bg.currentTime||0)+10); });
+                    navigator.mediaSession.setActionHandler('play', ()=> source.play().catch(()=>{}));
+                    navigator.mediaSession.setActionHandler('pause', ()=> source.pause());
+                    navigator.mediaSession.setActionHandler('seekbackward', ()=>{ source.currentTime = Math.max(0, (source.currentTime||0)-10); });
+                    navigator.mediaSession.setActionHandler('seekforward', ()=>{ source.currentTime = Math.min((source.duration||0), (source.currentTime||0)+10); });
                 }catch(_){ }
             }
             mini.classList.add('show');
             // Hand off current media to bg player
             try{
                 this.pauseAllMediaExcept(mediaEl);
-                bg.src = mediaEl.currentSrc || mediaEl.src;
-                if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime;
-                bg.play().catch(()=>{});
-                mediaEl.pause();
+                if (!isVideo){
+                    bg.src = mediaEl.currentSrc || mediaEl.src;
+                    if (!isNaN(mediaEl.currentTime)) bg.currentTime = mediaEl.currentTime;
+                    bg.play().catch(()=>{});
+                    mediaEl.pause();
+                }else{
+                    try{ bg.pause(); }catch(_){ }
+                    if (mediaEl.paused) mediaEl.play().catch(()=>{});
+                }
             }catch(_){ }
-            if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play(); } else { bg.pause(); } }; }
-            const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !bg.paused);
+            if (playBtn){ playBtn.onclick = ()=>{ if (source.paused){ source.play(); } else { source.pause(); } }; }
+            const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !source.paused);
             const syncProgress = ()=>{
                 if (!miniFill || !miniTime) return;
-                const d = Number(bg.duration || 0);
-                const c = Number(bg.currentTime || 0);
+                const d = Number(source.duration || 0);
+                const c = Number(source.currentTime || 0);
                 if (d > 0){
                     miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
                     miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
@@ -474,26 +508,26 @@ class DashboardManager {
                 miniProgress.onclick = (e)=>{
                     const rect = miniProgress.getBoundingClientRect();
                     const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                    if (Number(bg.duration) > 0) bg.currentTime = ratio * bg.duration;
+                    if (Number(source.duration) > 0) source.currentTime = ratio * source.duration;
                 };
             }
-            bg.onplay = ()=>{ syncMiniBtn(); syncProgress(); };
-            bg.onpause = ()=>{ syncMiniBtn(); syncProgress(); };
-            bg.ontimeupdate = syncProgress;
-            bg.onloadedmetadata = syncProgress;
-            bg.onended = ()=>{
+            source.onplay = ()=>{ syncMiniBtn(); syncProgress(); };
+            source.onpause = ()=>{ syncMiniBtn(); syncProgress(); };
+            source.ontimeupdate = syncProgress;
+            source.onloadedmetadata = syncProgress;
+            source.onended = ()=>{
                 syncMiniBtn();
                 if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
             };
             syncMiniBtn(); syncProgress();
-            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+            if (closeBtn){ closeBtn.onclick = ()=>{ mini.classList.remove('show'); try{ source.pause(); }catch(_){} }; }
             if (queueBtn && queuePanel){
                 queueBtn.onclick = ()=>{ this.renderQueuePanel(); queuePanel.style.display = queuePanel.style.display === 'none' ? 'block' : 'none'; };
             }
             if (queueClose && queuePanel){ queueClose.onclick = ()=> queuePanel.style.display = 'none'; }
             if (addBtn){
                 addBtn.onclick = ()=> this.openAddToPlaylistPopup({
-                    src: bg.currentSrc || bg.src,
+                    src: source.currentSrc || source.src,
                     title: mTitle?.textContent || meta.title || 'Track',
                     by: mBy?.textContent || meta.by || '',
                     cover: (mCover && mCover.src) || meta.cover || ''
@@ -511,7 +545,7 @@ class DashboardManager {
                     cover: n.dataset?.cover || ''
                 }))
                 .filter((q)=> !!q.src);
-            const currentSrc = bg.currentSrc || bg.src || '';
+            const currentSrc = source.currentSrc || source.src || '';
             this._playQueue = queue;
             this._playQueueIndex = Math.max(0, queue.findIndex((q)=> q.src === currentSrc));
             this.renderQueuePanel();
@@ -589,6 +623,8 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
+        this.setupFeedTabs();
+        this.setupVideoHostTabs();
         window.addEventListener('liber:app-shell-open', ()=> this.suspendDashboardActivity());
         window.addEventListener('liber:app-shell-close', ()=> this.resumeDashboardActivity());
         // Prevent browser-autofill from leaking login email into dashboard search fields.
@@ -2094,23 +2130,78 @@ class DashboardManager {
         }catch(_){ }
     }
 
+    setupFeedTabs(){
+        const latestBtn = document.getElementById('feed-tab-latest');
+        const suggBtn = document.getElementById('feed-tab-suggestions');
+        const latestPane = document.getElementById('feed-latest-pane');
+        const suggPane = document.getElementById('feed-suggestions-pane');
+        if (!latestBtn || !suggBtn || !latestPane || !suggPane || latestBtn._boundTabs) return;
+        latestBtn._boundTabs = true;
+        const open = (name)=>{
+            const showLatest = name === 'latest';
+            latestBtn.classList.toggle('active', showLatest);
+            suggBtn.classList.toggle('active', !showLatest);
+            latestPane.style.display = showLatest ? 'block' : 'none';
+            suggPane.style.display = showLatest ? 'none' : 'block';
+        };
+        latestBtn.onclick = ()=> open('latest');
+        suggBtn.onclick = ()=> open('suggestions');
+        open('latest');
+    }
+
+    setupVideoHostTabs(){
+        const tabLibrary = document.getElementById('video-tab-library');
+        const tabSuggestions = document.getElementById('video-tab-suggestions');
+        const tabSearch = document.getElementById('video-tab-search');
+        const paneLibrary = document.getElementById('video-library-pane');
+        const paneSuggestions = document.getElementById('video-suggestions-pane');
+        const paneSearch = document.getElementById('video-search-pane');
+        if (!tabLibrary || !tabSuggestions || !tabSearch || !paneLibrary || !paneSuggestions || !paneSearch || tabLibrary._boundTabs) return;
+        tabLibrary._boundTabs = true;
+        const open = (name)=>{
+            tabLibrary.classList.toggle('active', name === 'library');
+            tabSuggestions.classList.toggle('active', name === 'suggestions');
+            tabSearch.classList.toggle('active', name === 'search');
+            paneLibrary.style.display = name === 'library' ? 'block' : 'none';
+            paneSuggestions.style.display = name === 'suggestions' ? 'block' : 'none';
+            paneSearch.style.display = name === 'search' ? 'block' : 'none';
+        };
+        tabLibrary.onclick = ()=> open('library');
+        tabSuggestions.onclick = ()=> open('suggestions');
+        tabSearch.onclick = ()=> open('search');
+        open('library');
+    }
+
     async renderWaveLibrary(uid){
         const lib = document.getElementById('wave-library'); if (!lib) return;
         lib.innerHTML = '';
+        const items = [];
         try{
             const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
             const snap = await firebase.getDocs(q);
-            snap.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
+            snap.forEach(d=> items.push(d.data()));
         }catch{
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
-            const s2 = await firebase.getDocs(q2); s2.forEach(d=> lib.appendChild(this.renderWaveItem(d.data())));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
+        }
+        const visible = Math.max(5, Number(this._waveLibraryVisible || 5));
+        items.slice(0, visible).forEach((w)=> lib.appendChild(this.renderWaveItem(w)));
+        if (items.length > visible){
+            const more = document.createElement('button');
+            more.className = 'btn btn-secondary';
+            more.textContent = 'Show 5 more';
+            more.onclick = ()=>{
+                this._waveLibraryVisible = visible + 5;
+                this.renderWaveLibrary(uid);
+            };
+            lib.appendChild(more);
         }
     }
 
     renderWaveItem(w){
         const div = document.createElement('div');
         div.className = 'wave-item';
-        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:column;gap:10px;align-items:center;justify-content:space-between';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
         const cover = w.coverUrl || 'images/default-bird.png';
         const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
@@ -2182,8 +2273,9 @@ class DashboardManager {
                 search._bound = true;
                 search.oninput = async (e)=>{
                     const qStr = (e.target.value||'').toLowerCase();
-                    const res = document.getElementById('video-suggestions'); if (!res) return;
+                    const res = document.getElementById('video-search-results'); if (!res) return;
                     res.innerHTML='';
+                    if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
                     snap.forEach(d=>{ const v=d.data(); if ((v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
                 };
@@ -2191,12 +2283,14 @@ class DashboardManager {
 
             await this.renderVideoLibrary(me.uid);
             await this.renderVideoSuggestions(me.uid);
+            this.setupVideoHostTabs();
         }catch(_){ }
     }
 
     async renderVideoLibrary(uid){
         const lib = document.getElementById('video-library'); if (!lib) return;
         lib.innerHTML = '';
+        const items = [];
         try{
             let q;
             try{
@@ -2205,10 +2299,22 @@ class DashboardManager {
                 q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
             }
             const snap = await firebase.getDocs(q);
-            snap.forEach(d=> lib.appendChild(this.renderVideoItem(d.data())));
+            snap.forEach(d=> items.push(d.data()));
         }catch{
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
-            const s2 = await firebase.getDocs(q2); s2.forEach(d=> lib.appendChild(this.renderVideoItem(d.data())));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
+        }
+        const visible = Math.max(5, Number(this._videoLibraryVisible || 5));
+        items.slice(0, visible).forEach((v)=> lib.appendChild(this.renderVideoItem(v)));
+        if (items.length > visible){
+            const more = document.createElement('button');
+            more.className = 'btn btn-secondary';
+            more.textContent = 'Show 5 more';
+            more.onclick = ()=>{
+                this._videoLibraryVisible = visible + 5;
+                this.renderVideoLibrary(uid);
+            };
+            lib.appendChild(more);
         }
     }
 
@@ -2218,7 +2324,18 @@ class DashboardManager {
         try{
             const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
             const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid) list.push(v); });
-            list.slice(0,10).forEach(v=> sug.appendChild(this.renderVideoItem(v)) );
+            const visible = Math.max(5, Number(this._videoSuggestionsVisible || 5));
+            list.slice(0, visible).forEach(v=> sug.appendChild(this.renderVideoItem(v)));
+            if (list.length > visible){
+                const more = document.createElement('button');
+                more.className = 'btn btn-secondary';
+                more.textContent = 'Show 5 more';
+                more.onclick = ()=>{
+                    this._videoSuggestionsVisible = visible + 5;
+                    this.renderVideoSuggestions(uid);
+                };
+                sug.appendChild(more);
+            }
         }catch(_){ }
     }
 
@@ -2229,7 +2346,7 @@ class DashboardManager {
         const thumb = v.thumbnailUrl || 'images/default-bird.png';
         const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
-                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:480px;border-radius:8px" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>
+                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>
                          <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{

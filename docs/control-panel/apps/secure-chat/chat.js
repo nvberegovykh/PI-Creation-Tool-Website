@@ -342,6 +342,22 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     bindUI(){
+      const backBtn = document.getElementById('back-btn');
+      if (backBtn){
+        backBtn.addEventListener('click', (e)=>{
+          try{
+            const inShell = new URLSearchParams(location.search).get('inShell') === '1' || window.self !== window.top;
+            if (!inShell) return;
+            e.preventDefault();
+            if (window.parent && window.parent !== window){
+              window.parent.postMessage({ type: 'liber:close-app-shell' }, '*');
+              if (window.parent.appsManager && typeof window.parent.appsManager.closeAppShell === 'function'){
+                window.parent.appsManager.closeAppShell();
+              }
+            }
+          }catch(_){ /* keep default href fallback */ }
+        });
+      }
       document.getElementById('new-connection-btn').addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
       const actionBtn = document.getElementById('action-btn');
       if (actionBtn){
@@ -1927,11 +1943,12 @@ import { runTransaction } from 'firebase/firestore';
     }
     isVideoFilename(name){
       const n = (name||'').toLowerCase();
+      if (n.startsWith('voice.') || n.startsWith('audio.')) return false;
       return n.endsWith('.mp4') || n.endsWith('.webm') || n.endsWith('.mov') || n.endsWith('.mkv');
     }
     isAudioFilename(name){
       const n = (name||'').toLowerCase();
-      return n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
+      return n.startsWith('voice.') || n.startsWith('audio.') || n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
     }
 
     getGlobalBgPlayer(){

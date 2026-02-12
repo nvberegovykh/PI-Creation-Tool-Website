@@ -28,6 +28,7 @@ class AppsManager {
         const closeBtn = document.getElementById('app-shell-close');
         const reloadBtn = document.getElementById('app-shell-reload');
         const openTabBtn = document.getElementById('app-shell-open-tab');
+        const frame = document.getElementById('app-shell-frame');
         if (!shell) return;
         if (closeBtn && !closeBtn._bound){
             closeBtn._bound = true;
@@ -46,11 +47,44 @@ class AppsManager {
                 if (this._activeAppUrl) window.open(this._activeAppUrl, '_blank', 'noopener,noreferrer');
             });
         }
+        if (frame && !frame._boundBackRelay){
+            frame._boundBackRelay = true;
+            frame.addEventListener('load', ()=> this.bindShellBackBridge(frame));
+        }
+        if (!window._liberAppShellMsgBound){
+            window._liberAppShellMsgBound = true;
+            window.addEventListener('message', (ev)=>{
+                const data = ev && ev.data ? ev.data : {};
+                if (data && data.type === 'liber:close-app-shell'){
+                    this.closeAppShell();
+                }
+            });
+        }
         window.addEventListener('keydown', (e)=>{
             if (e.key === 'Escape' && document.body.classList.contains('app-shell-open')) {
                 this.closeAppShell();
             }
         });
+    }
+
+    bindShellBackBridge(frame){
+        try{
+            const doc = frame?.contentDocument;
+            if (!doc || doc._liberBackBridgeBound) return;
+            doc._liberBackBridgeBound = true;
+            doc.addEventListener('click', (e)=>{
+                const t = e.target && e.target.closest
+                    ? e.target.closest('#back-btn, [data-close-shell], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
+                    : null;
+                if (!t) return;
+                const href = (t.getAttribute && t.getAttribute('href')) || '';
+                const isBack = t.id === 'back-btn' || t.hasAttribute('data-close-shell') || /index\.html(\?|$)/i.test(href);
+                if (!isBack) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeAppShell();
+            }, true);
+        }catch(_){ /* cross-origin or transient frame state */ }
     }
 
     /**

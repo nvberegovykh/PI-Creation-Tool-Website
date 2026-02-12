@@ -315,10 +315,6 @@
                     <div id="space-suggestions" style="margin-top:16px"></div>
                 </div>
 
-                <div class="settings-card" id="space-connections-card" style="margin-top:16px">
-                    <h3>Connections</h3>
-                    <ul id="space-connections-list" class="users-list simple"></ul>
-                </div>
             </section>
 
             <!-- Feed Section -->
@@ -327,12 +323,16 @@
                     <h2>Feed</h2>
                 </div>
                 <div class="settings-card">
-                    <h3>Latest</h3>
-                    <div id="global-feed"></div>
-                </div>
-                <div class="settings-card" style="margin-top:16px">
-                    <h3>Suggestions</h3>
-                    <div id="global-suggestions"></div>
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                        <button id="feed-tab-latest" class="btn btn-secondary active">Latest</button>
+                        <button id="feed-tab-suggestions" class="btn btn-secondary">Suggestions</button>
+                    </div>
+                    <div id="feed-latest-pane">
+                        <div id="global-feed"></div>
+                    </div>
+                    <div id="feed-suggestions-pane" style="display:none">
+                        <div id="global-suggestions"></div>
+                    </div>
                 </div>
             </section>
 
@@ -393,12 +393,6 @@
 
                 <!-- Video Pane -->
                 <div id="wave-video-pane" style="display:none">
-                    <div class="section-header" style="margin-top:8px">
-                        <div class="search-container">
-                            <input type="text" id="video-search" placeholder="Search videos...">
-                            <i class="fas fa-search"></i>
-                        </div>
-                    </div>
                     <div class="settings-grid">
                         <div class="settings-card">
                             <h3>Upload Video (up to 5 hours)</h3>
@@ -421,12 +415,24 @@
                         </div>
                     </div>
                     <div class="settings-card" style="margin-top:16px">
-                        <h3>My Videos</h3>
-                        <div id="video-library"></div>
-                    </div>
-                    <div class="settings-card" style="margin-top:16px">
-                        <h3>Suggestions</h3>
-                        <div id="video-suggestions"></div>
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                            <button id="video-tab-library" class="btn btn-secondary active">My Videos</button>
+                            <button id="video-tab-suggestions" class="btn btn-secondary">Suggestions</button>
+                            <button id="video-tab-search" class="btn btn-secondary">Search</button>
+                        </div>
+                        <div id="video-library-pane">
+                            <div id="video-library"></div>
+                        </div>
+                        <div id="video-suggestions-pane" style="display:none">
+                            <div id="video-suggestions"></div>
+                        </div>
+                        <div id="video-search-pane" style="display:none">
+                            <div class="search-container" style="margin-bottom:10px">
+                                <input type="text" id="video-search" placeholder="Search videos...">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <div id="video-search-results"></div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -477,6 +483,10 @@
                             <input type="password" id="confirm-new-password">
                         </div>
                         <button id="change-password-btn" class="btn btn-primary">Update Password</button>
+                    </div>
+                    <div class="settings-card" id="space-connections-card">
+                        <h3>Connections</h3>
+                        <ul id="space-connections-list" class="users-list simple"></ul>
                     </div>
                 </div>
             </section>
@@ -695,7 +705,7 @@
     
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_APP_VERSION = '20260211r37';
+      window.LIBER_APP_VERSION = '20260212r01';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
         const scripts = [
