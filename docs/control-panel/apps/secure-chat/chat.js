@@ -42,6 +42,13 @@ import { runTransaction } from 'firebase/firestore';
       this._voiceWidgets = new Map();
       this._voiceCurrentSrc = '';
       this._voiceCurrentTitle = 'Voice message';
+      this._voiceWaveCache = new Map();
+      this._voiceDurationCache = new Map();
+      this._voiceWaveCtx = null;
+      this._voiceHydrateQueue = [];
+      this._voiceHydrateRunning = 0;
+      this._voiceHydrateMax = 1;
+      this._voiceHydrateSession = 0;
       this._typingUnsub = null;
       this._typingTicker = null;
       this._typingByUid = {};
@@ -102,6 +109,156 @@ import { runTransaction } from 'firebase/firestore';
       const m = Math.floor(s / 60);
       const ss = String(s % 60).padStart(2, '0');
       return `${m}:${ss}`;
+    }
+
+    paintSeedWaveBars(wave, barsCount, seed){
+      if (!wave) return;
+      wave.innerHTML = '';
+      for (let i = 0; i < barsCount; i++){
+        const bar = document.createElement('span');
+        bar.className = 'bar';
+        const seedCode = seed.charCodeAt(i % (seed.length || 1)) || 37;
+        const waveBase = (Math.sin((i / barsCount) * Math.PI * 2) + 1) * 0.5;
+        const jitter = ((seedCode * (i + 7)) % 9) / 10;
+        const h = 5 + Math.round((waveBase * 12) + (jitter * 6));
+        bar.style.height = `${h}px`;
+        wave.appendChild(bar);
+      }
+    }
+
+    applyWaveHeights(wave, heights){
+      if (!wave || !Array.isArray(heights) || !heights.length) return;
+      wave.innerHTML = '';
+      heights.forEach((h)=>{
+        const bar = document.createElement('span');
+        bar.className = 'bar';
+        bar.style.height = `${Math.max(4, Math.min(24, Math.round(h)))}px`;
+        wave.appendChild(bar);
+      });
+    }
+
+    async getWaveHeightsForAudio(url, barsCount = 54){
+      try{
+        const src = String(url || '').trim();
+        if (!src) return null;
+        const key = `${src}::${barsCount}`;
+        if (this._voiceWaveCache.has(key)) return await this._voiceWaveCache.get(key);
+        const p = (async ()=>{
+          const resp = await fetch(src, { mode: 'cors' });
+          if (!resp.ok) return null;
+          const buf = await resp.arrayBuffer();
+          if (!this._voiceWaveCtx){
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            this._voiceWaveCtx = new AC();
+          }
+          const audioBuf = await this._voiceWaveCtx.decodeAudioData(buf.slice(0));
+          const data = audioBuf.getChannelData(0);
+          const total = data.length;
+          if (!total) return null;
+          const step = Math.max(1, Math.floor(total / barsCount));
+          const out = [];
+          for (let i = 0; i < barsCount; i++){
+            const start = i * step;
+            const end = Math.min(total, start + step);
+            let sum = 0;
+            let count = 0;
+            for (let j = start; j < end; j++){
+              const v = data[j];
+              sum += v * v;
+              count++;
+            }
+            const rms = count ? Math.sqrt(sum / count) : 0;
+            out.push(rms);
+          }
+          const max = Math.max(...out, 0.0001);
+          return out.map((v)=> 4 + ((v / max) * 20));
+        })();
+        this._voiceWaveCache.set(key, p);
+        const result = await p;
+        if (!result) this._voiceWaveCache.delete(key);
+        return result;
+      }catch(_){ return null; }
+    }
+
+    async getDurationForAudio(url){
+      try{
+        const src = String(url || '').trim();
+        if (!src) return 0;
+        if (this._voiceDurationCache.has(src)) return await this._voiceDurationCache.get(src);
+        const p = new Promise((resolve)=>{
+          const a = document.createElement('audio');
+          a.preload = 'metadata';
+          a.src = src;
+          const done = (v)=> resolve(Number.isFinite(v) && v > 0 ? v : 0);
+          a.addEventListener('loadedmetadata', ()=> done(a.duration), { once: true });
+          a.addEventListener('error', ()=> done(0), { once: true });
+          setTimeout(()=> done(0), 6000);
+        });
+        this._voiceDurationCache.set(src, p);
+        return await p;
+      }catch(_){ return 0; }
+    }
+
+    hydrateVoiceWidgetMedia(widget, barsCount, seed){
+      const mySession = this._voiceHydrateSession || 0;
+      this.getDurationForAudio(widget.src).then((duration)=>{
+        try{
+          if ((this._voiceHydrateSession || 0) !== mySession) return;
+          if (!widget || !widget.wave || !widget.wave.isConnected) return;
+          if (duration > 0){
+            widget.durationGuess = duration;
+            this.updateVoiceWidgets();
+          }
+        }catch(_){ }
+      }).catch(()=>{});
+      this.enqueueVoiceWaveHydrate(widget, barsCount, seed, { priority: false, session: mySession });
+    }
+
+    enqueueVoiceWaveHydrate(widget, barsCount, seed, opts = {}){
+      try{
+        const session = Number.isFinite(Number(opts.session)) ? Number(opts.session) : (this._voiceHydrateSession || 0);
+        const priority = !!opts.priority;
+        const run = async ()=>{
+          if ((this._voiceHydrateSession || 0) !== session) return;
+          if (!widget || !widget.wave || !widget.wave.isConnected) return;
+          try{
+            const heights = await this.getWaveHeightsForAudio(widget.src, barsCount);
+            if ((this._voiceHydrateSession || 0) !== session) return;
+            if (!widget.wave || !widget.wave.isConnected) return;
+            if (Array.isArray(heights) && heights.length){
+              this.applyWaveHeights(widget.wave, heights);
+              this.updateVoiceWidgets();
+            } else {
+              this.paintSeedWaveBars(widget.wave, barsCount, seed);
+            }
+          }catch(_){ }
+        };
+        if (priority) this._voiceHydrateQueue.unshift(run);
+        else this._voiceHydrateQueue.push(run);
+        this.pumpVoiceWaveHydrateQueue();
+      }catch(_){ }
+    }
+
+    pumpVoiceWaveHydrateQueue(){
+      try{
+        if ((this._voiceHydrateRunning || 0) >= (this._voiceHydrateMax || 1)) return;
+        const next = this._voiceHydrateQueue.shift();
+        if (!next) return;
+        this._voiceHydrateRunning = (this._voiceHydrateRunning || 0) + 1;
+        const done = ()=>{
+          this._voiceHydrateRunning = Math.max(0, (this._voiceHydrateRunning || 1) - 1);
+          this.pumpVoiceWaveHydrateQueue();
+        };
+        const invoke = ()=>{
+          Promise.resolve().then(next).catch(()=>{}).finally(done);
+        };
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'){
+          window.requestIdleCallback(invoke, { timeout: 700 });
+        } else {
+          setTimeout(invoke, 0);
+        }
+      }catch(_){ }
     }
 
     stripPlaceholderText(text){
@@ -1176,6 +1333,8 @@ import { runTransaction } from 'firebase/firestore';
     async setActive(connId, displayName){
       const setSeq = (this._setActiveSeq || 0) + 1;
       this._setActiveSeq = setSeq;
+      this._voiceHydrateSession = (this._voiceHydrateSession || 0) + 1;
+      this._voiceHydrateQueue = [];
       // Always resolve to one canonical chat doc for this participant key, so
       // chat search / sidebar / personal-space popup all open the same thread.
       const shouldResolve = String(connId || '').includes('|');
@@ -1396,13 +1555,23 @@ import { runTransaction } from 'firebase/firestore';
             if (typeof m.text === 'string' && !m.cipher){
               text = m.text;
             } else {
-              try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-                try {
-                  const peerUid = await this.getPeerUidForConn(sourceConnId);
-                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
-                  text = await chatCrypto.decryptWithKey(m.cipher, legacy);
-                } catch {
-                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              try{
+                text = await chatCrypto.decryptWithKey(m.cipher, aesKey);
+              }catch{
+                let ok = false;
+                try{
+                  const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
+                  for (const k of candidates){
+                    try{
+                      text = await chatCrypto.decryptWithKey(m.cipher, k);
+                      ok = true;
+                      break;
+                    }catch(_){ }
+                  }
+                }catch(_){ }
+                if (!ok){
+                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);}
+                  catch { text='[unable to decrypt]'; }
                 }
               }
             }
@@ -1563,13 +1732,23 @@ import { runTransaction } from 'firebase/firestore';
             if (typeof m.text === 'string' && !m.cipher){
               text = m.text;
             } else {
-              try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
-                try {
-                  const peerUid = await this.getPeerUidForConn(activeConnId);
-                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, activeConnId);
-                  text = await chatCrypto.decryptWithKey(m.cipher, legacy);
-                } catch {
-                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
+              try{
+                text = await chatCrypto.decryptWithKey(m.cipher, aesKey);
+              }catch{
+                let ok = false;
+                try{
+                  const candidates = await this.getFallbackKeyCandidatesForConn(activeConnId);
+                  for (const k of candidates){
+                    try{
+                      text = await chatCrypto.decryptWithKey(m.cipher, k);
+                      ok = true;
+                      break;
+                    }catch(_){ }
+                  }
+                }catch(_){ }
+                if (!ok){
+                  try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);}
+                  catch { text='[unable to decrypt]'; }
                 }
               }
             }
@@ -2546,21 +2725,63 @@ import { runTransaction } from 'firebase/firestore';
       return this.getPeerUid();
     }
 
-    async getFallbackKeyForConn(connId){
+    async getConnSaltForConn(connId){
       try{
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
-        const parts = snap.exists() ? this.getConnParticipants(snap.data()) : [];
-        if (parts.length > 2){
-          const groupSecret = `${parts.slice().sort().join('|')}|${connId}|liber_group_fallback_v2`;
-          return window.chatCrypto.deriveChatKey(groupSecret);
+        const local = (this.connections || []).find((c)=> c && c.id === connId);
+        const localParts = this.getConnParticipants(local || {});
+        const localKey = String(local?.key || '').trim();
+        if (localKey || localParts.length){
+          const stable = localKey || this.computeConnKey(localParts);
+          return { parts: localParts, stableSalt: stable || connId, connIdSalt: connId };
         }
       }catch(_){ }
+      try{
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
+        if (snap.exists()){
+          const data = snap.data() || {};
+          const parts = this.getConnParticipants(data || {});
+          const key = String(data?.key || '').trim();
+          const stable = key || this.computeConnKey(parts);
+          return { parts, stableSalt: stable || connId, connIdSalt: connId };
+        }
+      }catch(_){ }
+      return { parts: [], stableSalt: connId, connIdSalt: connId };
+    }
+
+    async getFallbackKeyCandidatesForConn(connId){
+      const out = [];
+      const add = (k)=>{ if (k && !out.includes(k)) out.push(k); };
+      const salts = await this.getConnSaltForConn(connId);
+      const parts = Array.isArray(salts.parts) ? salts.parts : [];
+      const stableSalt = String(salts.stableSalt || connId || '');
+      const connIdSalt = String(salts.connIdSalt || connId || '');
+      if (parts.length > 2){
+        add(await window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${stableSalt}|liber_group_fallback_v2`));
+        if (connIdSalt && connIdSalt !== stableSalt){
+          add(await window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${connIdSalt}|liber_group_fallback_v2`));
+        }
+        return out;
+      }
       const peerUid = await this.getPeerUidForConn(connId);
       if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
-        return window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connId);
+        add(await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, stableSalt));
+        if (connIdSalt && connIdSalt !== stableSalt){
+          add(await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connIdSalt));
+        }
       }
-      const secret = `${[this.currentUser.uid, peerUid].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`;
-      return window.chatCrypto.deriveChatKey(secret);
+      // Legacy fallback variants
+      add(await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${stableSalt}|liber_secure_chat_fallback_v1`));
+      if (connIdSalt && connIdSalt !== stableSalt){
+        add(await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${connIdSalt}|liber_secure_chat_fallback_v1`));
+      }
+      return out;
+    }
+
+    async getFallbackKeyForConn(connId){
+      const keys = await this.getFallbackKeyCandidatesForConn(connId);
+      if (keys && keys.length) return keys[0];
+      const peerUid = await this.getPeerUidForConn(connId);
+      return window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid].sort().join('|')}|${connId}|liber_secure_chat_fallback_v1`);
     }
 
     async getFallbackKey(){
@@ -2579,6 +2800,57 @@ import { runTransaction } from 'firebase/firestore';
     isAudioFilename(name){
       const n = (name||'').toLowerCase();
       return n.startsWith('voice.') || n.startsWith('audio.') || n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
+    }
+
+    inferVideoMime(name){
+      const n = String(name || '').toLowerCase();
+      if (n.endsWith('.mp4') || n.endsWith('.m4v')) return 'video/mp4';
+      if (n.endsWith('.mov')) return 'video/quicktime';
+      if (n.endsWith('.mkv')) return 'video/x-matroska';
+      return 'video/webm';
+    }
+
+    inferAudioMime(name){
+      const n = String(name || '').toLowerCase();
+      if (n.endsWith('.mp3')) return 'audio/mpeg';
+      if (n.endsWith('.wav')) return 'audio/wav';
+      if (n.endsWith('.m4a') || n.endsWith('.aac')) return 'audio/mp4';
+      if (n.endsWith('.ogg') || n.endsWith('.oga')) return 'audio/ogg';
+      return 'audio/webm';
+    }
+
+    pauseOtherInlineMedia(current){
+      try{
+        document.querySelectorAll('.file-preview video, .file-preview audio').forEach((m)=>{
+          if (m !== current){
+            try{ m.pause(); }catch(_){ }
+          }
+        });
+      }catch(_){ }
+    }
+
+    bindInlineVideoPlayback(videoEl, title){
+      if (!videoEl || videoEl._inlineToggleBound) return;
+      videoEl._inlineToggleBound = true;
+      videoEl.style.cursor = 'pointer';
+      videoEl.addEventListener('click', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        if (videoEl.paused){
+          try{
+            const p = this.ensureChatBgPlayer();
+            if (p && !p.paused) p.pause();
+          }catch(_){ }
+          this.pauseOtherInlineMedia(videoEl);
+          videoEl.play().catch(()=>{});
+          this.bindTopStripToMedia(videoEl, title || 'Video message');
+        } else {
+          videoEl.pause();
+        }
+        this.updateVoiceWidgets();
+      });
+      videoEl.addEventListener('play', ()=> this.bindTopStripToMedia(videoEl, title || 'Video message'));
+      videoEl.addEventListener('pause', ()=> this.updateVoiceWidgets());
     }
 
     getGlobalBgPlayer(){
@@ -2647,6 +2919,7 @@ import { runTransaction } from 'firebase/firestore';
         const active = !!p.src && w.src === p.src;
         const duration = Number(p.duration || 0);
         const ct = Number(p.currentTime || 0);
+        if (active && duration > 0) w.durationGuess = duration;
         const ratio = active && duration > 0 ? Math.min(1, Math.max(0, ct / duration)) : 0;
         const bars = w.wave.querySelectorAll('.bar');
         const playedBars = Math.round(bars.length * ratio);
@@ -2656,7 +2929,7 @@ import { runTransaction } from 'firebase/firestore';
         const totalTxt = this.formatDuration(active ? duration : (w.durationGuess || 0));
         w.time.textContent = w.showRemaining
           ? `-${this.formatDuration(Math.max(0, (active ? duration - ct : w.durationGuess || 0)))}`
-          : `${currentTxt}/${totalTxt}`;
+          : `${currentTxt} / ${totalTxt}`;
         if (active && stripTitle) stripTitle.textContent = w.title || 'Voice message';
       });
       if (stripTitle){
@@ -2675,19 +2948,10 @@ import { runTransaction } from 'firebase/firestore';
       wave.className = 'wave';
       const time = document.createElement('div');
       time.className = 'time';
-      time.textContent = '0:00/0:00';
+      time.textContent = '0:00 / 0:00';
       const keySeed = String(fileName || url || 'voice');
       const barsCount = 54;
-      for (let i = 0; i < barsCount; i++){
-        const bar = document.createElement('span');
-        bar.className = 'bar';
-        const seed = keySeed.charCodeAt(i % keySeed.length || 0) || 37;
-        const waveBase = (Math.sin((i / barsCount) * Math.PI * 2) + 1) * 0.5;
-        const jitter = ((seed * (i + 7)) % 9) / 10;
-        const h = 5 + Math.round((waveBase * 12) + (jitter * 6));
-        bar.style.height = `${h}px`;
-        wave.appendChild(bar);
-      }
+      this.paintSeedWaveBars(wave, barsCount, keySeed);
       wrapper.appendChild(playBtn);
       wrapper.appendChild(wave);
       wrapper.appendChild(time);
@@ -2695,6 +2959,7 @@ import { runTransaction } from 'firebase/firestore';
       const widget = {
         id: `vw_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
         src: url,
+        connId: this.activeConnection || '',
         title: fileName || 'Voice message',
         playBtn,
         wave,
@@ -2703,6 +2968,7 @@ import { runTransaction } from 'firebase/firestore';
         durationGuess: 0
       };
       this._voiceWidgets.set(widget.id, widget);
+      this.hydrateVoiceWidgetMedia(widget, barsCount, keySeed);
 
       const p = this.ensureChatBgPlayer();
       const startFromRatio = (ratio)=>{
@@ -2734,6 +3000,7 @@ import { runTransaction } from 'firebase/firestore';
       };
 
       playBtn.addEventListener('click', ()=>{
+        this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
         if (p.src !== url){
           this._voiceCurrentSrc = url;
           this._voiceCurrentTitle = widget.title;
@@ -2753,6 +3020,7 @@ import { runTransaction } from 'firebase/firestore';
 
       let dragging = false;
       const seekFromClientX = (clientX)=>{
+        this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
         const rect = wave.getBoundingClientRect();
         const ratio = (clientX - rect.left) / rect.width;
         startFromRatio(ratio);
@@ -2804,13 +3072,64 @@ import { runTransaction } from 'firebase/firestore';
 
     applyRandomTriangleMask(mediaEl){
       try{
-        const points = Array.from({ length: 3 }).map(()=> {
-          const x = 25 + Math.floor(Math.random() * 50);
-          const y = 25 + Math.floor(Math.random() * 50);
-          return `${x}% ${y}%`;
-        });
-        mediaEl.style.clipPath = `polygon(${points.join(',')})`;
-        mediaEl.style.webkitClipPath = `polygon(${points.join(',')})`;
+        const applyMask = ()=>{
+          try{
+            const rect = mediaEl.getBoundingClientRect();
+            const w = Number(rect.width || mediaEl.clientWidth || mediaEl.videoWidth || mediaEl.naturalWidth || 0);
+            const h = Number(rect.height || mediaEl.clientHeight || mediaEl.videoHeight || mediaEl.naturalHeight || 0);
+            if (!(w > 0 && h > 0)) return;
+            const cx = w / 2;
+            const cy = h / 2;
+            const r = Math.min(w, h) / 2;
+            const minDeg = 30;
+            const minRad = (minDeg * Math.PI) / 180;
+            const tau = Math.PI * 2;
+            const clamp = (v)=> Math.max(-1, Math.min(1, v));
+            const angleAt = (a, b, c)=>{
+              const abx = b.x - a.x; const aby = b.y - a.y;
+              const acx = c.x - a.x; const acy = c.y - a.y;
+              const d1 = Math.hypot(abx, aby);
+              const d2 = Math.hypot(acx, acy);
+              if (!(d1 > 0 && d2 > 0)) return 0;
+              const cos = clamp((abx * acx + aby * acy) / (d1 * d2));
+              return Math.acos(cos);
+            };
+            const mkPoints = (angles)=> angles.map((a)=> ({ x: cx + (Math.cos(a) * r), y: cy + (Math.sin(a) * r) }));
+            let best = null;
+            for (let i = 0; i < 140; i++){
+              const angles = [Math.random() * tau, Math.random() * tau, Math.random() * tau].sort((a,b)=> a-b);
+              const pts = mkPoints(angles);
+              const a0 = angleAt(pts[0], pts[1], pts[2]);
+              const a1 = angleAt(pts[1], pts[2], pts[0]);
+              const a2 = angleAt(pts[2], pts[0], pts[1]);
+              if (a0 >= minRad && a1 >= minRad && a2 >= minRad){
+                best = pts;
+                break;
+              }
+            }
+            if (!best){
+              // Fallback: equilateral-like triangle on the same centered max circle.
+              const start = Math.random() * tau;
+              best = mkPoints([start, start + (tau / 3), start + ((tau * 2) / 3)]);
+            }
+            const points = best.map((p)=> `${((p.x / w) * 100).toFixed(2)}% ${((p.y / h) * 100).toFixed(2)}%`);
+            mediaEl.style.clipPath = `polygon(${points.join(',')})`;
+            mediaEl.style.webkitClipPath = `polygon(${points.join(',')})`;
+          }catch(_){ }
+        };
+        applyMask();
+        if (!mediaEl._triangleMaskBound){
+          mediaEl._triangleMaskBound = true;
+          mediaEl.addEventListener('loadedmetadata', applyMask);
+          mediaEl.addEventListener('load', applyMask);
+          if (typeof ResizeObserver !== 'undefined'){
+            try{
+              const ro = new ResizeObserver(()=> applyMask());
+              ro.observe(mediaEl);
+              mediaEl._triangleMaskRO = ro;
+            }catch(_){ }
+          }
+        }
       }catch(_){ }
     }
 
@@ -2837,11 +3156,18 @@ import { runTransaction } from 'firebase/firestore';
         let b64;
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
+          let decrypted = false;
           try{
-            const peerUid = await this.getPeerUidForConn(sourceConnId);
-            const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
-            b64 = await chatCrypto.decryptWithKey(payload, legacy);
-          }catch{
+            const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
+            for (const k of candidates){
+              try{
+                b64 = await chatCrypto.decryptWithKey(payload, k);
+                decrypted = true;
+                break;
+              }catch(_){ }
+            }
+          }catch(_){ }
+          if (!decrypted){
             const alt = await this.getFallbackKeyForConn(sourceConnId);
             b64 = await chatCrypto.decryptWithKey(payload, alt);
           }
@@ -2868,21 +3194,24 @@ import { runTransaction } from 'firebase/firestore';
           });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
-          const mime = 'video/webm';
+          const mime = this.inferVideoMime(fileName);
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
-          video.src = url; video.controls = true; video.playsInline = true; video.style.maxWidth = '100%'; video.style.borderRadius='8px';
+          video.src = url;
+          video.controls = false;
+          video.playsInline = true;
+          video.style.maxWidth = '100%';
+          video.style.borderRadius='8px';
           this.applyRandomTriangleMask(video);
-          video.addEventListener('play', ()=> this.bindTopStripToMedia(video, fileName || 'Video message'));
-          video.addEventListener('pause', ()=> this.updateVoiceWidgets());
+          this.bindInlineVideoPlayback(video, fileName || 'Video message');
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
             if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
           });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
-          const mime = 'audio/webm';
+          const mime = this.inferAudioMime(fileName);
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
           const title = String(senderDisplayName || 'Voice message');
@@ -2941,13 +3270,12 @@ import { runTransaction } from 'firebase/firestore';
         if (this.isVideoFilename(name)){
           const v = document.createElement('video');
           v.src = fileUrl;
-          v.controls = true;
+          v.controls = false;
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
           this.applyRandomTriangleMask(v);
-          v.addEventListener('play', ()=> this.bindTopStripToMedia(v, name || 'Video message'));
-          v.addEventListener('pause', ()=> this.updateVoiceWidgets());
+          this.bindInlineVideoPlayback(v, name || 'Video message');
           containerEl.appendChild(v);
           return;
         }
@@ -4286,15 +4614,25 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     const discardBtn = document.getElementById('discard-recording-btn');
     const switchBtn = document.getElementById('switch-camera-btn');
     if (!review || !player || !sendBtn || !discardBtn) return;
+    const self = window.secureChatApp;
     player.innerHTML = '';
     const url = URL.createObjectURL(blob);
     const isVideo = (blob.type||'').startsWith('video');
-    const mediaEl = document.createElement(isVideo ? 'video' : 'audio');
-    mediaEl.controls = true; mediaEl.src = url; mediaEl.style.maxWidth = '100%'; mediaEl.playsInline = true; if (isVideo){ mediaEl.classList.add('circular'); } player.appendChild(mediaEl);
+    if (isVideo){
+      const mediaEl = document.createElement('video');
+      mediaEl.controls = true;
+      mediaEl.src = url;
+      mediaEl.style.maxWidth = '100%';
+      mediaEl.playsInline = true;
+      mediaEl.classList.add('circular');
+      player.appendChild(mediaEl);
+    } else {
+      // Keep type-bar review consistent with in-chat voice UI.
+      self.renderWaveAttachment(player, url, 'You');
+    }
     review.classList.remove('hidden');
     const input = document.getElementById('message-input'); if (input) input.style.display='none';
     const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>'; actionBtn.title = 'Send'; }
-    const self = window.secureChatApp;
     self._recordingSendInFlight = false;
     if (switchBtn){ switchBtn.style.display = isVideo ? 'inline-block':'none'; }
     if (switchBtn && isVideo){

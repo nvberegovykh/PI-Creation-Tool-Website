@@ -58,7 +58,7 @@
   flex:1;
   min-width:0;
   display:flex;
-  gap:2px;
+  gap:1px;
   align-items:flex-end;
   height:22px;
   cursor:pointer;
@@ -66,7 +66,8 @@
   overflow:hidden;
 }
 .audio-wave-bars .bar{
-  width:2px;
+  flex:1 1 0;
+  min-width:1px;
   border-radius:2px;
   background:#6e798b;
   opacity:.95;
@@ -108,7 +109,7 @@
 }
 
 :root {
-    --app-font: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --app-font: "Courier Prime", "Courier New", "Lucida Console", monospace;
     --primary-bg: #000000;
     --secondary-bg: #111111;
     --tertiary-bg: #1a1a1a;
@@ -265,7 +266,6 @@ img, video, canvas, svg, iframe {
   #global-feed .post-item,
   #global-suggestions .post-item,
   #space-feed .post-item,
-  .wave-item,
   .video-item{
     margin:0 !important;
     width:100%;
@@ -274,16 +274,19 @@ img, video, canvas, svg, iframe {
   .player-card{
     max-width:400px;
   }
-  /* WaveConnect desktop: keep only Upload + Library side by side */
-  #wave-audio-pane,
-  #wave-video-pane{
+  /* WaveConnect desktop: normal flow, only audio Upload + Library in one row */
+  #wave-audio-pane{
     width:100%;
-    max-width:1200px;
-    margin:0 auto;
+    max-width:none;
     display:grid;
     grid-template-columns:minmax(320px, 1fr) minmax(320px, 1fr);
     gap:16px;
     align-items:start;
+  }
+  #wave-video-pane{
+    width:100%;
+    max-width:none;
+    display:block;
   }
   #wave-audio-pane > .section-header{
     grid-column:1 / -1;
@@ -303,15 +306,7 @@ img, video, canvas, svg, iframe {
     grid-column:1 / -1;
   }
   #wave-video-pane > .settings-grid{
-    grid-column:1;
-    margin:0;
-  }
-  #wave-video-pane > .settings-grid .settings-card{
-    margin:0;
-  }
-  #wave-video-pane > .settings-card{
-    grid-column:2;
-    margin-top:0 !important;
+    margin:0 0 16px 0;
   }
   /* Keep WaveConnect content in normal full-width column flow inside cards */
   #wave-library,
@@ -325,6 +320,12 @@ img, video, canvas, svg, iframe {
     max-width:100%;
     width:100%;
     margin:8px 0 !important;
+  }
+  #wave-library .player-card,
+  #wave-playlists .player-card,
+  #wave-results .player-card{
+    max-width:none;
+    width:100%;
   }
 }
 
@@ -465,6 +466,7 @@ input:focus, textarea:focus, select:focus {
 
 input::placeholder {
     color: var(--secondary-text);
+    font-family: inherit;
 }
 
 /* Cards */

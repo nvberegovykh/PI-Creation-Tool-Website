@@ -6,7 +6,7 @@
 }
 
 body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-family: var(--app-font, "Courier Prime", "Courier New", "Lucida Console", monospace);
     background-color: #000000;
     color: #ffffff;
     line-height: 1.6;
@@ -468,7 +468,7 @@ body {
     color: #000000;
     padding: 40px;
     border-radius: 8px;
-    font-family: 'Times New Roman', serif;
+    font-family: inherit;
 }
 
 .invoice-header {

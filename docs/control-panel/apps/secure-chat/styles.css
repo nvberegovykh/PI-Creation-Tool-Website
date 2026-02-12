@@ -1,5 +1,5 @@
 html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-.chat-app{display:flex;flex-direction:column;position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;height:100svh;height:100dvh;overflow:hidden;background:var(--primary-bg,#000);color:var(--primary-text,#eaeaea);font-family:var(--app-font,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif);touch-action:manipulation;overscroll-behavior:none}
+.chat-app{display:flex;flex-direction:column;position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;height:100svh;height:100dvh;overflow:hidden;background:var(--primary-bg,#000);color:var(--primary-text,#eaeaea);font-family:var(--app-font,"Courier Prime","Courier New","Lucida Console",monospace);touch-action:manipulation;overscroll-behavior:none}
 .sidebar{position:absolute;z-index:20;display:flex;flex-direction:column;background:#0f1116;transition:transform .25s ease, max-height .25s ease, height .25s ease}
 /* Desktop: inline sidebar + chat */
 @media(min-width:769px){
