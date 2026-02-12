@@ -11,6 +11,8 @@ class DashboardManager {
         this._playQueueIndex = -1;
         this._miniTitleTicker = null;
         this._repeatMode = 'off';
+        this._audioWaveCache = new Map();
+        this._audioWaveCtx = null;
         this._waveLibraryVisible = 5;
         this._playlistsVisible = 5;
         this._videoLibraryVisible = 5;
@@ -196,6 +198,161 @@ class DashboardManager {
     setPlayIcon(btn, isPlaying){
         if (!btn) return;
         btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
+    }
+
+    attachWaveAudioUI(media, host, opts = {}){
+        try{
+            if (!media || !host || media.dataset.waveUiBound === '1') return;
+            media.dataset.waveUiBound = '1';
+            if (opts.hideNative){
+                media.controls = false;
+                media.style.display = 'none';
+            }
+            const seed = String(media.dataset?.title || media.currentSrc || media.src || 'audio');
+            const wrap = document.createElement('div');
+            wrap.className = 'audio-wave-player';
+            const playBtn = document.createElement('button');
+            playBtn.className = 'audio-wave-play';
+            playBtn.innerHTML = '<i class="fas fa-play"></i>';
+            const wave = document.createElement('div');
+            wave.className = 'audio-wave-bars';
+            const time = document.createElement('div');
+            time.className = 'audio-wave-time';
+            time.textContent = '0:00/0:00';
+            const barsCount = 54;
+            this.paintSeedWaveBars(wave, barsCount, seed);
+            this.populateWaveBarsFromLoudness(media, wave, barsCount, seed);
+            const sync = ()=>{
+                const d = Number(media.duration || 0);
+                const c = Number(media.currentTime || 0);
+                const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
+                const bars = wave.querySelectorAll('.bar');
+                const played = Math.round(bars.length * ratio);
+                bars.forEach((b, i)=> b.classList.toggle('played', i < played));
+                playBtn.innerHTML = `<i class="fas ${media.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+                time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+            };
+            playBtn.addEventListener('click', ()=>{
+                if (media.paused){
+                    this.pauseAllMediaExcept(media);
+                    media.play().catch(()=>{});
+                } else {
+                    media.pause();
+                }
+                sync();
+            });
+            const seekTo = (clientX)=>{
+                const rect = wave.getBoundingClientRect();
+                const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+                if (Number(media.duration) > 0) media.currentTime = ratio * media.duration;
+                if (media.paused){
+                    this.pauseAllMediaExcept(media);
+                    media.play().catch(()=>{});
+                }
+                sync();
+            };
+            wave.addEventListener('click', (e)=> seekTo(e.clientX));
+            let dragging = false;
+            wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+            wave.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+            wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
+            media.addEventListener('play', sync);
+            media.addEventListener('pause', sync);
+            media.addEventListener('timeupdate', sync);
+            media.addEventListener('loadedmetadata', sync);
+            media.addEventListener('ended', sync);
+            wrap.appendChild(playBtn);
+            wrap.appendChild(wave);
+            wrap.appendChild(time);
+            host.appendChild(wrap);
+            sync();
+        }catch(_){ }
+    }
+
+    paintSeedWaveBars(wave, barsCount, seed){
+        wave.innerHTML = '';
+        for (let i = 0; i < barsCount; i++){
+            const bar = document.createElement('span');
+            bar.className = 'bar';
+            const ch = seed.charCodeAt(i % (seed.length || 1)) || 37;
+            const waveBase = (Math.sin((i / barsCount) * Math.PI * 2) + 1) * 0.5;
+            const jitter = ((ch * (i + 11)) % 10) / 10;
+            const h = 5 + Math.round((waveBase * 12) + (jitter * 6));
+            bar.style.height = `${h}px`;
+            wave.appendChild(bar);
+        }
+    }
+
+    applyWaveHeights(wave, heights){
+        if (!wave || !Array.isArray(heights) || !heights.length) return;
+        wave.innerHTML = '';
+        heights.forEach((h)=>{
+            const bar = document.createElement('span');
+            bar.className = 'bar';
+            bar.style.height = `${Math.max(4, Math.min(24, Math.round(h)))}px`;
+            wave.appendChild(bar);
+        });
+    }
+
+    async getAudioWaveHeights(src, barsCount = 54){
+        try{
+            const key = `${src}::${barsCount}`;
+            if (this._audioWaveCache.has(key)) return await this._audioWaveCache.get(key);
+            const p = (async ()=>{
+                const resp = await fetch(src, { mode: 'cors' });
+                if (!resp.ok) return null;
+                const buf = await resp.arrayBuffer();
+                if (!this._audioWaveCtx){
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (!AC) return null;
+                    this._audioWaveCtx = new AC();
+                }
+                const audioBuf = await this._audioWaveCtx.decodeAudioData(buf.slice(0));
+                const data = audioBuf.getChannelData(0);
+                const total = data.length;
+                if (!total) return null;
+                const step = Math.max(1, Math.floor(total / barsCount));
+                const out = [];
+                for (let i = 0; i < barsCount; i++){
+                    const start = i * step;
+                    const end = Math.min(total, start + step);
+                    let sum = 0;
+                    let count = 0;
+                    for (let j = start; j < end; j++){
+                        const v = data[j];
+                        sum += v * v;
+                        count++;
+                    }
+                    const rms = count ? Math.sqrt(sum / count) : 0;
+                    out.push(rms);
+                }
+                const max = Math.max(...out, 0.0001);
+                return out.map((v)=> 4 + ((v / max) * 20));
+            })();
+            this._audioWaveCache.set(key, p);
+            const result = await p;
+            if (!result) this._audioWaveCache.delete(key);
+            return result;
+        }catch(_){ return null; }
+    }
+
+    populateWaveBarsFromLoudness(media, wave, barsCount, seed){
+        const attempt = async ()=>{
+            try{
+                const src = String(media?.currentSrc || media?.src || '').trim();
+                if (!src) return;
+                const heights = await this.getAudioWaveHeights(src, barsCount);
+                if (Array.isArray(heights) && heights.length){
+                    this.applyWaveHeights(wave, heights);
+                }
+            }catch(_){
+                this.paintSeedWaveBars(wave, barsCount, seed);
+            }
+        };
+        attempt();
+        if (!media.currentSrc && !media.src){
+            media.addEventListener('loadedmetadata', attempt, { once: true });
+        }
     }
 
     cycleRepeatMode(){
@@ -727,6 +884,12 @@ class DashboardManager {
                 if (card.dataset.playerBound === '1') return;
                 card.dataset.playerBound = '1';
                 const media = card.querySelector('.player-media');
+                if (!media) return;
+                if (String(media.tagName || '').toUpperCase() === 'AUDIO'){
+                    const bar = card.querySelector('.player-bar');
+                    if (bar) bar.style.display = 'none';
+                    this.attachWaveAudioUI(media, card, { hideNative: true });
+                }
                 const btn = card.querySelector('.btn-icon');
                 const fill = card.querySelector('.progress .fill');
                 let knob = card.querySelector('.progress .knob');
@@ -796,11 +959,12 @@ class DashboardManager {
             const el = document.getElementById(id);
             if (el){
                 el.value = '';
-                el.setAttribute('autocomplete', 'off');
+                el.setAttribute('autocomplete', id === 'wall-search' ? 'new-password' : 'off');
                 el.setAttribute('autocorrect', 'off');
                 el.setAttribute('autocapitalize', 'off');
                 el.setAttribute('spellcheck', 'false');
                 el.setAttribute('name', `${id}-${Date.now()}`);
+                if (id === 'wall-search') el.setAttribute('readonly', 'readonly');
             }
         });
         // Harden against browser autofill on dynamically rendered fields.
@@ -2367,16 +2531,40 @@ class DashboardManager {
         suggBtn.onclick = ()=> open('suggestions');
         if (wallSearch && !wallSearch._bound){
             wallSearch._bound = true;
-            wallSearch.setAttribute('autocomplete', 'off');
+            wallSearch.setAttribute('autocomplete', 'new-password');
             wallSearch.setAttribute('autocorrect', 'off');
             wallSearch.setAttribute('autocapitalize', 'off');
             wallSearch.setAttribute('spellcheck', 'false');
             wallSearch.setAttribute('name', `wall-search-${Date.now()}`);
+            // Strong anti-autofill guard: keep readonly until user intent.
+            wallSearch.setAttribute('readonly', 'readonly');
+            wallSearch.dataset.userTyped = '0';
+            const unlock = ()=>{
+                try{ wallSearch.removeAttribute('readonly'); }catch(_){ }
+            };
+            wallSearch.addEventListener('pointerdown', unlock, { passive: true });
+            wallSearch.addEventListener('touchstart', unlock, { passive: true });
+            wallSearch.addEventListener('focus', ()=>{
+                unlock();
+                const v = String(wallSearch.value || '').trim();
+                if (wallSearch.dataset.userTyped !== '1' && (/@/.test(v) || v.length > 48)) wallSearch.value = '';
+            });
+            wallSearch.addEventListener('blur', ()=> wallSearch.setAttribute('readonly', 'readonly'));
             wallSearch.addEventListener('input', ()=>{
+                wallSearch.dataset.userTyped = '1';
                 const term = String(wallSearch.value || '').trim();
                 this._wallSearchTerm = term;
                 this.loadGlobalFeed(term);
             });
+            // Clear late browser-restored autofill values.
+            setTimeout(()=>{
+                const v = String(wallSearch.value || '').trim();
+                if (wallSearch.dataset.userTyped !== '1' && (/@/.test(v) || v.length > 48)) wallSearch.value = '';
+            }, 80);
+            setTimeout(()=>{
+                const v = String(wallSearch.value || '').trim();
+                if (wallSearch.dataset.userTyped !== '1' && (/@/.test(v) || v.length > 48)) wallSearch.value = '';
+            }, 600);
         }
         open('latest');
     }
@@ -2436,7 +2624,7 @@ class DashboardManager {
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
         const cover = w.coverUrl || 'images/default-bird.png';
         const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" controls style="width:100%" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div>${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -2456,6 +2644,8 @@ class DashboardManager {
         }; }
         const a = div.querySelector('.liber-lib-audio');
         if (a){
+            const host = div.querySelector('.wave-item-audio-host') || div;
+            this.attachWaveAudioUI(a, host, { hideNative: true });
             a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
         }
         return div;

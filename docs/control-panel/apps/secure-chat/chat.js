@@ -119,6 +119,9 @@ import { runTransaction } from 'firebase/firestore';
       const plain = String(text || '').trim();
       const preview = String(msg?.previewText || '').trim();
       const url = String(msg?.fileUrl || '');
+      const previewNameMatch = /\[(?:Attachment|File)\]\s+(.+)$/i.exec(preview);
+      const previewName = previewNameMatch ? String(previewNameMatch[1] || '').trim() : '';
+      if (previewName && /\.[a-z0-9]{2,6}$/i.test(previewName)) return previewName;
       if (/^\[voice message\]/i.test(plain) || /\bvoice\b|\baudio\b/i.test(preview) || /\bvoice\b|\baudio\b/i.test(url)) return 'voice.webm';
       if (/^\[video message\]/i.test(plain) || /\bvideo\b/i.test(preview) || /\bvideo\b/i.test(url)) return 'video.webm';
       if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video.mp4';
@@ -714,11 +717,28 @@ import { runTransaction } from 'firebase/firestore';
       const close = document.getElementById('voice-top-close');
       if (!strip || !toggle || !close) return;
       toggle.addEventListener('click', ()=>{
+        const m = this._topMediaEl;
+        if (m && m.isConnected){
+          if (m.paused) m.play().catch(()=>{});
+          else m.pause();
+          this.updateVoiceWidgets();
+          return;
+        }
         const p = this.ensureChatBgPlayer();
         if (p.paused) p.play().catch(()=>{});
         else p.pause();
+        this.updateVoiceWidgets();
       });
       close.addEventListener('click', ()=>{
+        const m = this._topMediaEl;
+        if (m && m.isConnected){
+          try{ m.pause(); }catch(_){ }
+          this._topMediaEl = null;
+          this._voiceCurrentTitle = 'Voice message';
+          strip.classList.add('hidden');
+          this.updateVoiceWidgets();
+          return;
+        }
         const p = this.ensureChatBgPlayer();
         try{ p.pause(); }catch(_){ }
         p.src = '';
@@ -856,11 +876,12 @@ import { runTransaction } from 'firebase/firestore';
       }
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
       const indicator = document.getElementById('recording-indicator');
+      if (indicator) indicator.classList.remove('hidden');
       this._pressTimer = setTimeout(async()=>{
         this._isRecordingByHold = true;
         try{
           const useVideo = this._recordMode === 'video';
-          if (indicator) { indicator.classList.remove('hidden'); indicator.querySelector('i').className = `fas ${useVideo ? 'fa-video' : 'fa-microphone'}`; }
+          if (indicator) { indicator.querySelector('i').className = `fas ${useVideo ? 'fa-video' : 'fa-microphone'}`; }
           if (useVideo) await this.recordVideoMessage();
           else await this.recordVoiceMessage();
         }catch(err){ alert('Recording failed'); }
@@ -868,7 +889,7 @@ import { runTransaction } from 'firebase/firestore';
           if (indicator) indicator.classList.add('hidden');
           this._actionPressArmed = false;
         }
-      }, 280);
+      }, 120);
     }
 
     getPreferredMediaRecorderOptions(kind = 'audio'){
@@ -894,9 +915,19 @@ import { runTransaction } from 'firebase/firestore';
 
     handleActionPressEnd(){
       if (!this._actionPressArmed && !this._isRecordingByHold && !this._pressTimer) return;
+      const hadPressTimer = !!this._pressTimer;
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
       if (this._isRecordingByHold){
         try{ if (this._recStop) this._recStop(); }catch(_){ }
+      } else if (hadPressTimer){
+        // Short tap fallback for touch devices: toggle mode here to avoid click races.
+        const input = document.getElementById('message-input');
+        const review = document.getElementById('recording-review');
+        if (!this._activeRecorder && (!input || !input.value.trim().length) && (!review || review.classList.contains('hidden'))){
+          this._recordMode = this._recordMode === 'video' ? 'audio' : 'video';
+          this.refreshActionButton();
+          this._suppressActionClickUntil = Date.now() + 550;
+        }
       }
       this._isRecordingByHold = false;
       this._actionPressArmed = false;
@@ -1278,13 +1309,8 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
         if (this._msgPoll) { clearInterval(this._msgPoll); this._msgPoll = null; }
+        // Keep switching stable: avoid expensive merged-thread fanout queries on each live update.
         let relatedConnIds = [activeConnId];
-        try{
-          const rel = await this.getRelatedConnIds(activeConnId);
-          if (Array.isArray(rel) && rel.length){
-            relatedConnIds = Array.from(new Set(rel.filter(Boolean)));
-          }
-        }catch(_){ relatedConnIds = [activeConnId]; }
         let q;
         try{
           q = firebase.query(
@@ -1372,7 +1398,7 @@ import { runTransaction } from 'firebase/firestore';
             } else {
               try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
                 try {
-                  const peerUid = await this.getPeerUid();
+                  const peerUid = await this.getPeerUidForConn(sourceConnId);
                   const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
                   text = await chatCrypto.decryptWithKey(m.cipher, legacy);
                 } catch {
@@ -1539,8 +1565,8 @@ import { runTransaction } from 'firebase/firestore';
             } else {
               try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey);}catch{
                 try {
-                  const peerUid = await this.getPeerUid();
-                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, this.activeConnection);
+                  const peerUid = await this.getPeerUidForConn(activeConnId);
+                  const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, activeConnId);
                   text = await chatCrypto.decryptWithKey(m.cipher, legacy);
                 } catch {
                   try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch { text='[unable to decrypt]'; }
@@ -2498,6 +2524,28 @@ import { runTransaction } from 'firebase/firestore';
       return '';
     }
 
+    async getPeerUidForConn(connId){
+      try{
+        const local = (this.connections || []).find((c)=> c && c.id === connId);
+        const localParts = this.getConnParticipants(local || {});
+        if (localParts.length === 2){
+          const peer = localParts.find((u)=> u !== this.currentUser.uid);
+          if (peer) return peer;
+        }
+      }catch(_){ }
+      try{
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',connId));
+        if (snap.exists()){
+          const parts = this.getConnParticipants(snap.data() || {});
+          if (parts.length === 2){
+            const peer = parts.find((u)=> u !== this.currentUser.uid);
+            if (peer) return peer;
+          }
+        }
+      }catch(_){ }
+      return this.getPeerUid();
+    }
+
     async getFallbackKeyForConn(connId){
       try{
         const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connId));
@@ -2507,7 +2555,7 @@ import { runTransaction } from 'firebase/firestore';
           return window.chatCrypto.deriveChatKey(groupSecret);
         }
       }catch(_){ }
-      const peerUid = await this.getPeerUid();
+      const peerUid = await this.getPeerUidForConn(connId);
       if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
         return window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, connId);
       }
@@ -2580,15 +2628,20 @@ import { runTransaction } from 'firebase/firestore';
       const strip = document.getElementById('voice-top-strip');
       const stripTitle = document.getElementById('voice-top-title');
       const stripToggle = document.getElementById('voice-top-toggle');
-      const canShowStrip = this.isMobileViewport() && !!p.src && (!!this._voiceCurrentSrc || this._voiceWidgets.size > 0);
+      const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
+      const canShowStrip = !!topMedia || (!!p.src && (!!this._voiceCurrentSrc || this._voiceWidgets.size > 0));
       if (strip && stripToggle){
         if (canShowStrip){
           strip.classList.remove('hidden');
-          stripToggle.innerHTML = `<i class="fas ${p.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+          const paused = topMedia ? !!topMedia.paused : !!p.paused;
+          stripToggle.innerHTML = `<i class="fas ${paused ? 'fa-play' : 'fa-pause'}"></i>`;
         } else {
           strip.classList.add('hidden');
           stripToggle.innerHTML = '<i class="fas fa-play"></i>';
         }
+      }
+      if (topMedia && stripTitle){
+        stripTitle.textContent = this._voiceCurrentTitle || 'Media';
       }
       this._voiceWidgets.forEach((w)=>{
         const active = !!p.src && w.src === p.src;
@@ -2733,6 +2786,34 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ }
     }
 
+    bindTopStripToMedia(mediaEl, title = 'Media'){
+      try{
+        this._topMediaEl = mediaEl;
+        this._voiceCurrentTitle = title || 'Media';
+        const sync = ()=> this.updateVoiceWidgets();
+        if (!mediaEl._topStripBound){
+          mediaEl._topStripBound = true;
+          mediaEl.addEventListener('play', sync);
+          mediaEl.addEventListener('pause', sync);
+          mediaEl.addEventListener('timeupdate', sync);
+          mediaEl.addEventListener('ended', ()=>{ this._topMediaEl = null; this.updateVoiceWidgets(); });
+        }
+        this.updateVoiceWidgets();
+      }catch(_){ }
+    }
+
+    applyRandomTriangleMask(mediaEl){
+      try{
+        const points = Array.from({ length: 3 }).map(()=> {
+          const x = 25 + Math.floor(Math.random() * 50);
+          const y = 25 + Math.floor(Math.random() * 50);
+          return `${x}% ${y}%`;
+        });
+        mediaEl.style.clipPath = `polygon(${points.join(',')})`;
+        mediaEl.style.webkitClipPath = `polygon(${points.join(',')})`;
+      }catch(_){ }
+    }
+
     setupMediaSessionForVoice(title = 'Voice message'){
       const p = this.ensureChatBgPlayer();
       if (!('mediaSession' in navigator)) return;
@@ -2757,11 +2838,11 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           try{
-            const peerUid = await this.getPeerUid();
+            const peerUid = await this.getPeerUidForConn(sourceConnId);
             const legacy = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, sourceConnId);
             b64 = await chatCrypto.decryptWithKey(payload, legacy);
           }catch{
-            const alt = await this.getOrCreateSharedAesKey();
+            const alt = await this.getFallbackKeyForConn(sourceConnId);
             b64 = await chatCrypto.decryptWithKey(payload, alt);
           }
         }
@@ -2792,7 +2873,9 @@ import { runTransaction } from 'firebase/firestore';
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
           video.src = url; video.controls = true; video.playsInline = true; video.style.maxWidth = '100%'; video.style.borderRadius='8px';
-          video.addEventListener('play', ()=> this.handoffToPersistentVoicePlayer(video, { title: fileName || 'Video message', artist: 'LIBER Chat' }));
+          this.applyRandomTriangleMask(video);
+          video.addEventListener('play', ()=> this.bindTopStripToMedia(video, fileName || 'Video message'));
+          video.addEventListener('pause', ()=> this.updateVoiceWidgets());
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
             if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
@@ -2862,6 +2945,9 @@ import { runTransaction } from 'firebase/firestore';
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
+          this.applyRandomTriangleMask(v);
+          v.addEventListener('play', ()=> this.bindTopStripToMedia(v, name || 'Video message'));
+          v.addEventListener('pause', ()=> this.updateVoiceWidgets());
           containerEl.appendChild(v);
           return;
         }
@@ -3994,7 +4080,10 @@ import { runTransaction } from 'firebase/firestore';
         mediaEl.playsInline = true;
         mediaEl.controls = false;
         mediaEl.srcObject = stream;
-        if (hasVideo) mediaEl.classList.add('circular');
+        if (hasVideo){
+          mediaEl.classList.add('circular');
+          this.applyRandomTriangleMask(mediaEl);
+        }
         player.appendChild(mediaEl);
         review.classList.remove('hidden');
         if (input) input.style.display = 'none';

@@ -52,7 +52,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .chat-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-color,#1f222a);position:sticky;top:0;background:inherit;z-index:1}
 .header-actions{display:flex;gap:8px;align-items:center}
 .chat-header h3{font-size:16px;font-weight:600}
-.voice-top-strip{display:none;align-items:center;gap:8px;height:32px;padding:1px 8px;border-bottom:1px solid var(--border-color,#1f222a);background:#0b111a}
+.voice-top-strip{display:flex;align-items:center;gap:8px;height:32px;padding:1px 8px;border-bottom:1px solid var(--border-color,#1f222a);background:#0b111a}
 .voice-top-strip.hidden{display:none}
 .voice-top-strip .icon-btn{padding:4px 8px}
 .voice-top-title{flex:1;min-width:0;font-size:12px;color:#dbe2ef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

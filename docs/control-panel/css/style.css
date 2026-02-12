@@ -27,6 +27,62 @@
 .player-bar .progress .fill{ position:absolute; left:0; top:0; bottom:0; width:0%; background:#ff6a00 }
 .player-bar .progress .knob{ position:absolute; top:50%; transform:translate(-50%, -50%); width:12px; height:12px; background:#fff; border-radius:50%; box-shadow:0 0 0 2px rgba(255,255,255,.2) }
 .player-bar .time{ font-size:12px; color:#ccc; min-width:60px; text-align:right }
+.audio-wave-player{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#0f1724;
+  border:1px solid #273247;
+  border-radius:14px;
+  padding:6px 10px;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  overflow:hidden;
+}
+.audio-wave-play{
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  border:none;
+  background:#1b2a43;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+}
+.audio-wave-bars{
+  flex:1;
+  min-width:0;
+  display:flex;
+  gap:2px;
+  align-items:flex-end;
+  height:22px;
+  cursor:pointer;
+  touch-action:none;
+  overflow:hidden;
+}
+.audio-wave-bars .bar{
+  width:2px;
+  border-radius:2px;
+  background:#6e798b;
+  opacity:.95;
+  transition:background-color .08s linear;
+}
+.audio-wave-bars .bar.played{ background:#ffffff; }
+.audio-wave-time{
+  font-size:11px;
+  color:#9da8bc;
+  min-width:68px;
+  max-width:78px;
+  flex:0 0 auto;
+  text-align:right;
+  white-space:nowrap;
+}
+.wave-item-audio-host{ width:100%; }
 .playlist-mini-btn{
   width: 28px;
   height: 28px;
@@ -197,8 +253,6 @@ img, video, canvas, svg, iframe {
   #global-feed,
   #global-suggestions,
   #space-feed,
-  #wave-library,
-  #wave-playlists,
   #video-library,
   #video-suggestions,
   #video-search-results{
@@ -258,6 +312,19 @@ img, video, canvas, svg, iframe {
   #wave-video-pane > .settings-card{
     grid-column:2;
     margin-top:0 !important;
+  }
+  /* Keep WaveConnect content in normal full-width column flow inside cards */
+  #wave-library,
+  #wave-playlists,
+  #wave-results{
+    display:block;
+    width:100%;
+    max-width:100%;
+  }
+  #wave-library .wave-item{
+    max-width:100%;
+    width:100%;
+    margin:8px 0 !important;
   }
 }
 
