@@ -179,7 +179,7 @@
                 <i class="fas fa-id-badge"></i> Personal Space
             </button>
             <button class="nav-btn" data-section="feed">
-                <i class="fas fa-stream"></i> Feed
+                <i class="fas fa-stream"></i> Wall
             </button>
             <button class="nav-btn" data-section="waveconnect">
                 <i class="fas fa-music"></i> WaveConnect
@@ -310,7 +310,7 @@
                     </div>
                 </div>
                 <div class="settings-card" id="space-feed-card" style="margin-top:20px">
-                    <h3 id="space-feed-title">My Feed</h3>
+                    <h3 id="space-feed-title">My Wall</h3>
                     <div id="space-feed"></div>
                     <div id="space-suggestions" style="margin-top:16px"></div>
                 </div>
@@ -320,7 +320,11 @@
             <!-- Feed Section -->
             <section id="feed-section" class="content-section">
                 <div class="section-header">
-                    <h2>Feed</h2>
+                    <h2>Wall</h2>
+                    <div class="search-container">
+                        <input type="text" id="wall-search" placeholder="Search wall posts..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="search" name="wall-search-field">
+                        <i class="fas fa-search"></i>
+                    </div>
                 </div>
                 <div class="settings-card">
                     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
@@ -709,7 +713,7 @@
     
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_APP_VERSION = '20260212r06';
+      window.LIBER_APP_VERSION = '20260212r07';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
         const scripts = [

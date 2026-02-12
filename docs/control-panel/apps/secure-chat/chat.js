@@ -150,32 +150,64 @@ import { runTransaction } from 'firebase/firestore';
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
       panel.appendChild(mineTitle);
-      this.loadMyMediaQuickChoices().then((items)=>{
-        (items || []).slice(0, 24).forEach((a)=>{
-          const row = document.createElement('button');
-          row.className = 'btn secondary';
-          row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-          row.textContent = `${a.fileName || 'Media'} • ${this.formatMessageTime(a.sentAt)}`;
-          row.onclick = async ()=>{
-            panel.remove();
-            backdrop.remove();
-            await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
-          };
-          panel.appendChild(row);
-        });
-      }).catch(()=>{});
-      this.getRecentAttachments().forEach((a)=>{
+      const tabs = document.createElement('div');
+      tabs.style.cssText = 'display:flex;gap:6px;margin-bottom:8px';
+      const tabVideo = document.createElement('button');
+      const tabAudio = document.createElement('button');
+      const tabPics = document.createElement('button');
+      [tabVideo, tabAudio, tabPics].forEach((t)=>{ t.className = 'btn secondary'; t.style.padding = '6px 10px'; });
+      tabVideo.textContent = 'Video';
+      tabAudio.textContent = 'Audio';
+      tabPics.textContent = 'Pictures';
+      tabs.appendChild(tabVideo); tabs.appendChild(tabAudio); tabs.appendChild(tabPics);
+      panel.appendChild(tabs);
+      const listHost = document.createElement('div');
+      panel.appendChild(listHost);
+      const makeRow = (a)=>{
         const row = document.createElement('button');
         row.className = 'btn secondary';
         row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-        row.textContent = `${a.fileName || 'Attachment'} • ${this.formatMessageTime(a.sentAt)}`;
+        row.textContent = `${a.fileName || 'Media'} • ${this.formatMessageTime(a.sentAt)}`;
         row.onclick = async ()=>{
           panel.remove();
           backdrop.remove();
           await this.saveMessage({ text: `[file] ${a.fileName || 'file'}`, fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
         };
-        panel.appendChild(row);
-      });
+        return row;
+      };
+      this.loadMyMediaQuickChoices().then((items)=>{
+        const rows = (items || []).slice(0, 60);
+        const byKind = {
+          video: rows.filter((a)=> this.isVideoFilename(a.fileName || '')),
+          audio: rows.filter((a)=> this.isAudioFilename(a.fileName || '')),
+          pics: rows.filter((a)=> this.isImageFilename(a.fileName || ''))
+        };
+        const activate = (kind)=>{
+          [tabVideo, tabAudio, tabPics].forEach((b)=>{ b.style.opacity = '.75'; });
+          (kind === 'video' ? tabVideo : kind === 'audio' ? tabAudio : tabPics).style.opacity = '1';
+          listHost.innerHTML = '';
+          const group = byKind[kind] || [];
+          if (!group.length){
+            const empty = document.createElement('div');
+            empty.style.cssText = 'font-size:12px;opacity:.7;padding:4px 0 8px';
+            empty.textContent = 'No items';
+            listHost.appendChild(empty);
+            return;
+          }
+          group.forEach((a)=> listHost.appendChild(makeRow(a)));
+        };
+        tabVideo.onclick = ()=> activate('video');
+        tabAudio.onclick = ()=> activate('audio');
+        tabPics.onclick = ()=> activate('pics');
+        activate('video');
+      }).catch(()=>{});
+      const recentTitle = document.createElement('div');
+      recentTitle.textContent = 'Recent attachments';
+      recentTitle.style.cssText = 'font-size:12px;opacity:.8;margin:10px 0 8px';
+      panel.appendChild(recentTitle);
+      this.getRecentAttachments()
+        .filter((a)=> a && !/^voice\.|^video\./i.test(String(a.fileName || '').toLowerCase()))
+        .forEach((a)=> panel.appendChild(makeRow(a)));
       const root = document.body;
       if (root){ root.appendChild(backdrop); root.appendChild(panel); }
       backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
@@ -218,7 +250,7 @@ import { runTransaction } from 'firebase/firestore';
         }catch(_){ }
       }catch(_){ }
       out.sort((a,b)=> new Date(b.sentAt||0) - new Date(a.sentAt||0));
-      return out;
+      return out.filter((a)=> !/^voice\.|^video\./i.test(String(a.fileName || '').toLowerCase()));
     }
 
     getConnParticipants(data){
@@ -412,6 +444,15 @@ import { runTransaction } from 'firebase/firestore';
             await this.setActive(id);
           }
         }catch(_){ /* ignore deep link issues */ }
+      } else {
+        // Restore last opened chat when reopening chat app.
+        try{
+          const last = localStorage.getItem('liber_last_chat_conn');
+          if (last){
+            const inList = (this.connections || []).some((c)=> c && c.id === last);
+            if (inList) await this.setActive(last);
+          }
+        }catch(_){ }
       }
 
       // Add debug method to check Firebase config
@@ -1023,6 +1064,7 @@ import { runTransaction } from 'firebase/firestore';
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Resolve displayName if not provided
       let activeConnData = null;
       if (!displayName) {
@@ -1264,6 +1306,7 @@ import { runTransaction } from 'firebase/firestore';
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
             const hasFile = !!m.fileUrl && !!inferredFileName;
+            const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
             let bodyHtml = this.renderText(cleanedText);
@@ -1282,6 +1325,7 @@ import { runTransaction } from 'firebase/firestore';
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
             const canModify = m.sender === this.currentUser.uid;
+            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName);
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay){
               const sep = document.createElement('div');
@@ -1291,13 +1335,13 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''}</div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, sourceConnId);
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, sourceConnId, senderName);
             }
             // Bind edit/delete/replace for own messages
             if (canModify){
@@ -1339,6 +1383,10 @@ import { runTransaction } from 'firebase/firestore';
                   picker.click();
                 };
               }
+            }
+            const shareBtn = el.querySelector('.msg-share');
+            if (shareBtn){
+              shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
           };
           const docsToRender = appendOnly ? docs.slice(prevIds.length) : docs;
@@ -1428,6 +1476,7 @@ import { runTransaction } from 'firebase/firestore';
               || ((m.fileUrl && /\.mp4(\?|$)/i.test(m.fileUrl)) ? 'video.mp4' : '')
               || ((m.fileUrl && /\.webm(\?|$)/i.test(m.fileUrl)) ? 'voice.webm' : '');
             const hasFile = !!m.fileUrl && !!inferredFileName;
+            const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
             let bodyHtml = this.renderText(cleanedText);
@@ -1454,13 +1503,17 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay2 = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div><div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}</div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey);
+              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, activeConnId, senderName);
+            }
+            const shareBtn = el.querySelector('.msg-share');
+            if (shareBtn){
+              shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
           });
           box.scrollTop = box.scrollHeight;
@@ -1513,10 +1566,14 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async canSendToActiveConnection(){
-      if (!this.activeConnection) return { ok: false, reason: 'No active chat' };
+      return this.canSendToConnection(this.activeConnection);
+    }
+
+    async canSendToConnection(connId){
+      if (!connId) return { ok: false, reason: 'No active chat' };
       let conn;
       try{
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
+        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',connId));
         if (!snap.exists()) return { ok: false, reason: 'Chat not found' };
         conn = snap.data() || {};
       }catch(_){ return { ok: true }; }
@@ -1553,6 +1610,120 @@ import { runTransaction } from 'firebase/firestore';
         this.publishTypingState(!!text, { force: true }).catch(()=>{});
         throw e;
       }
+    }
+
+    buildSharePayload(rawText, fileUrl, fileName){
+      const inferredName = String(fileName || '').trim();
+      let nextText = String(rawText || '').trim();
+      if (fileUrl){
+        if (this.isAudioFilename(inferredName)) nextText = '[voice message]';
+        else if (this.isVideoFilename(inferredName)) nextText = '[video message]';
+        else if (!nextText || /^\[file\]/i.test(nextText)) nextText = `[file] ${inferredName || 'file'}`;
+      }
+      if (!nextText && fileUrl) nextText = `[file] ${inferredName || 'file'}`;
+      return { text: nextText, fileUrl: fileUrl || null, fileName: inferredName || null };
+    }
+
+    getConnectionDisplayName(conn){
+      try{
+        const parts = this.getConnParticipants(conn || {});
+        const names = Array.isArray(conn?.participantUsernames) ? conn.participantUsernames : [];
+        const mine = (this.me?.username || this.currentUser?.email || '').toLowerCase();
+        const resolved = parts.map((uid, i)=> names[i] || this.usernameCache.get(uid) || uid).filter(Boolean);
+        const others = resolved.filter((n)=> String(n || '').toLowerCase() !== mine);
+        if (!others.length) return 'Chat';
+        if (others.length === 1) return String(others[0]);
+        return `${others[0]}, ${others[1]}${others.length > 2 ? ` +${others.length - 2}` : ''}`;
+      }catch(_){ return 'Chat'; }
+    }
+
+    async saveMessageToConnection(connId, { text, fileUrl, fileName }){
+      const aesKey = await this.getFallbackKeyForConn(connId);
+      const cipher = await chatCrypto.encryptWithKey(text, aesKey);
+      const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
+      const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',connId,'messages'));
+      await firebase.setDoc(msgRef,{
+        id: msgRef.id,
+        connId,
+        sender: this.currentUser.uid,
+        cipher,
+        fileUrl: fileUrl || null,
+        fileName: fileName || null,
+        previewText: previewText.slice(0, 220),
+        createdAt: new Date().toISOString(),
+        createdAtTS: firebase.serverTimestamp()
+      });
+      await firebase.updateDoc(firebase.doc(this.db,'chatConnections',connId),{
+        lastMessage: String(text || '').slice(0,200),
+        updatedAt: new Date().toISOString()
+      });
+      this.sendPushForMessageForConnection(connId, text);
+    }
+
+    async sendPushForMessageForConnection(connId, text){
+      Promise.resolve().then(async ()=>{
+        try{
+          if (!(window.firebaseService && typeof window.firebaseService.callFunction === 'function')) return;
+          const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',connId));
+          const data = connSnap.exists() ? (connSnap.data() || {}) : {};
+          const participantUids = this.getConnParticipants(data);
+          const recipients = participantUids.filter((uid)=> uid && uid !== this.currentUser.uid);
+          if (!recipients.length) return;
+          const payload = { connId, recipients, preview: String(text || '').slice(0,120) };
+          let delayMs = 250;
+          for (let i = 0; i < 3; i++){
+            try{ await window.firebaseService.callFunction('sendPush', payload); return; }
+            catch(_){ if (i === 2) return; await new Promise((r)=> setTimeout(r, delayMs)); delayMs *= 2; }
+          }
+        }catch(_){ }
+      });
+    }
+
+    openShareMessageSheet(payload){
+      const existing = document.getElementById('msg-share-sheet');
+      const existingBackdrop = document.getElementById('msg-share-backdrop');
+      if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); }
+      const targets = (this.connections || []).filter((c)=> c && c.id && c.id !== this.activeConnection);
+      if (!targets.length){ alert('No other chats to share into yet'); return; }
+
+      const backdrop = document.createElement('div');
+      backdrop.id = 'msg-share-backdrop';
+      backdrop.style.cssText = 'position:fixed;inset:0;z-index:102;background:rgba(0,0,0,.24)';
+      const panel = document.createElement('div');
+      panel.id = 'msg-share-sheet';
+      panel.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(96px + env(safe-area-inset-bottom));max-height:min(62vh,480px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:103;padding:10px';
+      panel.innerHTML = `<div style="font-weight:600;margin-bottom:8px">Share message to chat</div><input id="share-chat-filter" type="text" placeholder="Search chats..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2a2f36;background:#0f1116;color:#fff;margin-bottom:8px">`;
+      const list = document.createElement('div');
+      panel.appendChild(list);
+
+      const render = (term = '')=>{
+        const q = String(term || '').trim().toLowerCase();
+        list.innerHTML = '';
+        targets
+          .filter((c)=> this.getConnectionDisplayName(c).toLowerCase().includes(q))
+          .forEach((c)=>{
+            const row = document.createElement('button');
+            row.className = 'btn secondary';
+            row.style.cssText = 'display:block;width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+            row.textContent = this.getConnectionDisplayName(c);
+            row.onclick = async ()=>{
+              const can = await this.canSendToConnection(c.id);
+              if (!can.ok){ alert(can.reason || 'Cannot share into this chat'); return; }
+              await this.saveMessageToConnection(c.id, payload);
+              panel.remove();
+              backdrop.remove();
+            };
+            list.appendChild(row);
+          });
+      };
+      render('');
+
+      const filter = panel.querySelector('#share-chat-filter');
+      if (filter) filter.addEventListener('input', ()=> render(filter.value));
+      backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
+      panel.addEventListener('click', (e)=> e.stopPropagation());
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
     }
 
     formatTypingText(names){
@@ -2477,7 +2648,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ }
     }
 
-    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection){
+    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = ''){
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
         const ct = res.headers.get('content-type')||'';
@@ -2531,7 +2702,8 @@ import { runTransaction } from 'firebase/firestore';
           const mime = 'audio/webm';
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
-          this.renderWaveAttachment(containerEl, url, fileName || 'Voice message');
+          const title = String(senderDisplayName || 'Voice message');
+          this.renderWaveAttachment(containerEl, url, title);
           const box = document.getElementById('messages');
           if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
@@ -3628,7 +3800,9 @@ import { runTransaction } from 'firebase/firestore';
         }
         const indicator = document.getElementById('recording-indicator');
         if (indicator){ indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-video'; }
-        await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('video'), 30_000, 'video.webm');
+        const opts = this.getPreferredMediaRecorderOptions('video');
+        const ext = String(opts?.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+        await this.captureMedia(stream, opts, 30_000, `video.${ext}`);
         if (indicator){ indicator.classList.add('hidden'); }
       }catch(e){ console.warn('Video record unavailable', e); }
     }
@@ -3640,9 +3814,11 @@ import { runTransaction } from 'firebase/firestore';
         let stopped = false;
         const stopAll = ()=>{ if (stopped) return; stopped = true; try{ rec.stop(); }catch(_){} try{ stream.getTracks().forEach(t=> t.stop()); }catch(_){} };
         this._activeRecorder = rec; this._activeStream = stream; this._recStop = stopAll;
+        this.showLiveRecordingPreview(stream);
         rec.ondataavailable = (e)=>{ if (e.data && e.data.size) chunks.push(e.data); };
         rec.onstop = async ()=>{
           try{
+            this.hideLiveRecordingPreview();
             const blob = new Blob(chunks, { type: options.mimeType || 'application/octet-stream' });
             // stage for review
             this._pendingRecording = { blob, type: (options.mimeType||'application/octet-stream'), filename };
@@ -3654,6 +3830,50 @@ import { runTransaction } from 'firebase/firestore';
         rec.start();
         setTimeout(stopAll, maxMs);
       });
+    }
+
+    showLiveRecordingPreview(stream){
+      try{
+        const review = document.getElementById('recording-review');
+        const player = document.getElementById('recording-player');
+        const sendBtn = document.getElementById('send-recording-btn');
+        const switchBtn = document.getElementById('switch-camera-btn');
+        const discardBtn = document.getElementById('discard-recording-btn');
+        const input = document.getElementById('message-input');
+        if (!review || !player) return;
+        player.innerHTML = '';
+        const hasVideo = !!(stream && stream.getVideoTracks && stream.getVideoTracks().length);
+        const mediaEl = document.createElement(hasVideo ? 'video' : 'audio');
+        mediaEl.autoplay = true;
+        mediaEl.muted = true;
+        mediaEl.playsInline = true;
+        mediaEl.controls = false;
+        mediaEl.srcObject = stream;
+        if (hasVideo) mediaEl.classList.add('circular');
+        player.appendChild(mediaEl);
+        review.classList.remove('hidden');
+        if (input) input.style.display = 'none';
+        if (sendBtn) sendBtn.style.display = 'none';
+        if (switchBtn){
+          switchBtn.style.display = hasVideo ? 'inline-block' : 'none';
+          switchBtn.onclick = ()=>{
+            this._recFacing = this._recFacing === 'user' ? 'environment' : 'user';
+          };
+        }
+        if (discardBtn){
+          discardBtn.textContent = 'Stop';
+          discardBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
+        }
+      }catch(_){ }
+    }
+
+    hideLiveRecordingPreview(){
+      try{
+        const sendBtn = document.getElementById('send-recording-btn');
+        const discardBtn = document.getElementById('discard-recording-btn');
+        if (sendBtn) sendBtn.style.display = '';
+        if (discardBtn) discardBtn.textContent = 'Discard';
+      }catch(_){ }
     }
 
     // Add debug method to check Firebase config

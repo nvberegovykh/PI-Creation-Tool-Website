@@ -149,12 +149,37 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .file-preview img{cursor:pointer}
 .file-preview audio{width:100%;background:#131a27;border-radius:14px;padding:4px}
 .file-preview img,.file-preview video{max-width:min(100%,360px);max-height:360px;object-fit:contain}
-.voice-wave-player{display:flex;align-items:center;gap:8px;background:#0f1724;border:1px solid #273247;border-radius:14px;padding:6px 10px;margin-top:6px}
+.voice-wave-player{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#0f1724;
+  border:1px solid #273247;
+  border-radius:14px;
+  padding:6px 10px;
+  margin-top:6px;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  overflow:hidden;
+}
 .voice-wave-player .play{width:28px;height:28px;border-radius:999px;border:none;background:#1b2a43;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.voice-wave-player .wave{flex:1;display:flex;gap:2px;align-items:flex-end;height:22px;cursor:pointer;touch-action:none}
+.voice-wave-player .wave{
+  flex:1;
+  min-width:0;
+  max-width:100%;
+  display:flex;
+  gap:2px;
+  align-items:flex-end;
+  height:22px;
+  cursor:pointer;
+  touch-action:none;
+  overflow:hidden;
+}
 .voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear}
 .voice-wave-player .wave .bar.played{background:#ffffff}
-.voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;text-align:right;cursor:pointer}
+.voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;max-width:72px;flex:0 0 auto;text-align:right;cursor:pointer;white-space:nowrap}
 /* Recording indicator */
 .recording-indicator{ position:absolute; left:50%; transform:translateX(-50%); bottom:62px; z-index:30 }
 .recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }

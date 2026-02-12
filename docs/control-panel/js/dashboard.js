@@ -1158,7 +1158,7 @@ class DashboardManager {
             if (unameEl) unameEl.value = data.username || user.email || '';
             if (moodEl) moodEl.value = data.mood || '';
             if (avatarEl) avatarEl.src = data.avatarUrl || 'images/default-bird.png';
-            if (feedTitle) feedTitle.textContent = 'My Feed';
+            if (feedTitle) feedTitle.textContent = 'My Wall';
 
             const saveBtn = document.getElementById('space-save-profile');
             if (saveBtn){
@@ -1610,7 +1610,7 @@ class DashboardManager {
                     };
                 }
             });
-            if (feedTitle) feedTitle.textContent = 'My Feed';
+            if (feedTitle) feedTitle.textContent = 'My Wall';
         }catch(_){ }
     }
 
@@ -1701,12 +1701,13 @@ class DashboardManager {
         }catch(_){ }
     }
 
-    async loadGlobalFeed(){
+    async loadGlobalFeed(searchTerm = ''){
         if (this._dashboardSuspended) return;
         try{
             const feedEl = document.getElementById('global-feed');
             const suggEl = document.getElementById('global-suggestions');
             if (!feedEl) return;
+            const term = String(searchTerm || this._wallSearchTerm || '').trim().toLowerCase();
             // Prevent snapshot listener accumulation across re-renders.
             if (this._postActionUnsubsByContainer && this._postActionUnsubsByContainer.get(feedEl)) {
                 this._postActionUnsubsByContainer.get(feedEl).forEach((u) => { try { u(); } catch (_) {} });
@@ -1725,8 +1726,15 @@ class DashboardManager {
                 const row = d.data() || {};
                 list.push({ ...row, id: row.id || d.id });
             });
-            list.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
-            list.slice(0,20).forEach(p=>{
+            const filteredList = term
+                ? list.filter((p)=>{
+                    const text = String(p?.text || '').toLowerCase();
+                    const author = String(p?.authorName || '').toLowerCase();
+                    return text.includes(term) || author.includes(term);
+                })
+                : list;
+            filteredList.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+            filteredList.slice(0,20).forEach(p=>{
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.dataset.postId = p.id;
@@ -1749,8 +1757,15 @@ class DashboardManager {
             });
             if (suggEl){
                 try{
-                    const trending = await window.firebaseService.getTrendingPosts('', 10);
-                    suggEl.innerHTML = trending.map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
+                    const trending = await window.firebaseService.getTrendingPosts(term || '', 20);
+                    const filteredTrending = term
+                        ? (trending || []).filter((tp)=>{
+                            const text = String(tp?.text || '').toLowerCase();
+                            const author = String(tp?.authorName || '').toLowerCase();
+                            return text.includes(term) || author.includes(term);
+                        })
+                        : (trending || []);
+                    suggEl.innerHTML = filteredTrending.slice(0, 10).map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
                 }catch(_){
                     suggEl.innerHTML = '';
                 }
@@ -2030,7 +2045,7 @@ class DashboardManager {
                     sugg.innerHTML = cards.length ? `<h4>Suggestions</h4>${cards.join('')}` : '';
                 }catch(_){ sugg.innerHTML = ''; }
             }
-            if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Feed` : 'My Feed';
+            if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Wall` : 'My Wall';
         }catch(e){ /* ignore */ }
     }
 
@@ -2068,7 +2083,7 @@ class DashboardManager {
             const feed = document.getElementById('space-feed');
             const feedTitle = document.getElementById('space-feed-title');
             if (feed) feed.innerHTML='';
-            if (feedTitle) feedTitle.textContent = `${displayName||'User'}'s Feed`;
+            if (feedTitle) feedTitle.textContent = `${displayName||'User'}'s Wall`;
             try{
                 let snap;
                 try{
@@ -2252,6 +2267,7 @@ class DashboardManager {
         const suggBtn = document.getElementById('feed-tab-suggestions');
         const latestPane = document.getElementById('feed-latest-pane');
         const suggPane = document.getElementById('feed-suggestions-pane');
+        const wallSearch = document.getElementById('wall-search');
         if (!latestBtn || !suggBtn || !latestPane || !suggPane || latestBtn._boundTabs) return;
         latestBtn._boundTabs = true;
         const open = (name)=>{
@@ -2263,6 +2279,14 @@ class DashboardManager {
         };
         latestBtn.onclick = ()=> open('latest');
         suggBtn.onclick = ()=> open('suggestions');
+        if (wallSearch && !wallSearch._bound){
+            wallSearch._bound = true;
+            wallSearch.addEventListener('input', ()=>{
+                const term = String(wallSearch.value || '').trim();
+                this._wallSearchTerm = term;
+                this.loadGlobalFeed(term);
+            });
+        }
         open('latest');
     }
 
