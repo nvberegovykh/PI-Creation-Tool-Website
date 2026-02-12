@@ -549,7 +549,7 @@
     
     /* Ensure content doesn't overlap with bottom nav */
     .dashboard-content {
-        padding-bottom: 90px;
+        padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
     }
     
     /* Improve mobile nav touch targets */
@@ -578,6 +578,6 @@
     }
     
     .dashboard-content {
-        padding-bottom: 85px;
+        padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
     }
 }

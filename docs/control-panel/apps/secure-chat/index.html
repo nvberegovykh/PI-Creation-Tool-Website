@@ -59,6 +59,10 @@
                         <button id="create-group-btn" class="btn" type="button">Create group</button>
                     </div>
                 </div>
+                <div class="mobile-quick-actions" id="mobile-quick-actions">
+                    <button id="mobile-fix-duplicates-btn" class="icon-btn" title="Fix duplicate chats"><i class="fas fa-wand-magic-sparkles"></i></button>
+                    <button id="mobile-new-connection-btn" class="btn">+ Group</button>
+                </div>
                 <ul id="connections-list" class="connections-list"></ul>
             </div>
         </aside>
@@ -117,7 +121,7 @@
 
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_CHAT_VERSION = '20260212r02';
+      window.LIBER_CHAT_VERSION = '20260212r06';
       (function loadChatScripts() {
         const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
         const scripts = [

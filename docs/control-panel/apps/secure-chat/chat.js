@@ -63,11 +63,19 @@ import { runTransaction } from 'firebase/firestore';
       const app = document.getElementById('chat-app');
       if (!sidebar || !app) return;
       sidebar.classList.toggle('open', !!open);
+      if (!open) sidebar.classList.remove('searching');
       app.classList.toggle('mobile-menu-open', !!open);
       const tip = document.getElementById('mobile-sidebar-tip');
       if (tip){
         tip.setAttribute('aria-label', open ? 'Collapse chat menu' : 'Expand chat menu');
       }
+    }
+
+    updateSidebarSearchState(hasResults){
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) return;
+      sidebar.classList.toggle('searching', !!hasResults);
+      if (hasResults) sidebar.classList.add('open');
     }
 
     formatMessageTime(value){
@@ -364,6 +372,10 @@ import { runTransaction } from 'firebase/firestore';
         });
       }
       document.getElementById('new-connection-btn').addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
+      const mobileGroupBtn = document.getElementById('mobile-new-connection-btn');
+      if (mobileGroupBtn){
+        mobileGroupBtn.addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
+      }
       const actionBtn = document.getElementById('action-btn');
       if (actionBtn){
         actionBtn.addEventListener('click', ()=> this.handleActionButton());
@@ -429,6 +441,7 @@ import { runTransaction } from 'firebase/firestore';
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=> this.toggleGroupPanel());
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
+      const fixDupMobileBtn = document.getElementById('mobile-fix-duplicates-btn'); if (fixDupMobileBtn) fixDupMobileBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       // Drag & Drop upload within chat app area
@@ -619,7 +632,7 @@ import { runTransaction } from 'firebase/firestore';
         actionBtn.style.color = '#fff';
       } else if (inReview){
         actionBtn.title = 'Send';
-        actionBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
         actionBtn.style.background = '#2563eb';
         actionBtn.style.borderRadius = '12px';
         actionBtn.style.color = '#fff';
@@ -1024,6 +1037,13 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
         if (this._msgPoll) { clearInterval(this._msgPoll); this._msgPoll = null; }
+        let relatedConnIds = [activeConnId];
+        try{
+          const rel = await this.getRelatedConnIds(activeConnId);
+          if (Array.isArray(rel) && rel.length){
+            relatedConnIds = Array.from(new Set(rel.filter(Boolean)));
+          }
+        }catch(_){ relatedConnIds = [activeConnId]; }
         let q;
         try{
           q = firebase.query(
@@ -1046,10 +1066,48 @@ import { runTransaction } from 'firebase/firestore';
           keyByConn.set(cid, k);
           return k;
         };
+        const fetchDocsForConn = async (cid)=>{
+          try{
+            let q2;
+            try{
+              q2 = firebase.query(
+                firebase.collection(this.db,'chatMessages',cid,'messages'),
+                firebase.orderBy('createdAtTS','asc'),
+                firebase.limit(120)
+              );
+            }catch(_){
+              q2 = firebase.query(
+                firebase.collection(this.db,'chatMessages',cid,'messages'),
+                firebase.orderBy('createdAt','asc'),
+                firebase.limit(120)
+              );
+            }
+            const s2 = await firebase.getDocs(q2);
+            return (s2.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: cid }));
+          }catch(_){ return []; }
+        };
+        const normalizeDocTime = (m)=>{
+          try{
+            return Number(m?.createdAtTS?.toMillis?.() || 0) || Number(new Date(m?.createdAt || 0).getTime() || 0) || 0;
+          }catch(_){ return Number(new Date(m?.createdAt || 0).getTime() || 0) || 0; }
+        };
         const handleSnap = async (snap)=>{
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-          const docs = (snap.docs || []);
-          const sigBase = docs.map(d=> `${d.id}:${d.data()?.createdAt||''}`).join('|');
+          const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
+          let merged = docsPrimary.slice();
+          const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
+          if (extraIds.length){
+            const extraSets = await Promise.all(extraIds.map((cid)=> fetchDocsForConn(cid)));
+            extraSets.forEach((rows)=> merged.push(...rows));
+          }
+          merged.sort((a,b)=>{
+            const ta = normalizeDocTime(a.data);
+            const tb = normalizeDocTime(b.data);
+            if (ta !== tb) return ta - tb;
+            return String(a.id || '').localeCompare(String(b.id || ''));
+          });
+          const docs = merged;
+          const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${d.data?.createdAt||''}`).join('|');
           const sig = `${activeConnId}::${sigBase}`;
           if (this._lastRenderSigByConn.get(activeConnId) === sig) return;
           this._lastRenderSigByConn.set(activeConnId, sig);
@@ -1057,7 +1115,7 @@ import { runTransaction } from 'firebase/firestore';
           const pinnedBefore = box.dataset.pinnedBottom !== '0';
           let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
           const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
-          const appendOnly = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
+          const appendOnly = extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
           if (!appendOnly){
             box.innerHTML='';
             lastRenderedDay = '';
@@ -1065,7 +1123,7 @@ import { runTransaction } from 'firebase/firestore';
           }
           const renderOne = async (d, sourceConnId = activeConnId)=>{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-            const m=d.data();
+            const m=(typeof d.data === 'function' ? d.data() : d.data) || {};
             const aesKey = await getKeyForConn(sourceConnId);
             let text='';
             if (typeof m.text === 'string' && !m.cipher){
@@ -1179,7 +1237,7 @@ import { runTransaction } from 'firebase/firestore';
           const docsToRender = appendOnly ? docs.slice(prevIds.length) : docs;
           // Render primary messages in deterministic order.
           for (const d of docsToRender) {
-            await renderOne(d);
+            await renderOne(d, d.sourceConnId || activeConnId);
           }
           // Keep DOM size bounded to avoid jitter on long chats.
           while (box.childElementCount > 220){
@@ -1539,7 +1597,16 @@ import { runTransaction } from 'firebase/firestore';
     /* Stickerpacks */
     async toggleStickers(){
       const existing = document.getElementById('sticker-panel');
-      if (existing){ existing.remove(); return; }
+      const existingBackdrop = document.getElementById('sticker-backdrop');
+      if (existing){
+        existing.remove();
+        if (existingBackdrop) existingBackdrop.remove();
+        return;
+      }
+      if (existingBackdrop) existingBackdrop.remove();
+      const backdrop = document.createElement('div');
+      backdrop.id = 'sticker-backdrop';
+      backdrop.className = 'sticker-backdrop';
       const panel = document.createElement('div'); panel.id='sticker-panel'; panel.className='sticker-panel';
       panel.innerHTML = `
         <div class="panel-header">
@@ -1559,7 +1626,14 @@ import { runTransaction } from 'firebase/firestore';
         <input id="sticker-pack-input" type="file" accept="image/*" multiple style="display:none" />
         <input id="sticker-pack-add-image" type="file" accept="image/*" multiple style="display:none" />
       `;
-      document.querySelector('.main').appendChild(panel);
+      const host = document.querySelector('.main') || document.body;
+      host.appendChild(backdrop);
+      host.appendChild(panel);
+      backdrop.addEventListener('click', ()=>{
+        panel.remove();
+        backdrop.remove();
+      });
+      panel.addEventListener('click', (e)=> e.stopPropagation());
       document.getElementById('add-pack-btn').onclick = ()=> document.getElementById('sticker-pack-input').click();
       document.getElementById('sticker-pack-input').onchange = (e)=> this.addStickerFiles(e.target.files);
       document.getElementById('manage-packs-btn').onclick = ()=> this.manageStickerpacks();
@@ -2366,7 +2440,13 @@ import { runTransaction } from 'firebase/firestore';
       if (!wrapper || !resultsEl || !msgResults) return;
       resultsEl.innerHTML = '';
       msgResults.innerHTML = '';
-      if (!term){ wrapper.style.display='none'; if (userGroup) userGroup.style.display='none'; if (msgGroup) msgGroup.style.display='none'; return; }
+      if (!term){
+        wrapper.style.display='none';
+        if (userGroup) userGroup.style.display='none';
+        if (msgGroup) msgGroup.style.display='none';
+        this.updateSidebarSearchState(false);
+        return;
+      }
       try{
         if (window.firebaseService && window.firebaseService.isFirebaseAvailable()){
           const users = await window.firebaseService.searchUsers(term.toLowerCase());
@@ -2475,9 +2555,15 @@ import { runTransaction } from 'firebase/firestore';
               msgResults.appendChild(li);
             });
           } else if (msgGroup) { msgGroup.style.display='none'; }
-          wrapper.style.display = (filtered.length>0 || matches.length>0) ? 'block':'none';
+          const hasResults = (filtered.length>0 || matches.length>0);
+          wrapper.style.display = hasResults ? 'block':'none';
+          this.updateSidebarSearchState(hasResults);
         }
-      }catch(e){ console.warn('Search failed', e); if (wrapper) wrapper.style.display='none'; }
+      }catch(e){
+        console.warn('Search failed', e);
+        if (wrapper) wrapper.style.display='none';
+        this.updateSidebarSearchState(false);
+      }
     }
 
     // Placeholders / basic signaling for calls
@@ -3606,7 +3692,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     mediaEl.controls = true; mediaEl.src = url; mediaEl.style.maxWidth = '100%'; mediaEl.playsInline = true; if (isVideo){ mediaEl.classList.add('circular'); } player.appendChild(mediaEl);
     review.classList.remove('hidden');
     const input = document.getElementById('message-input'); if (input) input.style.display='none';
-    const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-paper-plane"></i>'; }
+    const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>'; actionBtn.title = 'Send'; }
     const self = window.secureChatApp;
     if (switchBtn){ switchBtn.style.display = isVideo ? 'inline-block':'none'; }
     if (switchBtn && isVideo){

@@ -129,6 +129,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .btn.back{display:none}
 /* Sticker panel */
 .sticker-panel{position:absolute;bottom:80px;left:70px;width:320px;max-height:260px;overflow:auto;background:#111418;border:1px solid #2a2f36;border-radius:10px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.4);z-index:92}
+.sticker-backdrop{position:fixed;inset:0;background:transparent;z-index:91}
 .sticker-panel .panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .sticker-panel .sticker-grid:first-child{margin-bottom:6px;border-bottom:1px dashed #2a2f36;padding-bottom:6px}
@@ -159,11 +160,25 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }
 .recording-indicator .record-dot i{ color:#fff; font-size:20px }
 .recording-indicator.hidden{ display:none }
-.recording-review{ position:absolute; left:0; right:0; bottom:0; background:#0f1116; border-top:1px solid var(--border-color,#1f222a); padding:12px; display:flex; align-items:center; gap:12px }
+.recording-review{
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  background: transparent;
+  border-top: 1px solid var(--border-color,#1f222a);
+  padding: 8px 6px 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .recording-review.hidden{ display:none }
-.recording-review audio,.recording-review video{ max-width:60%; border-radius:8px; background:#000 }
+.recording-review audio,.recording-review video{ max-width:100%; width:100%; border-radius:8px; background:#000 }
 .recording-review video.circular{ width:180px; height:180px; border-radius:50%; object-fit:cover }
 .review-actions{ display:flex; gap:8px; margin-left:auto }
+.review-actions #send-recording-btn{ display:none !important; }
 /* Group management */
 .group-panel{position:absolute;top:68px;right:16px;width:320px;max-height:320px;overflow:auto;background:#111418;border:1px solid #2a2f36;border-radius:10px;padding:10px;box-shadow:0 10px 24px rgba(0,0,0,.4);z-index:92}
 .group-panel h4{margin:0 0 8px 0}
@@ -225,6 +240,19 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
     justify-content:center;
     margin-right:2px;
   }
+  .sticker-backdrop{
+    z-index: 98;
+  }
+  .sticker-panel{
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: calc(104px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(56vh, 420px) !important;
+    z-index: 99 !important;
+  }
 }
 
 /* Search results grouping */
@@ -266,7 +294,12 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
     border-bottom: none !important;
     z-index: 15;
     background: #0b0f16;
+    display: flex;
+    flex-direction: column;
   }
+  .sidebar .connections-panel{ order: 1; }
+  .sidebar .mobile-sidebar-tip{ order: 2; }
+  .sidebar .sidebar-header{ order: 3; }
   .sidebar-header{
     height: var(--mobile-bar-height) !important;
     min-height: var(--mobile-bar-height) !important;
@@ -289,6 +322,24 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   .mobile-sidebar-tip i{
     font-size: 11px;
   }
+  .sidebar-header .header-actions{
+    display: none !important;
+  }
+  .mobile-quick-actions{
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px 6px;
+    border-top: 1px solid var(--border-color,#1f222a);
+  }
+  .mobile-quick-actions .btn{
+    padding: 8px 12px;
+    border-radius: 10px;
+  }
+  .sidebar.open .mobile-quick-actions{
+    display: flex;
+  }
 
   /* Keep only composer controls visible in the lower area */
   .chat-header .header-actions{
@@ -297,36 +348,56 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 
   /* Stable expandable slider above the bottom bar */
   .sidebar .connections-panel{
-    position: absolute !important;
+    position: relative !important;
     top: auto !important;
-    bottom: calc(100% + 4px) !important;
-    left: 8px !important;
-    right: 8px !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
     display: block !important;
+    width: 100%;
     height: 0 !important;
     max-height: 0 !important;
     opacity: 0;
     overflow: hidden !important;
     pointer-events: none !important;
-    transform: translateY(8px);
-    transition: max-height .22s ease, opacity .22s ease, transform .22s ease !important;
-    border: 1px solid var(--border-color,#1f222a);
-    border-radius: 10px;
+    transform: translateY(6px);
+    transition: max-height .22s ease, opacity .22s ease, transform .22s ease, margin .22s ease !important;
+    border-top: 1px solid var(--border-color,#1f222a);
+    border-bottom: 1px solid var(--border-color,#1f222a);
+    border-radius: 0;
     background: #0f1116;
-    box-shadow: 0 12px 24px rgba(0,0,0,.35);
+    box-shadow: 0 -10px 20px rgba(0,0,0,.24);
     z-index: 25;
+    margin: 0;
   }
   .sidebar.open .connections-panel{
     height: auto !important;
-    max-height: 52vh !important;
+    max-height: 38vh !important;
     opacity: 1;
     overflow: auto !important;
     pointer-events: auto !important;
     transform: translateY(0);
+    margin: 0;
+  }
+  .sidebar.searching.open .connections-panel{
+    max-height: 58vh !important;
   }
   .sidebar:not(.open) .connections-panel{
     height: 0 !important;
     max-height: 0 !important;
+  }
+  .connections-panel .search-box{
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #0f1116;
+  }
+  .connections-panel .search-results{
+    max-height: 30vh;
+    overflow: auto;
+  }
+  .sidebar.searching.open .connections-panel .search-results{
+    max-height: 42vh;
   }
 
   /* Cleaner message bubbles (no border-looking shadow) */

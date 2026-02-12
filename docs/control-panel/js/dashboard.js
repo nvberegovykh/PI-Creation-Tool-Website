@@ -319,12 +319,60 @@ class DashboardManager {
         bg.src = item.src;
         bg.currentTime = 0;
         bg.play().catch(()=>{});
+        const mini = document.getElementById('mini-player');
         const miniTitle = document.getElementById('mini-title');
         const miniBy = document.getElementById('mini-by');
         const miniCover = document.querySelector('#mini-player .cover');
+        const playBtn = document.getElementById('mini-play');
+        const addBtn = document.getElementById('mini-add-playlist');
+        const closeBtn = document.getElementById('mini-close');
+        const miniProgress = document.getElementById('mini-progress');
+        const miniFill = document.getElementById('mini-fill');
+        const miniTime = document.getElementById('mini-time');
         if (miniTitle) miniTitle.textContent = item.title || 'Now playing';
         if (miniBy) miniBy.textContent = item.by || '';
         if (miniCover && item.cover) miniCover.src = item.cover;
+        if (mini) mini.classList.add('show');
+        if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play().catch(()=>{}); } else { bg.pause(); } }; }
+        const syncMiniBtn = ()=> this.setPlayIcon(playBtn, !bg.paused);
+        const syncProgress = ()=>{
+            if (!miniFill || !miniTime) return;
+            const d = Number(bg.duration || 0);
+            const c = Number(bg.currentTime || 0);
+            if (d > 0){
+                miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
+                miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+            } else {
+                miniFill.style.width = '0%';
+                miniTime.textContent = '0:00 / 0:00';
+            }
+        };
+        if (miniProgress){
+            miniProgress.onclick = (e)=>{
+                const rect = miniProgress.getBoundingClientRect();
+                const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                if (Number(bg.duration) > 0) bg.currentTime = ratio * bg.duration;
+            };
+        }
+        bg.onplay = ()=>{ syncMiniBtn(); syncProgress(); };
+        bg.onpause = ()=>{ syncMiniBtn(); syncProgress(); };
+        bg.ontimeupdate = syncProgress;
+        bg.onloadedmetadata = syncProgress;
+        bg.onended = ()=>{
+            syncMiniBtn();
+            if ((this._playQueueIndex + 1) < this._playQueue.length) this.playQueueIndex(this._playQueueIndex + 1);
+        };
+        if (addBtn){
+            addBtn.onclick = ()=> this.openAddToPlaylistPopup({
+                src: bg.currentSrc || bg.src,
+                title: miniTitle?.textContent || item.title || 'Track',
+                by: miniBy?.textContent || item.by || '',
+                cover: (miniCover && miniCover.src) || item.cover || ''
+            });
+        }
+        if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ bg.pause(); }catch(_){} }; }
+        syncMiniBtn();
+        syncProgress();
         this.renderQueuePanel();
     }
 
@@ -351,8 +399,8 @@ class DashboardManager {
                 row.className = 'playlist-row';
                 row.draggable = true;
                 row.dataset.idx = String(idx);
-                row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-radius:8px;border:1px solid #273247;margin-bottom:6px;cursor:grab';
-                row.innerHTML = `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.title||'Track').replace(/</g,'&lt;')}</span><div style="display:flex;gap:6px"><button class="btn btn-secondary" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="btn btn-secondary" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="btn btn-secondary" data-play="${it.id}"><i class="fas fa-play"></i></button><button class="btn btn-secondary" data-remove="${it.id}"><i class="fas fa-xmark"></i></button></div>`;
+                row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px;border-radius:8px;border:1px solid #273247;margin-bottom:6px;cursor:grab';
+                row.innerHTML = `<div style="min-width:0"><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${(it.title||'Track').replace(/</g,'&lt;')}</div><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.72">${(it.by||'').replace(/</g,'&lt;')}</div></div><div style="display:flex;gap:4px;flex-wrap:nowrap"><button class="playlist-mini-btn" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="playlist-mini-btn" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button><button class="playlist-mini-btn danger" data-remove="${it.id}" title="Remove"><i class="fas fa-xmark"></i></button></div>`;
                 list.appendChild(row);
             });
             wrap.appendChild(list);

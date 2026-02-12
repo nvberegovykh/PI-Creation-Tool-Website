@@ -27,6 +27,23 @@
 .player-bar .progress .fill{ position:absolute; left:0; top:0; bottom:0; width:0%; background:#ff6a00 }
 .player-bar .progress .knob{ position:absolute; top:50%; transform:translate(-50%, -50%); width:12px; height:12px; background:#fff; border-radius:50%; box-shadow:0 0 0 2px rgba(255,255,255,.2) }
 .player-bar .time{ font-size:12px; color:#ccc; min-width:60px; text-align:right }
+.playlist-mini-btn{
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid #334056;
+  border-radius: 8px;
+  background: #1a2232;
+  color: #dbe5f3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+.playlist-mini-btn:hover{ background:#263248; }
+.playlist-mini-btn.danger{ border-color:#4f3340; color:#f4c9d4; }
 /* Global Styles */
 * {
     margin: 0;
@@ -130,6 +147,13 @@ img, video, canvas, svg, iframe {
 @keyframes miniRise{
   from{ transform:translateY(10px); opacity:.5; }
   to{ transform:translateY(0); opacity:1; }
+}
+@media (min-width: 769px){
+  .mini-player{
+    left: 35vw;
+    right: 35vw;
+    bottom: 18px;
+  }
 }
 
 /* Micro-interactions */
