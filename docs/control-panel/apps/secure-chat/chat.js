@@ -1839,7 +1839,7 @@
               } else {
                 try{
                   text = await chatCrypto.decryptWithKey(m.cipher, aesKey);
-                }catch{
+                }catch(_){
                   let ok = false;
                   try{
                     const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
@@ -1853,7 +1853,7 @@
                   }catch(_){ }
                   if (!ok){
                     try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);}
-                    catch { text='[unable to decrypt]'; }
+                    catch(_){ text='[unable to decrypt]'; }
                   }
                 }
               }
@@ -2116,7 +2116,7 @@
             }
           }catch(_){ }
         }, 12000);
-      }catch{
+      }catch(_){
         try{
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
@@ -2139,7 +2139,7 @@
             } else {
               try{
                 text = await chatCrypto.decryptWithKey(m.cipher, aesKey);
-              }catch{
+              }catch(_){
                 let ok = false;
                 try{
                   const candidates = await this.getFallbackKeyCandidatesForConn(activeConnId);
@@ -2153,7 +2153,7 @@
                 }catch(_){ }
                 if (!ok){
                   try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);}
-                  catch { text='[unable to decrypt]'; }
+                  catch(_){ text='[unable to decrypt]'; }
                 }
               }
             }
@@ -5078,7 +5078,7 @@
       } else {
         await this.startCall({ callId: cid, video });
       }
-    }catch{ const cid = `${roomId}_latest`; await this.startCall({ callId: cid, video }); }
+    }catch(_){ const cid = `${roomId}_latest`; await this.startCall({ callId: cid, video }); }
   }
 
   async startCall({ callId, video }){
