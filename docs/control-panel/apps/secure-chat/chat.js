@@ -68,6 +68,7 @@ import { runTransaction } from 'firebase/firestore';
       this._lastLoadedConnId = '';
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
+      this._attachmentBlobUrlByKey = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -1018,6 +1019,25 @@ import { runTransaction } from 'firebase/firestore';
       return na.endsWith(nb) || nb.endsWith(na);
     }
 
+    getStableBlobUrl(cacheKey, blob){
+      try{
+        const key = String(cacheKey || '').trim();
+        if (!key || !blob) return URL.createObjectURL(blob);
+        if (this._attachmentBlobUrlByKey.has(key)) return this._attachmentBlobUrlByKey.get(key);
+        const nextUrl = URL.createObjectURL(blob);
+        this._attachmentBlobUrlByKey.set(key, nextUrl);
+        while (this._attachmentBlobUrlByKey.size > 600){
+          const firstKey = this._attachmentBlobUrlByKey.keys().next().value;
+          const firstUrl = this._attachmentBlobUrlByKey.get(firstKey);
+          this._attachmentBlobUrlByKey.delete(firstKey);
+          try{ URL.revokeObjectURL(firstUrl); }catch(_){ }
+        }
+        return nextUrl;
+      }catch(_){
+        return URL.createObjectURL(blob);
+      }
+    }
+
     async fixDuplicateConnections(){
       try{
         const byId = new Map();
@@ -1622,22 +1642,21 @@ import { runTransaction } from 'firebase/firestore';
         toBottomBtn = document.createElement('button');
         toBottomBtn.id = 'chat-scroll-bottom-btn';
         toBottomBtn.className = 'btn secondary';
-        toBottomBtn.textContent = '↓';
-        toBottomBtn.title = 'Scroll to latest';
+        toBottomBtn.textContent = '↑';
+        toBottomBtn.title = 'Jump to latest';
         toBottomBtn.style.cssText = 'position:absolute;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
         const main = document.querySelector('.main') || document.body;
         main.appendChild(toBottomBtn);
       }
       const updateBottomUi = ()=>{
-        const dist = box.scrollHeight - box.scrollTop - box.clientHeight;
-        const pinned = dist < 120;
+        const pinned = box.scrollTop < 120;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = pinned ? 'none' : 'inline-block';
       };
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
         box.addEventListener('scroll', updateBottomUi, { passive: true });
-        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = box.scrollHeight; updateBottomUi(); });
+        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = 0; updateBottomUi(); });
       }
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
@@ -1737,7 +1756,7 @@ import { runTransaction } from 'firebase/firestore';
             merged.sort((a,b)=>{
               const ta = normalizeDocTime(a.data);
               const tb = normalizeDocTime(b.data);
-              if (ta !== tb) return ta - tb;
+              if (ta !== tb) return tb - ta;
               return String(a.id || '').localeCompare(String(b.id || ''));
             });
             const docs = merged;
@@ -1935,7 +1954,7 @@ import { runTransaction } from 'firebase/firestore';
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
             if (!appendOnly && isFirstPaint && pinnedBefore && (i % 2) === 1){
-              box.scrollTop = box.scrollHeight;
+              box.scrollTop = 0;
             }
             if ((i % 3) === 2){
               await this.yieldToUi();
@@ -1955,7 +1974,7 @@ import { runTransaction } from 'firebase/firestore';
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
           if (pinnedBefore){
-            box.scrollTop = box.scrollHeight;
+            box.scrollTop = 0;
           }else{
             box.scrollTop = prevTop;
           }
@@ -2069,7 +2088,7 @@ import { runTransaction } from 'firebase/firestore';
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          const fallbackDocs = (snap.docs || []).slice().reverse();
+          const fallbackDocs = (snap.docs || []).slice();
           for (let i = 0; i < fallbackDocs.length; i++){
             const d = fallbackDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -2174,7 +2193,7 @@ import { runTransaction } from 'firebase/firestore';
               await this.yieldToUi();
             }
           }
-          box.scrollTop = box.scrollHeight;
+          box.scrollTop = 0;
           box.dataset.renderedConnId = activeConnId;
           updateBottomUi();
         }catch(e){
@@ -3480,7 +3499,8 @@ import { runTransaction } from 'firebase/firestore';
       const p = this.ensureChatBgPlayer();
       const startFromRatio = (ratio)=>{
         const clamped = Math.min(1, Math.max(0, ratio));
-        if (p.src !== url){
+        if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url)){
+          this._topMediaEl = null;
           this._voiceCurrentSrc = url;
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
@@ -3509,7 +3529,8 @@ import { runTransaction } from 'firebase/firestore';
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
         this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
-        if (p.src !== url){
+        if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url)){
+          this._topMediaEl = null;
           this._voiceCurrentSrc = url;
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
@@ -3894,6 +3915,16 @@ import { runTransaction } from 'firebase/firestore';
                     decrypted = true;
                   }
                 }
+                if (!decrypted && window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
+                  try{
+                    const senderUid = String(message?.sender || '').trim();
+                    if (senderUid){
+                      const hintedShared = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, senderUid, hintSalt);
+                      b64 = await chatCrypto.decryptWithKey(payload, hintedShared);
+                      decrypted = true;
+                    }
+                  }catch(_){ }
+                }
               }
             }catch(_){ }
           }
@@ -3902,7 +3933,7 @@ import { runTransaction } from 'firebase/firestore';
             const recentConnIds = (this.connections || [])
               .map((c)=> c && c.id)
               .filter((cid)=> cid && !candidateConnIds.includes(cid))
-              .slice(0, 12);
+              .slice(0, 40);
             for (const cid of recentConnIds){
               if (decrypted) break;
               try{
@@ -3929,7 +3960,8 @@ import { runTransaction } from 'firebase/firestore';
                       : fileName.toLowerCase().endsWith('.gif') ? 'image/gif'
                       : 'image/jpeg';
           const blob = this.base64ToBlob(b64, mime);
-          const url = URL.createObjectURL(blob);
+          const cacheKey = `img|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
+          const url = this.getStableBlobUrl(cacheKey, blob);
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
           img.addEventListener('click', ()=>{
@@ -3941,13 +3973,14 @@ import { runTransaction } from 'firebase/firestore';
           });
           img.addEventListener('load', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
           });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
           const mime = this.detectMimeFromBase64(b64, this.inferVideoMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
-          const url = URL.createObjectURL(blob);
+          const cacheKey = `vid|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
+          const url = this.getStableBlobUrl(cacheKey, blob);
           const video = document.createElement('video');
           video.src = url;
           video.controls = !isVideoRecording;
@@ -3961,13 +3994,14 @@ import { runTransaction } from 'firebase/firestore';
           }
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
           });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
-          const url = URL.createObjectURL(blob);
+          const cacheKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
+          const url = this.getStableBlobUrl(cacheKey, blob);
           if (isVoiceRecording){
             const title = String(senderDisplayName || 'Voice message');
             this.renderWaveAttachment(containerEl, url, title);
@@ -3975,10 +4009,11 @@ import { runTransaction } from 'firebase/firestore';
             this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown');
           }
           const box = document.getElementById('messages');
-          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
-          const url = URL.createObjectURL(blob);
+          const cacheKey = `pdf|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
+          const url = this.getStableBlobUrl(cacheKey, blob);
           const row = document.createElement('div');
           row.style.display = 'flex';
           row.style.gap = '8px';
@@ -3997,7 +4032,8 @@ import { runTransaction } from 'firebase/firestore';
           containerEl.appendChild(row);
         } else {
           const blob = this.base64ToBlob(b64, 'application/octet-stream');
-          const url = URL.createObjectURL(blob);
+          const cacheKey = `bin|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
+          const url = this.getStableBlobUrl(cacheKey, blob);
           const row = document.createElement('div');
           row.style.display = 'flex';
           row.style.gap = '8px';
