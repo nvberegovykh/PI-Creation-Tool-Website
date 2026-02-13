@@ -1573,6 +1573,32 @@ import { runTransaction } from 'firebase/firestore';
             firebase.limit(40)
           );
         }
+        const fetchLatestSnap = async ()=>{
+          try{
+            const qTs = firebase.query(
+              firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+              firebase.orderBy('createdAtTS','desc'),
+              firebase.limit(40)
+            );
+            return await firebase.getDocs(qTs);
+          }catch(_){
+            try{
+              const qIso = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.orderBy('createdAt','desc'),
+                firebase.limit(40)
+              );
+              return await firebase.getDocs(qIso);
+            }catch(_){
+              // Last resort for missing indexes/transient query failures.
+              const qLoose = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.limit(40)
+              );
+              return await firebase.getDocs(qLoose);
+            }
+          }
+        };
         // Keep live rendering stable on canonical active connection only.
         const keyByConn = new Map();
         const getKeyForConn = async (cid)=>{
@@ -1735,7 +1761,7 @@ import { runTransaction } from 'firebase/firestore';
                 const preview = el.querySelector('.file-preview');
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
-                  this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName);
+                  this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text });
                 }
               }
             // Bind edit/delete/replace for own messages
@@ -1840,69 +1866,42 @@ import { runTransaction } from 'firebase/firestore';
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
               try{
-                let s = null;
-                try{
-                  s = await firebase.getDocs(q);
-                }catch(_){
-                  const qAlt = firebase.query(
-                    firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                    firebase.orderBy('createdAt','desc'),
-                    firebase.limit(40)
-                  );
-                  s = await firebase.getDocs(qAlt);
-                }
+                const s = await fetchLatestSnap();
                 scheduleLiveSnap(s);
               }catch(_){ }
             }
           );
-          // Kick one explicit fetch so UI is never blocked waiting for stream init.
-          Promise.resolve().then(async()=>{
-            try{
-              let s = null;
-              try{
-                s = await firebase.getDocs(q);
-              }catch(_){
-                const qAlt = firebase.query(
-                  firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                  firebase.orderBy('createdAt','desc'),
-                  firebase.limit(40)
-                );
-                s = await firebase.getDocs(qAlt);
-              }
-              scheduleLiveSnap(s);
-            }catch(_){ }
-          });
+          // Deterministic first paint on every switch (prevents spinner lock on listener races).
+          try{
+            const sInit = await Promise.race([
+              fetchLatestSnap(),
+              new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
+            ]);
+            scheduleLiveSnap(sInit);
+          }catch(_){
+            if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId){
+              box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
+              box.dataset.renderedConnId = activeConnId;
+              updateBottomUi();
+              loadFinished = true;
+            }
+          }
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
           this._msgPoll = setInterval(async()=>{
             try{
-              const s = await firebase.getDocs(q);
+              const s = await fetchLatestSnap();
               await handleSnap(s);
             }catch(_){ }
           }, 2500);
-          const snap = await firebase.getDocs(q); await handleSnap(snap);
+          const snap = await fetchLatestSnap(); await handleSnap(snap);
         }
         loadWatchdog = setTimeout(async ()=>{
           try{
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-            let sKick = null;
-            try{
-              const qKickTs = firebase.query(
-                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                firebase.orderBy('createdAtTS','desc'),
-                firebase.limit(40)
-              );
-              sKick = await firebase.getDocs(qKickTs);
-            }catch(_){
-              const qKick = firebase.query(
-                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                firebase.orderBy('createdAt','desc'),
-                firebase.limit(40)
-              );
-              sKick = await firebase.getDocs(qKick);
-            }
+            const sKick = await fetchLatestSnap();
             await handleSnap(sKick);
           }catch(_){ }
         }, 7000);
@@ -1912,22 +1911,7 @@ import { runTransaction } from 'firebase/firestore';
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             if (!/Loading messages/i.test(String(box.textContent || ''))) return;
-            let sHard = null;
-            try{
-              const qHardTs = firebase.query(
-                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                firebase.orderBy('createdAtTS','desc'),
-                firebase.limit(40)
-              );
-              sHard = await firebase.getDocs(qHardTs);
-            }catch(_){
-              const qHard = firebase.query(
-                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                firebase.orderBy('createdAt','desc'),
-                firebase.limit(40)
-              );
-              sHard = await firebase.getDocs(qHard);
-            }
+            const sHard = await fetchLatestSnap();
             await handleSnap(sHard);
             if (!loadFinished && /Loading messages/i.test(String(box.textContent || ''))){
               box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
@@ -2039,7 +2023,7 @@ import { runTransaction } from 'firebase/firestore';
               const preview = el.querySelector('.file-preview');
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
-                this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName);
+                this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text });
               }
             }
             const shareBtn = el.querySelector('.msg-share');
@@ -2774,7 +2758,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId}){
+    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId, isVideoRecording}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
@@ -2789,6 +2773,7 @@ import { runTransaction } from 'firebase/firestore';
         fileUrl: fileUrl||null,
         fileName: fileName||null,
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
+        isVideoRecording: isVideoRecording === true,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -3433,6 +3418,16 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ }
     }
 
+    isVideoRecordingMessage(message, fileName = ''){
+      try{
+        if (!this.isVideoFilename(fileName)) return false;
+        if (message && message.isVideoRecording === true) return true;
+        const text = String(message?.text || '').trim();
+        if (/^\[video message\]/i.test(text)) return true;
+        return false;
+      }catch(_){ return false; }
+    }
+
     setupMediaSessionForVoice(title = 'Voice message'){
       const p = this.ensureChatBgPlayer();
       if (!('mediaSession' in navigator)) return;
@@ -3448,11 +3443,12 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ }
     }
 
-    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = ''){
+    async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
         const ct = res.headers.get('content-type')||'';
         const payload = ct.includes('application/json') ? await res.json() : JSON.parse(await res.text());
+        const isVideoRecording = this.isVideoRecordingMessage(message, fileName);
         let b64;
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
@@ -3484,6 +3480,23 @@ import { runTransaction } from 'firebase/firestore';
                 const alt = await this.getFallbackKeyForConn(cid);
                 b64 = await chatCrypto.decryptWithKey(payload, alt);
                 decrypted = true;
+              }catch(_){ }
+            }
+          }
+          if (!decrypted){
+            const broadConnIds = ((this.connections || []).map((c)=> c && c.id).filter(Boolean));
+            for (const cid of broadConnIds){
+              if (decrypted) break;
+              if (candidateConnIds.includes(cid)) continue;
+              try{
+                const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+                for (const k of candidates){
+                  try{
+                    b64 = await chatCrypto.decryptWithKey(payload, k);
+                    decrypted = true;
+                    break;
+                  }catch(_){ }
+                }
               }catch(_){ }
             }
           }
@@ -3520,12 +3533,14 @@ import { runTransaction } from 'firebase/firestore';
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
           video.src = url;
-          video.controls = false;
+          video.controls = !isVideoRecording;
           video.playsInline = true;
           video.style.maxWidth = '100%';
           video.style.borderRadius='8px';
-          this.applyRandomTriangleMask(video);
-          this.bindInlineVideoPlayback(video, fileName || 'Video message');
+          if (isVideoRecording){
+            this.applyRandomTriangleMask(video);
+            this.bindInlineVideoPlayback(video, fileName || 'Video message');
+          }
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
             if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
@@ -3573,13 +3588,14 @@ import { runTransaction } from 'firebase/firestore';
           containerEl.appendChild(err);
           return;
         }
-        this.renderDirectAttachment(containerEl, fileUrl, fileName);
+        this.renderDirectAttachment(containerEl, fileUrl, fileName, message);
       }
     }
 
-    renderDirectAttachment(containerEl, fileUrl, fileName){
+    renderDirectAttachment(containerEl, fileUrl, fileName, message = null){
       try{
         let name = String(fileName || '');
+        const isVideoRecording = this.isVideoRecordingMessage(message, name);
         if (!name && fileUrl){
           try{
             const clean = String(fileUrl).split('?')[0].split('#')[0];
@@ -3599,12 +3615,14 @@ import { runTransaction } from 'firebase/firestore';
         if (this.isVideoFilename(name)){
           const v = document.createElement('video');
           v.src = fileUrl;
-          v.controls = false;
+          v.controls = !isVideoRecording;
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
-          this.applyRandomTriangleMask(v);
-          this.bindInlineVideoPlayback(v, name || 'Video message');
+          if (isVideoRecording){
+            this.applyRandomTriangleMask(v);
+            this.bindInlineVideoPlayback(v, name || 'Video message');
+          }
           containerEl.appendChild(v);
           return;
         }
@@ -5041,7 +5059,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
           fileUrl: url2,
           fileName: filename,
           connId: targetConnId,
-          attachmentSourceConnId: targetConnId
+          attachmentSourceConnId: targetConnId,
+          isVideoRecording: isVideo === true
         });
       } catch (err) {
         console.error('Recording upload error:', err.code, err.message, err);
