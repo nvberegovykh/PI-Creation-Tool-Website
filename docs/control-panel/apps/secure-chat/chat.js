@@ -64,7 +64,6 @@ import { runTransaction } from 'firebase/firestore';
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
       this._attachmentPreviewMax = 2;
-      this._switchLoadRetryTimer = null;
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -1488,28 +1487,6 @@ import { runTransaction } from 'firebase/firestore';
         }
       }catch(_){ }
       this.loadMessages().catch(()=>{});
-      // Anti-stall watchdog for rapid switching: retry once, then force-close spinner.
-      if (this._switchLoadRetryTimer) clearTimeout(this._switchLoadRetryTimer);
-      this._switchLoadRetryTimer = setTimeout(()=>{
-        try{
-          if (setSeq !== this._setActiveSeq) return;
-          if (this.activeConnection !== (resolvedConnId || connId)) return;
-          const boxNow = document.getElementById('messages');
-          if (!boxNow) return;
-          if (/Loading messages/i.test(String(boxNow.textContent || ''))){
-            this.loadMessages().catch(()=>{});
-            setTimeout(()=>{
-              try{
-                if (setSeq !== this._setActiveSeq) return;
-                if (this.activeConnection !== (resolvedConnId || connId)) return;
-                if (!/Loading messages/i.test(String(boxNow.textContent || ''))) return;
-                boxNow.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
-                boxNow.dataset.renderedConnId = this.activeConnection || '';
-              }catch(_){ }
-            }, 2200);
-          }
-        }catch(_){ }
-      }, 1500);
       // Hydrate exact metadata in background to keep switch fast and avoid spinner lockups.
       Promise.resolve().then(async ()=>{
         try{
@@ -1911,20 +1888,7 @@ import { runTransaction } from 'firebase/firestore';
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
           if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-          }catch(_){
-            // Never leave the active chat locked in loading state on render errors.
-            try{
-              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-              if (/Loading messages/i.test(String(box.textContent || ''))){
-                box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
-                box.dataset.renderedConnId = activeConnId;
-                updateBottomUi();
-                loadFinished = true;
-                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
-                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-              }
-            }catch(__){ }
-          }
+          }catch(_){ }
         };
         let liveRenderInFlight = false;
         let pendingLiveSnap = null;
@@ -1952,14 +1916,7 @@ import { runTransaction } from 'firebase/firestore';
             new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
           ]);
           await handleSnap(sInit);
-        }catch(_){
-          if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId){
-            box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
-            box.dataset.renderedConnId = activeConnId;
-            updateBottomUi();
-            loadFinished = true;
-          }
-        }
+        }catch(_){ }
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
@@ -1999,7 +1956,8 @@ import { runTransaction } from 'firebase/firestore';
             if (!/Loading messages/i.test(String(box.textContent || ''))) return;
             const sHard = await fetchLatestSnap();
             await handleSnap(sHard);
-            if (!loadFinished && /Loading messages/i.test(String(box.textContent || ''))){
+            const hardDocsCount = Number((sHard && sHard.docs && sHard.docs.length) || 0);
+            if (!loadFinished && hardDocsCount === 0 && /Loading messages/i.test(String(box.textContent || ''))){
               box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
               box.dataset.renderedConnId = activeConnId;
               updateBottomUi();
