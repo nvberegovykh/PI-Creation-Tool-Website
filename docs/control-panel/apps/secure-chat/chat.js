@@ -1870,21 +1870,29 @@
         toBottomBtn.className = 'btn secondary';
         toBottomBtn.textContent = '↓';
         toBottomBtn.title = 'Scroll to latest';
-        toBottomBtn.style.cssText = 'position:absolute;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
+        toBottomBtn.style.cssText = 'position:fixed;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
         const main = document.querySelector('.main') || document.body;
         main.appendChild(toBottomBtn);
       }
+      const placeToBottomBtn = ()=>{
+        const mobile = this.isMobileViewport();
+        toBottomBtn.style.bottom = mobile
+          ? 'calc(136px + env(safe-area-inset-bottom))'
+          : '84px';
+      };
+      placeToBottomBtn();
       const updateBottomUi = ()=>{
-        const dist = box.scrollHeight - box.scrollTop - box.clientHeight;
-        // column-reverse chat: end-of-chat is near scrollTop=0
-        const pinned = box.scrollTop <= 80 || dist < 120;
+        // column-reverse chat: end-of-chat is near scrollTop = 0.
+        const pinned = box.scrollTop <= 36;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
-        toBottomBtn.style.display = pinned ? 'none' : 'inline-block';
+        const canShow = box.childElementCount > 5;
+        toBottomBtn.style.display = (!pinned && canShow) ? 'inline-block' : 'none';
       };
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
         box.addEventListener('scroll', updateBottomUi, { passive: true });
-        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = box.scrollHeight; updateBottomUi(); });
+        window.addEventListener('resize', placeToBottomBtn, { passive: true });
+        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = 0; updateBottomUi(); });
       }
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
@@ -3669,7 +3677,7 @@
 
     pauseOtherInlineMedia(current){
       try{
-        document.querySelectorAll('.file-preview video, .file-preview audio').forEach((m)=>{
+        document.querySelectorAll('.messages audio, .messages video, .file-preview video, .file-preview audio').forEach((m)=>{
           if (m !== current){
             try{ m.pause(); }catch(_){ }
           }
@@ -4198,7 +4206,8 @@
       head.appendChild(meta);
       head.appendChild(addBtn);
       wrap.appendChild(head);
-      this.renderInlineWaveAudio(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
+      // Use the unified persistent player path for reliable play/stop/seek sync.
+      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
       containerEl.appendChild(wrap);
     }
 
