@@ -1769,7 +1769,7 @@ import { runTransaction } from 'firebase/firestore';
               return String(a.id || '').localeCompare(String(b.id || ''));
             });
             const docs = merged;
-            const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${normalizeDocTime(d.data)}`).join('|');
+            const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
             const renderedConnId = String(box.dataset.renderedConnId || '');
             if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId){
@@ -2013,6 +2013,8 @@ import { runTransaction } from 'firebase/firestore';
         };
         let liveRenderInFlight = false;
         let pendingLiveSnap = null;
+        let scheduleLiveSnapTimer = null;
+        const DEBOUNCE_MS = 180;
         const processLiveSnap = async ()=>{
           if (liveRenderInFlight) return;
           liveRenderInFlight = true;
@@ -2028,7 +2030,11 @@ import { runTransaction } from 'firebase/firestore';
         };
         const scheduleLiveSnap = (snap)=>{
           pendingLiveSnap = snap;
-          Promise.resolve().then(processLiveSnap).catch(()=>{});
+          if (scheduleLiveSnapTimer) clearTimeout(scheduleLiveSnapTimer);
+          scheduleLiveSnapTimer = setTimeout(()=>{
+            scheduleLiveSnapTimer = null;
+            processLiveSnap().catch(()=>{});
+          }, DEBOUNCE_MS);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
