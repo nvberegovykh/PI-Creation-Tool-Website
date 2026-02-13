@@ -1737,10 +1737,12 @@ import { runTransaction } from 'firebase/firestore';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
             const canAppendIntoExistingDom = renderedConnId === activeConnId;
             const appendOnly = canAppendIntoExistingDom && extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
+            let renderTarget = box;
             if (!appendOnly){
               box.innerHTML='';
               lastRenderedDay = '';
               this._voiceWidgets.clear();
+              renderTarget = document.createElement('div');
               const hasMore = (docsPrimary.length >= visibleLimit);
               if (hasMore){
                 const moreWrap = document.createElement('div');
@@ -1754,7 +1756,7 @@ import { runTransaction } from 'firebase/firestore';
                   this.loadMessages().catch(()=>{});
                 };
                 moreWrap.appendChild(moreBtn);
-                box.appendChild(moreWrap);
+                renderTarget.appendChild(moreWrap);
               }
             }
             const renderOne = async (d, sourceConnId = activeConnId)=>{
@@ -1835,12 +1837,12 @@ import { runTransaction } from 'firebase/firestore';
                 const sep = document.createElement('div');
                 sep.className = 'message-day-separator';
                 sep.textContent = dayLabel;
-                box.appendChild(sep);
+                renderTarget.appendChild(sep);
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
               el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
-              box.appendChild(el);
+              renderTarget.appendChild(el);
               const joinBtn = el.querySelector('button[data-call-id]');
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
               if (hasFile){
@@ -1908,6 +1910,12 @@ import { runTransaction } from 'firebase/firestore';
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
             if ((i % 3) === 2){
               await this.yieldToUi();
+            }
+          }
+          if (!appendOnly){
+            box.innerHTML = '';
+            while (renderTarget.firstChild){
+              box.appendChild(renderTarget.firstChild);
             }
           }
           // Keep DOM size bounded to avoid jitter on long chats.
@@ -3158,6 +3166,11 @@ import { runTransaction } from 'firebase/firestore';
       const parts = Array.isArray(salts.parts) ? salts.parts : [];
       const stableSalt = String(salts.stableSalt || connId || '');
       const connIdSalt = String(salts.connIdSalt || connId || '');
+      // Always include conn-stable fallback key for cross-device/cross-session compatibility.
+      await tryAdd(()=> window.chatCrypto.deriveChatKey(`${stableSalt}|liber_secure_chat_conn_stable_v1`));
+      if (connIdSalt && connIdSalt !== stableSalt){
+        await tryAdd(()=> window.chatCrypto.deriveChatKey(`${connIdSalt}|liber_secure_chat_conn_stable_v1`));
+      }
       if (parts.length > 2){
         await tryAdd(()=> window.chatCrypto.deriveChatKey(`${parts.slice().sort().join('|')}|${stableSalt}|liber_group_fallback_v2`));
         if (connIdSalt && connIdSalt !== stableSalt){
@@ -3167,11 +3180,6 @@ import { runTransaction } from 'firebase/firestore';
       }
       const peerUid = await this.getPeerUidForConn(connId);
       if (!peerUid){
-        // Shared stable fallback that does not depend on local uid.
-        await tryAdd(()=> window.chatCrypto.deriveChatKey(`${stableSalt}|liber_secure_chat_conn_stable_v1`));
-        if (connIdSalt && connIdSalt !== stableSalt){
-          await tryAdd(()=> window.chatCrypto.deriveChatKey(`${connIdSalt}|liber_secure_chat_conn_stable_v1`));
-        }
         try{ if (out.length) this._fallbackKeyCandidatesCache.set(connId, out.slice()); }catch(_){ }
         return out;
       }
@@ -3601,22 +3609,6 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ return false; }
     }
 
-    playInChatAudioPlayer(src, title = 'Audio'){
-      try{
-        const p = this.ensureChatBgPlayer();
-        if (!p) return;
-        if (p.src === src){
-          if (p.paused) p.play().catch(()=>{});
-          else p.pause();
-        }else{
-          this._voiceCurrentSrc = src;
-          this._voiceCurrentTitle = title || 'Audio';
-          p.src = src;
-          p.play().catch(()=>{});
-        }
-      }catch(_){ }
-    }
-
     addToChatAudioPlaylist(item){
       try{
         if (!item || !item.src) return;
@@ -3624,30 +3616,24 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ }
     }
 
-    renderAudioAttachmentCard(containerEl, src, fileName, authorName = ''){
+    renderNamedAudioAttachment(containerEl, src, fileName, authorName = ''){
       const wrap = document.createElement('div');
-      wrap.className = 'audio-attachment-card';
-      const meta = document.createElement('div');
-      meta.className = 'audio-attachment-meta';
+      wrap.className = 'audio-attachment-block';
+      const head = document.createElement('div');
+      head.className = 'audio-attachment-head';
       const safeName = String(fileName || 'Audio');
       const safeAuthor = String(authorName || 'Unknown');
+      const meta = document.createElement('div');
+      meta.className = 'audio-attachment-meta';
       meta.textContent = `${safeName} - ${safeAuthor}`;
-      const controls = document.createElement('div');
-      controls.className = 'audio-attachment-actions';
-      const playBtn = document.createElement('button');
-      playBtn.className = 'btn secondary';
-      playBtn.textContent = 'Play/Pause';
-      playBtn.onclick = ()=> this.playInChatAudioPlayer(src, safeName);
       const addBtn = document.createElement('button');
       addBtn.className = 'btn secondary';
-      addBtn.textContent = 'Add to playlist';
-      addBtn.onclick = ()=>{
-        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
-      };
-      controls.appendChild(playBtn);
-      controls.appendChild(addBtn);
-      wrap.appendChild(meta);
-      wrap.appendChild(controls);
+      addBtn.textContent = '+ playlist';
+      addBtn.onclick = ()=> this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
+      head.appendChild(meta);
+      head.appendChild(addBtn);
+      wrap.appendChild(head);
+      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`);
       containerEl.appendChild(wrap);
     }
 
@@ -3793,7 +3779,7 @@ import { runTransaction } from 'firebase/firestore';
             const title = String(senderDisplayName || 'Voice message');
             this.renderWaveAttachment(containerEl, url, title);
           }else{
-            this.renderAudioAttachmentCard(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown');
+            this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown');
           }
           const box = document.getElementById('messages');
           if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
@@ -3875,7 +3861,7 @@ import { runTransaction } from 'firebase/firestore';
           if (isVoiceRecording){
             this.renderWaveAttachment(containerEl, fileUrl, 'Voice message');
           }else{
-            this.renderAudioAttachmentCard(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown');
+            this.renderNamedAudioAttachment(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown');
           }
           return;
         }

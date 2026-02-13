@@ -169,7 +169,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   object-fit:cover;
   display:block;
 }
-.audio-attachment-card{
+.audio-attachment-block{
   display:flex;
   flex-direction:column;
   gap:8px;
@@ -178,14 +178,16 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   border-radius:12px;
   padding:8px 10px;
 }
+.audio-attachment-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
 .audio-attachment-meta{
   font-size:12px;
   opacity:.9;
   word-break:break-word;
-}
-.audio-attachment-actions{
-  display:flex;
-  gap:8px;
 }
 .voice-wave-player{
   display:flex;
