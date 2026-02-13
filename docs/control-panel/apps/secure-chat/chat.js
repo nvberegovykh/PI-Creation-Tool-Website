@@ -3427,7 +3427,7 @@ import { runTransaction } from 'firebase/firestore';
       this._voiceWidgetTicker = setInterval(()=>{
         if (this._voiceWidgets.size === 0) return;
         this.updateVoiceWidgets();
-      }, 150);
+      }, 80);
     }
 
     stopVoiceWidgetTicker(){
@@ -3460,8 +3460,8 @@ import { runTransaction } from 'firebase/firestore';
         stripTitle.textContent = this._voiceCurrentTitle || 'Media';
       }
       this._voiceWidgets.forEach((w)=>{
-        const active = (!!playerSrc && this.isSameMediaSrc(w.src, playerSrc))
-          || (!!this._voiceCurrentSrc && this.isSameMediaSrc(w.src, this._voiceCurrentSrc))
+        const active = (!!playerSrc && (w.src === playerSrc || this.isSameMediaSrc(w.src, playerSrc)))
+          || (!!this._voiceCurrentSrc && (w.src === this._voiceCurrentSrc || this.isSameMediaSrc(w.src, this._voiceCurrentSrc)))
           || (!!this._voiceCurrentAttachmentKey && !!w.srcKey && w.srcKey === this._voiceCurrentAttachmentKey);
         const duration = Number(p.duration || 0);
         const ct = Number(p.currentTime || 0);
@@ -3863,8 +3863,22 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
+          const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
+          const connIdsToTry = [urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean);
+          const seen = new Set();
+          for (const cid of connIdsToTry) {
+            if (!cid || seen.has(cid)) continue;
+            seen.add(cid);
+            if (decrypted) break;
+            try {
+              const key = await this.getFallbackKeyForConn(cid);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+              decrypted = true;
+              break;
+            } catch (_) {}
+          }
           const hintSalt = String(message?.attachmentKeySalt || '').trim();
-          if (hintSalt && (isVideoRecording || isVoiceRecording)) {
+          if (!decrypted && hintSalt && (isVideoRecording || isVoiceRecording)) {
             try {
               const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
