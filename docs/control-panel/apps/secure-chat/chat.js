@@ -105,14 +105,18 @@ import { runTransaction } from 'firebase/firestore';
       if (hasResults) sidebar.classList.add('open');
     }
 
-    formatMessageTime(value){
-      const d = new Date(value || Date.now());
+    formatMessageTime(value, msg = null){
+      const d = (msg?.createdAtTS?.toDate && typeof msg.createdAtTS.toDate === 'function')
+        ? msg.createdAtTS.toDate()
+        : new Date(value || msg?.createdAt || Date.now());
       if (Number.isNaN(d.getTime())) return '';
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    formatMessageDay(value){
-      const d = new Date(value || Date.now());
+    formatMessageDay(value, msg = null){
+      const d = (msg?.createdAtTS?.toDate && typeof msg.createdAtTS.toDate === 'function')
+        ? msg.createdAtTS.toDate()
+        : new Date(value || msg?.createdAt || Date.now());
       if (Number.isNaN(d.getTime())) return '';
       return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
     }
@@ -1765,7 +1769,7 @@ import { runTransaction } from 'firebase/firestore';
               return String(a.id || '').localeCompare(String(b.id || ''));
             });
             const docs = merged;
-            const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${d.data?.createdAt||''}`).join('|');
+            const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${normalizeDocTime(d.data)}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
             const renderedConnId = String(box.dataset.renderedConnId || '');
             if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId){
@@ -1882,19 +1886,19 @@ import { runTransaction } from 'firebase/firestore';
               }
               const canModify = m.sender === this.currentUser.uid;
               const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
-              const dayLabel = this.formatMessageDay(m.createdAt);
+              const dayLabel = this.formatMessageDay(m.createdAt, m);
               if (dayLabel !== lastRenderedDay){
                 if (lastRenderedDay){
                   const sep = document.createElement('div');
                   sep.className = 'message-day-separator';
-                  sep.textContent = dayLabel;
+                  sep.textContent = lastRenderedDay;
                   if (appendOnly) box.insertBefore(sep, box.firstElementChild);
                   else renderTarget.appendChild(sep);
                 }
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (appendOnly){
                 box.insertBefore(el, box.firstElementChild);
               }else{
@@ -1974,6 +1978,12 @@ import { runTransaction } from 'firebase/firestore';
               await this.yieldToUi();
             }
           }
+          if (!appendOnly && lastRenderedDay){
+            const sep = document.createElement('div');
+            sep.className = 'message-day-separator';
+            sep.textContent = lastRenderedDay;
+            renderTarget.appendChild(sep);
+          }
           if (!appendOnly && moreWrap){ renderTarget.appendChild(moreWrap); }
           if (!appendOnly && renderTarget !== box){
             box.innerHTML = '';
@@ -2048,7 +2058,7 @@ import { runTransaction } from 'firebase/firestore';
               const sPoll = await fetchLatestSnapWithTimeout(4500);
               scheduleLiveSnap(sPoll);
             }catch(_){ }
-          }, 2800);
+          }, 15000);
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
@@ -2178,7 +2188,7 @@ import { runTransaction } from 'firebase/firestore';
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
             const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '');
-            const dayLabel = this.formatMessageDay(m.createdAt);
+            const dayLabel = this.formatMessageDay(m.createdAt, m);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
               sep.className = 'message-day-separator';
@@ -2187,7 +2197,7 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay2 = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
