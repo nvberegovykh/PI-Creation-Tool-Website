@@ -160,6 +160,14 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .file-preview img{cursor:pointer}
 .file-preview audio{width:100%;background:#131a27;border-radius:14px;padding:4px}
 .file-preview img,.file-preview video{max-width:min(100%,360px);max-height:360px;object-fit:contain}
+.file-preview video.video-recording-mask{
+  width:min(64vw,220px);
+  height:min(64vw,220px);
+  max-width:220px;
+  max-height:220px;
+  object-fit:cover;
+  display:block;
+}
 .voice-wave-player{
   display:flex;
   align-items:center;

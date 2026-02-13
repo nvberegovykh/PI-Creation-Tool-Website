@@ -3494,8 +3494,12 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (!this.isVideoFilename(fileName)) return false;
         if (message && message.isVideoRecording === true) return true;
+        const n = String(fileName || '').toLowerCase().trim();
+        if (n.startsWith('video.')) return true;
+        const preview = String(message?.previewText || '').trim();
+        if (/^\[video message\]/i.test(preview)) return true;
         const text = String(message?.text || '').trim();
-        if (/^\[video message\]/i.test(text)) return true;
+        if (/^\[video message\]/i.test(text) && n.startsWith('video.')) return true;
         return false;
       }catch(_){ return false; }
     }
@@ -3613,6 +3617,7 @@ import { runTransaction } from 'firebase/firestore';
           video.style.maxWidth = '100%';
           video.style.borderRadius='8px';
           if (isVideoRecording){
+            video.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(video);
             this.bindInlineVideoPlayback(video, fileName || 'Video message');
           }
@@ -3695,6 +3700,7 @@ import { runTransaction } from 'firebase/firestore';
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
           if (isVideoRecording){
+            v.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(v);
             this.bindInlineVideoPlayback(v, name || 'Video message');
           }
