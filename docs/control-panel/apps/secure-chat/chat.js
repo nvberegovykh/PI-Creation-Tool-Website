@@ -1755,20 +1755,84 @@
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const renderedConnId = String(box.dataset.renderedConnId || '');
-            let docChangesLen = -1;
-            try{ docChangesLen = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []).length; }catch(_){}
-            if (renderedConnId === activeConnId && docChangesLen === 0){
+            const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
+            const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
+            if (renderedConnId === activeConnId && extraIds.length === 0){
+              const haveIds = new Set([...box.querySelectorAll('[data-msg-id]')].map(el=> el.getAttribute('data-msg-id')));
+              const newDocs = docsPrimary.filter(d=> !haveIds.has(String(d.id)));
+              if (newDocs.length === 0){
+                loadFinished = true;
+                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+                updateBottomUi();
+                return;
+              }
+              const pinnedBefore = box.dataset.pinnedBottom !== '0';
+              let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
+              const renderOneAppend = async (d, sourceConnId = activeConnId, opts = {})=>{
+                if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+                const m=(typeof d.data === 'function' ? d.data() : d.data) || {};
+                const aesKey = await getKeyForConn(sourceConnId);
+                let text='';
+                if (typeof m.text === 'string' && !m.cipher){ text = m.text; } else {
+                  try{ text = await chatCrypto.decryptWithKey(m.cipher, aesKey); }catch(_){
+                    let ok = false;
+                    try{ const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
+                      for (const k of candidates){ try{ text = await chatCrypto.decryptWithKey(m.cipher, k); ok = true; break; }catch(_){ } }
+                    }catch(_){ }
+                    if (!ok){ try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);} catch(_){ text='[unable to decrypt]'; } }
+                  }
+                }
+                const el = document.createElement('div');
+                el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+                el.dataset.msgId = String(d.id || m.id || '');
+                if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
+                let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+                if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
+                  this._senderLookupInFlight.add(m.sender);
+                  Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, (user?.username || user?.email || m.sender.slice(0,8))); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
+                }
+                const inferredFileName = this.inferAttachmentFileName(m, text);
+                const hasFile = !!m.fileUrl;
+                const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName) || this.isImageFilename(inferredFileName);
+                const cleanedText = this.stripPlaceholderText(text);
+                const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+                if (isMediaOnlyMessage) el.classList.add('message-media-only');
+                let bodyHtml = this.renderText(cleanedText);
+                const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+                if (callMatch) bodyHtml = `<button class="btn secondary" data-call-id="${callMatch[2]}" data-kind="${callMatch[1]}">${callMatch[1]==='voice'?'Join voice call':'Join video call'}</button>`;
+                const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
+                if (gifMatch) bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
+                const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
+                if (stickerDataMatch) bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
+                const canModify = m.sender === this.currentUser.uid;
+                const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
+                const dayLabel = this.formatMessageDay(m.createdAt, m);
+                if (dayLabel !== lastRenderedDay){ if (lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = lastRenderedDay; box.insertBefore(sep, box.firstElementChild); } lastRenderedDay = dayLabel; }
+                const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
+                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                box.insertBefore(el, box.firstElementChild);
+                const joinBtn = el.querySelector('button[data-call-id]');
+                if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
+                if (hasFile && el.querySelector('.file-preview')) this.enqueueAttachmentPreview(()=> this.renderEncryptedAttachment(el.querySelector('.file-preview'), m.fileUrl, inferredFileName, aesKey, this.resolveAttachmentSourceConnId(m, sourceConnId), senderName, { ...m, text }), loadSeq, activeConnId);
+                if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
+                const shareBtn = el.querySelector('.msg-share'); if (shareBtn) shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
+              };
+              newDocs.sort((a,b)=>{ const ta = normalizeDocTime(a.data); const tb = normalizeDocTime(b.data); return ta !== tb ? ta - tb : String(a.id).localeCompare(String(b.id)); });
+              for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
+              this._lastDocIdsByConn.set(activeConnId, docsPrimary.map(x=> x.id));
+              this._lastDayByConn.set(activeConnId, lastRenderedDay);
+              if (pinnedBefore) box.scrollTop = box.scrollHeight;
+              updateBottomUi();
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
               if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-              updateBottomUi();
               return;
             }
-            const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             let merged = docsPrimary.slice();
-            const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
-            if (extraIds.length){
-              const extraSets = await Promise.all(extraIds.map((cid)=> fetchDocsForConn(cid)));
+            const extraIdsInit = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
+            if (extraIdsInit.length){
+              const extraSets = await Promise.all(extraIdsInit.map((cid)=> fetchDocsForConn(cid)));
               extraSets.forEach((rows)=> merged.push(...rows));
             }
             merged.sort((a,b)=>{
@@ -1795,7 +1859,7 @@
             this._lastRenderSigByConn.set(activeConnId, sig);
             const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
-            const appendOnly = renderedConnId === activeConnId && extraIds.length === 0 && (prefixMatch || suffixMatch);
+            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch);
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
             if (!appendOnly){
@@ -1984,7 +2048,7 @@
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
           const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
           const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
-          const useDocChanges = renderedConnId === activeConnId && extraIds.length === 0 && changes.length > 0 && !alreadyHaveAll;
+          const useDocChanges = renderedConnId === activeConnId && extraIdsInit.length === 0 && changes.length > 0 && !alreadyHaveAll;
           if (useDocChanges){
             for (const c of changes){
               const type = String(c.type||'').toLowerCase();
@@ -2079,6 +2143,7 @@
           }
         };
         const scheduleLiveSnap = (snap)=>{
+          pendingLiveSnaps.length = 0;
           pendingLiveSnaps.push(snap);
           if (this._scheduleLiveSnapTimer) clearTimeout(this._scheduleLiveSnapTimer);
           this._scheduleLiveSnapTimer = setTimeout(()=>{
