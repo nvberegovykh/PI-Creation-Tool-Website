@@ -255,11 +255,6 @@ img, video, canvas, svg, iframe {
 }
 .dbl-like-pulse{ position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); pointer-events:none; color:#ff4d4f; font-size:56px; opacity:0; animation: liber-like-pulse .6s ease forwards }
 .post-item{ position:relative }
-.post-item .post-text,
-.post-item .byline,
-.post-item .byline span{
-  font-family: var(--typewriter-font);
-}
 .wave-item .audio-title,
 .wave-item .audio-byline{
   font-family: var(--typewriter-font);

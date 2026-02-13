@@ -116,12 +116,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .message-connection-request .msg-text{
   text-align: center;
 }
-.message .msg-text,
-.message .meta,
-.message .file-link a,
-.voice-wave-player .time{
-  font-family: var(--typewriter-font,"Courier Prime","Courier New","Lucida Console",monospace);
-}
+.voice-wave-player .time{font-family: var(--typewriter-font,"Courier Prime","Courier New","Lucida Console",monospace);}
 .chat-app input::placeholder,
 .chat-app textarea::placeholder{
   font-family: var(--typewriter-font,"Courier Prime","Courier New","Lucida Console",monospace);

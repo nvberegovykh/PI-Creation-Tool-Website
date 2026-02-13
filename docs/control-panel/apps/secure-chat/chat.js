@@ -39,6 +39,7 @@ import { runTransaction } from 'firebase/firestore';
       this._lastRenderSigByConn = new Map();
       this._lastDocIdsByConn = new Map();
       this._lastDayByConn = new Map();
+      this._fallbackKeyCandidatesCache = new Map();
       this._voiceWidgets = new Map();
       this._voiceCurrentSrc = '';
       this._voiceCurrentTitle = 'Voice message';
@@ -1387,46 +1388,50 @@ import { runTransaction } from 'firebase/firestore';
       if (topTitle) topTitle.textContent = displayName;
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.startTypingListener(this.activeConnection);
-      await this.loadMessages();
+      this.loadMessages().catch(()=>{});
       if (setSeq !== this._setActiveSeq) return;
       // If current user is not a participant of this connection, show banner to recreate with same users
-      try{
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
-        if (setSeq !== this._setActiveSeq) return;
-        if (snap.exists()){
-          const data = snap.data();
-          const parts = Array.isArray(data.participants)
-            ? data.participants
-            : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
-          const header = document.querySelector('.chat-header');
-          const existing = document.getElementById('chat-access-banner');
-          if (!parts.includes(this.currentUser.uid)){
-            if (!existing && header){
-              const bar = document.createElement('div');
-              bar.id='chat-access-banner';
-              bar.style.cssText='background:#2a2f36;color:#fff;padding:8px 12px;border-bottom:1px solid #3a404a;display:flex;gap:10px;align-items:center';
-              const msg = document.createElement('div'); msg.textContent='You are not a participant of this chat. Recreate a new chat with the same users to start messaging.'; bar.appendChild(msg);
-              const btn = document.createElement('button'); btn.className='btn btn-secondary'; btn.textContent='Recreate chat';
-              btn.onclick = async ()=>{
-                try{
-                  const participants = parts.slice(); const names = (data.participantUsernames||[]).slice();
-                  if (!participants.includes(this.currentUser.uid)){ participants.push(this.currentUser.uid); names.push((this.me&&this.me.username)||this.currentUser.email||'me'); }
-                  const newKey = this.computeConnKey(participants);
-                  let newId = await this.findConnectionByKey(newKey);
-                  if (!newId){
-                    const ref = firebase.doc(this.db,'chatConnections', newKey);
-                    await firebase.setDoc(ref,{ id:newKey, key:newKey, participants, participantUsernames:names, admins:[this.currentUser.uid], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(), lastMessage:'' });
-                    newId = newKey;
-                  }
-                  await this.loadConnections(); this.setActive(newId);
-                }catch(_){ }
-              };
-              bar.appendChild(btn);
-              header.parentNode.insertBefore(bar, header.nextSibling);
-            }
-          } else if (existing){ existing.remove(); }
-        }
-      }catch(_){ }
+      Promise.resolve().then(async ()=>{
+        try{
+          const seqNow = this._setActiveSeq;
+          const connNow = this.activeConnection;
+          const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', connNow));
+          if (seqNow !== this._setActiveSeq || connNow !== this.activeConnection) return;
+          if (snap.exists()){
+            const data = snap.data();
+            const parts = Array.isArray(data.participants)
+              ? data.participants
+              : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
+            const header = document.querySelector('.chat-header');
+            const existing = document.getElementById('chat-access-banner');
+            if (!parts.includes(this.currentUser.uid)){
+              if (!existing && header){
+                const bar = document.createElement('div');
+                bar.id='chat-access-banner';
+                bar.style.cssText='background:#2a2f36;color:#fff;padding:8px 12px;border-bottom:1px solid #3a404a;display:flex;gap:10px;align-items:center';
+                const msg = document.createElement('div'); msg.textContent='You are not a participant of this chat. Recreate a new chat with the same users to start messaging.'; bar.appendChild(msg);
+                const btn = document.createElement('button'); btn.className='btn btn-secondary'; btn.textContent='Recreate chat';
+                btn.onclick = async ()=>{
+                  try{
+                    const participants = parts.slice(); const names = (data.participantUsernames||[]).slice();
+                    if (!participants.includes(this.currentUser.uid)){ participants.push(this.currentUser.uid); names.push((this.me&&this.me.username)||this.currentUser.email||'me'); }
+                    const newKey = this.computeConnKey(participants);
+                    let newId = await this.findConnectionByKey(newKey);
+                    if (!newId){
+                      const ref = firebase.doc(this.db,'chatConnections', newKey);
+                      await firebase.setDoc(ref,{ id:newKey, key:newKey, participants, participantUsernames:names, admins:[this.currentUser.uid], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(), lastMessage:'' });
+                      newId = newKey;
+                    }
+                    await this.loadConnections(); this.setActive(newId);
+                  }catch(_){ }
+                };
+                bar.appendChild(btn);
+                header.parentNode.insertBefore(bar, header.nextSibling);
+              }
+            } else if (existing){ existing.remove(); }
+          }
+        }catch(_){ }
+      });
       // refresh group panel if open
       const gp = document.getElementById('group-panel'); if (gp){ await this.renderGroupPanel(); }
     }
@@ -1480,13 +1485,13 @@ import { runTransaction } from 'firebase/firestore';
         try{
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-            firebase.orderBy('createdAtTS','asc'),
+            firebase.orderBy('createdAtTS','desc'),
             firebase.limit(60)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-            firebase.orderBy('createdAt','asc'),
+            firebase.orderBy('createdAt','desc'),
             firebase.limit(60)
           );
         }
@@ -1505,13 +1510,13 @@ import { runTransaction } from 'firebase/firestore';
             try{
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
-                firebase.orderBy('createdAtTS','asc'),
+                firebase.orderBy('createdAtTS','desc'),
                 firebase.limit(80)
               );
             }catch(_){
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
-                firebase.orderBy('createdAt','asc'),
+                firebase.orderBy('createdAt','desc'),
                 firebase.limit(80)
               );
             }
@@ -1734,7 +1739,7 @@ import { runTransaction } from 'firebase/firestore';
         try{
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-            firebase.orderBy('createdAt','asc'),
+            firebase.orderBy('createdAt','desc'),
             firebase.limit(80)
           );
           const snap = await firebase.getDocs(q);
@@ -2777,6 +2782,10 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async getFallbackKeyCandidatesForConn(connId){
+      try{
+        const cached = this._fallbackKeyCandidatesCache && this._fallbackKeyCandidatesCache.get(connId);
+        if (cached && Array.isArray(cached) && cached.length) return cached;
+      }catch(_){ }
       const out = [];
       const add = (k)=>{ if (k && !out.includes(k)) out.push(k); };
       const tryAdd = async (factory)=>{
@@ -2808,6 +2817,9 @@ import { runTransaction } from 'firebase/firestore';
       if (connIdSalt && connIdSalt !== stableSalt){
         await tryAdd(()=> window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peerUid || ''].sort().join('|')}|${connIdSalt}|liber_secure_chat_fallback_v1`));
       }
+      try{
+        if (out.length) this._fallbackKeyCandidatesCache.set(connId, out.slice());
+      }catch(_){ }
       return out;
     }
 
