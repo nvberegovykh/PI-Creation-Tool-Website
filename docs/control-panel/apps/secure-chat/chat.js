@@ -991,7 +991,7 @@ import { runTransaction } from 'firebase/firestore';
 
     getChatPlayerSrc(p){
       try{
-        return String(p?.getAttribute?.('src') || '').trim();
+        return String(p?.currentSrc || p?.src || p?.getAttribute?.('src') || '').trim();
       }catch(_){
         return '';
       }
@@ -1737,12 +1737,17 @@ import { runTransaction } from 'firebase/firestore';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
             const canAppendIntoExistingDom = renderedConnId === activeConnId;
             const appendOnly = canAppendIntoExistingDom && extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
+            const isFirstPaint = renderedConnId !== activeConnId;
             let renderTarget = box;
             if (!appendOnly){
-              box.innerHTML='';
+              if (isFirstPaint){
+                box.innerHTML='';
+                renderTarget = box;
+              }else{
+                renderTarget = document.createElement('div');
+              }
               lastRenderedDay = '';
               this._voiceWidgets.clear();
-              renderTarget = box;
               const hasMore = (docsPrimary.length >= visibleLimit);
               if (hasMore){
                 const moreWrap = document.createElement('div');
@@ -1908,11 +1913,17 @@ import { runTransaction } from 'firebase/firestore';
           for (let i = 0; i < docsToRender.length; i++) {
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (!appendOnly && pinnedBefore && (i % 2) === 1){
+            if (!appendOnly && isFirstPaint && pinnedBefore && (i % 2) === 1){
               box.scrollTop = box.scrollHeight;
             }
             if ((i % 3) === 2){
               await this.yieldToUi();
+            }
+          }
+          if (!appendOnly && renderTarget !== box){
+            box.innerHTML = '';
+            while (renderTarget.firstChild){
+              box.appendChild(renderTarget.firstChild);
             }
           }
           // Keep DOM size bounded to avoid jitter on long chats.
@@ -2037,7 +2048,7 @@ import { runTransaction } from 'firebase/firestore';
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          const fallbackDocs = (snap.docs || []);
+          const fallbackDocs = (snap.docs || []).slice().reverse();
           for (let i = 0; i < fallbackDocs.length; i++){
             const d = fallbackDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -3649,8 +3660,70 @@ import { runTransaction } from 'firebase/firestore';
           // Fallback bridge in case direct host object access is blocked by embedding.
           try{ window.top?.postMessage({ type: 'LIBER_ADD_TO_PLAYLIST', track: payload }, '*'); }catch(_){ }
           try{ window.parent?.postMessage({ type: 'LIBER_ADD_TO_PLAYLIST', track: payload }, '*'); }catch(_){ }
+          try{
+            this.openChatAddToPlaylistPopup(payload);
+            opened = true;
+          }catch(_){ }
         }
       }catch(_){ }
+    }
+
+    openChatAddToPlaylistPopup(track){
+      const uid = this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || 'anon';
+      const key = `liber_playlists_${uid}`;
+      let playlists = [];
+      try{
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        playlists = Array.isArray(parsed) ? parsed : [];
+      }catch(_){ playlists = []; }
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+      const options = playlists.map((p)=> `<option value="${String(p.id || '').replace(/"/g,'&quot;')}">${String(p.name || 'Playlist').replace(/</g,'&lt;')}</option>`).join('');
+      overlay.innerHTML = `
+        <div style="width:min(96vw,420px);background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px">
+          <div style="font-weight:700;margin-bottom:10px">Add to playlist</div>
+          <div style="margin-bottom:8px">
+            <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Existing playlist</label>
+            <select id="pl-select" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445">
+              <option value="">Choose playlist...</option>
+              ${options}
+            </select>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Or create new</label>
+            <input id="pl-new" type="text" placeholder="New playlist name" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445" />
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button id="pl-cancel" class="btn secondary" type="button">Cancel</button>
+            <button id="pl-save" class="btn" type="button">Save</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const remove = ()=>{ try{ overlay.remove(); }catch(_){ } };
+      overlay.querySelector('#pl-cancel').onclick = remove;
+      overlay.addEventListener('click', (e)=>{ if (e.target === overlay) remove(); });
+      overlay.querySelector('#pl-save').onclick = ()=>{
+        const selectedId = String(overlay.querySelector('#pl-select').value || '').trim();
+        const newName = String(overlay.querySelector('#pl-new').value || '').trim();
+        let selected = null;
+        if (selectedId) selected = playlists.find((p)=> String(p.id) === selectedId) || null;
+        else if (newName){
+          selected = { id: `pl_${Date.now()}`, name: newName, items: [] };
+          playlists.push(selected);
+        }
+        if (!selected) return;
+        if (!Array.isArray(selected.items)) selected.items = [];
+        selected.items.push({
+          id: `it_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+          src: track.src,
+          title: track.title || 'Track',
+          by: track.by || '',
+          cover: track.cover || ''
+        });
+        try{ localStorage.setItem(key, JSON.stringify(playlists)); }catch(_){ }
+        remove();
+      };
     }
 
     renderNamedAudioAttachment(containerEl, src, fileName, authorName = ''){
@@ -3714,8 +3787,23 @@ import { runTransaction } from 'firebase/firestore';
             candidateConnIds.push(id);
           };
           pushConn(sourceConnId);
+          pushConn(message?.attachmentSourceConnId);
+          pushConn(message?.connId);
           pushConn(this.extractConnIdFromAttachmentUrl(fileUrl));
           pushConn(this.activeConnection);
+          try{
+            const sourceRow = (this.connections || []).find((c)=> c && c.id === sourceConnId) || null;
+            const sourceParts = this.getConnParticipants(sourceRow || {});
+            const sourceKey = String(sourceRow?.key || '').trim() || this.computeConnKey(sourceParts);
+            if (sourceKey){
+              for (const c of (this.connections || [])){
+                if (!c || !c.id) continue;
+                const cParts = this.getConnParticipants(c || {});
+                const cKey = String(c.key || '').trim() || this.computeConnKey(cParts);
+                if (cKey === sourceKey) pushConn(c.id);
+              }
+            }
+          }catch(_){ }
           for (const cid of candidateConnIds){
             if (decrypted) break;
             try{
