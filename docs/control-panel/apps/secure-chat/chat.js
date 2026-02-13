@@ -65,6 +65,7 @@
       this._attachmentPreviewMax = 2;
       this._msgVisibleLimitByConn = new Map();
       this._lastLoadedConnId = '';
+      this._loadMoreConnId = '';
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._attachmentBlobUrlByKey = new Map();
@@ -177,26 +178,42 @@
             this._voiceWaveCtx = new AC();
           }
           const audioBuf = await this._voiceWaveCtx.decodeAudioData(buf.slice(0));
-          const data = audioBuf.getChannelData(0);
-          const total = data.length;
+          const channelCount = Math.max(1, Number(audioBuf.numberOfChannels || 1));
+          const channels = [];
+          for (let c = 0; c < channelCount; c++){
+            channels.push(audioBuf.getChannelData(c));
+          }
+          const total = channels[0] ? channels[0].length : 0;
           if (!total) return null;
           const step = Math.max(1, Math.floor(total / barsCount));
           const out = [];
           for (let i = 0; i < barsCount; i++){
             const start = i * step;
             const end = Math.min(total, start + step);
-            let sum = 0;
-            let count = 0;
+            let peak = 0;
             for (let j = start; j < end; j++){
-              const v = data[j];
-              sum += v * v;
-              count++;
+              let sample = 0;
+              for (let c = 0; c < channelCount; c++){
+                const v = Math.abs((channels[c] && channels[c][j]) || 0);
+                if (v > sample) sample = v;
+              }
+              if (sample > peak) peak = sample;
             }
-            const rms = count ? Math.sqrt(sum / count) : 0;
-            out.push(rms);
+            out.push(peak);
           }
-          const max = Math.max(...out, 0.0001);
-          return out.map((v)=> 4 + ((v / max) * 20));
+          // Light smoothing + log shaping so visible bars mirror loudness changes better.
+          const smooth = out.map((v, i)=>{
+            const a = out[Math.max(0, i - 1)] || v;
+            const b = out[i] || v;
+            const c = out[Math.min(out.length - 1, i + 1)] || v;
+            return (a * 0.25) + (b * 0.5) + (c * 0.25);
+          });
+          const max = Math.max(...smooth, 0.0001);
+          return smooth.map((v)=>{
+            const norm = Math.max(0, Math.min(1, v / max));
+            const shaped = Math.log10(1 + (9 * norm)); // 0..1
+            return 4 + (shaped * 20);
+          });
         })();
         this._voiceWaveCache.set(key, p);
         const result = await p;
@@ -549,6 +566,207 @@
       return out.filter((a)=> !/^voice\.|^video\./i.test(String(a.fileName || '').toLowerCase()));
     }
 
+    async loadCurrentChatAttachments(limit = 240){
+      const out = [];
+      try{
+        const connId = String(this.activeConnection || '').trim();
+        if (!connId || !this.db) return out;
+        let snap;
+        try{
+          const qTs = firebase.query(
+            firebase.collection(this.db,'chatMessages',connId,'messages'),
+            firebase.orderBy('createdAtTS','desc'),
+            firebase.limit(limit)
+          );
+          snap = await firebase.getDocs(qTs);
+        }catch(_){
+          try{
+            const qIso = firebase.query(
+              firebase.collection(this.db,'chatMessages',connId,'messages'),
+              firebase.orderBy('createdAt','desc'),
+              firebase.limit(limit)
+            );
+            snap = await firebase.getDocs(qIso);
+          }catch(_){
+            const qLoose = firebase.query(
+              firebase.collection(this.db,'chatMessages',connId,'messages'),
+              firebase.limit(limit)
+            );
+            snap = await firebase.getDocs(qLoose);
+          }
+        }
+        (snap?.docs || []).forEach((d)=>{
+          const m = d.data() || {};
+          if (!m.fileUrl) return;
+          const inferred = this.inferAttachmentFileName(m, m.text || m.previewText || '');
+          const ts = Number(m?.createdAtTS?.toMillis?.() || 0) || Number(new Date(m?.createdAt || 0).getTime() || 0) || 0;
+          out.push({
+            id: d.id,
+            fileUrl: m.fileUrl,
+            fileName: inferred || m.fileName || 'Attachment',
+            sender: m.sender || '',
+            createdAt: m.createdAt || '',
+            createdAtTS: m.createdAtTS || null,
+            attachmentKeySalt: m.attachmentKeySalt || '',
+            message: { ...m, id: d.id }
+          });
+        });
+      }catch(_){ }
+      out.sort((a,b)=>{
+        const ta = Number(a?.createdAtTS?.toMillis?.() || 0) || Number(new Date(a?.createdAt || 0).getTime() || 0) || 0;
+        const tb = Number(b?.createdAtTS?.toMillis?.() || 0) || Number(new Date(b?.createdAt || 0).getTime() || 0) || 0;
+        return tb - ta;
+      });
+      return out;
+    }
+
+    openCurrentChatAttachmentsSheet(){
+      const existing = document.getElementById('chat-attachments-sheet');
+      const existingBackdrop = document.getElementById('chat-attachments-backdrop');
+      if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); return; }
+      if (!this.activeConnection){ alert('Open a chat first.'); return; }
+
+      const backdrop = document.createElement('div');
+      backdrop.id = 'chat-attachments-backdrop';
+      backdrop.style.cssText = 'position:fixed;inset:0;z-index:104;background:rgba(0,0,0,.28)';
+
+      const panel = document.createElement('div');
+      panel.id = 'chat-attachments-sheet';
+      panel.style.cssText = this.isMobileViewport()
+        ? 'position:fixed;left:10px;right:10px;bottom:calc(90px + env(safe-area-inset-bottom));max-height:min(70vh,620px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:105;padding:10px'
+        : 'position:fixed;left:50%;transform:translateX(-50%);top:76px;width:min(920px,calc(100vw - 30px));max-height:min(76vh,760px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:105;padding:10px';
+
+      panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px"><div style="font-weight:600">Chat attachments</div><button id="chat-attachments-close" class="icon-btn" title="Close"><i class="fas fa-xmark"></i></button></div>';
+
+      const tabs = document.createElement('div');
+      tabs.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px';
+      const tabAll = document.createElement('button'); tabAll.className = 'btn secondary'; tabAll.textContent = 'All';
+      const tabPics = document.createElement('button'); tabPics.className = 'btn secondary'; tabPics.textContent = 'Pictures';
+      const tabVideo = document.createElement('button'); tabVideo.className = 'btn secondary'; tabVideo.textContent = 'Video';
+      const tabAudio = document.createElement('button'); tabAudio.className = 'btn secondary'; tabAudio.textContent = 'Audio';
+      const tabFiles = document.createElement('button'); tabFiles.className = 'btn secondary'; tabFiles.textContent = 'Files';
+      [tabAll, tabPics, tabVideo, tabAudio, tabFiles].forEach((b)=> tabs.appendChild(b));
+      panel.appendChild(tabs);
+
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px';
+      panel.appendChild(grid);
+
+      const categoryOf = (name)=>{
+        if (this.isImageFilename(name)) return 'pics';
+        if (this.isVideoFilename(name)) return 'video';
+        if (this.isAudioFilename(name)) return 'audio';
+        return 'files';
+      };
+
+      const markActive = (kind)=>{
+        [tabAll, tabPics, tabVideo, tabAudio, tabFiles].forEach((b)=>{ b.style.opacity = '.75'; });
+        ({ all: tabAll, pics: tabPics, video: tabVideo, audio: tabAudio, files: tabFiles }[kind]).style.opacity = '1';
+      };
+
+      const connId = this.activeConnection;
+      const keyCache = new Map();
+      const getConnKey = async ()=>{
+        if (keyCache.has(connId)) return keyCache.get(connId);
+        let key = null;
+        try{ key = await this.getFallbackKeyForConn(connId); }catch(_){ key = null; }
+        keyCache.set(connId, key);
+        return key;
+      };
+
+      const renderList = async (rows, kind = 'all')=>{
+        grid.innerHTML = '';
+        markActive(kind);
+        const filtered = rows.filter((r)=> kind === 'all' ? true : categoryOf(String(r.fileName || '')) === kind);
+        if (!filtered.length){
+          const empty = document.createElement('div');
+          empty.style.cssText = 'opacity:.75;padding:8px';
+          empty.textContent = 'No attachments in this chat.';
+          grid.appendChild(empty);
+          return;
+        }
+        for (const a of filtered){
+          const card = document.createElement('div');
+          card.style.cssText = 'background:#0f141d;border:1px solid #2a2f36;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px';
+          const senderName = this.usernameCache.get(a.sender) || String(a.sender || '').slice(0,8) || 'Unknown';
+          const meta = document.createElement('div');
+          meta.style.cssText = 'font-size:12px;opacity:.85;display:flex;justify-content:space-between;gap:8px';
+          meta.innerHTML = `<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(a.fileName || 'Attachment')}</span><span>${this.formatMessageTime(a.createdAt, a.message)}</span>`;
+          const sub = document.createElement('div');
+          sub.style.cssText = 'font-size:11px;opacity:.65;margin-top:-4px';
+          sub.textContent = `${senderName} • ${this.formatMessageDay(a.createdAt, a.message)}`;
+          const preview = document.createElement('div');
+          preview.className = 'file-preview';
+          preview.style.cssText = 'min-height:68px';
+          const actions = document.createElement('div');
+          actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+          const dl = document.createElement('button');
+          dl.className = 'btn secondary';
+          dl.textContent = 'Download';
+          dl.onclick = ()=>{
+            let href = '';
+            const media = preview.querySelector('img,video,audio');
+            if (media){
+              href = media.currentSrc || media.src || '';
+            } else {
+              const anchor = preview.querySelector('a[href]');
+              href = anchor ? anchor.href : '';
+            }
+            href = href || a.fileUrl || '';
+            if (!href) return;
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = a.fileName || 'attachment';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          };
+          const open = document.createElement('button');
+          open.className = 'btn secondary';
+          open.textContent = 'Open source';
+          open.onclick = ()=> window.open(a.fileUrl, '_blank', 'noopener,noreferrer');
+          actions.appendChild(dl);
+          actions.appendChild(open);
+          card.appendChild(meta);
+          card.appendChild(sub);
+          card.appendChild(preview);
+          card.appendChild(actions);
+          grid.appendChild(card);
+          try{
+            const aesKey = await getConnKey();
+            await this.renderEncryptedAttachment(preview, a.fileUrl, a.fileName, aesKey, connId, senderName, a.message);
+          }catch(_){
+            this.renderDirectAttachment(preview, a.fileUrl, a.fileName, a.message, senderName);
+          }
+        }
+      };
+
+      const loading = document.createElement('div');
+      loading.style.cssText = 'opacity:.8;padding:8px';
+      loading.textContent = 'Loading attachments...';
+      grid.appendChild(loading);
+
+      this.loadCurrentChatAttachments(320).then(async (rows)=>{
+        await renderList(rows, 'all');
+        tabAll.onclick = ()=> renderList(rows, 'all');
+        tabPics.onclick = ()=> renderList(rows, 'pics');
+        tabVideo.onclick = ()=> renderList(rows, 'video');
+        tabAudio.onclick = ()=> renderList(rows, 'audio');
+        tabFiles.onclick = ()=> renderList(rows, 'files');
+      }).catch(()=>{
+        grid.innerHTML = '<div style="opacity:.75;padding:8px">Failed to load attachments.</div>';
+      });
+
+      const host = document.body;
+      if (host){ host.appendChild(backdrop); host.appendChild(panel); }
+      const closeBtn = panel.querySelector('#chat-attachments-close');
+      if (closeBtn) closeBtn.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
+      backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
+      panel.addEventListener('click', (e)=> e.stopPropagation());
+    }
+
     getConnParticipants(data){
       const parts = Array.isArray(data?.participants)
         ? data.participants
@@ -851,10 +1069,12 @@
       // Call and recording buttons (placeholders)
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom(false));
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
+      const attachSheetBtn = document.getElementById('chat-attachments-btn'); if (attachSheetBtn) attachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
       const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(true));
+      const mobileAttachSheetBtn = document.getElementById('mobile-chat-attachments-btn'); if (mobileAttachSheetBtn) mobileAttachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
@@ -1656,7 +1876,8 @@
       }
       const updateBottomUi = ()=>{
         const dist = box.scrollHeight - box.scrollTop - box.clientHeight;
-        const pinned = dist < 120;
+        // column-reverse chat: end-of-chat is near scrollTop=0
+        const pinned = box.scrollTop <= 80 || dist < 120;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = pinned ? 'none' : 'inline-block';
       };
@@ -1751,13 +1972,13 @@
             return Number(m?.createdAtTS?.toMillis?.() || 0) || Number(new Date(m?.createdAt || 0).getTime() || 0) || 0;
           }catch(_){ return Number(new Date(m?.createdAt || 0).getTime() || 0) || 0; }
         };
-        const handleSnap = async (snap)=>{
+        const handleSnap = async (snap, fromLive = false)=>{
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const renderedConnId = String(box.dataset.renderedConnId || '');
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
-            if (renderedConnId === activeConnId && extraIds.length === 0){
+            if (false && renderedConnId === activeConnId && extraIds.length === 0){
               const haveIds = new Set([...box.querySelectorAll('[data-msg-id]')].map(el=> el.getAttribute('data-msg-id')));
               const newDocs = docsPrimary.filter(d=> !haveIds.has(String(d.id)));
               if (newDocs.length === 0){
@@ -1843,6 +2064,7 @@
             });
             const docs = merged;
             const prevTop = box.scrollTop;
+            const prevHeight = box.scrollHeight;
             const pinnedBefore = box.dataset.pinnedBottom !== '0';
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
@@ -1882,6 +2104,7 @@
                 moreBtn.onclick = ()=>{
                   const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
                   this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
+                  this._loadMoreConnId = activeConnId;
                   this.loadMessages().catch(()=>{});
                 };
                 moreWrap.appendChild(moreBtn);
@@ -1968,7 +2191,7 @@
                 if (lastRenderedDay){
                   const sep = document.createElement('div');
                   sep.className = 'message-day-separator';
-                  sep.textContent = lastRenderedDay;
+                  sep.textContent = (appendOnly || forceInsertBefore) ? dayLabel : lastRenderedDay;
                   if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
                   else renderTarget.appendChild(sep);
                 }
@@ -2048,7 +2271,7 @@
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
           const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
           const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
-          const useDocChanges = renderedConnId === activeConnId && extraIdsInit.length === 0 && changes.length > 0 && !alreadyHaveAll;
+          const useDocChanges = fromLive && renderedConnId === activeConnId && extraIdsInit.length === 0 && changes.length > 0 && !alreadyHaveAll;
           if (useDocChanges){
             for (const c of changes){
               const type = String(c.type||'').toLowerCase();
@@ -2115,7 +2338,12 @@
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
-          if (pinnedBefore){
+          const isLoadMore = this._loadMoreConnId === activeConnId;
+          this._loadMoreConnId = '';
+          if (isLoadMore && !appendOnly){
+            const delta = Math.max(0, box.scrollHeight - prevHeight);
+            box.scrollTop = prevTop + delta;
+          } else if (pinnedBefore){
             box.scrollTop = box.scrollHeight;
           }else{
             box.scrollTop = prevTop;
@@ -2136,7 +2364,7 @@
           try{
             while (pendingLiveSnaps.length){
               const snapNow = pendingLiveSnaps.shift();
-              if (snapNow) await handleSnap(snapNow);
+              if (snapNow) await handleSnap(snapNow, true);
             }
           }finally{
             liveRenderInFlight = false;
@@ -2157,7 +2385,7 @@
             fetchLatestSnap(),
             new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
           ]);
-          await handleSnap(sInit);
+          await handleSnap(sInit, false);
         }catch(_){ }
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
@@ -2178,10 +2406,10 @@
           this._msgPoll = setInterval(async()=>{
             try{
               const s = await fetchLatestSnapWithTimeout(4500);
-              await handleSnap(s);
+              await handleSnap(s, false);
             }catch(_){ }
           }, 2500);
-          const snap = await fetchLatestSnapWithTimeout(4500); await handleSnap(snap);
+          const snap = await fetchLatestSnapWithTimeout(4500); await handleSnap(snap, false);
         }
         loadWatchdog = setTimeout(async ()=>{
           try{
@@ -2190,7 +2418,7 @@
             // Skip if messages already rendered – avoids redundant reload when decrypt is slow.
             if (box.querySelector('.message')){ loadFinished = true; if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; } return; }
             const sKick = await fetchLatestSnapWithTimeout(4500);
-            await handleSnap(sKick);
+            await handleSnap(sKick, false);
           }catch(_){ }
         }, 7000);
         // Hard guard: never keep "Loading messages…" forever on rapid switches or stalled listeners.
@@ -2200,7 +2428,7 @@
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             if (!/Loading messages/i.test(String(box.textContent || ''))) return;
             const sHard = await fetchLatestSnapWithTimeout(4500);
-            await handleSnap(sHard);
+            await handleSnap(sHard, false);
             const hardDocsCount = Number((sHard && sHard.docs && sHard.docs.length) || 0);
             if (!loadFinished && hardDocsCount === 0 && /Loading messages/i.test(String(box.textContent || ''))){
               box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
@@ -3994,6 +4222,12 @@
         time.textContent = '0:00 / 0:00';
         const barsCount = 54;
         this.paintSeedWaveBars(wave, barsCount, seed);
+        this.getWaveHeightsForAudio(url, barsCount).then((heights)=>{
+          if (Array.isArray(heights) && heights.length){
+            this.applyWaveHeights(wave, heights);
+            sync();
+          }
+        }).catch(()=>{});
         const sync = ()=>{
           const d = Number(audio.duration || 0);
           const c = Number(audio.currentTime || 0);
