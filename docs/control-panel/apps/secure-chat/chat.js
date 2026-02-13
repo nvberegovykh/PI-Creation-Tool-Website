@@ -1757,7 +1757,9 @@ import { runTransaction } from 'firebase/firestore';
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             const renderedConnId = String(box.dataset.renderedConnId || '');
-            if (renderedConnId === activeConnId && snap.docChanges && snap.docChanges().length === 0){
+            let docChangesLen = -1;
+            try{ docChangesLen = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []).length; }catch(_){}
+            if (renderedConnId === activeConnId && docChangesLen === 0){
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
               if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
@@ -1795,6 +1797,19 @@ import { runTransaction } from 'firebase/firestore';
             const canAppendIntoExistingDom = renderedConnId === activeConnId;
             const appendOnly = canAppendIntoExistingDom && extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const isFirstPaint = renderedConnId !== activeConnId;
+            const wouldFullReplace = !appendOnly && !isFirstPaint;
+            if (wouldFullReplace){
+              if (!this._lastFullReplaceAtByConn) this._lastFullReplaceAtByConn = new Map();
+              const lastAt = Number(this._lastFullReplaceAtByConn.get(activeConnId) || 0);
+              if ((Date.now() - lastAt) < 2500){
+                loadFinished = true;
+                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+                updateBottomUi();
+                return;
+              }
+              this._lastFullReplaceAtByConn.set(activeConnId, Date.now());
+            }
             let renderTarget = box;
             if (!appendOnly){
               if (isFirstPaint){
@@ -2021,7 +2036,6 @@ import { runTransaction } from 'firebase/firestore';
         };
         let liveRenderInFlight = false;
         let pendingLiveSnap = null;
-        const DEBOUNCE_MS = 180;
         const processLiveSnap = async ()=>{
           if (liveRenderInFlight) return;
           liveRenderInFlight = true;
@@ -2041,7 +2055,7 @@ import { runTransaction } from 'firebase/firestore';
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
-          }, DEBOUNCE_MS);
+          }, 60);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
