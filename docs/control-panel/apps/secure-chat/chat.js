@@ -1388,6 +1388,13 @@ import { runTransaction } from 'firebase/firestore';
       if (topTitle) topTitle.textContent = displayName;
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.startTypingListener(this.activeConnection);
+      try{
+        const box = document.getElementById('messages');
+        if (box){
+          box.dataset.renderedConnId = '';
+          box.innerHTML = '<div style="opacity:.75;padding:10px 2px">Loading messages…</div>';
+        }
+      }catch(_){ }
       this.loadMessages().catch(()=>{});
       if (setSeq !== this._setActiveSeq) return;
       // If current user is not a participant of this connection, show banner to recreate with same users
@@ -1486,13 +1493,13 @@ import { runTransaction } from 'firebase/firestore';
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAtTS','desc'),
-            firebase.limit(60)
+            firebase.limit(40)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','desc'),
-            firebase.limit(60)
+            firebase.limit(40)
           );
         }
         // Keep live rendering stable on canonical active connection only.
@@ -1511,13 +1518,13 @@ import { runTransaction } from 'firebase/firestore';
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAtTS','desc'),
-                firebase.limit(80)
+                firebase.limit(60)
               );
             }catch(_){
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAt','desc'),
-                firebase.limit(80)
+                firebase.limit(60)
               );
             }
             const s2 = await firebase.getDocs(q2);
@@ -1547,7 +1554,8 @@ import { runTransaction } from 'firebase/firestore';
           const docs = merged;
           const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${d.data?.createdAt||''}`).join('|');
           const sig = `${activeConnId}::${sigBase}`;
-          if (this._lastRenderSigByConn.get(activeConnId) === sig) return;
+          const renderedConnId = String(box.dataset.renderedConnId || '');
+          if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId) return;
           this._lastRenderSigByConn.set(activeConnId, sig);
           const prevTop = box.scrollTop;
           const pinnedBefore = box.dataset.pinnedBottom !== '0';
@@ -1710,6 +1718,7 @@ import { runTransaction } from 'firebase/firestore';
           }
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
+          box.dataset.renderedConnId = activeConnId;
           if (pinnedBefore){
             box.scrollTop = box.scrollHeight;
           }else{
@@ -1740,7 +1749,7 @@ import { runTransaction } from 'firebase/firestore';
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','desc'),
-            firebase.limit(80)
+            firebase.limit(60)
           );
           const snap = await firebase.getDocs(q);
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -1846,6 +1855,7 @@ import { runTransaction } from 'firebase/firestore';
             }
           }
           box.scrollTop = box.scrollHeight;
+          box.dataset.renderedConnId = activeConnId;
           updateBottomUi();
         }catch(e){
           console.error('Failed to load messages:', e);
@@ -2889,6 +2899,10 @@ import { runTransaction } from 'firebase/firestore';
             const p = this.ensureChatBgPlayer();
             if (p && !p.paused) p.pause();
           }catch(_){ }
+          try{
+            const hostBg = this.getGlobalBgPlayer();
+            if (hostBg && !hostBg.paused) hostBg.pause();
+          }catch(_){ }
           this.pauseOtherInlineMedia(videoEl);
           videoEl.play().catch(()=>{});
           this.bindTopStripToMedia(videoEl, title || 'Video message');
@@ -2906,6 +2920,32 @@ import { runTransaction } from 'firebase/firestore';
         const topDoc = window.top && window.top.document ? window.top.document : document;
         return topDoc.getElementById('bg-player') || null;
       }catch(_){ return document.getElementById('bg-player') || null; }
+    }
+
+    stopRegularPlayer(){
+      try{
+        const hostBg = this.getGlobalBgPlayer();
+        if (hostBg && !hostBg.paused) hostBg.pause();
+      }catch(_){ }
+    }
+
+    detectMimeFromBase64(b64, fallback = 'application/octet-stream'){
+      try{
+        const head = atob(String(b64 || '').slice(0, 96));
+        const bytes = new Uint8Array(Math.min(16, head.length));
+        for (let i = 0; i < bytes.length; i++) bytes[i] = head.charCodeAt(i);
+        // WEBM / Matroska (EBML)
+        if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3){
+          if (String(fallback).startsWith('audio/')) return 'audio/webm';
+          return 'video/webm';
+        }
+        // MP4 family ('ftyp' at offset 4)
+        if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70){
+          if (String(fallback).startsWith('audio/')) return 'audio/mp4';
+          return 'video/mp4';
+        }
+      }catch(_){ }
+      return fallback;
     }
 
     ensureChatBgPlayer(){
@@ -2949,7 +2989,7 @@ import { runTransaction } from 'firebase/firestore';
       const stripTitle = document.getElementById('voice-top-title');
       const stripToggle = document.getElementById('voice-top-toggle');
       const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
-      const canShowStrip = (!!topMedia && !topMedia.paused) || (!!p.src && !p.paused);
+      const canShowStrip = !!topMedia || !!p.src;
       if (strip && stripToggle){
         if (canShowStrip){
           strip.classList.remove('hidden');
@@ -3221,7 +3261,7 @@ import { runTransaction } from 'firebase/firestore';
           });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
-          const mime = this.inferVideoMime(fileName);
+          const mime = this.detectMimeFromBase64(b64, this.inferVideoMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
@@ -3237,7 +3277,7 @@ import { runTransaction } from 'firebase/firestore';
           });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
-          const mime = this.inferAudioMime(fileName);
+          const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
           const title = String(senderDisplayName || 'Voice message');
@@ -4392,6 +4432,7 @@ import { runTransaction } from 'firebase/firestore';
 
     async captureMedia(stream, options, maxMs, filename){
       return new Promise((resolve)=>{
+        this.stopRegularPlayer();
         const rec = new MediaRecorder(stream, options);
         const chunks = [];
         let stopped = false;
@@ -4650,6 +4691,12 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       mediaEl.style.maxWidth = '100%';
       mediaEl.playsInline = true;
       mediaEl.classList.add('circular');
+      mediaEl.addEventListener('play', ()=>{
+        try{
+          const hostBg = self.getGlobalBgPlayer();
+          if (hostBg && !hostBg.paused) hostBg.pause();
+        }catch(_){ }
+      });
       player.appendChild(mediaEl);
     } else {
       // Keep type-bar review consistent with in-chat voice UI.
