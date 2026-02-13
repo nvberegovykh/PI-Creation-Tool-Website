@@ -1996,18 +1996,19 @@
               const type = String(c.type||'').toLowerCase();
               const doc = c.doc || c;
               const id = doc.id;
-              const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
+              const existing = box.querySelector('[data-msg-id="' + id + '"]');
               if (type === 'removed'){
-                const el = box.querySelector('[data-msg-id="' + id + '"]');
-                if (el) el.remove();
-              } else if (type === 'added' || type === 'modified'){
-                const existing = box.querySelector('[data-msg-id="' + id + '"]');
+                if (existing) existing.remove();
+              } else if (type === 'added'){
+                if (existing) continue;
+                const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
                 try{
-                  if (type === 'modified' && existing){
-                    await renderOne(d, d.sourceConnId || activeConnId, { replaceEl: existing });
-                  } else {
-                    await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
-                  }
+                  await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
+                }catch(_){ }
+              } else if (type === 'modified' && existing){
+                const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
+                try{
+                  await renderOne(d, d.sourceConnId || activeConnId, { replaceEl: existing });
                 }catch(_){ }
               }
             }
@@ -2071,13 +2072,13 @@
         let pendingLiveSnap = null;
         const processLiveSnap = async ()=>{
           if (liveRenderInFlight) return;
+          const snapToProcess = pendingLiveSnap;
+          pendingLiveSnap = null;
+          if (!snapToProcess) return;
           liveRenderInFlight = true;
           try{
-            while (pendingLiveSnap){
-              const snapNow = pendingLiveSnap;
-              pendingLiveSnap = null;
-              await handleSnap(snapNow);
-            }
+            // Process ONLY the latest snap – prevents multiple reloads when listener fires repeatedly (cache/server/metadata).
+            await handleSnap(snapToProcess);
           }finally{
             liveRenderInFlight = false;
           }
@@ -2088,7 +2089,7 @@
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
-          }, 60);
+          }, 300);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
@@ -2101,6 +2102,7 @@
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
+            { includeMetadataChanges: false },
             (snap)=>{ scheduleLiveSnap(snap); },
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
