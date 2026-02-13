@@ -64,6 +64,7 @@ import { runTransaction } from 'firebase/firestore';
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
       this._attachmentPreviewMax = 2;
+      this._switchLoadRetryTimer = null;
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -1465,6 +1466,8 @@ import { runTransaction } from 'firebase/firestore';
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      // Drop stale heavy preview tasks from previous chat to keep switching stable.
+      this._attachmentPreviewQueue = [];
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Never block switching on metadata fetch; render immediately from cached connection data.
       let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
@@ -1485,6 +1488,28 @@ import { runTransaction } from 'firebase/firestore';
         }
       }catch(_){ }
       this.loadMessages().catch(()=>{});
+      // Anti-stall watchdog for rapid switching: retry once, then force-close spinner.
+      if (this._switchLoadRetryTimer) clearTimeout(this._switchLoadRetryTimer);
+      this._switchLoadRetryTimer = setTimeout(()=>{
+        try{
+          if (setSeq !== this._setActiveSeq) return;
+          if (this.activeConnection !== (resolvedConnId || connId)) return;
+          const boxNow = document.getElementById('messages');
+          if (!boxNow) return;
+          if (/Loading messages/i.test(String(boxNow.textContent || ''))){
+            this.loadMessages().catch(()=>{});
+            setTimeout(()=>{
+              try{
+                if (setSeq !== this._setActiveSeq) return;
+                if (this.activeConnection !== (resolvedConnId || connId)) return;
+                if (!/Loading messages/i.test(String(boxNow.textContent || ''))) return;
+                boxNow.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
+                boxNow.dataset.renderedConnId = this.activeConnection || '';
+              }catch(_){ }
+            }, 2200);
+          }
+        }catch(_){ }
+      }, 1500);
       // Hydrate exact metadata in background to keep switch fast and avoid spinner lockups.
       Promise.resolve().then(async ()=>{
         try{
@@ -1573,6 +1598,7 @@ import { runTransaction } from 'firebase/firestore';
       const activeConnId = this.activeConnection;
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
+      this._attachmentPreviewQueue = [];
       let loadFinished = false;
       let loadWatchdog = null;
       let hardGuardTimer = null;
