@@ -64,6 +64,10 @@ import { runTransaction } from 'firebase/firestore';
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
       this._attachmentPreviewMax = 2;
+      this._msgVisibleLimitByConn = new Map();
+      this._lastLoadedConnId = '';
+      this._chatAudioPlaylist = [];
+      this._peerUidByConn = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -1306,6 +1310,10 @@ import { runTransaction } from 'firebase/firestore';
         temp.forEach((c)=>{
           const fallbackParts = this.getConnParticipants(c);
           if (!Array.isArray(c.participants) && fallbackParts.length) c.participants = fallbackParts;
+          if (Array.isArray(c.participants) && c.participants.length === 2){
+            const peer = c.participants.find((u)=> u && u !== this.currentUser.uid);
+            if (peer) this._peerUidByConn.set(c.id, peer);
+          }
         });
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         this.connections = temp;
@@ -1467,6 +1475,8 @@ import { runTransaction } from 'firebase/firestore';
       this.activeConnection = resolvedConnId || connId;
       // Drop stale heavy preview tasks from previous chat to keep switching stable.
       this._attachmentPreviewQueue = [];
+      this._lastLoadedConnId = this.activeConnection || '';
+      this._msgVisibleLimitByConn.set(this.activeConnection, 50);
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Never block switching on metadata fetch; render immediately from cached connection data.
       let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
@@ -1573,6 +1583,12 @@ import { runTransaction } from 'firebase/firestore';
       if (!box) return;
       if (!this.activeConnection) return;
       const activeConnId = this.activeConnection;
+      const pageSize = 50;
+      if (this._lastLoadedConnId !== activeConnId){
+        this._lastLoadedConnId = activeConnId;
+        this._msgVisibleLimitByConn.set(activeConnId, pageSize);
+      }
+      const visibleLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       this._attachmentPreviewQueue = [];
@@ -1612,13 +1628,13 @@ import { runTransaction } from 'firebase/firestore';
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAtTS','desc'),
-            firebase.limit(40)
+            firebase.limit(visibleLimit)
           );
         }catch(_){
           q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','desc'),
-            firebase.limit(40)
+            firebase.limit(visibleLimit)
           );
         }
         const fetchLatestSnap = async ()=>{
@@ -1626,7 +1642,7 @@ import { runTransaction } from 'firebase/firestore';
             const qTs = firebase.query(
               firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
               firebase.orderBy('createdAtTS','desc'),
-              firebase.limit(40)
+              firebase.limit(visibleLimit)
             );
             return await firebase.getDocs(qTs);
           }catch(_){
@@ -1634,14 +1650,14 @@ import { runTransaction } from 'firebase/firestore';
               const qIso = firebase.query(
                 firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
                 firebase.orderBy('createdAt','desc'),
-                firebase.limit(40)
+                firebase.limit(visibleLimit)
               );
               return await firebase.getDocs(qIso);
             }catch(_){
               // Last resort for missing indexes/transient query failures.
               const qLoose = firebase.query(
                 firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-                firebase.limit(40)
+                firebase.limit(visibleLimit)
               );
               return await firebase.getDocs(qLoose);
             }
@@ -1669,13 +1685,13 @@ import { runTransaction } from 'firebase/firestore';
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAtTS','desc'),
-                firebase.limit(60)
+                firebase.limit(visibleLimit)
               );
             }catch(_){
               q2 = firebase.query(
                 firebase.collection(this.db,'chatMessages',cid,'messages'),
                 firebase.orderBy('createdAt','desc'),
-                firebase.limit(60)
+                firebase.limit(visibleLimit)
               );
             }
             const s2 = await firebase.getDocs(q2);
@@ -1725,6 +1741,21 @@ import { runTransaction } from 'firebase/firestore';
               box.innerHTML='';
               lastRenderedDay = '';
               this._voiceWidgets.clear();
+              const hasMore = (docsPrimary.length >= visibleLimit);
+              if (hasMore){
+                const moreWrap = document.createElement('div');
+                moreWrap.className = 'msg-load-more-wrap';
+                const moreBtn = document.createElement('button');
+                moreBtn.className = 'btn secondary msg-load-more-btn';
+                moreBtn.textContent = `Load ${pageSize} more`;
+                moreBtn.onclick = ()=>{
+                  const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
+                  this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
+                  this.loadMessages().catch(()=>{});
+                };
+                moreWrap.appendChild(moreBtn);
+                box.appendChild(moreWrap);
+              }
             }
             const renderOne = async (d, sourceConnId = activeConnId)=>{
               if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -1994,7 +2025,7 @@ import { runTransaction } from 'firebase/firestore';
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','desc'),
-            firebase.limit(60)
+            firebase.limit(Math.max(visibleLimit, 50))
           );
           const snap = await firebase.getDocs(q);
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -3037,11 +3068,18 @@ import { runTransaction } from 'firebase/firestore';
 
     async getPeerUidForConn(connId){
       try{
+        const cached = this._peerUidByConn && this._peerUidByConn.get(connId);
+        if (cached) return cached;
+      }catch(_){ }
+      try{
         const local = (this.connections || []).find((c)=> c && c.id === connId);
         const localParts = this.getConnParticipants(local || {});
         if (localParts.length === 2){
           const peer = localParts.find((u)=> u !== this.currentUser.uid);
-          if (peer) return peer;
+          if (peer){
+            this._peerUidByConn.set(connId, peer);
+            return peer;
+          }
         }
       }catch(_){ }
       try{
@@ -3050,11 +3088,37 @@ import { runTransaction } from 'firebase/firestore';
           const parts = this.getConnParticipants(snap.data() || {});
           if (parts.length === 2){
             const peer = parts.find((u)=> u !== this.currentUser.uid);
-            if (peer) return peer;
+            if (peer){
+              this._peerUidByConn.set(connId, peer);
+              return peer;
+            }
           }
         }
       }catch(_){ }
-      return this.getPeerUid();
+      try{
+        const raw = String(connId || '').trim();
+        if (raw.includes('|')){
+          const parts = raw.split('|').filter(Boolean);
+          if (parts.length === 2){
+            const peer = parts.find((u)=> u !== this.currentUser.uid);
+            if (peer){
+              this._peerUidByConn.set(connId, peer);
+              return peer;
+            }
+          }
+        }
+        if (raw.includes('_')){
+          const parts = raw.split('_').filter(Boolean);
+          if (parts.length === 2){
+            const peer = parts.find((u)=> u !== this.currentUser.uid);
+            if (peer){
+              this._peerUidByConn.set(connId, peer);
+              return peer;
+            }
+          }
+        }
+      }catch(_){ }
+      return '';
     }
 
     async getConnSaltForConn(connId){
@@ -3081,10 +3145,7 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async getFallbackKeyCandidatesForConn(connId){
-      try{
-        const cached = this._fallbackKeyCandidatesCache && this._fallbackKeyCandidatesCache.get(connId);
-        if (cached && Array.isArray(cached) && cached.length) return cached;
-      }catch(_){ }
+      // Recompute per call to avoid stale wrong-key cache poisoning across chat switches.
       const out = [];
       const add = (k)=>{ if (k && !out.includes(k)) out.push(k); };
       const tryAdd = async (factory)=>{
@@ -3105,6 +3166,15 @@ import { runTransaction } from 'firebase/firestore';
         return out;
       }
       const peerUid = await this.getPeerUidForConn(connId);
+      if (!peerUid){
+        // Shared stable fallback that does not depend on local uid.
+        await tryAdd(()=> window.chatCrypto.deriveChatKey(`${stableSalt}|liber_secure_chat_conn_stable_v1`));
+        if (connIdSalt && connIdSalt !== stableSalt){
+          await tryAdd(()=> window.chatCrypto.deriveChatKey(`${connIdSalt}|liber_secure_chat_conn_stable_v1`));
+        }
+        try{ if (out.length) this._fallbackKeyCandidatesCache.set(connId, out.slice()); }catch(_){ }
+        return out;
+      }
       if (window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
         await tryAdd(()=> window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, stableSalt));
         if (connIdSalt && connIdSalt !== stableSalt){
@@ -3263,6 +3333,19 @@ import { runTransaction } from 'firebase/firestore';
           try{
             const hostBg = this.getGlobalBgPlayer();
             if (hostBg && hostBg !== p && !hostBg.paused) hostBg.pause();
+          }catch(_){ }
+        });
+      }
+      if (!p._playlistBound){
+        p._playlistBound = true;
+        p.addEventListener('ended', ()=>{
+          try{
+            const next = (this._chatAudioPlaylist || []).shift();
+            if (!next || !next.src) return;
+            this._voiceCurrentSrc = next.src;
+            this._voiceCurrentTitle = next.title || 'Audio';
+            p.src = next.src;
+            p.play().catch(()=>{});
           }catch(_){ }
         });
       }
@@ -3504,6 +3587,70 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ return false; }
     }
 
+    isVoiceRecordingMessage(message, fileName = ''){
+      try{
+        if (!this.isAudioFilename(fileName)) return false;
+        const n = String(fileName || '').toLowerCase().trim();
+        if (n.startsWith('voice.') || n.startsWith('audio.')) return true;
+        if (message && message.isVoiceRecording === true) return true;
+        const text = String(message?.text || '').trim();
+        if (/^\[voice message\]/i.test(text)) return true;
+        const preview = String(message?.previewText || '').trim();
+        if (/^\[voice message\]/i.test(preview)) return true;
+        return false;
+      }catch(_){ return false; }
+    }
+
+    playInChatAudioPlayer(src, title = 'Audio'){
+      try{
+        const p = this.ensureChatBgPlayer();
+        if (!p) return;
+        if (p.src === src){
+          if (p.paused) p.play().catch(()=>{});
+          else p.pause();
+        }else{
+          this._voiceCurrentSrc = src;
+          this._voiceCurrentTitle = title || 'Audio';
+          p.src = src;
+          p.play().catch(()=>{});
+        }
+      }catch(_){ }
+    }
+
+    addToChatAudioPlaylist(item){
+      try{
+        if (!item || !item.src) return;
+        this._chatAudioPlaylist.push(item);
+      }catch(_){ }
+    }
+
+    renderAudioAttachmentCard(containerEl, src, fileName, authorName = ''){
+      const wrap = document.createElement('div');
+      wrap.className = 'audio-attachment-card';
+      const meta = document.createElement('div');
+      meta.className = 'audio-attachment-meta';
+      const safeName = String(fileName || 'Audio');
+      const safeAuthor = String(authorName || 'Unknown');
+      meta.textContent = `${safeName} - ${safeAuthor}`;
+      const controls = document.createElement('div');
+      controls.className = 'audio-attachment-actions';
+      const playBtn = document.createElement('button');
+      playBtn.className = 'btn secondary';
+      playBtn.textContent = 'Play/Pause';
+      playBtn.onclick = ()=> this.playInChatAudioPlayer(src, safeName);
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn secondary';
+      addBtn.textContent = 'Add to playlist';
+      addBtn.onclick = ()=>{
+        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
+      };
+      controls.appendChild(playBtn);
+      controls.appendChild(addBtn);
+      wrap.appendChild(meta);
+      wrap.appendChild(controls);
+      containerEl.appendChild(wrap);
+    }
+
     setupMediaSessionForVoice(title = 'Voice message'){
       const p = this.ensureChatBgPlayer();
       if (!('mediaSession' in navigator)) return;
@@ -3525,6 +3672,7 @@ import { runTransaction } from 'firebase/firestore';
         const ct = res.headers.get('content-type')||'';
         const payload = ct.includes('application/json') ? await res.json() : JSON.parse(await res.text());
         const isVideoRecording = this.isVideoRecordingMessage(message, fileName);
+        const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
         let b64;
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
@@ -3556,6 +3704,17 @@ import { runTransaction } from 'firebase/firestore';
                 const alt = await this.getFallbackKeyForConn(cid);
                 b64 = await chatCrypto.decryptWithKey(payload, alt);
                 decrypted = true;
+              }catch(_){ }
+            }
+            if (!decrypted){
+              // Compatibility: recover files encrypted when peer resolution was missing at send time.
+              try{
+                const senderUid = String(message?.sender || '').trim();
+                if (senderUid){
+                  const compat = await window.chatCrypto.deriveChatKey(`${['', senderUid].sort().join('|')}|${cid}|liber_secure_chat_fallback_v1`);
+                  b64 = await chatCrypto.decryptWithKey(payload, compat);
+                  decrypted = true;
+                }
               }catch(_){ }
             }
           }
@@ -3630,8 +3789,12 @@ import { runTransaction } from 'firebase/firestore';
           const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
           const url = URL.createObjectURL(blob);
-          const title = String(senderDisplayName || 'Voice message');
-          this.renderWaveAttachment(containerEl, url, title);
+          if (isVoiceRecording){
+            const title = String(senderDisplayName || 'Voice message');
+            this.renderWaveAttachment(containerEl, url, title);
+          }else{
+            this.renderAudioAttachmentCard(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown');
+          }
           const box = document.getElementById('messages');
           if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
@@ -3668,14 +3831,15 @@ import { runTransaction } from 'firebase/firestore';
           containerEl.appendChild(err);
           return;
         }
-        this.renderDirectAttachment(containerEl, fileUrl, fileName, message);
+        this.renderDirectAttachment(containerEl, fileUrl, fileName, message, senderDisplayName);
       }
     }
 
-    renderDirectAttachment(containerEl, fileUrl, fileName, message = null){
+    renderDirectAttachment(containerEl, fileUrl, fileName, message = null, senderDisplayName = ''){
       try{
         let name = String(fileName || '');
         const isVideoRecording = this.isVideoRecordingMessage(message, name);
+        const isVoiceRecording = this.isVoiceRecordingMessage(message, name);
         if (!name && fileUrl){
           try{
             const clean = String(fileUrl).split('?')[0].split('#')[0];
@@ -3708,7 +3872,11 @@ import { runTransaction } from 'firebase/firestore';
           return;
         }
         if (this.isAudioFilename(name)){
-          this.renderWaveAttachment(containerEl, fileUrl, 'Voice message');
+          if (isVoiceRecording){
+            this.renderWaveAttachment(containerEl, fileUrl, 'Voice message');
+          }else{
+            this.renderAudioAttachmentCard(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown');
+          }
           return;
         }
         const a = document.createElement('a');
