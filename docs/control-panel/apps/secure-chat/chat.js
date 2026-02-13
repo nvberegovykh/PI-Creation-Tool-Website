@@ -1800,7 +1800,17 @@ import { runTransaction } from 'firebase/firestore';
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
               try{
-                const s = await firebase.getDocs(q);
+                let s = null;
+                try{
+                  s = await firebase.getDocs(q);
+                }catch(_){
+                  const qAlt = firebase.query(
+                    firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                    firebase.orderBy('createdAt','desc'),
+                    firebase.limit(40)
+                  );
+                  s = await firebase.getDocs(qAlt);
+                }
                 await handleSnap(s);
               }catch(_){ }
             }
@@ -1808,7 +1818,17 @@ import { runTransaction } from 'firebase/firestore';
           // Kick one explicit fetch so UI is never blocked waiting for stream init.
           Promise.resolve().then(async()=>{
             try{
-              const s = await firebase.getDocs(q);
+              let s = null;
+              try{
+                s = await firebase.getDocs(q);
+              }catch(_){
+                const qAlt = firebase.query(
+                  firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                  firebase.orderBy('createdAt','desc'),
+                  firebase.limit(40)
+                );
+                s = await firebase.getDocs(qAlt);
+              }
               await handleSnap(s);
             }catch(_){ }
           });
@@ -1822,15 +1842,56 @@ import { runTransaction } from 'firebase/firestore';
           try{
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-            const qKick = firebase.query(
-              firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
-              firebase.orderBy('createdAt','desc'),
-              firebase.limit(40)
-            );
-            const sKick = await firebase.getDocs(qKick);
+            let sKick = null;
+            try{
+              const qKickTs = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.orderBy('createdAtTS','desc'),
+                firebase.limit(40)
+              );
+              sKick = await firebase.getDocs(qKickTs);
+            }catch(_){
+              const qKick = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.orderBy('createdAt','desc'),
+                firebase.limit(40)
+              );
+              sKick = await firebase.getDocs(qKick);
+            }
             await handleSnap(sKick);
           }catch(_){ }
         }, 7000);
+        // Hard guard: never keep "Loading messages…" forever on rapid switches or stalled listeners.
+        setTimeout(async ()=>{
+          try{
+            if (loadFinished) return;
+            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+            if (!/Loading messages/i.test(String(box.textContent || ''))) return;
+            let sHard = null;
+            try{
+              const qHardTs = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.orderBy('createdAtTS','desc'),
+                firebase.limit(40)
+              );
+              sHard = await firebase.getDocs(qHardTs);
+            }catch(_){
+              const qHard = firebase.query(
+                firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
+                firebase.orderBy('createdAt','desc'),
+                firebase.limit(40)
+              );
+              sHard = await firebase.getDocs(qHard);
+            }
+            await handleSnap(sHard);
+            if (!loadFinished && /Loading messages/i.test(String(box.textContent || ''))){
+              box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
+              box.dataset.renderedConnId = activeConnId;
+              updateBottomUi();
+              loadFinished = true;
+            }
+          }catch(_){ }
+        }, 12000);
       }catch{
         try{
           const q = firebase.query(
@@ -3323,8 +3384,16 @@ import { runTransaction } from 'firebase/firestore';
             }
           }catch(_){ }
           if (!decrypted){
-            const alt = await this.getFallbackKeyForConn(sourceConnId);
-            b64 = await chatCrypto.decryptWithKey(payload, alt);
+            try{
+              const alt = await this.getFallbackKeyForConn(sourceConnId);
+              b64 = await chatCrypto.decryptWithKey(payload, alt);
+              decrypted = true;
+            }catch(_){ }
+          }
+          if (!decrypted){
+            // Legacy recordings could be encrypted with non-connection key.
+            const legacy = await this.getFallbackKey();
+            b64 = await chatCrypto.decryptWithKey(payload, legacy);
           }
         }
         if (this.isImageFilename(fileName)){
@@ -4857,7 +4926,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       }
       try {
         console.log('Sending recording:', filename);
-        const aesKey = await self.getFallbackKey();
+        const aesKey = await self.getFallbackKeyForConn(self.activeConnection);
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = `chat/${self.activeConnection}/${Date.now()}_${filename}`;
