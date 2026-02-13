@@ -1647,6 +1647,12 @@ import { runTransaction } from 'firebase/firestore';
             }
           }
         };
+        const fetchLatestSnapWithTimeout = async (timeoutMs = 4500)=>{
+          return await Promise.race([
+            fetchLatestSnap(),
+            new Promise((_, reject)=> setTimeout(()=> reject(new Error('fetch-timeout')), timeoutMs))
+          ]);
+        };
         // Keep live rendering stable on canonical active connection only.
         const keyByConn = new Map();
         const getKeyForConn = async (cid)=>{
@@ -1930,22 +1936,31 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           );
+          // Keep a timed polling fallback even in snapshot mode so switching never stalls.
+          this._msgPoll && clearInterval(this._msgPoll);
+          this._msgPoll = setInterval(async ()=>{
+            try{
+              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+              const sPoll = await fetchLatestSnapWithTimeout(4500);
+              scheduleLiveSnap(sPoll);
+            }catch(_){ }
+          }, 2800);
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
           this._msgPoll = setInterval(async()=>{
             try{
-              const s = await fetchLatestSnap();
+              const s = await fetchLatestSnapWithTimeout(4500);
               await handleSnap(s);
             }catch(_){ }
           }, 2500);
-          const snap = await fetchLatestSnap(); await handleSnap(snap);
+          const snap = await fetchLatestSnapWithTimeout(4500); await handleSnap(snap);
         }
         loadWatchdog = setTimeout(async ()=>{
           try{
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-            const sKick = await fetchLatestSnap();
+            const sKick = await fetchLatestSnapWithTimeout(4500);
             await handleSnap(sKick);
           }catch(_){ }
         }, 7000);
@@ -1955,7 +1970,7 @@ import { runTransaction } from 'firebase/firestore';
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             if (!/Loading messages/i.test(String(box.textContent || ''))) return;
-            const sHard = await fetchLatestSnap();
+            const sHard = await fetchLatestSnapWithTimeout(4500);
             await handleSnap(sHard);
             const hardDocsCount = Number((sHard && sHard.docs && sHard.docs.length) || 0);
             if (!loadFinished && hardDocsCount === 0 && /Loading messages/i.test(String(box.textContent || ''))){
@@ -1963,6 +1978,14 @@ import { runTransaction } from 'firebase/firestore';
               box.dataset.renderedConnId = activeConnId;
               updateBottomUi();
               loadFinished = true;
+            } else if (!loadFinished && /Loading messages/i.test(String(box.textContent || ''))){
+              box.innerHTML = '<button id="chat-load-retry-btn" class="btn secondary" style="margin:10px 2px">Still loading... Tap to retry</button>';
+              box.dataset.renderedConnId = '';
+              const retryBtn = document.getElementById('chat-load-retry-btn');
+              if (retryBtn){
+                retryBtn.addEventListener('click', ()=> this.loadMessages().catch(()=>{}), { once: true });
+              }
+              updateBottomUi();
             }
           }catch(_){ }
         }, 12000);
