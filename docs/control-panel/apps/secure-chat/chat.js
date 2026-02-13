@@ -339,6 +339,17 @@ import { runTransaction } from 'firebase/firestore';
         if (typeof tabVideo.onclick === 'function') tabVideo.onclick();
       };
       panel.appendChild(upload);
+      const browseDevice = document.createElement('button');
+      browseDevice.className = 'btn secondary';
+      browseDevice.textContent = 'Browse device';
+      browseDevice.style.marginBottom = '8px';
+      browseDevice.onclick = ()=>{
+        panel.remove();
+        backdrop.remove();
+        const fileInput = document.getElementById('file-input');
+        if (fileInput) fileInput.click();
+      };
+      panel.appendChild(browseDevice);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -734,8 +745,7 @@ import { runTransaction } from 'firebase/firestore';
         window.addEventListener('touchcancel', ()=> this.handleActionPressEnd(), true);
       }
       document.getElementById('attach-btn').addEventListener('click', ()=>{
-        if (this.isMobileViewport()) return this.showAttachmentQuickActions();
-        document.getElementById('file-input').click();
+        this.showAttachmentQuickActions();
       });
       document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
       const stickerBtn = document.getElementById('sticker-btn');
@@ -1520,6 +1530,7 @@ import { runTransaction } from 'firebase/firestore';
       const loadSeq = this._msgLoadSeq;
       let loadFinished = false;
       let loadWatchdog = null;
+      let hardGuardTimer = null;
       // Ensure a persistent scroll-to-latest affordance exists.
       let toBottomBtn = document.getElementById('chat-scroll-bottom-btn');
       if (!toBottomBtn){
@@ -1616,7 +1627,13 @@ import { runTransaction } from 'firebase/firestore';
             const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}:${d.data?.createdAt||''}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
             const renderedConnId = String(box.dataset.renderedConnId || '');
-            if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId) return;
+            if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId){
+              loadFinished = true;
+              if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+              if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+              updateBottomUi();
+              return;
+            }
             this._lastRenderSigByConn.set(activeConnId, sig);
             const prevTop = box.scrollTop;
             const pinnedBefore = box.dataset.pinnedBottom !== '0';
@@ -1700,7 +1717,7 @@ import { runTransaction } from 'firebase/firestore';
                 bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
               }
               const canModify = m.sender === this.currentUser.uid;
-              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName);
+              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId);
               const dayLabel = this.formatMessageDay(m.createdAt);
               if (dayLabel !== lastRenderedDay){
                 const sep = document.createElement('div');
@@ -1716,7 +1733,10 @@ import { runTransaction } from 'firebase/firestore';
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
               if (hasFile){
                 const preview = el.querySelector('.file-preview');
-                if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, sourceConnId, senderName);
+                if (preview){
+                  const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
+                  this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName);
+                }
               }
             // Bind edit/delete/replace for own messages
               if (canModify){
@@ -1789,14 +1809,34 @@ import { runTransaction } from 'firebase/firestore';
           updateBottomUi();
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+          if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
           }catch(_){
             // Keep listener alive even if one render cycle fails.
           }
         };
+        let liveRenderInFlight = false;
+        let pendingLiveSnap = null;
+        const processLiveSnap = async ()=>{
+          if (liveRenderInFlight) return;
+          liveRenderInFlight = true;
+          try{
+            while (pendingLiveSnap){
+              const snapNow = pendingLiveSnap;
+              pendingLiveSnap = null;
+              await handleSnap(snapNow);
+            }
+          }finally{
+            liveRenderInFlight = false;
+          }
+        };
+        const scheduleLiveSnap = (snap)=>{
+          pendingLiveSnap = snap;
+          Promise.resolve().then(processLiveSnap).catch(()=>{});
+        };
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
-            (snap)=>{ Promise.resolve(handleSnap(snap)).catch(()=>{}); },
+            (snap)=>{ scheduleLiveSnap(snap); },
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
               try{
@@ -1811,7 +1851,7 @@ import { runTransaction } from 'firebase/firestore';
                   );
                   s = await firebase.getDocs(qAlt);
                 }
-                await handleSnap(s);
+                scheduleLiveSnap(s);
               }catch(_){ }
             }
           );
@@ -1829,13 +1869,18 @@ import { runTransaction } from 'firebase/firestore';
                 );
                 s = await firebase.getDocs(qAlt);
               }
-              await handleSnap(s);
+              scheduleLiveSnap(s);
             }catch(_){ }
           });
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
-          this._msgPoll = setInterval(async()=>{ const s = await firebase.getDocs(q); await handleSnap(s); }, 2500);
+          this._msgPoll = setInterval(async()=>{
+            try{
+              const s = await firebase.getDocs(q);
+              await handleSnap(s);
+            }catch(_){ }
+          }, 2500);
           const snap = await firebase.getDocs(q); await handleSnap(snap);
         }
         loadWatchdog = setTimeout(async ()=>{
@@ -1862,7 +1907,7 @@ import { runTransaction } from 'firebase/firestore';
           }catch(_){ }
         }, 7000);
         // Hard guard: never keep "Loading messages…" forever on rapid switches or stalled listeners.
-        setTimeout(async ()=>{
+        hardGuardTimer = setTimeout(async ()=>{
           try{
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -1976,7 +2021,7 @@ import { runTransaction } from 'firebase/firestore';
             if (stickerDataMatch){
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
-            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName);
+            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId);
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -1992,7 +2037,10 @@ import { runTransaction } from 'firebase/firestore';
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
-              if (preview) this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, activeConnId, senderName);
+              if (preview){
+                const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
+                this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName);
+              }
             }
             const shareBtn = el.querySelector('.msg-share');
             if (shareBtn){
@@ -2099,7 +2147,7 @@ import { runTransaction } from 'firebase/firestore';
       }
     }
 
-    buildSharePayload(rawText, fileUrl, fileName){
+    buildSharePayload(rawText, fileUrl, fileName, sourceConnId = this.activeConnection){
       const inferredName = String(fileName || '').trim();
       let nextText = String(rawText || '').trim();
       if (fileUrl){
@@ -2108,7 +2156,32 @@ import { runTransaction } from 'firebase/firestore';
         else if (!nextText || /^\[file\]/i.test(nextText)) nextText = '[file]';
       }
       if (!nextText && fileUrl) nextText = '[file]';
-      return { text: nextText, fileUrl: fileUrl || null, fileName: inferredName || null };
+      return {
+        text: nextText,
+        fileUrl: fileUrl || null,
+        fileName: inferredName || null,
+        attachmentSourceConnId: sourceConnId || null
+      };
+    }
+
+    extractConnIdFromAttachmentUrl(fileUrl){
+      try{
+        const raw = String(fileUrl || '');
+        if (!raw) return '';
+        const decoded = decodeURIComponent(raw);
+        const m = /(?:^|\/)chat\/([^/]+)\//i.exec(decoded);
+        return (m && m[1]) ? m[1] : '';
+      }catch(_){ return ''; }
+    }
+
+    resolveAttachmentSourceConnId(message, fallbackConnId = this.activeConnection){
+      try{
+        const explicit = String(message?.attachmentSourceConnId || '').trim();
+        if (explicit) return explicit;
+        const fromUrl = this.extractConnIdFromAttachmentUrl(message?.fileUrl || '');
+        if (fromUrl) return fromUrl;
+      }catch(_){ }
+      return fallbackConnId || this.activeConnection;
     }
 
     getConnectionDisplayName(conn){
@@ -2124,7 +2197,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
@@ -2136,6 +2209,7 @@ import { runTransaction } from 'firebase/firestore';
         cipher,
         fileUrl: fileUrl || null,
         fileName: fileName || null,
+        attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -3373,22 +3447,35 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
-          try{
-            const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
-            for (const k of candidates){
+          const candidateConnIds = [];
+          const pushConn = (cid)=>{
+            const id = String(cid || '').trim();
+            if (!id) return;
+            if (candidateConnIds.includes(id)) return;
+            candidateConnIds.push(id);
+          };
+          pushConn(sourceConnId);
+          pushConn(this.extractConnIdFromAttachmentUrl(fileUrl));
+          pushConn(this.activeConnection);
+          for (const cid of candidateConnIds){
+            if (decrypted) break;
+            try{
+              const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+              for (const k of candidates){
+                try{
+                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                  decrypted = true;
+                  break;
+                }catch(_){ }
+              }
+            }catch(_){ }
+            if (!decrypted){
               try{
-                b64 = await chatCrypto.decryptWithKey(payload, k);
+                const alt = await this.getFallbackKeyForConn(cid);
+                b64 = await chatCrypto.decryptWithKey(payload, alt);
                 decrypted = true;
-                break;
               }catch(_){ }
             }
-          }catch(_){ }
-          if (!decrypted){
-            try{
-              const alt = await this.getFallbackKeyForConn(sourceConnId);
-              b64 = await chatCrypto.decryptWithKey(payload, alt);
-              decrypted = true;
-            }catch(_){ }
           }
           if (!decrypted){
             // Legacy recordings could be encrypted with non-connection key.
