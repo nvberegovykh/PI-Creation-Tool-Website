@@ -1171,16 +1171,16 @@
       const close = document.getElementById('voice-top-close');
       if (!strip || !toggle || !close) return;
       toggle.addEventListener('click', ()=>{
+        const p = this.ensureChatBgPlayer();
+        const playerSrc = this.getChatPlayerSrc(p);
         const m = this._topMediaEl;
-        if (m && m.isConnected){
+        if (playerSrc){
+          if (p.paused) p.play().catch(()=>{});
+          else p.pause();
+        } else if (m && m.isConnected){
           if (m.paused) m.play().catch(()=>{});
           else m.pause();
-          this.updateVoiceWidgets();
-          return;
         }
-        const p = this.ensureChatBgPlayer();
-        if (p.paused) p.play().catch(()=>{});
-        else p.pause();
         this.updateVoiceWidgets();
       });
       close.addEventListener('click', (e)=>{
@@ -3755,7 +3755,12 @@
       if (!p){
         p = document.createElement('audio');
         p.id = 'chat-bg-player';
-        p.style.display = 'none';
+        // iOS Safari/PWA: keep element rendered (not display:none) for reliable time/progress events.
+        p.style.cssText = 'position:fixed;left:-9999px;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none';
+        p.preload = 'metadata';
+        p.playsInline = true;
+        p.setAttribute('playsinline', 'true');
+        p.setAttribute('webkit-playsinline', 'true');
         document.body.appendChild(p);
       }
       this._chatBgPlayer = p;
