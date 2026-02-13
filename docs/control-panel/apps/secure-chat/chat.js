@@ -1742,7 +1742,7 @@ import { runTransaction } from 'firebase/firestore';
               box.innerHTML='';
               lastRenderedDay = '';
               this._voiceWidgets.clear();
-              renderTarget = document.createElement('div');
+              renderTarget = box;
               const hasMore = (docsPrimary.length >= visibleLimit);
               if (hasMore){
                 const moreWrap = document.createElement('div');
@@ -1841,7 +1841,7 @@ import { runTransaction } from 'firebase/firestore';
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               renderTarget.appendChild(el);
               const joinBtn = el.querySelector('button[data-call-id]');
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
@@ -1908,14 +1908,11 @@ import { runTransaction } from 'firebase/firestore';
           for (let i = 0; i < docsToRender.length; i++) {
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
+            if (!appendOnly && pinnedBefore && (i % 2) === 1){
+              box.scrollTop = box.scrollHeight;
+            }
             if ((i % 3) === 2){
               await this.yieldToUi();
-            }
-          }
-          if (!appendOnly){
-            box.innerHTML = '';
-            while (renderTarget.firstChild){
-              box.appendChild(renderTarget.firstChild);
             }
           }
           // Keep DOM size bounded to avoid jitter on long chats.
@@ -2122,7 +2119,7 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay2 = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\"><a href=\"${m.fileUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">${inferredFileName || 'Open attachment'}</a></div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -3487,8 +3484,19 @@ import { runTransaction } from 'firebase/firestore';
         if (Number.isFinite(p.duration) && p.duration > 0){
           widget.durationGuess = p.duration;
         }
-        if (p.paused) p.play().catch(()=>{});
-        else p.pause();
+        if (p.paused) {
+          p.play().catch(()=>{});
+        } else {
+          // "Stop" behavior for message audio button: stop and reset.
+          p.pause();
+          try{
+            p.removeAttribute('src');
+            p.load();
+          }catch(_){ }
+          this._voiceCurrentSrc = '';
+          this._voiceCurrentTitle = '';
+          widget.durationGuess = 0;
+        }
         this.updateVoiceWidgets();
       });
 
@@ -3618,16 +3626,30 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (!item || !item.src) return;
         this._chatAudioPlaylist.push(item);
+        const payload = {
+          src: item.src,
+          title: item.title || 'Track',
+          by: item.author || ''
+        };
+        let opened = false;
         try{
-          const mgr = window.top?.dashboardManager || window.parent?.dashboardManager || window.dashboardManager;
-          if (mgr && typeof mgr.openAddToPlaylistPopup === 'function'){
-            mgr.openAddToPlaylistPopup({
-              src: item.src,
-              title: item.title || 'Track',
-              by: item.author || ''
-            });
+          const candidates = [window.top, window.parent, window];
+          for (const host of candidates){
+            try{
+              const mgr = host?.dashboardManager;
+              if (mgr && typeof mgr.openAddToPlaylistPopup === 'function'){
+                mgr.openAddToPlaylistPopup.call(mgr, payload);
+                opened = true;
+                break;
+              }
+            }catch(_){ }
           }
         }catch(_){ }
+        if (!opened){
+          // Fallback bridge in case direct host object access is blocked by embedding.
+          try{ window.top?.postMessage({ type: 'LIBER_ADD_TO_PLAYLIST', track: payload }, '*'); }catch(_){ }
+          try{ window.parent?.postMessage({ type: 'LIBER_ADD_TO_PLAYLIST', track: payload }, '*'); }catch(_){ }
+        }
       }catch(_){ }
     }
 
@@ -3642,10 +3664,14 @@ import { runTransaction } from 'firebase/firestore';
       meta.className = 'audio-attachment-meta';
       meta.textContent = `${safeName} - ${safeAuthor}`;
       const addBtn = document.createElement('button');
+      addBtn.type = 'button';
       addBtn.className = 'btn secondary';
       addBtn.innerHTML = '<i class="fas fa-plus"></i>';
       addBtn.title = 'Add to playlist';
-      addBtn.onclick = ()=> this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
+      addBtn.onclick = (e)=>{
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
+      };
       head.appendChild(meta);
       head.appendChild(addBtn);
       wrap.appendChild(head);
@@ -3679,6 +3705,7 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
+          const maxCandidateKeys = isVideoRecording ? 12 : 8;
           const candidateConnIds = [];
           const pushConn = (cid)=>{
             const id = String(cid || '').trim();
@@ -3693,7 +3720,8 @@ import { runTransaction } from 'firebase/firestore';
             if (decrypted) break;
             try{
               const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-              for (const k of (candidates || []).slice(0, 4)){
+              // Include legacy fallback keys too (often placed after newer keys).
+              for (const k of (candidates || []).slice(0, maxCandidateKeys)){
                 try{
                   b64 = await chatCrypto.decryptWithKey(payload, k);
                   decrypted = true;
@@ -3740,7 +3768,7 @@ import { runTransaction } from 'firebase/firestore';
               if (decrypted) break;
               try{
                 const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-                for (const k of (candidates || []).slice(0, 3)){
+                for (const k of (candidates || []).slice(0, maxCandidateKeys)){
                   try{
                     b64 = await chatCrypto.decryptWithKey(payload, k);
                     decrypted = true;
@@ -3831,8 +3859,22 @@ import { runTransaction } from 'firebase/firestore';
         } else {
           const blob = this.base64ToBlob(b64, 'application/octet-stream');
           const url = URL.createObjectURL(blob);
-          const a = document.createElement('a'); a.href = url; a.download = fileName; a.textContent = 'Download decrypted file';
-          containerEl.appendChild(a);
+          const row = document.createElement('div');
+          row.style.display = 'flex';
+          row.style.gap = '8px';
+          row.style.alignItems = 'center';
+          row.style.flexWrap = 'wrap';
+          const info = document.createElement('span');
+          info.textContent = fileName || 'attachment.bin';
+          info.style.opacity = '0.9';
+          const btn = document.createElement('a');
+          btn.href = url;
+          btn.download = fileName || 'attachment.bin';
+          btn.className = 'btn btn-secondary';
+          btn.textContent = 'Download decrypted file';
+          row.appendChild(info);
+          row.appendChild(btn);
+          containerEl.appendChild(row);
         }
       } catch (e) {
         const looksEncrypted = /\.enc\.json(?:$|\?)/i.test(String(fileUrl || ''));

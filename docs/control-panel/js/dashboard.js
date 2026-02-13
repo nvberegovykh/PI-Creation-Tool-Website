@@ -4526,6 +4526,27 @@ Do you want to proceed?`);
 // Create global instance
 window.dashboardManager = new DashboardManager();
 
+// Bridge: allow embedded apps (iframe) to request top-level playlist popup.
+try{
+    window.addEventListener('message', (event)=>{
+        const data = event?.data || {};
+        if (!data || data.type !== 'LIBER_ADD_TO_PLAYLIST') return;
+        const track = data.track || {};
+        const src = String(track.src || '').trim();
+        if (!src) return;
+        try{
+            if (window.dashboardManager && typeof window.dashboardManager.openAddToPlaylistPopup === 'function'){
+                window.dashboardManager.openAddToPlaylistPopup({
+                    src,
+                    title: track.title || 'Track',
+                    by: track.by || '',
+                    cover: track.cover || ''
+                });
+            }
+        }catch(_){ }
+    });
+}catch(_){ }
+
 // Export for module systems
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = DashboardManager;
