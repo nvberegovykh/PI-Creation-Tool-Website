@@ -1,6 +1,4 @@
 /* eslint-disable import/no-unresolved */
-import { runTransaction } from 'firebase/firestore';
-
 (() => {
 
   class SecureChatApp {
@@ -4642,7 +4640,7 @@ import { runTransaction } from 'firebase/firestore';
   }
 
   async runStartTransaction(roomRef, cid) {
-    return runTransaction(this.db, async (tx) => {
+    return firebase.runTransaction(this.db, async (tx) => {
       const snap = await tx.get(roomRef);
       const data = snap.exists() ? (snap.data() || {}) : { status: 'idle', activeCallId: null };
       if (data.status !== 'idle' || data.activeCallId) return false;

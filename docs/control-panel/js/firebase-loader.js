@@ -64,7 +64,8 @@ async function loadFirebaseVersion(version) {
 		limit,
 		startAfter,
 		deleteDoc,
-		onSnapshot
+		onSnapshot,
+		runTransaction
 	} = fsMod;
 
 	const {
@@ -126,6 +127,7 @@ async function loadFirebaseVersion(version) {
 		startAfter,
 		deleteDoc,
 		onSnapshot,
+		runTransaction,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
 		serverTimestamp,
@@ -179,6 +181,7 @@ async function loadFirebaseVersion(version) {
 		startAfter,
 		deleteDoc,
 		onSnapshot,
+		runTransaction,
 		enableIndexedDbPersistence,
 		enableMultiTabIndexedDbPersistence,
 		serverTimestamp,
