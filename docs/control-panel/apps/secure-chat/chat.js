@@ -1831,7 +1831,7 @@ import { runTransaction } from 'firebase/firestore';
                 bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
               }
               const canModify = m.sender === this.currentUser.uid;
-              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId);
+              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
               const dayLabel = this.formatMessageDay(m.createdAt);
               if (dayLabel !== lastRenderedDay){
                 const sep = document.createElement('div');
@@ -2112,7 +2112,7 @@ import { runTransaction } from 'firebase/firestore';
             if (stickerDataMatch){
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
-            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId);
+            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '');
             const dayLabel = this.formatMessageDay(m.createdAt);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -2242,7 +2242,7 @@ import { runTransaction } from 'firebase/firestore';
       }
     }
 
-    buildSharePayload(rawText, fileUrl, fileName, sourceConnId = this.activeConnection){
+    buildSharePayload(rawText, fileUrl, fileName, sourceConnId = this.activeConnection, attachmentKeySalt = ''){
       const inferredName = String(fileName || '').trim();
       let nextText = String(rawText || '').trim();
       if (fileUrl){
@@ -2255,7 +2255,8 @@ import { runTransaction } from 'firebase/firestore';
         text: nextText,
         fileUrl: fileUrl || null,
         fileName: inferredName || null,
-        attachmentSourceConnId: sourceConnId || null
+        attachmentSourceConnId: sourceConnId || null,
+        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null
       };
     }
 
@@ -2292,7 +2293,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId, attachmentKeySalt }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
@@ -2305,6 +2306,7 @@ import { runTransaction } from 'firebase/firestore';
         fileUrl: fileUrl || null,
         fileName: fileName || null,
         attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
+        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -2510,6 +2512,7 @@ import { runTransaction } from 'firebase/firestore';
       for (const f of files){
         try {
           console.log('Sending file:', f.name);
+          const salts = await this.getConnSaltForConn(targetConnId);
           const aesKey = await this.getFallbackKeyForConn(targetConnId);
           // Read file as base64 via FileReader to avoid large argument spreads
           const base64 = await new Promise((resolve, reject)=>{
@@ -2539,7 +2542,8 @@ import { runTransaction } from 'firebase/firestore';
             fileUrl:url,
             fileName:f.name,
             connId: targetConnId,
-            attachmentSourceConnId: targetConnId
+            attachmentSourceConnId: targetConnId,
+            attachmentKeySalt: String(salts?.stableSalt || targetConnId || '')
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
         } catch (err) {
@@ -2869,7 +2873,7 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId, isVideoRecording}){
+    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
@@ -2884,6 +2888,7 @@ import { runTransaction } from 'firebase/firestore';
         fileUrl: fileUrl||null,
         fileName: fileName||null,
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
+        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isVideoRecording: isVideoRecording === true,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
@@ -3613,6 +3618,16 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (!item || !item.src) return;
         this._chatAudioPlaylist.push(item);
+        try{
+          const mgr = window.top?.dashboardManager || window.parent?.dashboardManager || window.dashboardManager;
+          if (mgr && typeof mgr.openAddToPlaylistPopup === 'function'){
+            mgr.openAddToPlaylistPopup({
+              src: item.src,
+              title: item.title || 'Track',
+              by: item.author || ''
+            });
+          }
+        }catch(_){ }
       }catch(_){ }
     }
 
@@ -3628,7 +3643,8 @@ import { runTransaction } from 'firebase/firestore';
       meta.textContent = `${safeName} - ${safeAuthor}`;
       const addBtn = document.createElement('button');
       addBtn.className = 'btn secondary';
-      addBtn.textContent = '+ playlist';
+      addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+      addBtn.title = 'Add to playlist';
       addBtn.onclick = ()=> this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
       head.appendChild(meta);
       head.appendChild(addBtn);
@@ -3703,6 +3719,16 @@ import { runTransaction } from 'firebase/firestore';
                 }
               }catch(_){ }
             }
+          }
+          if (!decrypted){
+            try{
+              const hintSalt = String(message?.attachmentKeySalt || '').trim();
+              if (hintSalt){
+                const hinted = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+                b64 = await chatCrypto.decryptWithKey(payload, hinted);
+                decrypted = true;
+              }
+            }catch(_){ }
           }
           // Keep chat switching smooth: do not fan out decrypt attempts across all chats.
           if (!decrypted && isVideoRecording){
@@ -5280,6 +5306,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       }
       try {
         console.log('Sending recording:', filename);
+        const salts = await self.getConnSaltForConn(targetConnId);
         const aesKey = await self.getFallbackKeyForConn(targetConnId);
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
@@ -5295,6 +5322,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
           fileName: filename,
           connId: targetConnId,
           attachmentSourceConnId: targetConnId,
+          attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
           isVideoRecording: isVideo === true
         });
       } catch (err) {

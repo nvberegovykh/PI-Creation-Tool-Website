@@ -188,6 +188,17 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   font-size:12px;
   opacity:.9;
   word-break:break-word;
+  font-family: var(--typewriter-font,"Courier Prime","Courier New","Lucida Console",monospace);
+}
+.audio-attachment-head .btn{
+  min-width:28px;
+  width:28px;
+  height:28px;
+  padding:0;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
 }
 .voice-wave-player{
   display:flex;
