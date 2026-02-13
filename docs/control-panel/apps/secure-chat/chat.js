@@ -997,6 +997,27 @@ import { runTransaction } from 'firebase/firestore';
       }
     }
 
+    normalizeMediaSrc(src){
+      try{
+        const raw = String(src || '').trim();
+        if (!raw) return '';
+        if (/^blob:/i.test(raw)) return raw;
+        const u = new URL(raw, window.location.href);
+        return `${u.origin}${u.pathname}`;
+      }catch(_){
+        return String(src || '').trim();
+      }
+    }
+
+    isSameMediaSrc(a, b){
+      const na = this.normalizeMediaSrc(a);
+      const nb = this.normalizeMediaSrc(b);
+      if (!na || !nb) return false;
+      if (na === nb) return true;
+      if (/^blob:/i.test(na) || /^blob:/i.test(nb)) return false;
+      return na.endsWith(nb) || nb.endsWith(na);
+    }
+
     async fixDuplicateConnections(){
       try{
         const byId = new Map();
@@ -3345,6 +3366,9 @@ import { runTransaction } from 'firebase/firestore';
         p.addEventListener('play', sync);
         p.addEventListener('pause', sync);
         p.addEventListener('loadedmetadata', sync);
+        p.addEventListener('durationchange', sync);
+        p.addEventListener('seeking', sync);
+        p.addEventListener('seeked', sync);
         p.addEventListener('ended', sync);
       }
       // Keep a single-track experience across host and app shell.
@@ -3398,7 +3422,8 @@ import { runTransaction } from 'firebase/firestore';
         stripTitle.textContent = this._voiceCurrentTitle || 'Media';
       }
       this._voiceWidgets.forEach((w)=>{
-        const active = !!playerSrc && w.src === playerSrc;
+        const active = (!!playerSrc && this.isSameMediaSrc(w.src, playerSrc))
+          || (!!this._voiceCurrentSrc && this.isSameMediaSrc(w.src, this._voiceCurrentSrc));
         const duration = Number(p.duration || 0);
         const ct = Number(p.currentTime || 0);
         if (active && duration > 0) w.durationGuess = duration;
@@ -3481,7 +3506,8 @@ import { runTransaction } from 'firebase/firestore';
         this.updateVoiceWidgets();
       };
 
-      playBtn.addEventListener('click', ()=>{
+      playBtn.addEventListener('click', (e)=>{
+        try{ e.stopPropagation(); }catch(_){ }
         this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
         if (p.src !== url){
           this._voiceCurrentSrc = url;
@@ -3518,11 +3544,12 @@ import { runTransaction } from 'firebase/firestore';
         const ratio = (clientX - rect.left) / rect.width;
         startFromRatio(ratio);
       };
-      wave.addEventListener('click', (e)=> seekFromClientX(e.clientX));
-      wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekFromClientX(e.clientX); });
+      wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekFromClientX(e.clientX); });
+      wave.addEventListener('pointerdown', (e)=>{ try{ e.stopPropagation(); }catch(_){ } dragging = true; wave.setPointerCapture(e.pointerId); seekFromClientX(e.clientX); });
       wave.addEventListener('pointermove', (e)=>{ if (dragging) seekFromClientX(e.clientX); });
-      wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
-      time.addEventListener('click', ()=>{
+      wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ e.stopPropagation(); }catch(_){ } try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
+      time.addEventListener('click', (e)=>{
+        try{ e.stopPropagation(); }catch(_){ }
         widget.showRemaining = !widget.showRemaining;
         this.updateVoiceWidgets();
       });
@@ -3643,19 +3670,27 @@ import { runTransaction } from 'firebase/firestore';
           by: item.author || ''
         };
         let opened = false;
-        try{
-          const candidates = [window.top, window.parent, window];
-          for (const host of candidates){
-            try{
-              const mgr = host?.dashboardManager;
-              if (mgr && typeof mgr.openAddToPlaylistPopup === 'function'){
-                mgr.openAddToPlaylistPopup.call(mgr, payload);
-                opened = true;
-                break;
-              }
-            }catch(_){ }
-          }
-        }catch(_){ }
+        if (!opened){
+          try{
+            this.openChatAddToPlaylistPopup(payload);
+            opened = true;
+          }catch(_){ }
+        }
+        if (!opened){
+          try{
+            const candidates = [window.top, window.parent, window];
+            for (const host of candidates){
+              try{
+                const mgr = host?.dashboardManager;
+                if (mgr && typeof mgr.openAddToPlaylistPopup === 'function'){
+                  mgr.openAddToPlaylistPopup.call(mgr, payload);
+                  opened = true;
+                  break;
+                }
+              }catch(_){ }
+            }
+          }catch(_){ }
+        }
         if (!opened){
           // Fallback bridge in case direct host object access is blocked by embedding.
           try{ window.top?.postMessage({ type: 'LIBER_ADD_TO_PLAYLIST', track: payload }, '*'); }catch(_){ }
@@ -3741,6 +3776,9 @@ import { runTransaction } from 'firebase/firestore';
       addBtn.className = 'btn secondary';
       addBtn.innerHTML = '<i class="fas fa-plus"></i>';
       addBtn.title = 'Add to playlist';
+      addBtn.addEventListener('pointerdown', (e)=>{
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+      });
       addBtn.onclick = (e)=>{
         try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
         this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
@@ -3778,7 +3816,6 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
-          const maxCandidateKeys = isVideoRecording ? 12 : 8;
           const candidateConnIds = [];
           const pushConn = (cid)=>{
             const id = String(cid || '').trim();
@@ -3809,7 +3846,7 @@ import { runTransaction } from 'firebase/firestore';
             try{
               const candidates = await this.getFallbackKeyCandidatesForConn(cid);
               // Include legacy fallback keys too (often placed after newer keys).
-              for (const k of (candidates || []).slice(0, maxCandidateKeys)){
+              for (const k of (candidates || [])){
                 try{
                   b64 = await chatCrypto.decryptWithKey(payload, k);
                   decrypted = true;
@@ -3827,7 +3864,11 @@ import { runTransaction } from 'firebase/firestore';
             if (!decrypted){
               // Compatibility: recover files encrypted when peer resolution was missing at send time.
               try{
-                const senderUid = String(message?.sender || '').trim();
+                let senderUid = String(message?.sender || '').trim();
+                if (!senderUid){
+                  const peerFromConn = await this.getPeerUidForConn(cid);
+                  senderUid = String(peerFromConn || '').trim();
+                }
                 if (senderUid){
                   const compat = await window.chatCrypto.deriveChatKey(`${['', senderUid].sort().join('|')}|${cid}|liber_secure_chat_fallback_v1`);
                   b64 = await chatCrypto.decryptWithKey(payload, compat);
@@ -3840,9 +3881,19 @@ import { runTransaction } from 'firebase/firestore';
             try{
               const hintSalt = String(message?.attachmentKeySalt || '').trim();
               if (hintSalt){
-                const hinted = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
-                b64 = await chatCrypto.decryptWithKey(payload, hinted);
-                decrypted = true;
+                try{
+                  const hinted = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+                  b64 = await chatCrypto.decryptWithKey(payload, hinted);
+                  decrypted = true;
+                }catch(_){ }
+                if (!decrypted){
+                  const senderUid = String(message?.sender || '').trim();
+                  if (senderUid){
+                    const compatHinted = await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, senderUid].sort().join('|')}|${hintSalt}|liber_secure_chat_fallback_v1`);
+                    b64 = await chatCrypto.decryptWithKey(payload, compatHinted);
+                    decrypted = true;
+                  }
+                }
               }
             }catch(_){ }
           }
@@ -3851,12 +3902,12 @@ import { runTransaction } from 'firebase/firestore';
             const recentConnIds = (this.connections || [])
               .map((c)=> c && c.id)
               .filter((cid)=> cid && !candidateConnIds.includes(cid))
-              .slice(0, 3);
+              .slice(0, 12);
             for (const cid of recentConnIds){
               if (decrypted) break;
               try{
                 const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-                for (const k of (candidates || []).slice(0, maxCandidateKeys)){
+                for (const k of (candidates || [])){
                   try{
                     b64 = await chatCrypto.decryptWithKey(payload, k);
                     decrypted = true;
