@@ -1862,6 +1862,7 @@
             const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch);
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
+            let moreWrap = null;
             if (!appendOnly){
               if (isFirstPaint){
                 box.innerHTML='';
@@ -1872,7 +1873,6 @@
               lastRenderedDay = '';
               this._voiceWidgets.clear();
               const hasMore = (docsPrimary.length >= visibleLimit);
-              let moreWrap = null;
               if (hasMore){
                 moreWrap = document.createElement('div');
                 moreWrap.className = 'msg-load-more-wrap';
