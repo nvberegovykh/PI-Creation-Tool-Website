@@ -1794,8 +1794,9 @@ import { runTransaction } from 'firebase/firestore';
               lastRenderedDay = '';
               this._voiceWidgets.clear();
               const hasMore = (docsPrimary.length >= visibleLimit);
+              let moreWrap = null;
               if (hasMore){
-                const moreWrap = document.createElement('div');
+                moreWrap = document.createElement('div');
                 moreWrap.className = 'msg-load-more-wrap';
                 const moreBtn = document.createElement('button');
                 moreBtn.className = 'btn secondary msg-load-more-btn';
@@ -1806,7 +1807,6 @@ import { runTransaction } from 'firebase/firestore';
                   this.loadMessages().catch(()=>{});
                 };
                 moreWrap.appendChild(moreBtn);
-                renderTarget.appendChild(moreWrap);
               }
             }
             const renderOne = async (d, sourceConnId = activeConnId)=>{
@@ -1884,15 +1884,22 @@ import { runTransaction } from 'firebase/firestore';
               const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
               const dayLabel = this.formatMessageDay(m.createdAt);
               if (dayLabel !== lastRenderedDay){
-                const sep = document.createElement('div');
-                sep.className = 'message-day-separator';
-                sep.textContent = dayLabel;
-                renderTarget.appendChild(sep);
+                if (lastRenderedDay){
+                  const sep = document.createElement('div');
+                  sep.className = 'message-day-separator';
+                  sep.textContent = dayLabel;
+                  if (appendOnly) box.insertBefore(sep, box.firstElementChild);
+                  else renderTarget.appendChild(sep);
+                }
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
               el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
-              renderTarget.appendChild(el);
+              if (appendOnly){
+                box.insertBefore(el, box.firstElementChild);
+              }else{
+                renderTarget.appendChild(el);
+              }
               const joinBtn = el.querySelector('button[data-call-id]');
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
               if (hasFile){
@@ -1954,26 +1961,31 @@ import { runTransaction } from 'firebase/firestore';
               }
           };
           const docsToRender = appendOnly ? docs.slice(prevIds.length) : docs;
-          // Render primary messages in deterministic order.
-          for (let i = 0; i < docsToRender.length; i++) {
+          // column-reverse: first child = bottom. Non-append: iterate newest-first. AppendOnly: prepend oldest-first so newest ends up first.
+          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> j) : Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
+          for (let idx = 0; idx < docsToRender.length; idx++) {
+            const i = iter[idx];
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (!appendOnly && isFirstPaint && pinnedBefore && (i % 2) === 1){
+            if (!appendOnly && isFirstPaint && pinnedBefore && idx % 2 === 1){
               box.scrollTop = box.scrollHeight;
             }
-            if ((i % 3) === 2){
+            if (idx % 3 === 2){
               await this.yieldToUi();
             }
           }
+          if (!appendOnly && moreWrap){ renderTarget.appendChild(moreWrap); }
           if (!appendOnly && renderTarget !== box){
             box.innerHTML = '';
             while (renderTarget.firstChild){
               box.appendChild(renderTarget.firstChild);
             }
           }
-          // Keep DOM size bounded to avoid jitter on long chats.
+          // Keep DOM size bounded to avoid jitter on long chats. column-reverse: oldest at top. Preserve Load more button.
           while (box.childElementCount > 220){
-            box.removeChild(box.firstElementChild);
+            const last = box.lastElementChild;
+            const toRemove = last?.classList?.contains('msg-load-more-wrap') ? box.children[box.children.length - 2] : last;
+            if (toRemove) box.removeChild(toRemove);
           }
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
@@ -3833,8 +3845,72 @@ import { runTransaction } from 'firebase/firestore';
       head.appendChild(meta);
       head.appendChild(addBtn);
       wrap.appendChild(head);
-      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
+      this.renderInlineWaveAudio(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
       containerEl.appendChild(wrap);
+    }
+
+    renderInlineWaveAudio(hostEl, url, title = 'Audio', sourceKey = ''){
+      try{
+        const audio = document.createElement('audio');
+        audio.src = url;
+        audio.controls = false;
+        audio.style.display = 'none';
+        audio.preload = 'metadata';
+        const seed = String(title || url || 'audio');
+        const wrapper = document.createElement('div');
+        wrapper.className = 'voice-wave-player';
+        const playBtn = document.createElement('button');
+        playBtn.className = 'play';
+        playBtn.innerHTML = '<i class="fas fa-play"></i>';
+        const wave = document.createElement('div');
+        wave.className = 'wave';
+        const time = document.createElement('div');
+        time.className = 'time';
+        time.textContent = '0:00 / 0:00';
+        const barsCount = 54;
+        this.paintSeedWaveBars(wave, barsCount, seed);
+        const sync = ()=>{
+          const d = Number(audio.duration || 0);
+          const c = Number(audio.currentTime || 0);
+          const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
+          const bars = wave.querySelectorAll('.bar');
+          const played = Math.round(bars.length * ratio);
+          bars.forEach((b, i)=> b.classList.toggle('played', i < played));
+          playBtn.innerHTML = `<i class="fas ${audio.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+          time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+        };
+        ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
+        playBtn.addEventListener('click', (e)=>{
+          try{ e.stopPropagation(); }catch(_){ }
+          if (audio.paused){
+            const p = this.ensureChatBgPlayer();
+            if (p && !p.paused){ p.pause(); try{ p.removeAttribute('src'); p.load(); }catch(_){ } }
+            this.pauseOtherInlineMedia(audio);
+            audio.play().catch(()=>{});
+          }else{
+            audio.pause();
+          }
+          sync();
+        });
+        const seekTo = (clientX)=>{
+          const rect = wave.getBoundingClientRect();
+          const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+          if (Number(audio.duration) > 0) audio.currentTime = ratio * audio.duration;
+          if (audio.paused){ this.pauseOtherInlineMedia(audio); audio.play().catch(()=>{}); }
+          sync();
+        };
+        wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekTo(e.clientX); });
+        let dragging = false;
+        wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+        wave.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+        wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
+        wrapper.appendChild(playBtn);
+        wrapper.appendChild(wave);
+        wrapper.appendChild(time);
+        hostEl.appendChild(audio);
+        hostEl.appendChild(wrapper);
+        sync();
+      }catch(_){ }
     }
 
     setupMediaSessionForVoice(title = 'Voice message'){
@@ -3863,22 +3939,8 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
-          const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
-          const connIdsToTry = [urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean);
-          const seen = new Set();
-          for (const cid of connIdsToTry) {
-            if (!cid || seen.has(cid)) continue;
-            seen.add(cid);
-            if (decrypted) break;
-            try {
-              const key = await this.getFallbackKeyForConn(cid);
-              b64 = await chatCrypto.decryptWithKey(payload, key);
-              decrypted = true;
-              break;
-            } catch (_) {}
-          }
           const hintSalt = String(message?.attachmentKeySalt || '').trim();
-          if (!decrypted && hintSalt && (isVideoRecording || isVoiceRecording)) {
+          if (!decrypted && hintSalt) {
             try {
               const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
@@ -3894,6 +3956,20 @@ import { runTransaction } from 'firebase/firestore';
                 } catch (_) {}
               }
             }
+          }
+          const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
+          const connIdsToTry = [urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean);
+          const seen = new Set();
+          for (const cid of connIdsToTry) {
+            if (!cid || seen.has(cid)) continue;
+            seen.add(cid);
+            if (decrypted) break;
+            try {
+              const key = await this.getFallbackKeyForConn(cid);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+              decrypted = true;
+              break;
+            } catch (_) {}
           }
           const candidateConnIds = [];
           const pushConn = (cid)=>{
