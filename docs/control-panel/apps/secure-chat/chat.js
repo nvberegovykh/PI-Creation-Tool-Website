@@ -61,6 +61,9 @@ import { runTransaction } from 'firebase/firestore';
       this._recordMode = 'audio';
       this._recFacing = 'user';
       this._setActiveSeq = 0;
+      this._attachmentPreviewQueue = [];
+      this._attachmentPreviewRunning = 0;
+      this._attachmentPreviewMax = 2;
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -272,6 +275,47 @@ import { runTransaction } from 'firebase/firestore';
           setTimeout(invoke, 0);
         }
       }catch(_){ }
+    }
+
+    enqueueAttachmentPreview(task, loadSeq, connId){
+      try{
+        this._attachmentPreviewQueue.push({ task, loadSeq, connId });
+        this.pumpAttachmentPreviewQueue();
+      }catch(_){ }
+    }
+
+    pumpAttachmentPreviewQueue(){
+      try{
+        while ((this._attachmentPreviewRunning || 0) < (this._attachmentPreviewMax || 2) && this._attachmentPreviewQueue.length){
+          const item = this._attachmentPreviewQueue.shift();
+          this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
+          const run = async ()=>{
+            try{
+              if (!item || typeof item.task !== 'function') return;
+              if (item.loadSeq !== this._msgLoadSeq) return;
+              if (item.connId && item.connId !== this.activeConnection) return;
+              await item.task();
+            }catch(_){ }
+            finally{
+              this._attachmentPreviewRunning = Math.max(0, (this._attachmentPreviewRunning || 1) - 1);
+              this.pumpAttachmentPreviewQueue();
+            }
+          };
+          setTimeout(()=>{ Promise.resolve(run()).catch(()=>{}); }, 0);
+        }
+      }catch(_){ }
+    }
+
+    async yieldToUi(){
+      await new Promise((resolve)=>{
+        try{
+          if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'){
+            window.requestAnimationFrame(()=> resolve());
+            return;
+          }
+        }catch(_){ }
+        setTimeout(resolve, 0);
+      });
     }
 
     stripPlaceholderText(text){
@@ -1422,34 +1466,11 @@ import { runTransaction } from 'firebase/firestore';
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
-      // Resolve displayName if not provided
-      let activeConnData = null;
-      if (!displayName) {
-        const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
-        if (setSeq !== this._setActiveSeq) return;
-        if (snap.exists()) {
-          const data = snap.data();
-          activeConnData = data;
-          const parts = Array.isArray(data.participants)
-            ? data.participants
-            : (Array.isArray(data.users) ? data.users : (Array.isArray(data.memberIds) ? data.memberIds : []));
-          // Prefer live cache, fallback to stored usernames
-          const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
-          const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
-          const myNameLower = (this.me?.username || '').toLowerCase();
-          const others = names.filter(n => String(n ?? '').toLowerCase() !== myNameLower);
-          displayName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
-        }
-        displayName = displayName || 'Chat';
+      // Never block switching on metadata fetch; render immediately from cached connection data.
+      let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
+      if (!displayName){
+        displayName = this.getConnectionDisplayName(activeConnData || {}) || 'Chat';
       }
-      if (!activeConnData){
-        try{
-          const snap2 = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
-          if (setSeq !== this._setActiveSeq) return;
-          activeConnData = snap2.exists() ? (snap2.data() || null) : null;
-        }catch(_){ activeConnData = null; }
-      }
-      if (setSeq !== this._setActiveSeq) return;
       this.updateChatScopeUI(activeConnData);
       document.getElementById('active-connection-name').textContent = displayName;
       const topTitle = document.getElementById('chat-top-title');
@@ -1464,6 +1485,30 @@ import { runTransaction } from 'firebase/firestore';
         }
       }catch(_){ }
       this.loadMessages().catch(()=>{});
+      // Hydrate exact metadata in background to keep switch fast and avoid spinner lockups.
+      Promise.resolve().then(async ()=>{
+        try{
+          if (setSeq !== this._setActiveSeq || this.activeConnection !== (resolvedConnId || connId)) return;
+          const snapMeta = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+          if (setSeq !== this._setActiveSeq || this.activeConnection !== (resolvedConnId || connId)) return;
+          if (!snapMeta.exists()) return;
+          const data = snapMeta.data() || {};
+          this.updateChatScopeUI(data);
+          if (!displayName || displayName === 'Chat'){
+            const parts = this.getConnParticipants(data);
+            const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
+            const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
+            const myNameLower = (this.me?.username || '').toLowerCase();
+            const others = names.filter((n)=> String(n ?? '').toLowerCase() !== myNameLower);
+            const resolvedName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
+            const finalName = resolvedName || 'Chat';
+            const titleEl = document.getElementById('active-connection-name');
+            if (titleEl) titleEl.textContent = finalName;
+            const topTitleEl = document.getElementById('chat-top-title');
+            if (topTitleEl) topTitleEl.textContent = finalName;
+          }
+        }catch(_){ }
+      });
       if (setSeq !== this._setActiveSeq) return;
       // If current user is not a participant of this connection, show banner to recreate with same users
       Promise.resolve().then(async ()=>{
@@ -1761,7 +1806,11 @@ import { runTransaction } from 'firebase/firestore';
                 const preview = el.querySelector('.file-preview');
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
-                  this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text });
+                  this.enqueueAttachmentPreview(
+                    ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                    loadSeq,
+                    activeConnId
+                  );
                 }
               }
             // Bind edit/delete/replace for own messages
@@ -1816,8 +1865,8 @@ import { runTransaction } from 'firebase/firestore';
           for (let i = 0; i < docsToRender.length; i++) {
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if ((i % 8) === 7){
-              await new Promise((r)=> setTimeout(r, 0));
+            if ((i % 3) === 2){
+              await this.yieldToUi();
             }
           }
           // Keep DOM size bounded to avoid jitter on long chats.
@@ -2023,15 +2072,19 @@ import { runTransaction } from 'firebase/firestore';
               const preview = el.querySelector('.file-preview');
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
-                this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text });
+                this.enqueueAttachmentPreview(
+                  ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                  loadSeq,
+                  activeConnId
+                );
               }
             }
             const shareBtn = el.querySelector('.msg-share');
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
-            if ((i % 8) === 7){
-              await new Promise((r)=> setTimeout(r, 0));
+            if ((i % 3) === 2){
+              await this.yieldToUi();
             }
           }
           box.scrollTop = box.scrollHeight;
@@ -3467,7 +3520,7 @@ import { runTransaction } from 'firebase/firestore';
             if (decrypted) break;
             try{
               const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-              for (const k of candidates){
+              for (const k of (candidates || []).slice(0, 4)){
                 try{
                   b64 = await chatCrypto.decryptWithKey(payload, k);
                   decrypted = true;
@@ -3483,14 +3536,17 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           }
-          if (!decrypted){
-            const broadConnIds = ((this.connections || []).map((c)=> c && c.id).filter(Boolean));
-            for (const cid of broadConnIds){
+          // Keep chat switching smooth: do not fan out decrypt attempts across all chats.
+          if (!decrypted && isVideoRecording){
+            const recentConnIds = (this.connections || [])
+              .map((c)=> c && c.id)
+              .filter((cid)=> cid && !candidateConnIds.includes(cid))
+              .slice(0, 3);
+            for (const cid of recentConnIds){
               if (decrypted) break;
-              if (candidateConnIds.includes(cid)) continue;
               try{
                 const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-                for (const k of candidates){
+                for (const k of (candidates || []).slice(0, 3)){
                   try{
                     b64 = await chatCrypto.decryptWithKey(payload, k);
                     decrypted = true;
