@@ -1767,21 +1767,6 @@
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             let merged = docsPrimary.slice();
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
-            // Early exit when listener fires with duplicate of what we already rendered – prevents extra reload.
-            if (extraIds.length === 0 && renderedConnId === activeConnId){
-              const prevIdsEarly = this._lastDocIdsByConn.get(activeConnId) || [];
-              let changesEarly = [];
-              try{ changesEarly = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
-              const allAddedEarly = changesEarly.length > 0 && changesEarly.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
-              const alreadyHaveAllEarly = allAddedEarly && prevIdsEarly.length > 0 && changesEarly.every((c)=> prevIdsEarly.includes(((c.doc||c).id)));
-              if (alreadyHaveAllEarly){
-                loadFinished = true;
-                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
-                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-                updateBottomUi();
-                return;
-              }
-            }
             if (extraIds.length){
               const extraSets = await Promise.all(extraIds.map((cid)=> fetchDocsForConn(cid)));
               extraSets.forEach((rows)=> merged.push(...rows));
@@ -1798,7 +1783,7 @@
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
             const isFirstPaint = renderedConnId !== activeConnId;
-            const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}`).join('|');
+            const sigBase = [...docs].sort((a,b)=> String(a.sourceConnId+':'+a.id).localeCompare(String(b.sourceConnId+':'+b.id))).map(d=> `${d.sourceConnId}:${d.id}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
             if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId){
               loadFinished = true;
@@ -1811,13 +1796,7 @@
             const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
             const appendOnly = renderedConnId === activeConnId && extraIds.length === 0 && (prefixMatch || suffixMatch);
-            if (!appendOnly && !isFirstPaint){
-              loadFinished = true;
-              if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
-              if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-              updateBottomUi();
-              return;
-            }
+            // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
             if (!appendOnly){
               if (isFirstPaint){
@@ -2086,27 +2065,26 @@
           }
         };
         let liveRenderInFlight = false;
-        let pendingLiveSnap = null;
+        const pendingLiveSnaps = [];
         const processLiveSnap = async ()=>{
           if (liveRenderInFlight) return;
-          const snapToProcess = pendingLiveSnap;
-          pendingLiveSnap = null;
-          if (!snapToProcess) return;
           liveRenderInFlight = true;
           try{
-            // Process ONLY the latest snap – prevents multiple reloads when listener fires repeatedly (cache/server/metadata).
-            await handleSnap(snapToProcess);
+            while (pendingLiveSnaps.length){
+              const snapNow = pendingLiveSnaps.shift();
+              if (snapNow) await handleSnap(snapNow);
+            }
           }finally{
             liveRenderInFlight = false;
           }
         };
         const scheduleLiveSnap = (snap)=>{
-          pendingLiveSnap = snap;
+          pendingLiveSnaps.push(snap);
           if (this._scheduleLiveSnapTimer) clearTimeout(this._scheduleLiveSnapTimer);
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
-          }, 400);
+          }, 150);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
@@ -2119,7 +2097,6 @@
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
-            { includeMetadataChanges: false },
             (snap)=>{ scheduleLiveSnap(snap); },
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
