@@ -44,6 +44,7 @@ import { runTransaction } from 'firebase/firestore';
       this._fallbackKeyCandidatesCache = new Map();
       this._voiceWidgets = new Map();
       this._voiceCurrentSrc = '';
+      this._voiceCurrentAttachmentKey = '';
       this._voiceCurrentTitle = 'Voice message';
       this._voiceWaveCache = new Map();
       this._voiceDurationCache = new Map();
@@ -973,6 +974,7 @@ import { runTransaction } from 'firebase/firestore';
           p.src = '';
           try{ p.load(); }catch(_){ }
           this._voiceCurrentSrc = '';
+          this._voiceCurrentAttachmentKey = '';
           this._voiceCurrentTitle = 'Voice message';
           strip.classList.add('hidden');
           this.updateVoiceWidgets();
@@ -983,6 +985,7 @@ import { runTransaction } from 'firebase/firestore';
         p.src = '';
         try{ p.load(); }catch(_){ }
         this._voiceCurrentSrc = '';
+        this._voiceCurrentAttachmentKey = '';
         this._voiceCurrentTitle = 'Voice message';
         this._topMediaEl = null;
         strip.classList.add('hidden');
@@ -1642,21 +1645,22 @@ import { runTransaction } from 'firebase/firestore';
         toBottomBtn = document.createElement('button');
         toBottomBtn.id = 'chat-scroll-bottom-btn';
         toBottomBtn.className = 'btn secondary';
-        toBottomBtn.textContent = '↑';
-        toBottomBtn.title = 'Jump to latest';
+        toBottomBtn.textContent = '↓';
+        toBottomBtn.title = 'Scroll to latest';
         toBottomBtn.style.cssText = 'position:absolute;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
         const main = document.querySelector('.main') || document.body;
         main.appendChild(toBottomBtn);
       }
       const updateBottomUi = ()=>{
-        const pinned = box.scrollTop < 120;
+        const dist = box.scrollHeight - box.scrollTop - box.clientHeight;
+        const pinned = dist < 120;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = pinned ? 'none' : 'inline-block';
       };
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
         box.addEventListener('scroll', updateBottomUi, { passive: true });
-        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = 0; updateBottomUi(); });
+        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = box.scrollHeight; updateBottomUi(); });
       }
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
@@ -1756,7 +1760,7 @@ import { runTransaction } from 'firebase/firestore';
             merged.sort((a,b)=>{
               const ta = normalizeDocTime(a.data);
               const tb = normalizeDocTime(b.data);
-              if (ta !== tb) return tb - ta;
+              if (ta !== tb) return ta - tb;
               return String(a.id || '').localeCompare(String(b.id || ''));
             });
             const docs = merged;
@@ -1954,7 +1958,7 @@ import { runTransaction } from 'firebase/firestore';
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
             if (!appendOnly && isFirstPaint && pinnedBefore && (i % 2) === 1){
-              box.scrollTop = 0;
+              box.scrollTop = box.scrollHeight;
             }
             if ((i % 3) === 2){
               await this.yieldToUi();
@@ -1974,7 +1978,7 @@ import { runTransaction } from 'firebase/firestore';
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
           if (pinnedBefore){
-            box.scrollTop = 0;
+            box.scrollTop = box.scrollHeight;
           }else{
             box.scrollTop = prevTop;
           }
@@ -2088,7 +2092,7 @@ import { runTransaction } from 'firebase/firestore';
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          const fallbackDocs = (snap.docs || []).slice();
+          const fallbackDocs = (snap.docs || []).slice().reverse();
           for (let i = 0; i < fallbackDocs.length; i++){
             const d = fallbackDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -2193,7 +2197,7 @@ import { runTransaction } from 'firebase/firestore';
               await this.yieldToUi();
             }
           }
-          box.scrollTop = 0;
+          box.scrollTop = box.scrollHeight;
           box.dataset.renderedConnId = activeConnId;
           updateBottomUi();
         }catch(e){
@@ -3407,6 +3411,7 @@ import { runTransaction } from 'firebase/firestore';
             const next = (this._chatAudioPlaylist || []).shift();
             if (!next || !next.src) return;
             this._voiceCurrentSrc = next.src;
+            this._voiceCurrentAttachmentKey = String(next.sourceKey || '').trim();
             this._voiceCurrentTitle = next.title || 'Audio';
             p.src = next.src;
             p.play().catch(()=>{});
@@ -3442,7 +3447,8 @@ import { runTransaction } from 'firebase/firestore';
       }
       this._voiceWidgets.forEach((w)=>{
         const active = (!!playerSrc && this.isSameMediaSrc(w.src, playerSrc))
-          || (!!this._voiceCurrentSrc && this.isSameMediaSrc(w.src, this._voiceCurrentSrc));
+          || (!!this._voiceCurrentSrc && this.isSameMediaSrc(w.src, this._voiceCurrentSrc))
+          || (!!this._voiceCurrentAttachmentKey && !!w.srcKey && w.srcKey === this._voiceCurrentAttachmentKey);
         const duration = Number(p.duration || 0);
         const ct = Number(p.currentTime || 0);
         if (active && duration > 0) w.durationGuess = duration;
@@ -3464,7 +3470,7 @@ import { runTransaction } from 'firebase/firestore';
       }
     }
 
-    renderWaveAttachment(containerEl, url, fileName){
+    renderWaveAttachment(containerEl, url, fileName, sourceKey = ''){
       const wrapper = document.createElement('div');
       wrapper.className = 'voice-wave-player';
       const playBtn = document.createElement('button');
@@ -3485,6 +3491,7 @@ import { runTransaction } from 'firebase/firestore';
       const widget = {
         id: `vw_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
         src: url,
+        srcKey: String(sourceKey || '').trim(),
         connId: this.activeConnection || '',
         title: fileName || 'Voice message',
         playBtn,
@@ -3502,6 +3509,7 @@ import { runTransaction } from 'firebase/firestore';
         if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url)){
           this._topMediaEl = null;
           this._voiceCurrentSrc = url;
+          this._voiceCurrentAttachmentKey = widget.srcKey || '';
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
           p.src = url;
@@ -3532,6 +3540,7 @@ import { runTransaction } from 'firebase/firestore';
         if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url)){
           this._topMediaEl = null;
           this._voiceCurrentSrc = url;
+          this._voiceCurrentAttachmentKey = widget.srcKey || '';
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
           p.src = url;
@@ -3552,6 +3561,7 @@ import { runTransaction } from 'firebase/firestore';
             p.load();
           }catch(_){ }
           this._voiceCurrentSrc = '';
+          this._voiceCurrentAttachmentKey = '';
           this._voiceCurrentTitle = '';
           widget.durationGuess = 0;
         }
@@ -3585,6 +3595,7 @@ import { runTransaction } from 'firebase/firestore';
         const src = mediaEl.currentSrc || mediaEl.src || '';
         if (!src) return;
         this._voiceCurrentSrc = src;
+        this._voiceCurrentAttachmentKey = String(meta.sourceKey || '').trim();
         this._voiceCurrentTitle = meta.title || 'Voice message';
         if (p.src !== src) p.src = src;
         if (!Number.isNaN(mediaEl.currentTime)) p.currentTime = mediaEl.currentTime;
@@ -3782,7 +3793,7 @@ import { runTransaction } from 'firebase/firestore';
       };
     }
 
-    renderNamedAudioAttachment(containerEl, src, fileName, authorName = ''){
+    renderNamedAudioAttachment(containerEl, src, fileName, authorName = '', sourceKey = ''){
       const wrap = document.createElement('div');
       wrap.className = 'audio-attachment-block';
       const head = document.createElement('div');
@@ -3807,7 +3818,7 @@ import { runTransaction } from 'firebase/firestore';
       head.appendChild(meta);
       head.appendChild(addBtn);
       wrap.appendChild(head);
-      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`);
+      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
       containerEl.appendChild(wrap);
     }
 
@@ -3928,6 +3939,50 @@ import { runTransaction } from 'firebase/firestore';
               }
             }catch(_){ }
           }
+          if (!decrypted){
+            try{
+              const salts = new Set();
+              const addSalt = (v)=>{ const s = String(v || '').trim(); if (s) salts.add(s); };
+              addSalt(message?.attachmentKeySalt);
+              addSalt(sourceConnId);
+              addSalt(message?.attachmentSourceConnId);
+              addSalt(message?.connId);
+              addSalt(this.extractConnIdFromAttachmentUrl(fileUrl));
+              addSalt(this.activeConnection);
+              const peers = new Set();
+              const addPeer = (v)=>{ const s = String(v || '').trim(); if (s && s !== this.currentUser.uid) peers.add(s); };
+              addPeer(message?.sender);
+              for (const cid of candidateConnIds){
+                try{ addPeer(await this.getPeerUidForConn(cid)); }catch(_){ }
+              }
+              for (const salt of salts){
+                if (decrypted) break;
+                try{
+                  const kStable = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
+                  b64 = await chatCrypto.decryptWithKey(payload, kStable);
+                  decrypted = true;
+                  break;
+                }catch(_){ }
+                for (const peer of peers){
+                  if (decrypted) break;
+                  try{
+                    const kCompat = await window.chatCrypto.deriveChatKey(`${[this.currentUser.uid, peer].sort().join('|')}|${salt}|liber_secure_chat_fallback_v1`);
+                    b64 = await chatCrypto.decryptWithKey(payload, kCompat);
+                    decrypted = true;
+                    break;
+                  }catch(_){ }
+                  if (!decrypted && window.chatCrypto && typeof window.chatCrypto.deriveFallbackSharedAesKey === 'function'){
+                    try{
+                      const kShared = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peer, salt);
+                      b64 = await chatCrypto.decryptWithKey(payload, kShared);
+                      decrypted = true;
+                      break;
+                    }catch(_){ }
+                  }
+                }
+              }
+            }catch(_){ }
+          }
           // Keep chat switching smooth: do not fan out decrypt attempts across all chats.
           if (!decrypted && isVideoRecording){
             const recentConnIds = (this.connections || [])
@@ -3973,7 +4028,7 @@ import { runTransaction } from 'firebase/firestore';
           });
           img.addEventListener('load', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
           });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
@@ -3994,22 +4049,23 @@ import { runTransaction } from 'firebase/firestore';
           }
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
           });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(b64, mime);
+          const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const cacheKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
           if (isVoiceRecording){
             const title = String(senderDisplayName || 'Voice message');
-            this.renderWaveAttachment(containerEl, url, title);
+            this.renderWaveAttachment(containerEl, url, title, attachmentSourceKey);
           }else{
-            this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown');
+            this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
           const box = document.getElementById('messages');
-          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
+          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const cacheKey = `pdf|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
@@ -4101,10 +4157,11 @@ import { runTransaction } from 'firebase/firestore';
           return;
         }
         if (this.isAudioFilename(name)){
+          const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(name || '')}`;
           if (isVoiceRecording){
-            this.renderWaveAttachment(containerEl, fileUrl, 'Voice message');
+            this.renderWaveAttachment(containerEl, fileUrl, 'Voice message', attachmentSourceKey);
           }else{
-            this.renderNamedAudioAttachment(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown');
+            this.renderNamedAudioAttachment(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
           return;
         }
