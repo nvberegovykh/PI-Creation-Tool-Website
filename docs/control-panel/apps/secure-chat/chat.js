@@ -2377,8 +2377,9 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     async sendFiles(files){
-      if (!files || !files.length || !this.activeConnection) { console.warn('No files or no active connection'); return; }
-      const can = await this.canSendToActiveConnection();
+      const targetConnId = this.activeConnection;
+      if (!files || !files.length || !targetConnId) { console.warn('No files or no active connection'); return; }
+      const can = await this.canSendToConnection(targetConnId);
       if (!can.ok){
         alert(can.reason || 'Cannot send attachments');
         return;
@@ -2388,7 +2389,7 @@ import { runTransaction } from 'firebase/firestore';
         return;
       }
       try{
-        const cRef = firebase.doc(this.db, 'chatConnections', this.activeConnection);
+        const cRef = firebase.doc(this.db, 'chatConnections', targetConnId);
         const cSnap = await firebase.getDoc(cRef);
         const participants = cSnap.exists()
           ? (Array.isArray(cSnap.data().participants)
@@ -2414,7 +2415,7 @@ import { runTransaction } from 'firebase/firestore';
       for (const f of files){
         try {
           console.log('Sending file:', f.name);
-          const aesKey = await this.getFallbackKey();
+          const aesKey = await this.getFallbackKeyForConn(targetConnId);
           // Read file as base64 via FileReader to avoid large argument spreads
           const base64 = await new Promise((resolve, reject)=>{
             try{
@@ -2433,12 +2434,18 @@ import { runTransaction } from 'firebase/firestore';
           // Store encrypted JSON payload with .json extension to aid CORS/content-type and preview
           const blob = new Blob([JSON.stringify(cipher)], {type:'application/json'});
           const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-          const r = firebase.ref(this.storage, `chat/${this.activeConnection}/${Date.now()}_${safeName}.enc.json`);
+          const r = firebase.ref(this.storage, `chat/${targetConnId}/${Date.now()}_${safeName}.enc.json`);
           console.log('File upload started');
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
           console.log('File upload completed');
-          await this.saveMessage({text:`[file] ${f.name}`, fileUrl:url, fileName:f.name});
+          await this.saveMessage({
+            text:`[file] ${f.name}`,
+            fileUrl:url,
+            fileName:f.name,
+            connId: targetConnId,
+            attachmentSourceConnId: targetConnId
+          });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
@@ -2767,23 +2774,26 @@ import { runTransaction } from 'firebase/firestore';
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName}){
-      const aesKey = await this.getFallbackKey();
+    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId}){
+      const targetConnId = connId || this.activeConnection;
+      if (!targetConnId) return;
+      const aesKey = await this.getFallbackKeyForConn(targetConnId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
-      const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',this.activeConnection,'messages'));
+      const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',targetConnId,'messages'));
       await firebase.setDoc(msgRef,{
         id: msgRef.id,
-        connId: this.activeConnection,
+        connId: targetConnId,
         sender: this.currentUser.uid,
         cipher,
         fileUrl: fileUrl||null,
         fileName: fileName||null,
+        attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
       });
-      await firebase.updateDoc(firebase.doc(this.db,'chatConnections',this.activeConnection),{
+      await firebase.updateDoc(firebase.doc(this.db,'chatConnections',targetConnId),{
         lastMessage: text.slice(0,200),
         updatedAt: new Date().toISOString()
       });
@@ -3510,10 +3520,11 @@ import { runTransaction } from 'firebase/firestore';
           const url = URL.createObjectURL(blob);
           const video = document.createElement('video');
           video.src = url;
-          video.controls = true;
+          video.controls = false;
           video.playsInline = true;
           video.style.maxWidth = '100%';
           video.style.borderRadius='8px';
+          this.applyRandomTriangleMask(video);
           this.bindInlineVideoPlayback(video, fileName || 'Video message');
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
@@ -3588,10 +3599,11 @@ import { runTransaction } from 'firebase/firestore';
         if (this.isVideoFilename(name)){
           const v = document.createElement('video');
           v.src = fileUrl;
-          v.controls = true;
+          v.controls = false;
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
+          this.applyRandomTriangleMask(v);
           this.bindInlineVideoPlayback(v, name || 'Video message');
           containerEl.appendChild(v);
           return;
@@ -4974,6 +4986,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     }
     sendBtn.onclick = async ()=>{
       if (self._recordingSendInFlight) return;
+      const targetConnId = self.activeConnection;
+      if (!targetConnId) return;
       self._recordingSendInFlight = true;
       sendBtn.disabled = true;
       discardBtn.disabled = true;
@@ -5013,16 +5027,22 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       }
       try {
         console.log('Sending recording:', filename);
-        const aesKey = await self.getFallbackKeyForConn(self.activeConnection);
+        const aesKey = await self.getFallbackKeyForConn(targetConnId);
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
-        const safe = `chat/${self.activeConnection}/${Date.now()}_${filename}`;
+        const safe = `chat/${targetConnId}/${Date.now()}_${filename}`;
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
         console.log('Recording upload started');
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
         const url2 = await firebase.getDownloadURL(sref);
         console.log('Recording upload completed');
-        await self.saveMessage({ text: isVideo? '[video message]': '[voice message]', fileUrl: url2, fileName: filename });
+        await self.saveMessage({
+          text: isVideo? '[video message]': '[voice message]',
+          fileUrl: url2,
+          fileName: filename,
+          connId: targetConnId,
+          attachmentSourceConnId: targetConnId
+        });
       } catch (err) {
         console.error('Recording upload error:', err.code, err.message, err);
         if (err.code === 'storage/unauthorized') {
