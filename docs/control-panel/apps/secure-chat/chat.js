@@ -1912,7 +1912,18 @@ import { runTransaction } from 'firebase/firestore';
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
           if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
           }catch(_){
-            // Keep listener alive even if one render cycle fails.
+            // Never leave the active chat locked in loading state on render errors.
+            try{
+              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+              if (/Loading messages/i.test(String(box.textContent || ''))){
+                box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
+                box.dataset.renderedConnId = activeConnId;
+                updateBottomUi();
+                loadFinished = true;
+                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+              }
+            }catch(__){ }
           }
         };
         let liveRenderInFlight = false;
@@ -1934,6 +1945,21 @@ import { runTransaction } from 'firebase/firestore';
           pendingLiveSnap = snap;
           Promise.resolve().then(processLiveSnap).catch(()=>{});
         };
+        // Core invariant: first paint must run inline for active chat (no queued async dependency).
+        try{
+          const sInit = await Promise.race([
+            fetchLatestSnap(),
+            new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
+          ]);
+          await handleSnap(sInit);
+        }catch(_){
+          if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId){
+            box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
+            box.dataset.renderedConnId = activeConnId;
+            updateBottomUi();
+            loadFinished = true;
+          }
+        }
         if (firebase.onSnapshot){
           this._unsubMessages = firebase.onSnapshot(
             q,
@@ -1946,21 +1972,6 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           );
-          // Deterministic first paint on every switch (prevents spinner lock on listener races).
-          try{
-            const sInit = await Promise.race([
-              fetchLatestSnap(),
-              new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
-            ]);
-            scheduleLiveSnap(sInit);
-          }catch(_){
-            if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId){
-              box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
-              box.dataset.renderedConnId = activeConnId;
-              updateBottomUi();
-              loadFinished = true;
-            }
-          }
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
