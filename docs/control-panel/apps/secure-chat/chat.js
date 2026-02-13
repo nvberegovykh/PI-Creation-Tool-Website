@@ -1670,6 +1670,7 @@ import { runTransaction } from 'firebase/firestore';
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
         if (this._msgPoll) { clearInterval(this._msgPoll); this._msgPoll = null; }
+        if (this._scheduleLiveSnapTimer) { clearTimeout(this._scheduleLiveSnapTimer); this._scheduleLiveSnapTimer = null; }
         // Keep switching stable: avoid expensive merged-thread fanout queries on each live update.
         let relatedConnIds = [activeConnId];
         let q;
@@ -1755,6 +1756,14 @@ import { runTransaction } from 'firebase/firestore';
         const handleSnap = async (snap)=>{
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+            const renderedConnId = String(box.dataset.renderedConnId || '');
+            if (renderedConnId === activeConnId && snap.docChanges && snap.docChanges().length === 0){
+              loadFinished = true;
+              if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+              if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+              updateBottomUi();
+              return;
+            }
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             let merged = docsPrimary.slice();
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
@@ -1771,7 +1780,6 @@ import { runTransaction } from 'firebase/firestore';
             const docs = merged;
             const sigBase = docs.map(d=> `${d.sourceConnId}:${d.id}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
-            const renderedConnId = String(box.dataset.renderedConnId || '');
             if (this._lastRenderSigByConn.get(activeConnId) === sig && renderedConnId === activeConnId){
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -2013,7 +2021,6 @@ import { runTransaction } from 'firebase/firestore';
         };
         let liveRenderInFlight = false;
         let pendingLiveSnap = null;
-        let scheduleLiveSnapTimer = null;
         const DEBOUNCE_MS = 180;
         const processLiveSnap = async ()=>{
           if (liveRenderInFlight) return;
@@ -2030,9 +2037,9 @@ import { runTransaction } from 'firebase/firestore';
         };
         const scheduleLiveSnap = (snap)=>{
           pendingLiveSnap = snap;
-          if (scheduleLiveSnapTimer) clearTimeout(scheduleLiveSnapTimer);
-          scheduleLiveSnapTimer = setTimeout(()=>{
-            scheduleLiveSnapTimer = null;
+          if (this._scheduleLiveSnapTimer) clearTimeout(this._scheduleLiveSnapTimer);
+          this._scheduleLiveSnapTimer = setTimeout(()=>{
+            this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
           }, DEBOUNCE_MS);
         };
@@ -2056,15 +2063,7 @@ import { runTransaction } from 'firebase/firestore';
               }catch(_){ }
             }
           );
-          // Keep a timed polling fallback even in snapshot mode so switching never stalls.
-          this._msgPoll && clearInterval(this._msgPoll);
-          this._msgPoll = setInterval(async ()=>{
-            try{
-              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-              const sPoll = await fetchLatestSnapWithTimeout(4500);
-              scheduleLiveSnap(sPoll);
-            }catch(_){ }
-          }, 15000);
+          // No polling when listener is active - poll causes unwanted reloads and scroll resets.
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
           this._msgPoll && clearInterval(this._msgPoll);
