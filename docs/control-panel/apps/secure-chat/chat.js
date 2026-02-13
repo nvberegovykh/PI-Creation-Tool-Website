@@ -51,6 +51,7 @@
       this._voiceHydrateRunning = 0;
       this._voiceHydrateMax = 1;
       this._voiceHydrateSession = 0;
+      this._voiceProgressRaf = 0;
       this._senderLookupInFlight = new Set();
       this._typingUnsub = null;
       this._typingTicker = null;
@@ -1187,6 +1188,7 @@
         const m = this._topMediaEl;
         const p = this.ensureChatBgPlayer();
         this._forceHideVoiceStripUntil = Date.now() + 260;
+        this.pauseOtherInlineMedia(null);
         if (m && m.isConnected){
           try{ m.pause(); }catch(_){ }
           try{ m.currentTime = 0; }catch(_){ }
@@ -1210,6 +1212,7 @@
         this._voiceCurrentAttachmentKey = '';
         this._voiceCurrentTitle = 'Voice message';
         this._topMediaEl = null;
+        this.stopVoiceProgressLoop();
         strip.classList.add('hidden');
         this.updateVoiceWidgets();
       });
@@ -3798,13 +3801,31 @@
     startVoiceWidgetTicker(){
       if (this._voiceWidgetTicker) return;
       this._voiceWidgetTicker = setInterval(()=>{
-        if (this._voiceWidgets.size === 0) return;
+        const p = this.ensureChatBgPlayer();
+        const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
+        const hasActivePlayback = (!!this.getChatPlayerSrc(p) && !p.paused) || (!!topMedia && !topMedia.paused);
+        if (this._voiceWidgets.size === 0 && !hasActivePlayback) return;
         this.updateVoiceWidgets();
       }, 80);
     }
 
     stopVoiceWidgetTicker(){
       if (this._voiceWidgetTicker){ clearInterval(this._voiceWidgetTicker); this._voiceWidgetTicker = null; }
+    }
+
+    startVoiceProgressLoop(){
+      if (this._voiceProgressRaf) return;
+      const tick = ()=>{
+        this.updateVoiceWidgets();
+        if (this._voiceProgressRaf) this._voiceProgressRaf = window.requestAnimationFrame(tick);
+      };
+      this._voiceProgressRaf = window.requestAnimationFrame(tick);
+    }
+
+    stopVoiceProgressLoop(){
+      if (!this._voiceProgressRaf) return;
+      try{ window.cancelAnimationFrame(this._voiceProgressRaf); }catch(_){ }
+      this._voiceProgressRaf = 0;
     }
 
     updateVoiceWidgets(){
@@ -3855,6 +3876,9 @@
         if (!playerSrc) stripTitle.textContent = 'Voice message';
         else if (!this._voiceWidgets.size) stripTitle.textContent = this._voiceCurrentTitle || 'Voice message';
       }
+      const shouldAnimate = (!!playerSrc && !p.paused) || (!!topMedia && !topMedia.paused);
+      if (shouldAnimate) this.startVoiceProgressLoop();
+      else this.stopVoiceProgressLoop();
     }
 
     renderWaveAttachment(containerEl, url, fileName, sourceKey = ''){
@@ -3900,6 +3924,7 @@
           this._voiceCurrentAttachmentKey = widget.srcKey || '';
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
+          this.pauseOtherInlineMedia(null);
           p.src = url;
           p.currentTime = 0;
           p.play().catch(()=>{});
@@ -3931,6 +3956,7 @@
           this._voiceCurrentAttachmentKey = widget.srcKey || '';
           this._voiceCurrentTitle = widget.title;
           this.setupMediaSessionForVoice(widget.title);
+          this.pauseOtherInlineMedia(null);
           p.src = url;
           p.play().catch(()=>{});
           this.updateVoiceWidgets();
@@ -3942,16 +3968,8 @@
         if (p.paused) {
           p.play().catch(()=>{});
         } else {
-          // "Stop" behavior for message audio button: stop and reset.
+          // Keep stable behavior: pause/resume on tap; hard stop only via top-strip close.
           p.pause();
-          try{
-            p.removeAttribute('src');
-            p.load();
-          }catch(_){ }
-          this._voiceCurrentSrc = '';
-          this._voiceCurrentAttachmentKey = '';
-          this._voiceCurrentTitle = '';
-          widget.durationGuess = 0;
         }
         this.updateVoiceWidgets();
       });
