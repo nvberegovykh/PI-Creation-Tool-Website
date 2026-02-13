@@ -1797,18 +1797,12 @@ import { runTransaction } from 'firebase/firestore';
             const canAppendIntoExistingDom = renderedConnId === activeConnId;
             const appendOnly = canAppendIntoExistingDom && extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const isFirstPaint = renderedConnId !== activeConnId;
-            const wouldFullReplace = !appendOnly && !isFirstPaint;
-            if (wouldFullReplace){
-              if (!this._lastFullReplaceAtByConn) this._lastFullReplaceAtByConn = new Map();
-              const lastAt = Number(this._lastFullReplaceAtByConn.get(activeConnId) || 0);
-              if ((Date.now() - lastAt) < 2500){
-                loadFinished = true;
-                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
-                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-                updateBottomUi();
-                return;
-              }
-              this._lastFullReplaceAtByConn.set(activeConnId, Date.now());
+            if (!appendOnly && !isFirstPaint){
+              loadFinished = true;
+              if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+              if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+              updateBottomUi();
+              return;
             }
             let renderTarget = box;
             if (!appendOnly){
