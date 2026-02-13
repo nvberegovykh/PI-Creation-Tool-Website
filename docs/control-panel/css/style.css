@@ -408,6 +408,14 @@ pre, code {
     animation: fadeIn 0.5s ease-in;
 }
 
+/* Shared smooth dissolve-out animation for removed elements */
+.liber-dissolve-out{
+  opacity:0 !important;
+  transform:scale(.985) translateY(2px) !important;
+  filter:blur(1px);
+  transition:opacity .22s ease, transform .22s ease, filter .22s ease;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }

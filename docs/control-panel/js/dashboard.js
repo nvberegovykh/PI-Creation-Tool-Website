@@ -50,6 +50,15 @@ class DashboardManager {
         return user;
     }
 
+    async dissolveOutRemove(el, ms = 220){
+        try{
+            if (!el || !el.isConnected) return;
+            el.classList.add('liber-dissolve-out');
+            await new Promise((r)=> setTimeout(r, Math.max(120, ms)));
+            if (el && el.isConnected) el.remove();
+        }catch(_){ }
+    }
+
     scheduleSpaceRetry(){
         if (this._spaceRetryTimer) return;
         this._spaceRetryTimer = setTimeout(()=>{
@@ -1796,6 +1805,8 @@ class DashboardManager {
                     delBtn.onclick = async ()=>{
                         if (authorId !== meUser.uid) return;
                         if (!confirm('Delete this post?')) return;
+                        const postEl = pa.closest('.post-item');
+                        await this.dissolveOutRemove(postEl, 240);
                         await window.firebaseService.deletePost(postId);
                         this.loadMyPosts(uid);
                     };
@@ -1870,6 +1881,8 @@ class DashboardManager {
                             }; }
                             if (db){ db.onclick = async ()=>{
                                 if (!confirm('Delete this comment?')) return;
+                                const commentEl = act.closest('.comment-item');
+                                await this.dissolveOutRemove(commentEl, 200);
                                 await window.firebaseService.deleteComment(postId, cid);
                                 this.loadFeed(uid, titleName);
                             }; }
@@ -2069,7 +2082,7 @@ class DashboardManager {
                     if (menuBtn){ menuBtn.onclick = async ()=>{ try{ const loc = `${location.origin}${location.pathname}#post-${postId}`; await navigator.clipboard.writeText(loc); this.showSuccess('Post link copied'); }catch(_){ this.showError('Failed to copy'); } }; }
                     if (visBtn && canEditPost){ visBtn.onclick = async ()=>{ try{ const ref = firebase.doc(window.firebaseService.db,'posts', postId); const doc = await firebase.getDoc(ref); const p=doc.data()||{}; const next = p.visibility==='public'?'private':'public'; await firebase.updateDoc(ref, { visibility: next, updatedAt:new Date().toISOString() }); visBtn.textContent = next==='public'?'Make Private':'Make Public'; }catch(_){ } }; }
                     if (editBtn && canEditPost){ editBtn.onclick = async ()=>{ const container = pa.closest('.post-item'); const textDiv = container && container.querySelector('.post-text'); const current = textDiv ? textDiv.textContent : ''; const newText = prompt('Edit post:', current); if (newText===null) return; await window.firebaseService.updatePost(postId, { text: newText.trim() }); this.loadGlobalFeed(); }; }
-                    if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
+                    if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; const postEl = pa.closest('.post-item'); await this.dissolveOutRemove(postEl, 240); await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
                     if (commentBtn){ commentBtn.onclick = async ()=>{
                         const tree = pa.closest('.post-item')?.querySelector('.comment-tree') || document.getElementById(`comments-${postId}`); if (!tree) return;
                         const forceOpen = tree.dataset.forceOpen === '1';
@@ -2114,7 +2127,7 @@ class DashboardManager {
                             const cid = act.getAttribute('data-comment-id'); const author = act.getAttribute('data-author'); const canEdit = !!myUid && author === myUid; const eb = act.querySelector('.edit-comment-btn'); const db = act.querySelector('.delete-comment-btn');
                             if (!canEdit){ eb && (eb.style.display='none'); db && (db.style.display='none'); }
                             if (canEdit){ if (eb){ eb.onclick = async ()=>{ const newText = prompt('Edit comment:'); if (newText===null) return; await window.firebaseService.updateComment(postId, cid, newText.trim()); this.loadGlobalFeed(); }; }
-                                if (db){ db.onclick = async ()=>{ if (!confirm('Delete this comment?')) return; await window.firebaseService.deleteComment(postId, cid); this.loadGlobalFeed(); }; }
+                                if (db){ db.onclick = async ()=>{ if (!confirm('Delete this comment?')) return; const commentEl = act.closest('.comment-item'); await this.dissolveOutRemove(commentEl, 200); await window.firebaseService.deleteComment(postId, cid); this.loadGlobalFeed(); }; }
                             }
                         });
                     }; }
