@@ -1767,6 +1767,21 @@
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             let merged = docsPrimary.slice();
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
+            // Early exit when listener fires with duplicate of what we already rendered – prevents extra reload.
+            if (extraIds.length === 0 && renderedConnId === activeConnId){
+              const prevIdsEarly = this._lastDocIdsByConn.get(activeConnId) || [];
+              let changesEarly = [];
+              try{ changesEarly = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
+              const allAddedEarly = changesEarly.length > 0 && changesEarly.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
+              const alreadyHaveAllEarly = allAddedEarly && prevIdsEarly.length > 0 && changesEarly.every((c)=> prevIdsEarly.includes(((c.doc||c).id)));
+              if (alreadyHaveAllEarly){
+                loadFinished = true;
+                if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+                if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+                updateBottomUi();
+                return;
+              }
+            }
             if (extraIds.length){
               const extraSets = await Promise.all(extraIds.map((cid)=> fetchDocsForConn(cid)));
               extraSets.forEach((rows)=> merged.push(...rows));
@@ -2066,7 +2081,9 @@
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
           if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
-          }catch(_){ }
+          }catch(_){
+            loadFinished = true;
+          }
         };
         let liveRenderInFlight = false;
         let pendingLiveSnap = null;
@@ -2089,7 +2106,7 @@
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
-          }, 300);
+          }, 400);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
@@ -2128,6 +2145,8 @@
           try{
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+            // Skip if messages already rendered – avoids redundant reload when decrypt is slow.
+            if (box.querySelector('.message')){ loadFinished = true; if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; } return; }
             const sKick = await fetchLatestSnapWithTimeout(4500);
             await handleSnap(sKick);
           }catch(_){ }
