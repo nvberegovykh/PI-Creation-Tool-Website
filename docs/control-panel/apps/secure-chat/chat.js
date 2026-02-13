@@ -1713,7 +1713,8 @@ import { runTransaction } from 'firebase/firestore';
             const pinnedBefore = box.dataset.pinnedBottom !== '0';
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
-            const appendOnly = extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
+            const canAppendIntoExistingDom = renderedConnId === activeConnId;
+            const appendOnly = canAppendIntoExistingDom && extraIds.length === 0 && prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             if (!appendOnly){
               box.innerHTML='';
               lastRenderedDay = '';
