@@ -1014,6 +1014,7 @@ import { runTransaction } from 'firebase/firestore';
     }
 
     isSameMediaSrc(a, b){
+      if (!a || !b) return false;
       const na = this.normalizeMediaSrc(a);
       const nb = this.normalizeMediaSrc(b);
       if (!na || !nb) return false;
@@ -3421,7 +3422,20 @@ import { runTransaction } from 'firebase/firestore';
       return p;
     }
 
+    startVoiceWidgetTicker(){
+      if (this._voiceWidgetTicker) return;
+      this._voiceWidgetTicker = setInterval(()=>{
+        if (this._voiceWidgets.size === 0) return;
+        this.updateVoiceWidgets();
+      }, 150);
+    }
+
+    stopVoiceWidgetTicker(){
+      if (this._voiceWidgetTicker){ clearInterval(this._voiceWidgetTicker); this._voiceWidgetTicker = null; }
+    }
+
     updateVoiceWidgets(){
+      if (this._voiceWidgets.size === 0){ this.stopVoiceWidgetTicker(); }
       const p = this.ensureChatBgPlayer();
       const stale = [];
       this._voiceWidgets.forEach((w, k)=>{ if (!w.wave || !w.wave.isConnected) stale.push(k); });
@@ -3502,6 +3516,7 @@ import { runTransaction } from 'firebase/firestore';
       };
       this._voiceWidgets.set(widget.id, widget);
       this.hydrateVoiceWidgetMedia(widget, barsCount, keySeed);
+      this.startVoiceWidgetTicker();
 
       const p = this.ensureChatBgPlayer();
       const startFromRatio = (ratio)=>{
@@ -3813,7 +3828,7 @@ import { runTransaction } from 'firebase/firestore';
       });
       addBtn.onclick = (e)=>{
         try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
-        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor });
+        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor, sourceKey });
       };
       head.appendChild(meta);
       head.appendChild(addBtn);
@@ -3848,6 +3863,24 @@ import { runTransaction } from 'firebase/firestore';
         try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
         catch {
           let decrypted = false;
+          const hintSalt = String(message?.attachmentKeySalt || '').trim();
+          if (hintSalt && (isVideoRecording || isVoiceRecording)) {
+            try {
+              const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+              decrypted = true;
+            } catch (_) {}
+            if (!decrypted && window.chatCrypto?.deriveFallbackSharedAesKey) {
+              const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(sourceConnId);
+              if (peerUid) {
+                try {
+                  const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, hintSalt);
+                  b64 = await chatCrypto.decryptWithKey(payload, key);
+                  decrypted = true;
+                } catch (_) {}
+              }
+            }
+          }
           const candidateConnIds = [];
           const pushConn = (cid)=>{
             const id = String(cid || '').trim();
