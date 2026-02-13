@@ -1829,7 +1829,9 @@
                 moreWrap.appendChild(moreBtn);
               }
             }
-            const renderOne = async (d, sourceConnId = activeConnId)=>{
+            const renderOne = async (d, sourceConnId = activeConnId, opts = {})=>{
+              const forceInsertBefore = !!opts.forceInsertBefore;
+              const replaceEl = opts.replaceEl || null;
               if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
               const m=(typeof d.data === 'function' ? d.data() : d.data) || {};
               const aesKey = await getKeyForConn(sourceConnId);
@@ -1909,14 +1911,16 @@
                   const sep = document.createElement('div');
                   sep.className = 'message-day-separator';
                   sep.textContent = lastRenderedDay;
-                  if (appendOnly) box.insertBefore(sep, box.firstElementChild);
+                  if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
                   else renderTarget.appendChild(sep);
                 }
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
-              if (appendOnly){
+              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              if (replaceEl){
+                box.replaceChild(el, replaceEl);
+              } else if (appendOnly || forceInsertBefore){
                 box.insertBefore(el, box.firstElementChild);
               }else{
                 renderTarget.appendChild(el);
@@ -1981,6 +1985,41 @@
                 shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
               }
           };
+          // docChanges incremental: add/modify/remove only – no full reload. New messages pop in smoothly.
+          let changes = [];
+          try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
+          const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
+          const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
+          const useDocChanges = renderedConnId === activeConnId && extraIds.length === 0 && changes.length > 0 && !alreadyHaveAll;
+          if (useDocChanges){
+            for (const c of changes){
+              const type = String(c.type||'').toLowerCase();
+              const doc = c.doc || c;
+              const id = doc.id;
+              const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
+              if (type === 'removed'){
+                const el = box.querySelector('[data-msg-id="' + id + '"]');
+                if (el) el.remove();
+              } else if (type === 'added' || type === 'modified'){
+                const existing = box.querySelector('[data-msg-id="' + id + '"]');
+                try{
+                  if (type === 'modified' && existing){
+                    await renderOne(d, d.sourceConnId || activeConnId, { replaceEl: existing });
+                  } else {
+                    await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
+                  }
+                }catch(_){ }
+              }
+            }
+            this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
+            if (pinnedBefore) box.scrollTop = box.scrollHeight;
+            else box.scrollTop = prevTop;
+            updateBottomUi();
+            loadFinished = true;
+            if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+            if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+            return;
+          }
           const docsToRender = appendOnly
             ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIds.includes(d.id)))
             : docs;
