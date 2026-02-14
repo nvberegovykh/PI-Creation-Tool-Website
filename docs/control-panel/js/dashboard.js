@@ -3177,6 +3177,58 @@ class DashboardManager {
             const lib = document.getElementById('wave-library');
             const res = document.getElementById('wave-results');
             const upBtn = document.getElementById('wave-upload-btn');
+            const waveFileInput = document.getElementById('wave-file');
+            const waveCoverInput = document.getElementById('wave-cover');
+            const waveTitleInput = document.getElementById('wave-title');
+            const waveUploadCard = document.getElementById('wave-upload-card');
+            if (waveUploadCard && !waveUploadCard._dropBound){
+                waveUploadCard._dropBound = true;
+                const applyDropFiles = (files)=>{
+                    const list = Array.from(files || []).filter((f)=> f instanceof File);
+                    if (!list.length) return;
+                    const audio = list.find((f)=> String(f.type || '').startsWith('audio/'))
+                        || list.find((f)=> /\.(mp3|wav|ogg|m4a|aac|weba|webm)$/i.test(String(f.name || '')));
+                    const cover = list.find((f)=> String(f.type || '').startsWith('image/'));
+                    if (audio && waveFileInput){
+                        try{
+                            const dt = new DataTransfer();
+                            dt.items.add(audio);
+                            waveFileInput.files = dt.files;
+                            if (waveTitleInput && !String(waveTitleInput.value || '').trim()){
+                                const base = String(audio.name || 'Track').replace(/\.[^/.]+$/, '');
+                                waveTitleInput.value = base;
+                            }
+                        }catch(_){ }
+                    }
+                    if (cover && waveCoverInput){
+                        try{
+                            const dt = new DataTransfer();
+                            dt.items.add(cover);
+                            waveCoverInput.files = dt.files;
+                        }catch(_){ }
+                    }
+                    if (!audio && !cover){
+                        this.showError('Drop audio file and optional image cover');
+                    }
+                };
+                ['dragenter','dragover'].forEach((evt)=>{
+                    waveUploadCard.addEventListener(evt, (e)=>{
+                        e.preventDefault();
+                        waveUploadCard.classList.add('dragover');
+                        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                    });
+                });
+                ['dragleave','dragend'].forEach((evt)=>{
+                    waveUploadCard.addEventListener(evt, ()=> waveUploadCard.classList.remove('dragover'));
+                });
+                waveUploadCard.addEventListener('drop', (e)=>{
+                    e.preventDefault();
+                    waveUploadCard.classList.remove('dragover');
+                    const dt = e.dataTransfer;
+                    if (!dt || !dt.files || !dt.files.length) return;
+                    applyDropFiles(dt.files);
+                });
+            }
             if (upBtn && !upBtn._bound){
                 upBtn._bound = true;
                 upBtn.onclick = async ()=>{

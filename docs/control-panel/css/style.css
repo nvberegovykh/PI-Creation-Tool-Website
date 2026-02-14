@@ -31,6 +31,10 @@
   border-color:#4da3ff !important;
   box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
 }
+#wave-upload-card.dragover{
+  border-color:#4da3ff !important;
+  box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
+}
 .post-media-block{margin-top:8px}
 .post-media-visual-wrap{overflow:auto;-webkit-overflow-scrolling:touch}
 .post-media-visual-slider{display:flex;gap:8px}
