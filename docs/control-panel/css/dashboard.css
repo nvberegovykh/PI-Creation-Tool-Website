@@ -1181,4 +1181,26 @@
   #space-section > .settings-grid > #space-compose-card{
     margin:0;
   }
+  #dashboard,
+  .dashboard,
+  .dashboard-content,
+  .content-section,
+  #space-section,
+  #feed-section{
+    width:100%;
+    max-width:none;
+  }
+  #space-section #space-feed-card,
+  #feed-section .settings-card{
+    width:100%;
+    max-width:none;
+  }
+  #space-feed,
+  #global-feed,
+  #preview-feed,
+  #global-suggestions,
+  #space-suggestions{
+    width:100%;
+    max-width:none;
+  }
 }

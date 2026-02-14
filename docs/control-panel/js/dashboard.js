@@ -19,6 +19,9 @@ class DashboardManager {
         this._videoSuggestionsVisible = 5;
         this._userPreviewCache = new Map();
         this._spacePostAttachments = [];
+        this._waveMetaByUrl = new Map();
+        this._waveMetaPendingByUrl = new Map();
+        this._resumeBySrc = new Map();
         try{
             const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
             if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
@@ -127,7 +130,7 @@ class DashboardManager {
                 if (!el.dataset.feedOrder) el.dataset.feedOrder = String(idx);
             });
             const base = cards.slice().sort((a,b)=> Number(a.dataset.feedOrder || 0) - Number(b.dataset.feedOrder || 0));
-            const colW = 340;
+            const colW = 300;
             const gap = 12;
             const width = Math.max(1, Number(container.clientWidth || 0));
             const cols = Math.max(1, Math.floor((width + gap) / (colW + gap)));
@@ -158,9 +161,20 @@ class DashboardManager {
         const matchesOwner = (p)=>{
             const ownerId = String(p?.ownerId || '').trim();
             const ownerLegacy = String(p?.owner || '').trim();
-            return ownerId === targetUid || ownerLegacy === targetUid;
+            const userId = String(p?.userId || '').trim();
+            const authorId = String(p?.authorId || '').trim();
+            const createdBy = String(p?.createdBy || '').trim();
+            return ownerId === targetUid || ownerLegacy === targetUid || userId === targetUid || authorId === targetUid || createdBy === targetUid;
         };
-        const isPublic = (p)=> String(p?.visibility || '').trim().toLowerCase() === 'public';
+        const isPublic = (p)=>{
+            const visibility = String(p?.visibility || '').trim().toLowerCase();
+            if (visibility === 'public') return true;
+            if (visibility === 'pub') return true;
+            if (p?.isPublic === true) return true;
+            if (p?.public === true) return true;
+            if (String(p?.privacy || '').trim().toLowerCase() === 'public') return true;
+            return false;
+        };
         try{
             const q = firebase.query(
                 firebase.collection(window.firebaseService.db, 'playlists'),
@@ -208,8 +222,97 @@ class DashboardManager {
                 s5.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
             }catch(_){ }
         }
+        if (!rows.length){
+            try{
+                const q6 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('userId','==', targetUid));
+                const s6 = await firebase.getDocs(q6);
+                s6.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q7 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('authorId','==', targetUid));
+                const s7 = await firebase.getDocs(q7);
+                s7.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const me = await this.resolveCurrentUser();
+                if (String(me?.uid || '').trim() === targetUid){
+                    const mine = await this.hydratePlaylistsFromCloud();
+                    (mine || []).forEach((p)=>{
+                        if (matchesOwner(p) && isPublic(p)){
+                            pushUnique(p.id, p);
+                        }
+                    });
+                }
+            }catch(_){ }
+        }
         rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         return rows.slice(0, Math.max(1, limit));
+    }
+
+    looksLikeGeneratedMediaName(name){
+        const v = String(name || '').trim().toLowerCase();
+        if (!v) return true;
+        if (/^\d{9,}$/.test(v)) return true;
+        if (/^\d{9,}[_\-\s]/.test(v)) return true;
+        if (/^[a-z0-9]{20,}$/.test(v) && !v.includes(' ')) return true;
+        return false;
+    }
+
+    getCachedWaveMetaByUrl(url){
+        const key = String(url || '').trim();
+        if (!key) return null;
+        return this._waveMetaByUrl.get(key) || null;
+    }
+
+    async fetchWaveMetaByUrl(url){
+        const key = String(url || '').trim();
+        if (!key || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return null;
+        if (this._waveMetaByUrl.has(key)) return this._waveMetaByUrl.get(key) || null;
+        if (this._waveMetaPendingByUrl.has(key)) return this._waveMetaPendingByUrl.get(key);
+        const task = (async ()=>{
+            let meta = null;
+            try{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'wave'),
+                    firebase.where('url', '==', key),
+                    firebase.limit(1)
+                );
+                const s = await firebase.getDocs(q);
+                const d = s?.docs?.[0];
+                if (d){
+                    const w = d.data() || {};
+                    meta = {
+                        title: String(w.title || '').trim(),
+                        coverUrl: String(w.coverUrl || '').trim(),
+                        authorName: String(w.authorName || '').trim()
+                    };
+                }
+            }catch(_){ }
+            this._waveMetaByUrl.set(key, meta);
+            this._waveMetaPendingByUrl.delete(key);
+            return meta;
+        })();
+        this._waveMetaPendingByUrl.set(key, task);
+        return task;
+    }
+
+    async primeWaveMetaForMedia(media){
+        try{
+            const items = this.normalizePostMediaItems(media);
+            const urls = [];
+            items.forEach((it)=>{
+                if (it.kind === 'audio' && it.url && !this._waveMetaByUrl.has(String(it.url).trim())){
+                    urls.push(String(it.url).trim());
+                }
+            });
+            if (!urls.length) return;
+            const unique = Array.from(new Set(urls));
+            await Promise.all(unique.slice(0, 20).map((u)=> this.fetchWaveMetaByUrl(u)));
+        }catch(_){ }
     }
 
     getMaxPostAttachments(){
@@ -298,6 +401,15 @@ class DashboardManager {
                 s2.forEach((d)=> rows.push(d.data() || {}));
                 rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
             }
+            rows.forEach((w)=>{
+                const key = String(w?.url || '').trim();
+                if (!key) return;
+                this._waveMetaByUrl.set(key, {
+                    title: String(w?.title || '').trim(),
+                    coverUrl: String(w?.coverUrl || '').trim(),
+                    authorName: String(w?.authorName || '').trim()
+                });
+            });
             if (!rows.length){ this.showError('No WaveConnect audio found'); return; }
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
@@ -556,10 +668,14 @@ class DashboardManager {
             if (typeof entry === 'string'){
                 const url = String(entry || '').trim();
                 if (!url) return;
+                const waveMeta = this.getCachedWaveMetaByUrl(url);
+                const inferredName = this.inferMediaNameFromUrl(url, '');
                 out.push({
                     kind: this.inferMediaKindFromUrl(url),
                     url,
-                    name: this.inferMediaNameFromUrl(url, '')
+                    name: (waveMeta?.title && this.looksLikeGeneratedMediaName(inferredName)) ? waveMeta.title : inferredName,
+                    by: String(waveMeta?.authorName || '').trim(),
+                    cover: String(waveMeta?.coverUrl || '').trim()
                 });
                 return;
             }
@@ -578,12 +694,16 @@ class DashboardManager {
                     return;
                 }
                 if (url){
+                    const waveMeta = this.getCachedWaveMetaByUrl(url);
+                    const inferredName = this.inferMediaNameFromUrl(url, '');
+                    const resolvedNameBase = name || inferredName;
+                    const resolvedName = (waveMeta?.title && this.looksLikeGeneratedMediaName(resolvedNameBase)) ? waveMeta.title : resolvedNameBase;
                     out.push({
                         kind: ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url),
                         url,
-                        name: name || this.inferMediaNameFromUrl(url, ''),
-                        by: String(entry.by || entry.authorName || '').trim(),
-                        cover: String(entry.cover || entry.coverUrl || '').trim()
+                        name: resolvedName,
+                        by: String(entry.by || entry.authorName || waveMeta?.authorName || '').trim(),
+                        cover: String(entry.cover || entry.coverUrl || waveMeta?.coverUrl || '').trim()
                     });
                 }
             }
@@ -616,7 +736,7 @@ class DashboardManager {
         const rest = ordered.filter((it)=> !(it.kind === 'image' || it.kind === 'video'));
 
         const visualHtml = visual.length
-            ? `<div class="post-media-visual-wrap"><div class="post-media-visual-slider">${visual.map((it)=>{
+            ? `<div class="post-media-visual-shell"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${visual.map((it)=>{
                 if (it.kind === 'image'){
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image"></div>`;
                 }
@@ -625,7 +745,7 @@ class DashboardManager {
                 const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
                 return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${tHtml}</div><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
-            }).join('')}</div>${visual.length > 1 ? `<div class="post-media-dots">${visual.map((_,i)=> `<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}" aria-label="Slide ${i+1}"></button>`).join('')}</div>` : ''}</div>`
+            }).join('')}</div></div>${visual.length > 1 ? `<div class="post-media-dots">${visual.map((_,i)=> `<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}" aria-label="Slide ${i+1}"></button>`).join('')}</div>` : ''}</div>`
             : '';
 
         const restHtml = rest.length
@@ -688,10 +808,34 @@ class DashboardManager {
             if (!node) return '';
             const direct = String(node.dataset?.cover || '').trim();
             if (direct) return direct;
-            const card = node.closest('.wave-item,.video-item,.post-item,.player-card');
-            const img = card ? card.querySelector('img') : null;
+            const poster = String(node.getAttribute?.('poster') || '').trim();
+            if (poster) return poster;
+            const waveCard = node.closest('.wave-item');
+            if (waveCard){
+                const cover = waveCard.querySelector('img');
+                return String(cover?.src || '').trim();
+            }
+            const videoCard = node.closest('.video-item');
+            if (videoCard){
+                const cover = videoCard.querySelector('img');
+                return String(cover?.src || '').trim();
+            }
+            const postCard = node.closest('.post-item');
+            if (postCard){
+                // In posts, avoid author avatar and use dedicated media cover only.
+                const cover = postCard.querySelector('.post-media-audio-cover');
+                return String(cover?.src || '').trim();
+            }
+            const genericCard = node.closest('.player-card');
+            const img = genericCard ? genericCard.querySelector('img') : null;
             return String(img?.src || '').trim();
         }catch(_){ return ''; }
+    }
+
+    normalizeMediaByline(value){
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        return /^by\s+/i.test(raw) ? raw : `by ${raw}`;
     }
 
     attachWaveAudioUI(media, host, opts = {}){
@@ -909,7 +1053,7 @@ class DashboardManager {
 
         if (this._repeatMode === 'one'){
             if (len > 0 && idx >= 0){
-                this.playQueueIndex(idx);
+                this.playQueueIndex(idx, { restart: true });
                 return;
             }
             if (source){
@@ -927,8 +1071,37 @@ class DashboardManager {
         }
 
         if (this._repeatMode === 'all' && len > 0){
-            this.playQueueIndex(0);
+            this.playQueueIndex(0, { restart: true });
         }
+    }
+
+    rememberPlaybackPosition(src, currentTime, duration){
+        try{
+            const key = String(src || '').trim();
+            if (!key) return;
+            const t = Number(currentTime || 0);
+            const d = Number(duration || 0);
+            if (!Number.isFinite(t) || t < 0) return;
+            this._resumeBySrc.set(key, {
+                time: t,
+                duration: Number.isFinite(d) ? Math.max(0, d) : 0,
+                updatedAt: Date.now()
+            });
+        }catch(_){ }
+    }
+
+    getPlaybackResumeTime(src){
+        try{
+            const key = String(src || '').trim();
+            if (!key) return 0;
+            const rec = this._resumeBySrc.get(key);
+            if (!rec) return 0;
+            const t = Number(rec.time || 0);
+            const d = Number(rec.duration || 0);
+            if (!Number.isFinite(t) || t <= 0.1) return 0;
+            if (d > 0 && t >= Math.max(0.1, d - 1.2)) return 0;
+            return t;
+        }catch(_){ return 0; }
     }
 
     formatDuration(seconds){
@@ -1032,12 +1205,15 @@ class DashboardManager {
             }
             const local = this.getPlaylists();
             const map = new Map();
-            [...local, ...cloudRows].forEach((p)=>{
+            (local || []).forEach((p)=>{
                 if (!p || !p.id) return;
-                const prev = map.get(p.id);
-                const prevTs = Number(new Date(prev?.updatedAt || 0).getTime() || 0);
-                const nextTs = Number(new Date(p?.updatedAt || 0).getTime() || 0);
-                if (!prev || nextTs >= prevTs) map.set(p.id, p);
+                map.set(p.id, p);
+            });
+            // Cloud is source of truth across devices.
+            (cloudRows || []).forEach((p)=>{
+                if (!p || !p.id) return;
+                const prev = map.get(p.id) || {};
+                map.set(p.id, { ...prev, ...p, id: p.id });
             });
             const merged = Array.from(map.values());
             try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(merged)); }catch(_){ }
@@ -1052,6 +1228,7 @@ class DashboardManager {
             const now = new Date().toISOString();
             const safeRows = (playlists || []).map((pl)=> ({
                 id: String(pl.id || `pl_${Date.now()}`),
+                owner: String(pl.owner || pl.ownerId || me.uid),
                 ownerId: String(pl.ownerId || me.uid),
                 ownerName: String(pl.ownerName || me.email || ''),
                 name: String(pl.name || 'Playlist'),
@@ -1068,16 +1245,7 @@ class DashboardManager {
                     await firebase.setDoc(ref, row, { merge: true });
                 }catch(_){ }
             }
-            // Remove cloud playlists no longer present locally.
-            try{
-                const keep = new Set(safeRows.map((r)=> r.id));
-                const q = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', me.uid));
-                const s = await firebase.getDocs(q);
-                for (const d of (s.docs || [])){
-                    if (keep.has(d.id)) continue;
-                    try{ await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'playlists', d.id)); }catch(_){ }
-                }
-            }catch(_){ }
+            // No cross-device delete sweep here: a stale client must not delete newer cloud rows.
         }catch(_){ }
     }
 
@@ -1143,6 +1311,7 @@ class DashboardManager {
                     id: `pl_${Date.now()}`,
                     name: newName,
                     visibility: 'private',
+                    owner: this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '',
                     ownerId: this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '',
                     ownerName: this.currentUser?.email || '',
                     items: []
@@ -1189,16 +1358,18 @@ class DashboardManager {
         });
     }
 
-    playQueueIndex(idx){
+    playQueueIndex(idx, opts = {}){
         const item = this._playQueue[idx];
         if (!item) return;
         this._playQueueIndex = idx;
+        const restart = !!opts.restart;
+        const resumeAt = restart ? 0 : this.getPlaybackResumeTime(item.src || '');
         const nodes = Array.from(document.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video'));
         const inlineNode = nodes.find((n)=> (n.currentSrc || n.src || '') === (item.src || ''));
         if (inlineNode && String(inlineNode.tagName || '').toUpperCase() === 'VIDEO'){
             try{
                 this.pauseAllMediaExcept(inlineNode);
-                inlineNode.currentTime = 0;
+                inlineNode.currentTime = Math.max(0, Number(resumeAt || 0));
                 inlineNode.play().catch(()=>{});
                 this.showMiniPlayer(inlineNode, { title: item.title, by: item.by, cover: item.cover });
                 this.renderQueuePanel();
@@ -1206,8 +1377,23 @@ class DashboardManager {
             }catch(_){ }
         }
         const bg = this.getBgPlayer();
+        this.pauseAllMediaExcept(bg);
         bg.src = item.src;
         bg.currentTime = 0;
+        if (resumeAt > 0){
+            const applyResume = ()=>{
+                try{
+                    const d = Number(bg.duration || 0);
+                    if (d > 0){
+                        bg.currentTime = Math.max(0, Math.min(resumeAt, Math.max(0, d - 0.25)));
+                    } else {
+                        bg.currentTime = Math.max(0, resumeAt);
+                    }
+                }catch(_){ }
+            };
+            bg.addEventListener('loadedmetadata', applyResume, { once: true });
+            applyResume();
+        }
         bg.play().catch(()=>{});
         const mini = document.getElementById('mini-player');
         const miniTitle = document.getElementById('mini-title');
@@ -1234,6 +1420,7 @@ class DashboardManager {
             if (!miniFill || !miniTime) return;
             const d = Number(bg.duration || 0);
             const c = Number(bg.currentTime || 0);
+            this.rememberPlaybackPosition(bg.currentSrc || bg.src || item.src || '', c, d);
             if (d > 0){
                 miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
                 miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
@@ -1284,8 +1471,10 @@ class DashboardManager {
         for (const plRaw of playlists.slice(0, visible)){
             const pl = await this.resolvePlaylistForRender(plRaw);
             const wrap = document.createElement('div');
+            wrap.className = 'playlist-card';
             wrap.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:8px;margin-bottom:10px;background:#0f1116';
             const head = document.createElement('div');
+            head.className = 'playlist-head';
             head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px';
             const visibility = (pl.visibility === 'public') ? 'public' : 'private';
             const ownerName = String(pl.sourceOwnerName || pl.ownerName || '').trim();
@@ -1296,9 +1485,10 @@ class DashboardManager {
             const sourceBadge = pl._resolvedFromSource ? '<span style="font-size:10px;opacity:.72">synced</span>' : '';
             const missingNote = pl._sourceMissing ? '<span style="font-size:10px;color:#f2a0a0">source unavailable</span>' : '';
             const removeLabel = plRaw.sourcePlaylistId ? 'Remove from My WaveConnect' : 'Remove';
-            head.innerHTML = `<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><div style="display:flex;align-items:center;gap:8px;min-width:0"><strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(pl.name||'Playlist').replace(/</g,'&lt;')}</strong><span style="font-size:10px;opacity:.75;border:1px solid rgba(255,255,255,.2);padding:1px 6px;border-radius:999px;text-transform:uppercase">${visibility}</span>${sourceBadge}</div><div style="display:flex;align-items:center;gap:8px">${ownerHtml}${missingNote}</div></div><div style="display:flex;gap:6px"><button class="btn btn-secondary" data-privacy="${plRaw.id}">${visibility === 'public' ? 'Make Private' : 'Make Public'}</button><button class="btn btn-secondary" data-remove-local="${plRaw.id}">${removeLabel}</button><button class="btn btn-secondary" data-del-all="${plRaw.id}">Delete</button></div>`;
+            head.innerHTML = `<div class="playlist-head-main" style="display:flex;flex-direction:column;gap:2px;min-width:0"><div style="display:flex;align-items:center;gap:8px;min-width:0"><strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(pl.name||'Playlist').replace(/</g,'&lt;')}</strong><span style="font-size:10px;opacity:.75;border:1px solid rgba(255,255,255,.2);padding:1px 6px;border-radius:999px;text-transform:uppercase">${visibility}</span>${sourceBadge}</div><div style="display:flex;align-items:center;gap:8px">${ownerHtml}${missingNote}</div></div><div class="playlist-head-actions" style="display:flex;gap:6px"><button class="btn btn-secondary" data-privacy="${plRaw.id}">${visibility === 'public' ? 'Make Private' : 'Make Public'}</button><button class="btn btn-secondary" data-remove-local="${plRaw.id}">${removeLabel}</button><button class="btn btn-secondary" data-del-all="${plRaw.id}">Delete</button></div>`;
             wrap.appendChild(head);
             const list = document.createElement('div');
+            list.className = 'playlist-list';
             const canEditItems = !pl._resolvedFromSource;
             (pl.items || []).forEach((it, idx)=>{
                 const row = document.createElement('div');
@@ -1310,7 +1500,7 @@ class DashboardManager {
                   ? `<button class="playlist-mini-btn" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="playlist-mini-btn" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button><button class="playlist-mini-btn danger" data-remove="${it.id}" title="Remove"><i class="fas fa-xmark"></i></button>`
                   : `<button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button>`;
                 row.style.cursor = canEditItems ? 'grab' : 'default';
-                row.innerHTML = `<div style="min-width:0"><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${(it.title||'Track').replace(/</g,'&lt;')}</div><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.72">${(it.by||'').replace(/</g,'&lt;')}</div></div><div style="display:flex;gap:4px;flex-wrap:nowrap">${controls}</div>`;
+                row.innerHTML = `<div style="min-width:0"><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${(it.title||'Track').replace(/</g,'&lt;')}</div><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.72">${(it.by||'').replace(/</g,'&lt;')}</div></div><div class="playlist-row-actions" style="display:flex;gap:4px;flex-wrap:nowrap">${controls}</div>`;
                 list.appendChild(row);
             });
             wrap.appendChild(list);
@@ -1454,19 +1644,33 @@ class DashboardManager {
             const miniProgress = document.getElementById('mini-progress');
             const miniFill = document.getElementById('mini-fill');
             const miniTime = document.getElementById('mini-time');
-            this.setMiniTitleText(meta.title || 'Now playing');
-            if (mBy) mBy.textContent = meta.by || '';
-            if (mCover) mCover.src = meta.cover || this.resolveMediaNodeCover(mediaEl) || 'images/default-bird.png';
+            const resolvedTitle = String(
+                meta.title
+                || mediaEl?.dataset?.title
+                || mediaEl?.closest('.post-item,.wave-item,.video-item')?.querySelector('.post-media-audio-title,.audio-title,.video-title,.post-media-video-head,.post-text')?.textContent
+                || 'Now playing'
+            ).trim();
+            const resolvedBy = this.normalizeMediaByline(
+                meta.by
+                || mediaEl?.dataset?.by
+                || mediaEl?.closest('.post-item,.wave-item,.video-item')?.querySelector('.post-media-audio-by,.audio-byline,.byline')?.textContent
+                || ''
+            );
+            const resolvedArtist = String(resolvedBy || '').replace(/^by\s+/i, '').trim();
+            const resolvedCover = String(meta.cover || mediaEl?.dataset?.cover || this.resolveMediaNodeCover(mediaEl) || '').trim();
+            this.setMiniTitleText(resolvedTitle || 'Now playing');
+            if (mBy) mBy.textContent = resolvedBy;
+            if (mCover) mCover.src = resolvedCover || 'images/default-bird.png';
             if ('mediaSession' in navigator){
                 try{
-                    const artwork = meta.cover ? [
-                        { src: meta.cover, sizes: '96x96' },
-                        { src: meta.cover, sizes: '192x192' },
-                        { src: meta.cover, sizes: '512x512' }
+                    const artwork = resolvedCover ? [
+                        { src: resolvedCover, sizes: '96x96' },
+                        { src: resolvedCover, sizes: '192x192' },
+                        { src: resolvedCover, sizes: '512x512' }
                     ] : undefined;
                     navigator.mediaSession.metadata = new MediaMetadata({
-                        title: meta.title || 'Now playing',
-                        artist: meta.by || 'LIBER',
+                        title: resolvedTitle || 'Now playing',
+                        artist: resolvedArtist,
                         artwork
                     });
                     navigator.mediaSession.setActionHandler('play', ()=> source.play().catch(()=>{}));
@@ -1501,6 +1705,7 @@ class DashboardManager {
                 if (!miniFill || !miniTime) return;
                 const d = Number(source.duration || 0);
                 const c = Number(source.currentTime || 0);
+                this.rememberPlaybackPosition(source.currentSrc || source.src || '', c, d);
                 if (d > 0){
                     miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
                     miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
@@ -1564,11 +1769,12 @@ class DashboardManager {
     // Activate custom players inside a container (audio/video unified controls)
     activatePlayers(root=document){
         try{
-            root.querySelectorAll('.post-media-visual-wrap').forEach((wrap)=>{
-                if (wrap.dataset.hScrollBound === '1') return;
+            root.querySelectorAll('.post-media-visual-shell').forEach((shell)=>{
+                const wrap = shell.querySelector('.post-media-visual-wrap');
+                if (!wrap || wrap.dataset.hScrollBound === '1') return;
                 wrap.dataset.hScrollBound = '1';
                 const slider = wrap.querySelector('.post-media-visual-slider');
-                const dots = wrap.querySelector('.post-media-dots');
+                const dots = shell.querySelector('.post-media-dots');
                 const getSlideStep = ()=>{
                     const first = slider?.querySelector('.post-media-visual-item');
                     if (!first) return Math.max(1, wrap.clientWidth || 1);
@@ -1591,6 +1797,29 @@ class DashboardManager {
                         });
                     });
                 }
+                let sx = 0;
+                let sy = 0;
+                let horizontalLock = false;
+                wrap.addEventListener('touchstart', (e)=>{
+                    const t = e.touches && e.touches[0];
+                    if (!t) return;
+                    sx = t.clientX;
+                    sy = t.clientY;
+                    horizontalLock = false;
+                }, { passive: true });
+                wrap.addEventListener('touchmove', (e)=>{
+                    const t = e.touches && e.touches[0];
+                    if (!t) return;
+                    const dx = t.clientX - sx;
+                    const dy = t.clientY - sy;
+                    if (!horizontalLock && Math.abs(dx) > (Math.abs(dy) + 6)){
+                        horizontalLock = true;
+                    }
+                    if (horizontalLock){
+                        e.stopPropagation();
+                    }
+                }, { passive: true });
+                wrap.addEventListener('touchend', ()=>{ horizontalLock = false; }, { passive: true });
                 wrap.addEventListener('scroll', ()=> syncDots(), { passive: true });
                 wrap.addEventListener('wheel', (e)=>{
                     if (window.innerWidth < 1024) return;
@@ -1668,7 +1897,8 @@ class DashboardManager {
                 media.addEventListener('play', ()=>{
                     const title = media.dataset?.title || card.closest('.post-item')?.querySelector('.post-media-audio-title,.audio-title,.post-text')?.textContent?.slice(0, 60) || 'Now playing';
                     const by = media.dataset?.by || card.closest('.post-item')?.querySelector('.post-media-audio-by,.byline,.audio-byline')?.textContent || '';
-                    this.showMiniPlayer(media, { title, by });
+                    const cover = media.dataset?.cover || this.resolveMediaNodeCover(media) || '';
+                    this.showMiniPlayer(media, { title, by: this.normalizeMediaByline(by), cover });
                 });
             });
         }catch(_){ }
@@ -2086,9 +2316,11 @@ class DashboardManager {
         let startX = 0;
         let startY = 0;
         let startTs = 0;
+        let ignoreSwipe = false;
 
         host.addEventListener('touchstart', (e) => {
             if (!e.touches || !e.touches.length) return;
+            ignoreSwipe = !!(e.target && e.target.closest && e.target.closest('.post-media-visual-wrap,.post-media-visual-slider,.audio-wave-bars'));
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             startTs = Date.now();
@@ -2096,6 +2328,7 @@ class DashboardManager {
 
         host.addEventListener('touchend', (e) => {
             if (!e.changedTouches || !e.changedTouches.length) return;
+            if (ignoreSwipe){ ignoreSwipe = false; return; }
             const endX = e.changedTouches[0].clientX;
             const endY = e.changedTouches[0].clientY;
             const dx = endX - startX;
@@ -2494,6 +2727,7 @@ class DashboardManager {
                 (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) ||
                 new Date(b.createdAt||0) - new Date(a.createdAt||0)
             );
+            await Promise.all(mergedPosts.slice(0, 30).map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
             for (const p of mergedPosts){
                 const div = document.createElement('div');
                 div.className = 'post-item';
@@ -2503,12 +2737,12 @@ class DashboardManager {
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const by = `<div class="byline" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0">
+                const by = `<div class="byline post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0">
                     <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                         <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                         <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
                     </button>
-                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                    <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                 </div>`;
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
@@ -2870,6 +3104,7 @@ class DashboardManager {
                     const copy = {
                         id: `pl_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
                         name: src?.name || 'Playlist',
+                        owner: me.uid,
                         ownerId: me.uid,
                         ownerName: me.email || '',
                         visibility: 'private',
@@ -2921,6 +3156,7 @@ class DashboardManager {
                 })
                 : list;
             filteredList.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+            await Promise.all(filteredList.slice(0, 20).map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
             for (const p of filteredList.slice(0,20)){
                 const div = document.createElement('div');
                 div.className = 'post-item';
@@ -2934,12 +3170,12 @@ class DashboardManager {
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
                 const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
-                div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                div.innerHTML = `<div class="post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                   <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                     <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                                     <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
                                   </button>
-                                  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                  <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                 </div>
                                 ${media}${postTextHtml}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
@@ -3101,6 +3337,8 @@ class DashboardManager {
                 // Normalize to similar interface
                 snap = { docs: snap.docs.sort((a,b)=> (b.data()?.createdAtTS?.toMillis?.()||0) - (a.data()?.createdAtTS?.toMillis?.()||0) || new Date((b.data()||{}).createdAt||0) - new Date((a.data()||{}).createdAt||0)), forEach: (cb)=> snap.docs.forEach(cb) };
             }
+            const scoped = (snap?.docs || []).map((d)=> d.data()).slice(0, 20);
+            await Promise.all(scoped.map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
             snap.forEach(d=>{
                 const p = d.data();
                 const div = document.createElement('div');
@@ -3113,12 +3351,12 @@ class DashboardManager {
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
                 const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
-                div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                div.innerHTML = `<div class="post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                    <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                      <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                                      <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
                                    </button>
-                                   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                   <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                  </div>
                                  ${media}${postTextHtml}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
@@ -3369,12 +3607,12 @@ class DashboardManager {
                     const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                     const postText = this.getPostDisplayText(p);
                     const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
-                    div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                    div.innerHTML = `<div class="post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                        <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                          <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                                          <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
                                        </button>
-                                       <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                       <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                      </div>
                                      ${media}${postTextHtml}`;
                     if (feed) feed.appendChild(div);
@@ -3594,6 +3832,7 @@ class DashboardManager {
                         id: `pl_${Date.now()}`,
                         name,
                         visibility: makePublic ? 'public' : 'private',
+                        owner: me.uid,
                         ownerId: me.uid,
                         ownerName: me.email || '',
                         items: []
@@ -3699,6 +3938,15 @@ class DashboardManager {
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
+        items.forEach((w)=>{
+            const key = String(w?.url || '').trim();
+            if (!key) return;
+            this._waveMetaByUrl.set(key, {
+                title: String(w?.title || '').trim(),
+                coverUrl: String(w?.coverUrl || '').trim(),
+                authorName: String(w?.authorName || '').trim()
+            });
+        });
         const visible = Math.max(5, Number(this._waveLibraryVisible || 5));
         items.slice(0, visible).forEach((w)=> lib.appendChild(this.renderWaveItem(w, {
             allowRemove: true,
@@ -5353,6 +5601,7 @@ Do you want to proceed?`);
           feed.innerHTML = '<h4 style="margin:4px 0 8px">Posts</h4><div style="opacity:.8">No public posts yet.</div>';
         } else {
           feed.innerHTML = '<h4 style="margin:4px 0 8px">Posts</h4>';
+          await Promise.all(list.slice(0, 10).map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
           list.forEach((p)=>{
             const card = document.createElement('div');
             card.className = 'post-item';
@@ -5364,12 +5613,12 @@ Do you want to proceed?`);
             const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
             const postText = this.getPostDisplayText(p);
             const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
-            card.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+            card.innerHTML = `<div class="post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                 <button type="button" data-user-preview="${String(p.authorId || uid).replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                   <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                   <span style="font-size:12px;color:#aaa">${authorName}</span>
                 </button>
-                <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
               </div>${media}${postTextHtml}`;
             feed.appendChild(card);
           });
@@ -5404,6 +5653,7 @@ Do you want to proceed?`);
                 const copy = {
                   id: `pl_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
                   name: src?.name || 'Playlist',
+                  owner: meNow.uid,
                   ownerId: meNow.uid,
                   ownerName: meNow.email || '',
                   visibility: 'private',
