@@ -3251,7 +3251,8 @@ class DashboardManager {
                         let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
                         let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
                         if (coverFile){
-                            const cRef = firebase.ref(s, `wave-covers/${me.uid}/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
+                            // Keep covers under /wave/{uid}/... so existing Storage rules allow owner writes.
+                            const cRef = firebase.ref(s, `wave/${me.uid}/covers/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
                             await firebase.uploadBytes(cRef, coverFile, { contentType: coverFile.type || 'image/jpeg' });
                             coverUrl = await firebase.getDownloadURL(cRef);
                         }
