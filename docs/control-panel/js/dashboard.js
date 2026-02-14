@@ -5168,26 +5168,69 @@ Do you want to proceed?`);
       const playlistsEl = overlay.querySelector('#preview-playlists');
       try{
         let rows = [];
+        const targetUid = String(uid || '').trim();
+        const matchesOwner = (p)=> {
+          const ownerId = String(p?.ownerId || '').trim();
+          const ownerLegacy = String(p?.owner || '').trim();
+          return !!targetUid && (ownerId === targetUid || ownerLegacy === targetUid);
+        };
+        const isPublic = (p)=> String(p?.visibility || '').trim().toLowerCase() === 'public';
+        const pushUnique = (id, p)=>{
+          const key = String(id || p?.id || '').trim();
+          if (!key) return;
+          if (rows.some((x)=> String(x.id || '') === key)) return;
+          rows.push({ id: key, ...(p || {}) });
+        };
+        // 1) Fast path: indexed ownerId + visibility query
         try{
           const q = firebase.query(
             firebase.collection(window.firebaseService.db, 'playlists'),
-            firebase.where('ownerId', '==', uid),
+            firebase.where('ownerId', '==', targetUid),
             firebase.where('visibility', '==', 'public'),
-            firebase.limit(10)
+            firebase.limit(20)
           );
           const s = await firebase.getDocs(q);
-          s.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
-          rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-        }catch(_){
-          const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
-          const s2 = await firebase.getDocs(q2);
-          s2.forEach((d)=>{
-            const p = d.data() || {};
-            if (p.visibility === 'public') rows.push({ id: d.id, ...p });
-          });
-          rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-          rows = rows.slice(0, 10);
+          s.forEach((d)=> pushUnique(d.id, d.data()));
+        }catch(_){ }
+        // 2) Owner queries (ownerId and legacy owner), then filter public client-side
+        if (!rows.length){
+          try{
+            const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', targetUid));
+            const s2 = await firebase.getDocs(q2);
+            s2.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+          }catch(_){ }
         }
+        if (!rows.length){
+          try{
+            const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', targetUid));
+            const s3 = await firebase.getDocs(q3);
+            s3.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+          }catch(_){ }
+        }
+        // 3) Broad public scan fallback, then owner filter.
+        if (!rows.length){
+          try{
+            const q4 = firebase.query(
+              firebase.collection(window.firebaseService.db, 'playlists'),
+              firebase.where('visibility', '==', 'public'),
+              firebase.limit(200)
+            );
+            const s4 = await firebase.getDocs(q4);
+            s4.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
+          }catch(_){ }
+        }
+        // 4) Last-resort scan (only docs allowed by rules), then filter client-side.
+        if (!rows.length){
+          try{
+            const s5 = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'playlists'));
+            s5.forEach((d)=>{
+              const p = d.data() || {};
+              if (isPublic(p) && matchesOwner(p)) pushUnique(d.id, p);
+            });
+          }catch(_){ }
+        }
+        rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+        rows = rows.slice(0, 10);
         if (!rows.length){
           playlistsEl.innerHTML = '<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">No public playlists.</div>';
         } else {
