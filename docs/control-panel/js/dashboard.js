@@ -419,6 +419,41 @@ class DashboardManager {
         return 'file';
     }
 
+    inferMediaNameFromUrl(url, fallback = ''){
+        try{
+            const href = String(url || '').trim();
+            if (!href) return String(fallback || '').trim();
+            // Firebase Storage download URLs often carry file path in "name=" or "/o/<encodedPath>"
+            const parseFromPath = (rawPath)=>{
+                const decoded = decodeURIComponent(String(rawPath || ''));
+                const parts = decoded.split('/').filter(Boolean);
+                const leaf = String(parts[parts.length - 1] || '').trim();
+                if (!leaf) return '';
+                const clean = leaf.replace(/\.[a-zA-Z0-9]{1,8}$/,'').replace(/[_-]+/g, ' ').trim();
+                return clean || leaf;
+            };
+            try{
+                const u = new URL(href);
+                const nameParam = String(u.searchParams.get('name') || '').trim();
+                if (nameParam){
+                    const byName = parseFromPath(nameParam);
+                    if (byName) return byName;
+                }
+                const seg = u.pathname.split('/o/')[1] || '';
+                if (seg){
+                    const bySeg = parseFromPath(seg.split('/')[0]);
+                    if (bySeg) return bySeg;
+                }
+                const byPath = parseFromPath(u.pathname);
+                if (byPath) return byPath;
+            }catch(_){ }
+            const noQuery = href.split('?')[0].split('#')[0];
+            const byRaw = parseFromPath(noQuery);
+            if (byRaw) return byRaw;
+            return String(fallback || '').trim();
+        }catch(_){ return String(fallback || '').trim(); }
+    }
+
     normalizePostMediaItems(media){
         const raw = Array.isArray(media) ? media : (media ? [media] : []);
         const out = [];
@@ -427,7 +462,11 @@ class DashboardManager {
             if (typeof entry === 'string'){
                 const url = String(entry || '').trim();
                 if (!url) return;
-                out.push({ kind: this.inferMediaKindFromUrl(url), url, name: '' });
+                out.push({
+                    kind: this.inferMediaKindFromUrl(url),
+                    url,
+                    name: this.inferMediaNameFromUrl(url, '')
+                });
                 return;
             }
             if (typeof entry === 'object'){
@@ -448,7 +487,7 @@ class DashboardManager {
                     out.push({
                         kind: ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url),
                         url,
-                        name,
+                        name: name || this.inferMediaNameFromUrl(url, ''),
                         by: String(entry.by || entry.authorName || '').trim(),
                         cover: String(entry.cover || entry.coverUrl || '').trim()
                     });
@@ -458,8 +497,23 @@ class DashboardManager {
         return out;
     }
 
+    getPostDisplayText(post){
+        try{
+            const raw = String(post?.text || '').trim();
+            if (!raw) return '';
+            const items = this.normalizePostMediaItems(post?.media || post?.mediaUrl);
+            if (items.length === 1 && items[0]?.kind === 'video'){
+                const vTitle = String(items[0]?.name || '').trim();
+                if (vTitle && raw.toLowerCase() === vTitle.toLowerCase()) return '';
+            }
+            return raw;
+        }catch(_){ return String(post?.text || '').trim(); }
+    }
+
     renderPostMedia(media, opts = {}){
         const defaultBy = String(opts.defaultBy || '').trim();
+        const defaultCover = String(opts.defaultCover || '').trim();
+        const authorId = String(opts.authorId || '').trim();
         const items = this.normalizePostMediaItems(media);
         if (!items.length) return '';
         const mediaRank = (it)=> (it.kind === 'image' || it.kind === 'video') ? 0 : 1;
@@ -473,9 +527,10 @@ class DashboardManager {
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image"></div>`;
                 }
                 const t = String(it.name || 'Video').replace(/"/g,'&quot;');
+                const tHtml = String(it.name || 'Video').replace(/</g,'&lt;');
                 const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
-                const c = String(it.cover || '').replace(/"/g,'&quot;');
-                return `<div class="post-media-visual-item"><div class="player-card"><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
+                return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${tHtml}</div><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
             }).join('')}</div></div>`
             : '';
 
@@ -483,11 +538,14 @@ class DashboardManager {
             ? `<div class="post-media-files-list">${rest.map((it)=>{
                 if (it.kind === 'audio' && it.url){
                     const t = String(it.name || 'Audio').replace(/</g,'&lt;');
-                    const by = String(it.by || defaultBy || '').replace(/</g,'&lt;');
+                    const byRaw = String(it.by || defaultBy || '').trim();
+                    const by = byRaw.replace(/</g,'&lt;');
                     const tAttr = String(it.name || 'Audio').replace(/"/g,'&quot;');
-                    const byAttr = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
-                    const coverAttr = String(it.cover || '').replace(/"/g,'&quot;');
-                    return `<div class="post-media-files-item"><div class="post-media-audio-head"><span class="post-media-audio-title">${t}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div><div class="player-card"><audio src="${it.url}" class="player-media" data-title="${tAttr}" data-by="${byAttr}" data-cover="${coverAttr}" preload="metadata"></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                    const byAttr = byRaw.replace(/"/g,'&quot;');
+                    const coverAttr = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
+                    const coverImg = coverAttr ? `<img src="${coverAttr}" alt="cover" class="post-media-audio-cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback"><i class="fas fa-music"></i></span>`;
+                    const byNode = by ? (authorId ? `<button type="button" class="post-media-audio-by post-media-audio-by-link" data-user-preview="${authorId.replace(/"/g,'&quot;')}">by ${by}</button>` : `<span class="post-media-audio-by">by ${by}</span>`) : '';
+                    return `<div class="post-media-files-item"><div class="post-media-audio-head">${coverImg}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${t}</span>${byNode}</div></div><div class="player-card"><audio src="${it.url}" class="player-media" data-title="${tAttr}" data-by="${byAttr}" data-cover="${coverAttr}" preload="metadata"></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
                 }
                 if (it.kind === 'playlist'){
                     const safeName = String(it.name || 'Playlist').replace(/</g,'&lt;');
@@ -1412,6 +1470,17 @@ class DashboardManager {
     // Activate custom players inside a container (audio/video unified controls)
     activatePlayers(root=document){
         try{
+            root.querySelectorAll('.post-media-visual-wrap').forEach((wrap)=>{
+                if (wrap.dataset.hScrollBound === '1') return;
+                wrap.dataset.hScrollBound = '1';
+                wrap.addEventListener('wheel', (e)=>{
+                    // Desktop convenience: vertical wheel scrolls horizontal media slider.
+                    const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+                    if (!Number.isFinite(delta) || delta === 0) return;
+                    wrap.scrollLeft += delta;
+                    e.preventDefault();
+                }, { passive: false });
+            });
             root.querySelectorAll('.player-card').forEach(card=>{
                 if (card.dataset.playerBound === '1') return;
                 card.dataset.playerBound = '1';
@@ -2313,9 +2382,11 @@ class DashboardManager {
                     </button>
                     <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                 </div>`;
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const postText = this.getPostDisplayText(p);
+                const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
-                div.innerHTML = `${repostBadge}${by}${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
+                div.innerHTML = `${repostBadge}${by}${media}${postTextHtml}
                                  <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <i class=\"fas fa-ellipsis-h post-menu\" title=\"More\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-edit edit-post-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-trash delete-post-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
                 // double-tap like on post content
@@ -2728,7 +2799,9 @@ class DashboardManager {
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const postText = this.getPostDisplayText(p);
+                const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                   <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                     <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -2736,7 +2809,7 @@ class DashboardManager {
                                   </button>
                                   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                 </div>
-                                ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
+                                ${media}${postTextHtml}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -2904,7 +2977,9 @@ class DashboardManager {
                 const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const postText = this.getPostDisplayText(p);
+                const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                    <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                      <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -2912,7 +2987,7 @@ class DashboardManager {
                                    </button>
                                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                  </div>
-                                 ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
+                                 ${media}${postTextHtml}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -3157,7 +3232,9 @@ class DashboardManager {
                     const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                     const postTime = this.formatDateTime(p.createdAt);
                     const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
+                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                    const postText = this.getPostDisplayText(p);
+                    const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                     div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                        <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                          <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -3165,7 +3242,7 @@ class DashboardManager {
                                        </button>
                                        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                      </div>
-                                     ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>`;
+                                     ${media}${postTextHtml}`;
                     if (feed) feed.appendChild(div);
                 });
                 this.bindUserPreviewTriggers(feed);
@@ -5149,14 +5226,16 @@ Do you want to proceed?`);
             const authorAvatar = String(p.coverUrl || data.avatarUrl || 'images/default-bird.png');
             const postTime = this.formatDateTime(p.createdAt);
             const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
+            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+            const postText = this.getPostDisplayText(p);
+            const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
             card.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                 <button type="button" data-user-preview="${String(p.authorId || uid).replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                   <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
                   <span style="font-size:12px;color:#aaa">${authorName}</span>
                 </button>
                 <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
-              </div>${media}<div class="post-text">${(p.text || '').replace(/</g, '&lt;')}</div>`;
+              </div>${media}${postTextHtml}`;
             feed.appendChild(card);
           });
           this.bindUserPreviewTriggers(feed);
@@ -5192,19 +5271,17 @@ Do you want to proceed?`);
           const s = await firebase.getDocs(q);
           s.forEach((d)=> pushUnique(d.id, d.data()));
         }catch(_){ }
-        // 2) Owner queries (ownerId and legacy owner), then filter public client-side
+        // 2) Legacy owner query with visibility constraint (rules-safe)
         if (!rows.length){
           try{
-            const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', targetUid));
+            const q2 = firebase.query(
+              firebase.collection(window.firebaseService.db, 'playlists'),
+              firebase.where('owner', '==', targetUid),
+              firebase.where('visibility', '==', 'public'),
+              firebase.limit(20)
+            );
             const s2 = await firebase.getDocs(q2);
-            s2.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
-          }catch(_){ }
-        }
-        if (!rows.length){
-          try{
-            const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', targetUid));
-            const s3 = await firebase.getDocs(q3);
-            s3.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+            s2.forEach((d)=> pushUnique(d.id, d.data() || {}));
           }catch(_){ }
         }
         // 3) Broad public scan fallback, then owner filter.
