@@ -18,6 +18,7 @@ class DashboardManager {
         this._videoLibraryVisible = 5;
         this._videoSuggestionsVisible = 5;
         this._userPreviewCache = new Map();
+        this._spacePostAttachments = [];
         try{
             const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
             if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
@@ -117,6 +118,183 @@ class DashboardManager {
         }, 320);
     }
 
+    getMaxPostAttachments(){
+        return 10;
+    }
+
+    getSpacePostAttachments(){
+        return Array.isArray(this._spacePostAttachments) ? this._spacePostAttachments : [];
+    }
+
+    resetSpacePostComposer(){
+        (this._spacePostAttachments || []).forEach((it)=>{
+            const u = String(it?.previewUrl || '').trim();
+            if (u){
+                try{ URL.revokeObjectURL(u); }catch(_){ }
+            }
+        });
+        this._spacePostAttachments = [];
+        const mediaInput = document.getElementById('space-post-media');
+        if (mediaInput) mediaInput.value = '';
+        this.renderSpacePostComposerQueue();
+    }
+
+    queueSpacePostFileAttachments(files){
+        const list = Array.from(files || []).filter((f)=> f instanceof File);
+        if (!list.length) return;
+        const current = this.getSpacePostAttachments();
+        const max = this.getMaxPostAttachments();
+        const next = current.slice();
+        const seen = new Set(next.map((it)=> `${it.kind}|${it.name}|${it.size || 0}|${it.lastModified || 0}|${it.url || ''}|${it.playlistId || ''}`));
+        list.forEach((f)=>{
+            if (next.length >= max) return;
+            const sig = `file|${f.name}|${f.size}|${f.lastModified}|`;
+            if (seen.has(sig)) return;
+            seen.add(sig);
+            next.push({
+                kind: this.inferMediaKindFromUrl(f.name || '') === 'file' ? (String(f.type || '').startsWith('image/') ? 'image' : (String(f.type || '').startsWith('video/') ? 'video' : (String(f.type || '').startsWith('audio/') ? 'audio' : 'file'))) : this.inferMediaKindFromUrl(f.name || ''),
+                name: f.name || 'file',
+                size: Number(f.size || 0),
+                lastModified: Number(f.lastModified || 0),
+                file: f,
+                previewUrl: (String(f.type || '').startsWith('image/') || String(f.type || '').startsWith('video/')) ? URL.createObjectURL(f) : ''
+            });
+        });
+        this._spacePostAttachments = next;
+        if (next.length >= max && (current.length + list.length) > max){
+            this.showError(`Max ${max} attachments per post`);
+        }
+        this.renderSpacePostComposerQueue();
+    }
+
+    async openSpacePostWavePicker(){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid) return;
+            const rows = [];
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid), firebase.orderBy('createdAt','desc'), firebase.limit(60));
+                const s = await firebase.getDocs(q);
+                s.forEach((d)=> rows.push(d.data() || {}));
+            }catch(_){
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid));
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=> rows.push(d.data() || {}));
+                rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+            }
+            if (!rows.length){ this.showError('No WaveConnect audio found'); return; }
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add from WaveConnect</div><div id="space-wave-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="space-wave-picker-close" class="btn btn-secondary">Close</button></div></div>`;
+            const list = overlay.querySelector('#space-wave-picker-list');
+            rows.slice(0,60).forEach((w)=>{
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary';
+                btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                btn.innerHTML = `<i class="fas fa-music"></i> ${(w.title || 'Audio').replace(/</g,'&lt;')}`;
+                btn.onclick = ()=>{
+                    const cur = this.getSpacePostAttachments();
+                    if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
+                    this._spacePostAttachments = [...cur, { kind:'audio', url: String(w.url || ''), name: String(w.title || 'Audio') }];
+                    this.renderSpacePostComposerQueue();
+                    overlay.remove();
+                };
+                list.appendChild(btn);
+            });
+            overlay.querySelector('#space-wave-picker-close').onclick = ()=> overlay.remove();
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+        }catch(_){ this.showError('Failed to load WaveConnect items'); }
+    }
+
+    async openSpacePostPlaylistPicker(){
+        try{
+            const rows = await this.hydratePlaylistsFromCloud();
+            if (!rows.length){ this.showError('No playlists found'); return; }
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add playlist to post</div><div id="space-playlist-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="space-playlist-picker-close" class="btn btn-secondary">Close</button></div></div>`;
+            const list = overlay.querySelector('#space-playlist-picker-list');
+            rows.slice(0,80).forEach((pl)=>{
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary';
+                btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                const tracks = Array.isArray(pl.items) ? pl.items.length : 0;
+                btn.innerHTML = `<i class="fas fa-list-music"></i> ${(pl.name || 'Playlist').replace(/</g,'&lt;')} <span style="opacity:.72">(${tracks} tracks)</span>`;
+                btn.onclick = ()=>{
+                    const cur = this.getSpacePostAttachments();
+                    if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
+                    this._spacePostAttachments = [...cur, { kind:'playlist', name: String(pl.name || 'Playlist'), playlistId: String(pl.id || '') }];
+                    this.renderSpacePostComposerQueue();
+                    overlay.remove();
+                };
+                list.appendChild(btn);
+            });
+            overlay.querySelector('#space-playlist-picker-close').onclick = ()=> overlay.remove();
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+        }catch(_){ this.showError('Failed to load playlists'); }
+    }
+
+    renderSpacePostComposerQueue(){
+        const previews = document.getElementById('space-media-previews');
+        const countEl = document.getElementById('space-post-attach-count');
+        if (!previews) return;
+        const items = this.getSpacePostAttachments();
+        if (countEl) countEl.textContent = `${items.length}/${this.getMaxPostAttachments()}`;
+        previews.innerHTML = '';
+        if (!items.length) return;
+        const visual = items.filter((it)=> it.kind === 'image' || it.kind === 'video');
+        const rest = items.filter((it)=> !(it.kind === 'image' || it.kind === 'video'));
+        if (visual.length){
+            const row = document.createElement('div');
+            row.className = 'space-post-visual-slider';
+            visual.forEach((it)=>{
+                const idx = items.indexOf(it);
+                const card = document.createElement('div');
+                card.className = 'space-post-preview-card';
+                const src = String(it.previewUrl || it.url || '');
+                card.innerHTML = `${it.kind === 'video' ? `<video src="${src}" muted playsinline></video>` : `<img src="${src}" alt="preview">`}<button type="button" class="space-post-preview-remove" title="Remove"><i class="fas fa-xmark"></i></button>`;
+                const rm = card.querySelector('.space-post-preview-remove');
+                if (rm){
+                    rm.onclick = ()=>{
+                        const u = String(items[idx]?.previewUrl || '').trim();
+                        if (u){
+                            try{ URL.revokeObjectURL(u); }catch(_){ }
+                        }
+                        this._spacePostAttachments.splice(idx, 1);
+                        this.renderSpacePostComposerQueue();
+                    };
+                }
+                row.appendChild(card);
+            });
+            previews.appendChild(row);
+        }
+        if (rest.length){
+            const list = document.createElement('div');
+            list.className = 'space-post-files-list';
+            rest.forEach((it)=>{
+                const idx = items.indexOf(it);
+                const row = document.createElement('div');
+                row.className = 'space-post-file-row';
+                const icon = it.kind === 'audio' ? 'fa-music' : (it.kind === 'playlist' ? 'fa-list-music' : 'fa-paperclip');
+                const label = it.kind === 'playlist' ? `Playlist: ${it.name || 'Playlist'}` : (it.name || 'file');
+                row.innerHTML = `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="fas ${icon}"></i> ${String(label).replace(/</g,'&lt;')}</span><button type="button" class="space-post-file-remove"><i class="fas fa-xmark"></i></button>`;
+                const rm = row.querySelector('.space-post-file-remove');
+                if (rm){
+                    rm.onclick = ()=>{
+                        this._spacePostAttachments.splice(idx, 1);
+                        this.renderSpacePostComposerQueue();
+                    };
+                }
+                list.appendChild(row);
+            });
+            previews.appendChild(list);
+        }
+    }
+
     clearPostActionListeners(container){
         try{
             if (!container) return;
@@ -195,37 +373,86 @@ class DashboardManager {
         }catch(_){ }
     }
 
+    inferMediaKindFromUrl(url){
+        const href = String(url || '');
+        let pathOnly = href;
+        try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
+        const lower = pathOnly.toLowerCase();
+        if (['.png','.jpg','.jpeg','.gif','.webp','.avif'].some((ext)=> lower.endsWith(ext))) return 'image';
+        if (['.mp4','.webm','.mov','.mkv'].some((ext)=> lower.endsWith(ext))) return 'video';
+        if (['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some((ext)=> lower.endsWith(ext))) return 'audio';
+        return 'file';
+    }
+
+    normalizePostMediaItems(media){
+        const raw = Array.isArray(media) ? media : (media ? [media] : []);
+        const out = [];
+        raw.forEach((entry)=>{
+            if (!entry) return;
+            if (typeof entry === 'string'){
+                const url = String(entry || '').trim();
+                if (!url) return;
+                out.push({ kind: this.inferMediaKindFromUrl(url), url, name: '' });
+                return;
+            }
+            if (typeof entry === 'object'){
+                const kind = String(entry.kind || entry.mediaType || '').trim().toLowerCase();
+                const url = String(entry.url || entry.mediaUrl || '').trim();
+                const name = String(entry.name || entry.title || '').trim();
+                if (kind === 'playlist'){
+                    out.push({
+                        kind: 'playlist',
+                        name: name || 'Playlist',
+                        playlistId: String(entry.playlistId || entry.id || '').trim() || null
+                    });
+                    return;
+                }
+                if (url){
+                    out.push({
+                        kind: ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url),
+                        url,
+                        name
+                    });
+                }
+            }
+        });
+        return out;
+    }
+
     renderPostMedia(media){
-        const urls = Array.isArray(media) ? media : (media ? [media] : []);
-        if (!urls.length) return '';
-        const renderOne = (url)=>{
-            const href = String(url||'');
-            let pathOnly = href;
-            try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
-            const lower = pathOnly.toLowerCase();
-            const isImg = ['.png','.jpg','.jpeg','.gif','.webp','.avif'].some(ext=> lower.endsWith(ext));
-            const isVid = ['.mp4','.webm','.mov','.mkv'].some(ext=> lower.endsWith(ext));
-            const isAud = ['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some(ext=> lower.endsWith(ext));
-            if (isImg){
-                return `<img src="${href}" alt="media" style="max-width:100%;height:auto;border-radius:12px" />`;
-            }
-            if (isVid){
-                return `<div class="player-card"><video src="${href}" class="player-media" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain"></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
-            }
-            if (isAud){
-                return `<div class="player-card"><audio src="${href}" class="player-media" preload="metadata" ></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
-            }
-            if (lower.endsWith('.pdf')){
-                return `<iframe src="${href}" style="width:100%;height:420px;border:none"></iframe>`;
-            }
-            return `<a href="${href}" target="_blank" rel="noopener noreferrer">Open attachment</a>`;
-        };
-        if (urls.length === 1){
-            return `<div style="margin-top:8px">${renderOne(urls[0])}</div>`;
-        }
-        // simple gallery
-        const items = urls.map(u=> `<div style="flex:0 0 auto;max-width:100%;">${renderOne(u)}</div>`).join('');
-        return `<div style="margin-top:8px;overflow:auto;-webkit-overflow-scrolling:touch"><div style="display:flex;gap:8px">${items}</div></div>`;
+        const items = this.normalizePostMediaItems(media);
+        if (!items.length) return '';
+        const mediaRank = (it)=> (it.kind === 'image' || it.kind === 'video') ? 0 : 1;
+        const ordered = items.slice().sort((a,b)=> mediaRank(a) - mediaRank(b));
+        const visual = ordered.filter((it)=> it.kind === 'image' || it.kind === 'video');
+        const rest = ordered.filter((it)=> !(it.kind === 'image' || it.kind === 'video'));
+
+        const visualHtml = visual.length
+            ? `<div class="post-media-visual-wrap"><div class="post-media-visual-slider">${visual.map((it)=>{
+                if (it.kind === 'image'){
+                    return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image"></div>`;
+                }
+                return `<div class="post-media-visual-item"><div class="player-card"><video src="${it.url}" class="player-media" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain"></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+            }).join('')}</div></div>`
+            : '';
+
+        const restHtml = rest.length
+            ? `<div class="post-media-files-list">${rest.map((it)=>{
+                if (it.kind === 'audio' && it.url){
+                    return `<div class="post-media-files-item"><div class="player-card"><audio src="${it.url}" class="player-media" preload="metadata"></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                }
+                if (it.kind === 'playlist'){
+                    const safeName = String(it.name || 'Playlist').replace(/</g,'&lt;');
+                    return `<div class="post-media-files-item"><span class="post-media-file-chip"><i class="fas fa-list-music"></i> Playlist: ${safeName}</span></div>`;
+                }
+                if (it.url){
+                    const safeName = String(it.name || 'Open attachment').replace(/</g,'&lt;');
+                    return `<div class="post-media-files-item"><a href="${it.url}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${safeName}</a></div>`;
+                }
+                return '';
+            }).join('')}</div>`
+            : '';
+        return `<div class="post-media-block">${visualHtml}${restHtml}</div>`;
     }
 
     pauseAllMediaExcept(current){
@@ -1685,71 +1912,138 @@ class DashboardManager {
                     const text = (document.getElementById('space-post-text').value||'').trim();
                     const mediaInput = document.getElementById('space-post-media');
                     const visibility = 'private';
-                    let mediaUrl = '';
-                    let media = [];
-                    if (mediaInput && mediaInput.files && mediaInput.files.length && firebase.getStorage){
+                    const queued = this.getSpacePostAttachments();
+                    if (!text && !queued.length){ this.showError('Add message or attachments'); return; }
+                    if (queued.length > this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
+                    const postIdRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                    const media = [];
+                    if (queued.length){
+                        if (!firebase.getStorage){ this.showError('Storage unavailable'); return; }
                         try{
                             const s = firebase.getStorage();
-                            const postIdRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                            for (let i=0;i<Math.min(mediaInput.files.length, 5); i++){
-                                const file = mediaInput.files[i];
-                                const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-                                const path = `posts/${user.uid}/${postIdRef.id}/media_${i}.${ext}`;
-                                const r = firebase.ref(s, path);
-                                await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
-                                const url = await firebase.getDownloadURL(r);
-                                media.push(url);
+                            for (let i = 0; i < queued.length; i++){
+                                const item = queued[i];
+                                if (!item) continue;
+                                if (item.kind === 'playlist'){
+                                    media.push({
+                                        kind: 'playlist',
+                                        name: String(item.name || 'Playlist'),
+                                        playlistId: String(item.playlistId || '')
+                                    });
+                                    continue;
+                                }
+                                if (item.file instanceof File){
+                                    const file = item.file;
+                                    const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+                                    const path = `posts/${user.uid}/${postIdRef.id}/media_${i}.${ext}`;
+                                    const r = firebase.ref(s, path);
+                                    await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
+                                    const url = await firebase.getDownloadURL(r);
+                                    media.push({
+                                        kind: String(item.kind || this.inferMediaKindFromUrl(file.name || 'file')),
+                                        url,
+                                        name: file.name || 'attachment'
+                                    });
+                                    continue;
+                                }
+                                if (item.url){
+                                    media.push({
+                                        kind: String(item.kind || this.inferMediaKindFromUrl(item.url || '')),
+                                        url: String(item.url || ''),
+                                        name: String(item.name || '')
+                                    });
+                                }
                             }
-                            mediaUrl = media[0] || '';
-                            const payload = { id: postIdRef.id, authorId: user.uid, text, mediaUrl, media, visibility, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp() };
-                            await firebase.setDoc(postIdRef, payload);
-                            document.getElementById('space-post-text').value='';
-                            mediaInput.value='';
-                            this.showSuccess('Posted');
-                            this.loadMyPosts(user.uid);
+                        }catch(_){
+                            this.showError('Failed to upload attachments');
                             return;
-                        }catch(e){ /* fallback to text-only below */ }
+                        }
                     }
-                    if (!text){ this.showError('Add some text or attach media'); return; }
-                    const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
-                    await firebase.setDoc(newRef, { id: newRef.id, authorId: user.uid, text, visibility, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp() });
-                    document.getElementById('space-post-text').value='';
-                    if (mediaInput) mediaInput.value='';
+                    const visualFirst = media.find((m)=> m && (m.kind === 'image' || m.kind === 'video')) || media.find((m)=> m && m.url);
+                    const mediaUrl = String(visualFirst?.url || '');
+                    await firebase.setDoc(postIdRef, {
+                        id: postIdRef.id,
+                        authorId: user.uid,
+                        text,
+                        mediaUrl,
+                        media,
+                        visibility,
+                        createdAt: new Date().toISOString(),
+                        createdAtTS: firebase.serverTimestamp()
+                    });
+                    document.getElementById('space-post-text').value = '';
+                    if (mediaInput) mediaInput.value = '';
+                    this.resetSpacePostComposer();
                     this.showSuccess('Posted');
                     this.loadMyPosts(user.uid);
                 };
-                // media preview chips
                 const mediaInput = document.getElementById('space-post-media');
-                const previews = document.getElementById('space-media-previews');
-                if (mediaInput && previews && !mediaInput._previewsBound){
+                if (mediaInput && !mediaInput._previewsBound){
                     mediaInput._previewsBound = true;
                     mediaInput.addEventListener('change', ()=>{
-                        previews.innerHTML='';
-                        const files = Array.from(mediaInput.files||[]).slice(0,5);
-                        files.forEach((f, idx)=>{
-                            const chip = document.createElement('div'); chip.className='chip';
-                            const remove = document.createElement('div'); remove.className='remove'; remove.innerHTML='<i class="fas fa-times"></i>';
-                            remove.onclick = ()=>{
-                                const dt = new DataTransfer();
-                                Array.from(mediaInput.files).forEach((ff,i)=>{ if (i!==idx) dt.items.add(ff); });
-                                mediaInput.files = dt.files; chip.remove();
-                            };
-                            chip.appendChild(remove);
-                            if (f.type.startsWith('image/')){
-                                const img = document.createElement('img'); img.src = URL.createObjectURL(f); chip.appendChild(img);
-                            } else if (f.type.startsWith('video/')){
-                                const v = document.createElement('video'); v.src = URL.createObjectURL(f); v.muted=true; chip.appendChild(v);
-                            } else if (f.type.startsWith('audio/')){
-                                const i = document.createElement('i'); i.className='fas fa-music'; chip.appendChild(i);
-                                const span = document.createElement('span'); span.textContent = f.name; chip.appendChild(span);
-                            } else {
-                                const i = document.createElement('i'); i.className='fas fa-paperclip'; chip.appendChild(i);
-                                const span = document.createElement('span'); span.textContent = f.name; chip.appendChild(span);
-                            }
-                            previews.appendChild(chip);
-                        });
+                        this.queueSpacePostFileAttachments(mediaInput.files || []);
+                        mediaInput.value = '';
                     });
                 }
+                const postTextEl = document.getElementById('space-post-text');
+                if (postTextEl && !postTextEl._spacePasteBound){
+                    postTextEl._spacePasteBound = true;
+                    postTextEl.addEventListener('paste', (e)=>{
+                        const cd = e.clipboardData;
+                        if (!cd) return;
+                        const files = [];
+                        if (cd.files && cd.files.length){
+                            for (let i = 0; i < cd.files.length; i++) files.push(cd.files[i]);
+                        } else if (cd.items && cd.items.length){
+                            for (let i = 0; i < cd.items.length; i++){
+                                const it = cd.items[i];
+                                if (it && it.kind === 'file'){
+                                    const f = it.getAsFile();
+                                    if (f) files.push(f);
+                                }
+                            }
+                        }
+                        if (files.length){
+                            e.preventDefault();
+                            this.queueSpacePostFileAttachments(files);
+                        }
+                    });
+                }
+                const composeCard = document.getElementById('space-compose-card');
+                if (composeCard && !composeCard._spaceDropBound){
+                    composeCard._spaceDropBound = true;
+                    ['dragenter','dragover'].forEach((evt)=>{
+                        composeCard.addEventListener(evt, (e)=>{
+                            e.preventDefault();
+                            composeCard.classList.add('dragover');
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                        });
+                    });
+                    ['dragleave','dragend'].forEach((evt)=>{
+                        composeCard.addEventListener(evt, ()=> composeCard.classList.remove('dragover'));
+                    });
+                    composeCard.addEventListener('drop', (e)=>{
+                        e.preventDefault();
+                        composeCard.classList.remove('dragover');
+                        const dt = e.dataTransfer;
+                        if (!dt) return;
+                        const files = dt.files && dt.files.length ? dt.files : null;
+                        if (files && files.length){
+                            this.queueSpacePostFileAttachments(files);
+                        }
+                    });
+                }
+                const waveBtn = document.getElementById('space-add-wave-btn');
+                if (waveBtn && !waveBtn._bound){
+                    waveBtn._bound = true;
+                    waveBtn.onclick = ()=> this.openSpacePostWavePicker();
+                }
+                const playlistBtn = document.getElementById('space-add-playlist-btn');
+                if (playlistBtn && !playlistBtn._bound){
+                    playlistBtn._bound = true;
+                    playlistBtn.onclick = ()=> this.openSpacePostPlaylistPicker();
+                }
+                this.renderSpacePostComposerQueue();
             }
 
             const spaceSearch = document.getElementById('space-search');
@@ -1938,7 +2232,7 @@ class DashboardManager {
                 </div>`;
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
-                div.innerHTML = `${repostBadge}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
+                div.innerHTML = `${repostBadge}${by}${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
                                  <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <i class=\"fas fa-ellipsis-h post-menu\" title=\"More\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-edit edit-post-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-trash delete-post-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
                 feed.appendChild(div);
                 // double-tap like on post content
@@ -2359,7 +2653,7 @@ class DashboardManager {
                                   </button>
                                   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                 </div>
-                                <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -2535,7 +2829,7 @@ class DashboardManager {
                                    </button>
                                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                  </div>
-                                 <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                                 ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -2788,7 +3082,7 @@ class DashboardManager {
                                        </button>
                                        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                                      </div>
-                                     <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
+                                     ${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>`;
                     if (feed) feed.appendChild(div);
                 });
                 this.bindUserPreviewTriggers(feed);
@@ -4486,6 +4780,7 @@ Do you want to proceed?`);
       try { const following = await window.firebaseService.getFollowingIds(me.uid); isFollowing = (following || []).includes(uid); } catch(_) {}
       connState = await readConnState();
       const connectLabel = connectLabelFor(connState);
+      const isSelfPreview = String(uid || '') === String(me.uid || '');
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
@@ -4515,6 +4810,13 @@ Do you want to proceed?`);
       overlay.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
 
       const toggle = overlay.querySelector('#follow-toggle');
+      const connectBtn = overlay.querySelector('#connect-toggle');
+      const chatBtn = overlay.querySelector('#start-chat');
+      if (isSelfPreview){
+        if (toggle) toggle.style.display = 'none';
+        if (connectBtn) connectBtn.style.display = 'none';
+        if (chatBtn) chatBtn.style.display = 'none';
+      }
       toggle.onclick = async () => {
         try {
           toggle.disabled = true;
@@ -4531,8 +4833,7 @@ Do you want to proceed?`);
         finally { toggle.disabled = false; }
       };
 
-      const connectBtn = overlay.querySelector('#connect-toggle');
-      connectBtn.onclick = async ()=>{
+      if (connectBtn) connectBtn.onclick = async ()=>{
         try{
           connectBtn.disabled = true;
           const currentState = await readConnState();
@@ -4620,7 +4921,6 @@ Do you want to proceed?`);
         finally{ connectBtn.disabled = false; }
       };
 
-      const chatBtn = overlay.querySelector('#start-chat');
       if (chatBtn) {
         chatBtn.onclick = async () => {
           try {
@@ -4659,7 +4959,31 @@ Do you want to proceed?`);
           list.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0)-(a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0)-new Date(a.createdAt||0));
           list = list.slice(0,10);
         }
-        feed.innerHTML = `<h4 style="margin:4px 0 8px">Posts</h4>` + (list.map(p => `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text || '').replace(/</g, '&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>');
+        if (!list.length){
+          feed.innerHTML = '<h4 style="margin:4px 0 8px">Posts</h4><div style="opacity:.8">No public posts yet.</div>';
+        } else {
+          feed.innerHTML = '<h4 style="margin:4px 0 8px">Posts</h4>';
+          list.forEach((p)=>{
+            const card = document.createElement('div');
+            card.className = 'post-item';
+            card.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+            const authorName = String(p.authorName || data.username || data.email || 'User').replace(/</g,'&lt;');
+            const authorAvatar = String(p.coverUrl || data.avatarUrl || 'images/default-bird.png');
+            const postTime = this.formatDateTime(p.createdAt);
+            const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
+            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+            card.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                <button type="button" data-user-preview="${String(p.authorId || uid).replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+                  <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+                  <span style="font-size:12px;color:#aaa">${authorName}</span>
+                </button>
+                <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+              </div>${media}<div class="post-text">${(p.text || '').replace(/</g, '&lt;')}</div>`;
+            feed.appendChild(card);
+          });
+          this.bindUserPreviewTriggers(feed);
+          this.activatePlayers(feed);
+        }
       }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
 
       // Public playlists section.
@@ -4671,11 +4995,11 @@ Do you want to proceed?`);
             firebase.collection(window.firebaseService.db, 'playlists'),
             firebase.where('ownerId', '==', uid),
             firebase.where('visibility', '==', 'public'),
-            firebase.orderBy('updatedAt', 'desc'),
             firebase.limit(10)
           );
           const s = await firebase.getDocs(q);
           s.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+          rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         }catch(_){
           const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
           const s2 = await firebase.getDocs(q2);
@@ -4741,7 +5065,24 @@ Do you want to proceed?`);
           rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
           rows = rows.slice(0,8);
         }
-        audioEl.innerHTML = `<h4 style="margin:4px 0 8px">Audio</h4>` + (rows.length ? rows.map(w=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(w.title||'Audio').replace(/</g,'&lt;')}</div><audio controls style="width:100%" src="${w.url||''}"></audio></div>`).join('') : '<div style="opacity:.8">No audio uploaded.</div>');
+        if (!rows.length){
+          audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4><div style="opacity:.8">No audio uploaded.</div>';
+        } else {
+          audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4>';
+          rows.forEach((w)=>{
+            const card = document.createElement('div');
+            card.className = 'post-item';
+            card.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)';
+            card.innerHTML = `<div style="margin-bottom:6px">${(w.title||'Audio').replace(/</g,'&lt;')}</div><audio class="liber-lib-audio" src="${w.url||''}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div>`;
+            audioEl.appendChild(card);
+            const a = card.querySelector('.liber-lib-audio');
+            const host = card.querySelector('.wave-item-audio-host') || card;
+            if (a){
+              this.attachWaveAudioUI(a, host, { hideNative: true });
+              a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
+            }
+          });
+        }
       }catch(_){ audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4><div style="opacity:.8">Unable to load audio.</div>'; }
 
       // Video preview section.

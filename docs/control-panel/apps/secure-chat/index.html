@@ -88,8 +88,9 @@
             <div id="typing-indicator" class="typing-indicator" aria-live="polite"></div>
             <div id="messages" class="messages"></div>
             <div id="dialogue-title-bar" class="dialogue-title-bar"><span id="active-connection-name" class="title">—</span></div>
+            <div id="composer-attachments" class="composer-attachments hidden"></div>
             <div class="composer">
-                <input id="file-input" type="file" accept="image/*,video/*,audio/*" multiple style="display:none" />
+                <input id="file-input" type="file" accept="*/*" multiple style="display:none" />
                 <button id="attach-btn" class="icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
                 <button id="sticker-btn" class="icon-btn" title="Stickers"><i class="fas fa-note-sticky"></i></button>
                 <textarea id="message-input" rows="1" placeholder="Type a message..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>

@@ -20,6 +20,25 @@
 .media-previews .chip{ position:relative; border:1px solid var(--border-color); border-radius:8px; padding:6px 8px; background:#0f1116; color:#eaeaea; display:flex; align-items:center; gap:6px }
 .media-previews .chip img,.media-previews .chip video{ width:48px; height:48px; object-fit:cover; border-radius:6px }
 .media-previews .chip .remove{ position:absolute; top:-6px; right:-6px; background:#222737; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.space-post-visual-slider{display:flex;gap:8px;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.space-post-preview-card{position:relative;flex:0 0 auto;width:120px;height:120px;border:1px solid var(--border-color);border-radius:10px;overflow:hidden;background:#0f1116}
+.space-post-preview-card img,.space-post-preview-card video{width:100%;height:100%;object-fit:cover;display:block}
+.space-post-preview-remove{position:absolute;top:6px;right:6px;width:22px;height:22px;border:none;border-radius:999px;background:rgba(16,20,28,.72);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.space-post-files-list{display:flex;flex-direction:column;gap:6px;margin-top:8px;width:100%}
+.space-post-file-row{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border-color);border-radius:8px;padding:6px 8px;background:#0f1116}
+.space-post-file-remove{border:none;background:transparent;color:#cdd8ea;cursor:pointer}
+#space-compose-card.dragover{
+  border-color:#4da3ff !important;
+  box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
+}
+.post-media-block{margin-top:8px}
+.post-media-visual-wrap{overflow:auto;-webkit-overflow-scrolling:touch}
+.post-media-visual-slider{display:flex;gap:8px}
+.post-media-visual-item{flex:0 0 auto;min-width:min(82vw,420px);max-width:min(92vw,620px)}
+.post-media-image{max-width:100%;height:auto;border-radius:12px;display:block}
+.post-media-files-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.post-media-file-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-color);border-radius:10px;background:#0f1116;color:#d8e2f3;text-decoration:none}
+.post-media-file-chip:hover{text-decoration:none;opacity:.95}
 .player-card{ background:#0f1116; border:1px solid var(--border-color); border-radius:12px; padding:8px; }
 .player-media{ width:100%; border-radius:8px; background:#000 }
 .player-bar{ display:flex; align-items:center; gap:10px; margin-top:6px }

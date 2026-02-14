@@ -69,12 +69,16 @@
       this._loadMoreConnId = '';
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
+      this._avatarCache = new Map();
       this._attachmentBlobUrlByKey = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
       this._recordingSendInFlight = false;
+      this._pendingAttachments = [];
       this._readMarkTimer = null;
+      this._activeConnOpenedAt = 0;
+      this._latestPeerMessageMsByConn = new Map();
       this.init();
     }
 
@@ -97,12 +101,50 @@
       }catch(_){ return 0; }
     }
 
+    toTimestampMs(value){
+      try{
+        if (value && typeof value.toMillis === 'function'){
+          const ms = Number(value.toMillis() || 0) || 0;
+          return ms > 0 ? ms : 0;
+        }
+        if (value && typeof value.seconds === 'number'){
+          const ms = Math.floor(Number(value.seconds || 0) * 1000);
+          return ms > 0 ? ms : 0;
+        }
+        if (typeof value === 'number'){
+          return Number.isFinite(value) && value > 0 ? value : 0;
+        }
+        const ms = Number(new Date(value || 0).getTime() || 0) || 0;
+        return ms > 0 ? ms : 0;
+      }catch(_){ return 0; }
+    }
+
+    getEffectiveReadMarkerForConn(connId, connData = null){
+      try{
+        const id = String(connId || '').trim();
+        if (!id) return 0;
+        const localMs = this.getReadMarkerForConn(id);
+        const conn = connData || (this.connections || []).find((c)=> c && c.id === id) || null;
+        const connReadBy = conn && typeof conn.readBy === 'object' ? conn.readBy : null;
+        const activeReadBy = (id === this.activeConnection && this._activeConnReadBy && typeof this._activeConnReadBy === 'object')
+          ? this._activeConnReadBy
+          : null;
+        const serverMs = Math.max(
+          this.toTimestampMs(connReadBy ? connReadBy[this.currentUser?.uid] : 0),
+          this.toTimestampMs(activeReadBy ? activeReadBy[this.currentUser?.uid] : 0)
+        );
+        return Math.max(localMs, serverMs);
+      }catch(_){ return 0; }
+    }
+
     setReadMarkerForConn(connId, ts = Date.now()){
       try{
         const key = String(connId || '').trim();
         if (!key) return;
         const map = this.getReadMap();
-        map[key] = Number(ts || Date.now()) || Date.now();
+        const next = Number(ts || Date.now()) || Date.now();
+        const prev = Number(map[key] || 0) || 0;
+        map[key] = Math.max(prev, next);
         localStorage.setItem('liber_chat_read_map_v1', JSON.stringify(map));
       }catch(_){ }
     }
@@ -110,14 +152,19 @@
     async updateUnreadBadges(){
       try{
         let unreadChats = 0;
-        const map = this.getReadMap();
         const listEl = document.getElementById('connections-list');
         if (listEl){
           listEl.querySelectorAll('li[data-id]').forEach((li)=>{
             const id = li.getAttribute('data-id');
             const conn = (this.connections || []).find((c)=> c && c.id === id);
             const updatedMs = Number(new Date(conn?.updatedAt || 0).getTime() || 0) || 0;
-            const readMs = Number(map[String(id || '')] || 0) || 0;
+            let readMs = this.getEffectiveReadMarkerForConn(id, conn);
+            const openedAgo = Date.now() - Number(this._activeConnOpenedAt || 0);
+            if (id && id === this.activeConnection && openedAgo >= 4800 && updatedMs > readMs){
+              // Auto-clear unread for actively viewed chat after the grace period.
+              this.setReadMarkerForConn(id, updatedMs);
+              readMs = updatedMs;
+            }
             const fromPeer = String(conn?.lastMessageSender || '').trim() && String(conn?.lastMessageSender || '').trim() !== this.currentUser?.uid;
             const isUnread = !!id && fromPeer && updatedMs > readMs;
             let dot = li.querySelector('.chat-unread-dot');
@@ -216,9 +263,13 @@
           : (msg.readBy && typeof msg.readBy === 'object' ? msg.readBy : null);
         if (readBy){
           const peers = Object.entries(readBy).filter(([uid])=> uid && uid !== this.currentUser.uid);
-          const hasPeerRead = peers.some(([,ts])=> Number(new Date(ts || 0).getTime() || 0) > 0);
+          const hasPeerRead = peers.some(([,ts])=> this.toTimestampMs(ts) > 0);
           if (hasPeerRead) return 'Read';
         }
+        // If the peer already sent a later message, they obviously saw earlier ones.
+        const msgTs = this.getMessageTimestampMs(msg);
+        const latestPeerMs = Number(this._latestPeerMessageMsByConn.get(String(this.activeConnection || '')) || 0) || 0;
+        if (latestPeerMs > 0 && msgTs > 0 && latestPeerMs >= msgTs) return 'Read';
         return 'Sent';
       }catch(_){ return ''; }
     }
@@ -234,6 +285,7 @@
         if (!box) return;
         box.querySelectorAll('.new-messages-separator').forEach((el)=> el.remove());
         const messages = Array.from(box.querySelectorAll('.message'));
+        if (!messages.length) return;
         let seenUnread = false;
         for (const el of messages){
           const isUnread = el.dataset.unread === '1';
@@ -246,6 +298,49 @@
             break;
           }
         }
+      }catch(_){ }
+    }
+
+    markVisibleMessagesReadInDom(connId, markerMs){
+      try{
+        const box = document.getElementById('messages');
+        if (!box || String(connId || '') !== String(this.activeConnection || '')) return;
+        const target = Number(markerMs || 0) || 0;
+        if (target <= 0) return;
+        box.querySelectorAll('.message').forEach((el)=>{
+          if (el.classList.contains('self')) return;
+          const ts = Number(el.dataset.msgTs || 0) || 0;
+          if (ts > 0 && ts <= target) el.dataset.unread = '0';
+        });
+        this.applyNewMessagesSeparator(box);
+      }catch(_){ }
+    }
+
+    async markConnectionReadAfterDelay(connId){
+      try{
+        const id = String(connId || '').trim();
+        if (!id || this.activeConnection !== id) return;
+        const box = document.getElementById('messages');
+        let maxPeerTs = 0;
+        if (box){
+          box.querySelectorAll('.message.other').forEach((el)=>{
+            const ts = Number(el.dataset.msgTs || 0) || 0;
+            if (ts > maxPeerTs) maxPeerTs = ts;
+          });
+        }
+        const conn = (this.connections || []).find((c)=> c && c.id === id);
+        const connUpdatedMs = Number(new Date(conn?.updatedAt || 0).getTime() || 0) || 0;
+        const markerMs = Math.max(Date.now(), maxPeerTs, connUpdatedMs, this.getEffectiveReadMarkerForConn(id, conn));
+        this.setReadMarkerForConn(id, markerMs);
+        this.markVisibleMessagesReadInDom(id, markerMs);
+        const stampIso = new Date(markerMs).toISOString();
+        try{
+          firebase.updateDoc(firebase.doc(this.db,'chatConnections', id), {
+            [`readBy.${this.currentUser.uid}`]: stampIso
+          }).catch(()=>{});
+          this._activeConnReadBy = { ...(this._activeConnReadBy || {}), [this.currentUser.uid]: stampIso };
+        }catch(_){ }
+        this.updateUnreadBadges().catch(()=>{});
       }catch(_){ }
     }
 
@@ -1153,6 +1248,7 @@
 
       // Ensure self is cached
       this.usernameCache.set(this.currentUser.uid, { username: this.me?.username || 'You', avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png' });
+      this._avatarCache.set(this.currentUser.uid, this.me?.avatarUrl || '../../images/default-bird.png');
     }
 
     bindUI(){
@@ -1193,7 +1289,10 @@
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         this.showAttachmentQuickActions();
       });
-      document.getElementById('file-input').addEventListener('change', (e)=> this.sendFiles(e.target.files));
+      document.getElementById('file-input').addEventListener('change', (e)=>{
+        this.queueAttachments(e.target.files);
+        try{ e.target.value = ''; }catch(_){ }
+      });
       const stickerBtn = document.getElementById('sticker-btn');
       if (stickerBtn){ stickerBtn.addEventListener('click', ()=> this.toggleStickers()); }
       document.getElementById('user-search').addEventListener('input', (e)=> this.searchUsers(e.target.value.trim()));
@@ -1266,7 +1365,7 @@
           const dt = e.dataTransfer;
           if (!dt) return;
           const files = dt.files && dt.files.length ? dt.files : null;
-          if (files && files.length) this.sendFiles(files);
+          if (files && files.length) this.queueAttachments(files);
         });
       }
       // Paste-to-upload on message input (supports images/files from clipboard)
@@ -1289,7 +1388,7 @@
           }
           if (files.length){
             e.preventDefault();
-            await this.sendFiles(files);
+            this.queueAttachments(files);
           }
         });
       }
@@ -1339,6 +1438,7 @@
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.bindVoiceTopStrip();
       this.bindChatTitleProfileOpen();
+      this.renderComposerAttachmentQueue();
     }
 
     bindVoiceTopStrip(){
@@ -1546,7 +1646,8 @@
       const review = document.getElementById('recording-review');
       const actionBtn = document.getElementById('action-btn');
       const inReview = review && !review.classList.contains('hidden');
-      const hasContent = !!(input && input.value.trim().length);
+      const hasQueuedAttachments = Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0;
+      const hasContent = !!(input && input.value.trim().length) || hasQueuedAttachments;
       if (hasContent){
         actionBtn.title = 'Send';
         actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
@@ -1569,10 +1670,107 @@
       }
     }
 
+    ensureComposerAttachmentHost(){
+      let host = document.getElementById('composer-attachments');
+      if (host) return host;
+      const composer = document.querySelector('.composer');
+      if (!composer || !composer.parentElement) return null;
+      host = document.createElement('div');
+      host.id = 'composer-attachments';
+      host.className = 'composer-attachments hidden';
+      composer.parentElement.insertBefore(host, composer);
+      return host;
+    }
+
+    clearPendingAttachments(){
+      try{
+        (this._pendingAttachments || []).forEach((item)=>{
+          const url = String(item?.previewUrl || '').trim();
+          if (url) {
+            try{ URL.revokeObjectURL(url); }catch(_){ }
+          }
+        });
+      }catch(_){ }
+      this._pendingAttachments = [];
+      this.renderComposerAttachmentQueue();
+    }
+
+    renderComposerAttachmentQueue(){
+      try{
+        const host = this.ensureComposerAttachmentHost();
+        if (!host) return;
+        const queue = Array.isArray(this._pendingAttachments) ? this._pendingAttachments : [];
+        if (!queue.length){
+          host.classList.add('hidden');
+          host.innerHTML = '';
+          this.refreshActionButton();
+          return;
+        }
+        host.classList.remove('hidden');
+        host.innerHTML = '';
+        const slider = document.createElement('div');
+        slider.className = 'composer-attachments-slider';
+        queue.forEach((item, idx)=>{
+          if (!item || !(item.file instanceof File)) return;
+          const file = item.file;
+          const card = document.createElement('div');
+          card.className = 'composer-attachment-card';
+          const objectUrl = String(item.previewUrl || '').trim();
+          const isImage = !!objectUrl;
+          const icon = isImage
+            ? `<img src="${objectUrl}" alt="${this.renderText(file.name)}" class="composer-attachment-thumb">`
+            : `<span class="composer-attachment-icon"><i class="fas ${String(file.type || '').startsWith('video/') ? 'fa-video' : (String(file.type || '').startsWith('audio/') ? 'fa-music' : 'fa-file')}"></i></span>`;
+          card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(file.name || 'file')}</div><div class="composer-attachment-size">${this.formatBytes(file.size || 0)}</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
+          const rm = card.querySelector('.composer-attachment-remove');
+          if (rm){
+            rm.addEventListener('click', ()=>{
+              const removed = this._pendingAttachments[idx];
+              const removedUrl = String(removed?.previewUrl || '').trim();
+              if (removedUrl){
+                try{ URL.revokeObjectURL(removedUrl); }catch(_){ }
+              }
+              this._pendingAttachments.splice(idx, 1);
+              this.renderComposerAttachmentQueue();
+            });
+          }
+          slider.appendChild(card);
+        });
+        host.appendChild(slider);
+        this.refreshActionButton();
+      }catch(_){ }
+    }
+
+    formatBytes(size){
+      const n = Number(size || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0 B';
+      if (n < 1024) return `${Math.round(n)} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+      return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+
+    queueAttachments(files){
+      try{
+        if (!files || !files.length) return;
+        const list = Array.from(files).filter((f)=> f instanceof File);
+        if (!list.length) return;
+        const existing = new Set((this._pendingAttachments || []).map((x)=> `${x.file?.name || ''}|${x.file?.size || 0}|${x.file?.lastModified || 0}`));
+        list.forEach((file)=>{
+          const sig = `${file.name || ''}|${file.size || 0}|${file.lastModified || 0}`;
+          if (existing.has(sig)) return;
+          existing.add(sig);
+          const previewUrl = String(file.type || '').startsWith('image/') ? URL.createObjectURL(file) : '';
+          this._pendingAttachments.push({ file, previewUrl });
+        });
+        this.renderComposerAttachmentQueue();
+      }catch(_){ }
+    }
+
     handleActionButton(){
       if (Date.now() < (this._suppressActionClickUntil || 0)) return;
       const input = document.getElementById('message-input');
       const review = document.getElementById('recording-review');
+      const hasQueuedAttachments = Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0;
       if (this._activeRecorder && this._recStop){
         try{ this._recStop(); }catch(_){ }
         return;
@@ -1581,7 +1779,7 @@
         const sendBtn = document.getElementById('send-recording-btn');
         if (sendBtn){ sendBtn.click(); return; }
       }
-      if (input && input.value.trim().length){
+      if ((input && input.value.trim().length) || hasQueuedAttachments){
         this.sendCurrent();
       } else {
         // Toggle stable recording mode (audio <-> video)
@@ -1592,7 +1790,7 @@
 
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
-      if (input && input.value.trim().length) return; // only record when empty
+      if ((input && input.value.trim().length) || (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length)) return; // only record when empty
       if (this._activeRecorder) return;
       this._actionPressArmed = true;
       if (e && e.type === 'touchstart'){
@@ -1794,6 +1992,12 @@
         });
         temp.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
         this.connections = temp;
+        if (this.activeConnection){
+          const active = temp.find((c)=> c && c.id === this.activeConnection);
+          if (active && typeof active.readBy === 'object'){
+            this._activeConnReadBy = active.readBy;
+          }
+        }
       } catch (e) {
         if (e && e.code === 'permission-denied') permissionDenied = true;
         this.connections = [];
@@ -1813,6 +2017,18 @@
         this._connRetryTimer = null;
       }
       const seen = new Set();
+      const getCachedName = (uid, fallback = '')=>{
+        const cached = this.usernameCache.get(uid);
+        if (cached && typeof cached === 'object') return cached.username || fallback;
+        return cached || fallback;
+      };
+      const getCachedAvatar = (uid)=>{
+        const direct = this._avatarCache.get(uid);
+        if (direct) return direct;
+        const cached = this.usernameCache.get(uid);
+        if (cached && typeof cached === 'object' && cached.avatarUrl) return cached.avatarUrl;
+        return '../../images/default-bird.png';
+      };
       // Backfill participantUsernames if missing
       for (const c of this.connections){
         try{
@@ -1822,8 +2038,7 @@
             const enriched = [];
             for (const uid of parts){
               if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              const cached = this.usernameCache.get(uid);
-              enriched.push((cached && cached.username) || names[parts.indexOf(uid)] || ('User ' + String(uid).slice(0,6)));
+              enriched.push(getCachedName(uid, names[parts.indexOf(uid)] || ('User ' + String(uid).slice(0,6))));
             }
             c.participantUsernames = enriched;
           }
@@ -1841,7 +2056,8 @@
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
           const others = c.participantUsernames.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
-          if (others.length===1) label = others[0];
+          if (String(c.groupName || '').trim()) label = String(c.groupName).trim();
+          else if (others.length===1) label = others[0];
           else if (others.length>1){
             label = others.slice(0,2).join(', ');
             if (others.length>2) label += `, +${others.length-2}`;
@@ -1850,11 +2066,26 @@
           }
         } else if (Array.isArray(c.participants) && c.participants.length) {
           const others = c.participants.filter(u => u !== this.currentUser.uid);
-          label = others.length === 1 ? `Chat with ${others[0].slice(0,8)}` : `Group Chat (${others.length})`;
+          label = String(c.groupName || '').trim() || (others.length === 1 ? `Chat with ${others[0].slice(0,8)}` : `Group Chat (${others.length})`);
         } else {
           label = 'Chat';
         }
-        li.textContent = label; // Initial set, async will update
+        li.innerHTML = `<span class="chat-conn-row" style="display:flex;align-items:center;gap:8px;min-width:0">
+          <img class="chat-conn-avatar" src="../../images/default-bird.png" alt="" style="width:18px;height:18px;object-fit:cover;clip-path:polygon(50% 0, 0 100%, 100% 100%);border:1px solid rgba(255,255,255,.24);flex:0 0 auto">
+          <span class="chat-label" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${String(label || 'Chat').replace(/</g,'&lt;')}</span>
+        </span>`; // Initial set, async will update
+        const partsNow = Array.isArray(c.participants) ? c.participants : [];
+        const peerUidNow = partsNow.length === 2 ? partsNow.find((u)=> u && u !== this.currentUser.uid) : '';
+        const avatarEl = li.querySelector('.chat-conn-avatar');
+        if (avatarEl){
+          if (peerUidNow){
+            avatarEl.src = getCachedAvatar(peerUidNow);
+          }else if (String(c.groupCoverUrl || '').trim()){
+            avatarEl.src = String(c.groupCoverUrl).trim();
+          } else {
+            avatarEl.src = '../../images/default-bird.png';
+          }
+        }
         // Admin badge in header when active
         li.addEventListener('mouseenter', ()=> li.classList.add('active-hover'));
         li.addEventListener('click', async ()=>{
@@ -1902,9 +2133,13 @@
               if (!snap.exists()) return;
               const d = snap.data() || {};
               const name = d.username || d.email || uid;
-              const prev = this.usernameCache.get(uid);
-              if (prev !== name){
-                this.usernameCache.set(uid, name);
+              const avatar = String(d.avatarUrl || '../../images/default-bird.png');
+              const prevObj = this.usernameCache.get(uid);
+              const prevName = (prevObj && typeof prevObj === 'object') ? prevObj.username : prevObj;
+              const prevAvatar = this._avatarCache.get(uid);
+              if (prevName !== name || prevAvatar !== avatar){
+                this.usernameCache.set(uid, { username: name, avatarUrl: avatar });
+                this._avatarCache.set(uid, avatar);
                 // Refresh connection list labels and active header
                 try{
                   const listEl = document.getElementById('connections-list');
@@ -1916,10 +2151,17 @@
                       if (!c) return;
                       const parts = Array.isArray(c.participants)?c.participants:[];
                       const stored = Array.isArray(c.participantUsernames)?c.participantUsernames:[];
-                      const names = parts.map((p,i)=> this.usernameCache.get(p) || stored[i] || p);
+                      const names = parts.map((p,i)=> getCachedName(p, stored[i] || p));
                       const others = names.filter(n => String(n ?? '').toLowerCase() !== myNameLower);
-                      const label = others.length===1? others[0] : (others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:''));
-                      li.textContent = label || 'Chat';
+                      const label = String(c.groupName || '').trim() || (others.length===1? others[0] : (others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:'')));
+                      const labelEl = li.querySelector('.chat-label');
+                      if (labelEl) labelEl.textContent = label || 'Chat';
+                      const avatarEl = li.querySelector('.chat-conn-avatar');
+                      if (avatarEl){
+                        const peerUid = parts.length === 2 ? parts.find((u)=> u && u !== this.currentUser.uid) : '';
+                        if (peerUid) avatarEl.src = getCachedAvatar(peerUid);
+                        else avatarEl.src = String(c.groupCoverUrl || '../../images/default-bird.png');
+                      }
                       li.setAttribute('data-id', c.id);
                     });
                   }
@@ -1951,6 +2193,7 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      this.clearPendingAttachments();
       // Drop stale heavy preview tasks from previous chat to keep switching stable.
       this._attachmentPreviewQueue = [];
       this._lastLoadedConnId = this.activeConnection || '';
@@ -1985,19 +2228,12 @@
         });
       }catch(_){ }
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
+      this._activeConnOpenedAt = Date.now();
       if (this._readMarkTimer){ clearTimeout(this._readMarkTimer); this._readMarkTimer = null; }
       this._readMarkTimer = setTimeout(()=>{
         try{
           if (this.activeConnection !== (resolvedConnId || connId)) return;
-          const stamp = new Date().toISOString();
-          this.setReadMarkerForConn(this.activeConnection, Date.now());
-          try{
-            firebase.updateDoc(firebase.doc(this.db,'chatConnections', this.activeConnection), {
-              [`readBy.${this.currentUser.uid}`]: stamp
-            }).catch(()=>{});
-            this._activeConnReadBy = { ...(this._activeConnReadBy || {}), [this.currentUser.uid]: stamp };
-          }catch(_){ }
-          this.updateUnreadBadges().catch(()=>{});
+          this.markConnectionReadAfterDelay(this.activeConnection).catch(()=>{});
           this.loadMessages().catch(()=>{});
         }catch(_){ }
       }, 5000);
@@ -2103,7 +2339,8 @@
         this._msgVisibleLimitByConn.set(activeConnId, pageSize);
       }
       const visibleLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize);
-      const readMarkerMs = this.getReadMarkerForConn(activeConnId);
+      const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
+      const readMarkerMs = this.getEffectiveReadMarkerForConn(activeConnId, activeConnData);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       this._attachmentPreviewQueue = [];
@@ -2286,14 +2523,18 @@
                 const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
                 if (stickerDataMatch) bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
                 const canModify = m.sender === this.currentUser.uid;
-                const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
+                const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
                 const dayLabel = this.formatMessageDay(m.createdAt, m);
                 if (dayLabel !== lastRenderedDay){ if (lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = lastRenderedDay; box.insertBefore(sep, box.firstElementChild); } lastRenderedDay = dayLabel; }
                 const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
                 const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+                const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
+                const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
+                const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+                const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
                 const delivery = this.getDeliveryLabel(m);
                 const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
@@ -2326,6 +2567,17 @@
               return String(a.id || '').localeCompare(String(b.id || ''));
             });
             const docs = merged;
+            let latestPeerMs = 0;
+            docs.forEach((row)=>{
+              try{
+                const m = (typeof row.data === 'function' ? row.data() : row.data) || {};
+                if (m.sender && m.sender !== this.currentUser?.uid){
+                  const ts = this.getMessageTimestampMs(m);
+                  if (ts > latestPeerMs) latestPeerMs = ts;
+                }
+              }catch(_){ }
+            });
+            this._latestPeerMessageMsByConn.set(activeConnId, latestPeerMs);
             const prevTop = box.scrollTop;
             const prevHeight = box.scrollHeight;
             const pinnedBefore = box.dataset.pinnedBottom !== '0';
@@ -2451,13 +2703,13 @@
                 bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
               }
               const canModify = m.sender === this.currentUser.uid;
-              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '');
+              const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
               const dayLabel = this.formatMessageDay(m.createdAt, m);
               if (dayLabel !== lastRenderedDay){
                 if (lastRenderedDay){
                   const sep = document.createElement('div');
                   sep.className = 'message-day-separator';
-                  sep.textContent = (appendOnly || forceInsertBefore) ? dayLabel : lastRenderedDay;
+                  sep.textContent = lastRenderedDay;
                   if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
                   else renderTarget.appendChild(sep);
                 }
@@ -2465,9 +2717,13 @@
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
               const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+              const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
+              const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
+              const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+              const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
               const delivery = this.getDeliveryLabel(m);
               const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (appendOnly || forceInsertBefore){
@@ -2611,8 +2867,7 @@
           const isLoadMore = this._loadMoreConnId === activeConnId;
           this._loadMoreConnId = '';
           if (isLoadMore && !appendOnly){
-            const delta = Math.max(0, box.scrollHeight - prevHeight);
-            box.scrollTop = prevTop + delta;
+            box.scrollTop = prevTop;
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -2806,7 +3061,7 @@
             if (stickerDataMatch){
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
-            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '');
+            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
             const dayLabel = this.formatMessageDay(m.createdAt, m);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -2817,9 +3072,13 @@
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
             const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+            const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
+            const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
+            const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+            const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
             const delivery = this.getDeliveryLabel(m);
             const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -2923,24 +3182,34 @@
     async sendCurrent(){
       const input = document.getElementById('message-input');
       const text = input.value.trim();
-      if (!text || !this.activeConnection) return;
+      const queuedFiles = (this._pendingAttachments || []).map((x)=> x && x.file).filter((f)=> f instanceof File);
+      if ((!text && !queuedFiles.length) || !this.activeConnection) return;
       const can = await this.canSendToActiveConnection();
       if (!can.ok){
         alert(can.reason || 'Cannot send message');
         return;
       }
       input.value = '';
+      this.clearPendingAttachments();
       this.publishTypingState(false, { force: true }).catch(()=>{});
       try{
-        await this.saveMessage({text});
+        if (text) await this.saveMessage({ text });
+        if (queuedFiles.length){
+          const result = await this.sendFiles(queuedFiles, { silent: true });
+          if (result.failedFiles && result.failedFiles.length){
+            this.queueAttachments(result.failedFiles);
+            alert(`Sent ${result.sentCount || 0} attachments, ${result.failedFiles.length} failed. Failed files are still in queue.`);
+          }
+        }
       }catch(e){
         input.value = text;
+        if (queuedFiles.length) this.queueAttachments(queuedFiles);
         this.publishTypingState(!!text, { force: true }).catch(()=>{});
         throw e;
       }
     }
 
-    buildSharePayload(rawText, fileUrl, fileName, sourceConnId = this.activeConnection, attachmentKeySalt = ''){
+    buildSharePayload(rawText, fileUrl, fileName, sourceConnId = this.activeConnection, attachmentKeySalt = '', sourceMessage = null, sourceSenderName = ''){
       const inferredName = String(fileName || '').trim();
       let nextText = String(rawText || '').trim();
       if (fileUrl){
@@ -2949,12 +3218,20 @@
         else if (!nextText || /^\[file\]/i.test(nextText)) nextText = '[file]';
       }
       if (!nextText && fileUrl) nextText = '[file]';
+      const src = sourceMessage && typeof sourceMessage === 'object' ? sourceMessage : {};
+      const originalAuthorUid = String(src.sharedOriginalAuthorUid || src.sender || '').trim() || null;
+      const originalAuthorName = String(src.sharedOriginalAuthorName || sourceSenderName || '').trim() || null;
       return {
         text: nextText,
         fileUrl: fileUrl || null,
         fileName: inferredName || null,
         attachmentSourceConnId: sourceConnId || null,
-        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null
+        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
+        isShared: true,
+        sharedFromConnId: String(sourceConnId || '').trim() || null,
+        sharedFromMessageId: String(src.id || '').trim() || null,
+        sharedOriginalAuthorUid: originalAuthorUid,
+        sharedOriginalAuthorName: originalAuthorName
       };
     }
 
@@ -2991,7 +3268,7 @@
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId, attachmentKeySalt }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId, attachmentKeySalt, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
@@ -3005,6 +3282,11 @@
         fileName: fileName || null,
         attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
+        isShared: !!isShared,
+        sharedFromConnId: String(sharedFromConnId || '').trim() || null,
+        sharedFromMessageId: String(sharedFromMessageId || '').trim() || null,
+        sharedOriginalAuthorUid: String(sharedOriginalAuthorUid || '').trim() || null,
+        sharedOriginalAuthorName: String(sharedOriginalAuthorName || '').trim() || null,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -3171,17 +3453,19 @@
       }
     }
 
-    async sendFiles(files){
+    async sendFiles(files, opts = {}){
+      const silent = !!opts.silent;
+      const result = { sentCount: 0, failedFiles: [] };
       const targetConnId = this.activeConnection;
-      if (!files || !files.length || !targetConnId) { console.warn('No files or no active connection'); return; }
+      if (!files || !files.length || !targetConnId) { console.warn('No files or no active connection'); return result; }
       const can = await this.canSendToConnection(targetConnId);
       if (!can.ok){
-        alert(can.reason || 'Cannot send attachments');
-        return;
+        if (!silent) alert(can.reason || 'Cannot send attachments');
+        return result;
       }
       if (!this.storage) {
-        alert('File upload is not available because Firebase Storage is not configured.');
-        return;
+        if (!silent) alert('File upload is not available because Firebase Storage is not configured.');
+        return result;
       }
       try{
         const cRef = firebase.doc(this.db, 'chatConnections', targetConnId);
@@ -3194,8 +3478,8 @@
                   : (Array.isArray(cSnap.data().memberIds) ? cSnap.data().memberIds : [])))
           : [];
         if (!participants.includes(this.currentUser.uid)) {
-          alert('You are not a participant of this chat. Please reopen the chat and try again.');
-          return;
+          if (!silent) alert('You are not a participant of this chat. Please reopen the chat and try again.');
+          return result;
         }
       }catch(_){ /* best-effort pre-check */ }
       console.log('Auth state before sendFiles:', !!this.currentUser, firebase.auth().currentUser?.uid);
@@ -3204,8 +3488,8 @@
         if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
       } catch (err) {
         console.error('Auth refresh failed before sendFiles:', err);
-        alert('Auth error - please reload and re-login');
-        return;
+        if (!silent) alert('Auth error - please reload and re-login');
+        return result;
       }
       for (const f of files){
         try {
@@ -3244,11 +3528,17 @@
             attachmentKeySalt: String(salts?.stableSalt || targetConnId || '')
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
+          result.sentCount += 1;
         } catch (err) {
           console.error('Send file error details:', err.code, err.message, err);
-          alert('Failed to send file: ' + err.message);
+          result.failedFiles.push(f);
+          if (!silent) alert('Failed to send file: ' + err.message);
         }
       }
+      if (!silent && result.failedFiles.length && result.sentCount > 0){
+        alert(`Sent ${result.sentCount} attachments, ${result.failedFiles.length} failed.`);
+      }
+      return result;
     }
 
     /* Stickerpacks */
@@ -3634,9 +3924,16 @@
       const existing = document.getElementById('group-panel');
       if (existing){ existing.remove(); return; }
       const panel = document.createElement('div'); panel.id='group-panel'; panel.className='group-panel';
-      panel.innerHTML = `<h4>Group</h4><div id="group-summary"></div><ul id="group-list" class="group-list"></ul><div class="group-actions"><button class="btn secondary" id="add-member-btn">Add member</button><button class="btn secondary" id="close-group-btn">Close</button></div>`;
+      panel.innerHTML = `<h4>Group</h4><div id="group-summary"></div>
+      <div id="group-meta" style="display:grid;gap:8px;margin:8px 0 12px 0">
+        <input id="group-name-input" class="input" type="text" maxlength="80" placeholder="Group name">
+        <input id="group-cover-input" class="input" type="url" placeholder="Group cover image URL">
+        <button class="btn secondary" id="save-group-meta-btn">Save group settings</button>
+      </div>
+      <ul id="group-list" class="group-list"></ul><div class="group-actions"><button class="btn secondary" id="add-member-btn">Add member</button><button class="btn secondary" id="close-group-btn">Close</button></div>`;
       document.querySelector('.main').appendChild(panel);
       document.getElementById('close-group-btn').onclick = ()=> panel.remove();
+      document.getElementById('save-group-meta-btn').onclick = async ()=>{ await this.saveGroupMeta(); };
       document.getElementById('add-member-btn').onclick = async ()=>{
         const s=document.getElementById('user-search');
         try{
@@ -3664,6 +3961,14 @@
         }
         const amAdmin = admins.includes(this.currentUser.uid);
         if (summary){ summary.innerHTML = `Members: ${participants.length} · Admins: ${admins.length}${amAdmin? ' · You are admin':''}`; }
+        const nameInput = document.getElementById('group-name-input');
+        const coverInput = document.getElementById('group-cover-input');
+        const saveMetaBtn = document.getElementById('save-group-meta-btn');
+        if (nameInput) nameInput.value = String(conn.groupName || '');
+        if (coverInput) coverInput.value = String(conn.groupCoverUrl || '');
+        if (nameInput) nameInput.disabled = !amAdmin;
+        if (coverInput) coverInput.disabled = !amAdmin;
+        if (saveMetaBtn) saveMetaBtn.disabled = !amAdmin;
         for (let i=0;i<participants.length;i++){
           const uid = participants[i]; const name = usernames[i] || uid;
           const li = document.createElement('li');
@@ -3679,6 +3984,36 @@
           li.appendChild(left); li.appendChild(right); list.appendChild(li);
         }
       }catch(_){ }
+    }
+
+    async saveGroupMeta(){
+      try{
+        if (!this.activeConnection) return;
+        const ref = firebase.doc(this.db,'chatConnections', this.activeConnection);
+        const snap = await firebase.getDoc(ref);
+        if (!snap.exists()) return;
+        const conn = snap.data() || {};
+        const participants = Array.isArray(conn.participants) ? conn.participants : [];
+        const admins = Array.isArray(conn.admins) ? conn.admins : [participants[0]].filter(Boolean);
+        if (!admins.includes(this.currentUser.uid)){
+          alert('Only admins can edit group settings.');
+          return;
+        }
+        const nameEl = document.getElementById('group-name-input');
+        const coverEl = document.getElementById('group-cover-input');
+        const groupName = String(nameEl?.value || '').trim();
+        const groupCoverUrl = String(coverEl?.value || '').trim();
+        await firebase.updateDoc(ref, {
+          groupName,
+          groupCoverUrl,
+          updatedAt: new Date().toISOString()
+        });
+        await this.loadConnections();
+        await this.setActive(this.activeConnection, groupName || undefined);
+        await this.renderGroupPanel();
+      }catch(_){
+        alert('Failed to save group settings');
+      }
     }
 
     async removeMember(uid){
@@ -4037,14 +4372,30 @@
       if (!p._voiceBound){
         p._voiceBound = true;
         const sync = ()=> this.updateVoiceWidgets();
+        const startTick = ()=>{
+          try{
+            if (p._voiceTick) return;
+            p._voiceTick = setInterval(()=> {
+              try{ if (!p.paused) this.updateVoiceWidgets(); }catch(_){ }
+            }, 220);
+          }catch(_){ }
+        };
+        const stopTick = ()=>{
+          try{
+            if (p._voiceTick){
+              clearInterval(p._voiceTick);
+              p._voiceTick = null;
+            }
+          }catch(_){ }
+        };
         p.addEventListener('timeupdate', sync);
-        p.addEventListener('play', sync);
-        p.addEventListener('pause', sync);
+        p.addEventListener('play', ()=>{ startTick(); sync(); });
+        p.addEventListener('pause', ()=>{ stopTick(); sync(); });
         p.addEventListener('loadedmetadata', sync);
         p.addEventListener('durationchange', sync);
         p.addEventListener('seeking', sync);
         p.addEventListener('seeked', sync);
-        p.addEventListener('ended', sync);
+        p.addEventListener('ended', ()=>{ stopTick(); sync(); });
       }
       // Keep a single-track experience across host and app shell.
       if (!p._singleTrackBound){
@@ -4777,7 +5128,7 @@
             const recentConnIds = (this.connections || [])
               .map((c)=> c && c.id)
               .filter((cid)=> cid && !candidateConnIds.includes(cid))
-              .slice(0, 40);
+              .slice(0, 200);
             for (const cid of recentConnIds){
               if (decrypted) break;
               try{

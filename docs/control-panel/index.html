@@ -302,7 +302,12 @@
                         </div>
                         <div class="setting-item">
                             <label>Media</label>
-                            <input type="file" id="space-post-media" accept="image/*,video/*,audio/*" multiple>
+                            <input type="file" id="space-post-media" accept="*/*" multiple>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+                                <button id="space-add-wave-btn" class="btn btn-secondary" type="button"><i class="fas fa-music"></i> Add from WaveConnect</button>
+                                <button id="space-add-playlist-btn" class="btn btn-secondary" type="button"><i class="fas fa-list-music"></i> Add playlist</button>
+                                <span id="space-post-attach-count" style="opacity:.78;font-size:12px">0/10</span>
+                            </div>
                             <div id="space-media-previews" class="media-previews" style="margin-top:8px"></div>
                         </div>
                         <div class="setting-item">
