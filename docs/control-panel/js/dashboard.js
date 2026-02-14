@@ -126,6 +126,32 @@ class DashboardManager {
         return Array.isArray(this._spacePostAttachments) ? this._spacePostAttachments : [];
     }
 
+    getSpaceAttachmentSignature(item){
+        try{
+            if (!item || typeof item !== 'object') return '';
+            return [
+                String(item.kind || ''),
+                String(item.playlistId || ''),
+                String(item.url || ''),
+                String(item.name || ''),
+                String(item.size || 0),
+                String(item.lastModified || 0)
+            ].join('|');
+        }catch(_){ return ''; }
+    }
+
+    addUniqueSpaceAttachment(next, item){
+        try{
+            if (!item || typeof item !== 'object') return false;
+            const sig = this.getSpaceAttachmentSignature(item);
+            if (!sig) return false;
+            const exists = next.some((x)=> this.getSpaceAttachmentSignature(x) === sig);
+            if (exists) return false;
+            next.push(item);
+            return true;
+        }catch(_){ return false; }
+    }
+
     resetSpacePostComposer(){
         (this._spacePostAttachments || []).forEach((it)=>{
             const u = String(it?.previewUrl || '').trim();
@@ -145,13 +171,9 @@ class DashboardManager {
         const current = this.getSpacePostAttachments();
         const max = this.getMaxPostAttachments();
         const next = current.slice();
-        const seen = new Set(next.map((it)=> `${it.kind}|${it.name}|${it.size || 0}|${it.lastModified || 0}|${it.url || ''}|${it.playlistId || ''}`));
         list.forEach((f)=>{
             if (next.length >= max) return;
-            const sig = `file|${f.name}|${f.size}|${f.lastModified}|`;
-            if (seen.has(sig)) return;
-            seen.add(sig);
-            next.push({
+            this.addUniqueSpaceAttachment(next, {
                 kind: this.inferMediaKindFromUrl(f.name || '') === 'file' ? (String(f.type || '').startsWith('image/') ? 'image' : (String(f.type || '').startsWith('video/') ? 'video' : (String(f.type || '').startsWith('audio/') ? 'audio' : 'file'))) : this.inferMediaKindFromUrl(f.name || ''),
                 name: f.name || 'file',
                 size: Number(f.size || 0),
@@ -196,7 +218,17 @@ class DashboardManager {
                 btn.onclick = ()=>{
                     const cur = this.getSpacePostAttachments();
                     if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
-                    this._spacePostAttachments = [...cur, { kind:'audio', url: String(w.url || ''), name: String(w.title || 'Audio') }];
+                    const next = cur.slice();
+                    const added = this.addUniqueSpaceAttachment(next, {
+                        kind:'audio',
+                        url: String(w.url || ''),
+                        name: String(w.title || 'Audio'),
+                        by: String(w.authorName || ''),
+                        cover: String(w.coverUrl || ''),
+                        sourceId: String(w.id || '')
+                    });
+                    if (!added){ this.showError('Already added'); return; }
+                    this._spacePostAttachments = next;
                     this.renderSpacePostComposerQueue();
                     overlay.remove();
                 };
@@ -226,7 +258,10 @@ class DashboardManager {
                 btn.onclick = ()=>{
                     const cur = this.getSpacePostAttachments();
                     if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
-                    this._spacePostAttachments = [...cur, { kind:'playlist', name: String(pl.name || 'Playlist'), playlistId: String(pl.id || '') }];
+                    const next = cur.slice();
+                    const added = this.addUniqueSpaceAttachment(next, { kind:'playlist', name: String(pl.name || 'Playlist'), playlistId: String(pl.id || '') });
+                    if (!added){ this.showError('Already added'); return; }
+                    this._spacePostAttachments = next;
                     this.renderSpacePostComposerQueue();
                     overlay.remove();
                 };
@@ -403,7 +438,9 @@ class DashboardManager {
                     out.push({
                         kind: 'playlist',
                         name: name || 'Playlist',
-                        playlistId: String(entry.playlistId || entry.id || '').trim() || null
+                        playlistId: String(entry.playlistId || entry.id || '').trim() || null,
+                        by: String(entry.by || entry.authorName || '').trim(),
+                        cover: String(entry.cover || entry.coverUrl || '').trim()
                     });
                     return;
                 }
@@ -411,7 +448,9 @@ class DashboardManager {
                     out.push({
                         kind: ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url),
                         url,
-                        name
+                        name,
+                        by: String(entry.by || entry.authorName || '').trim(),
+                        cover: String(entry.cover || entry.coverUrl || '').trim()
                     });
                 }
             }
@@ -419,7 +458,8 @@ class DashboardManager {
         return out;
     }
 
-    renderPostMedia(media){
+    renderPostMedia(media, opts = {}){
+        const defaultBy = String(opts.defaultBy || '').trim();
         const items = this.normalizePostMediaItems(media);
         if (!items.length) return '';
         const mediaRank = (it)=> (it.kind === 'image' || it.kind === 'video') ? 0 : 1;
@@ -432,14 +472,22 @@ class DashboardManager {
                 if (it.kind === 'image'){
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image"></div>`;
                 }
-                return `<div class="post-media-visual-item"><div class="player-card"><video src="${it.url}" class="player-media" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain"></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                const t = String(it.name || 'Video').replace(/"/g,'&quot;');
+                const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
+                const c = String(it.cover || '').replace(/"/g,'&quot;');
+                return `<div class="post-media-visual-item"><div class="player-card"><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
             }).join('')}</div></div>`
             : '';
 
         const restHtml = rest.length
             ? `<div class="post-media-files-list">${rest.map((it)=>{
                 if (it.kind === 'audio' && it.url){
-                    return `<div class="post-media-files-item"><div class="player-card"><audio src="${it.url}" class="player-media" preload="metadata"></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                    const t = String(it.name || 'Audio').replace(/</g,'&lt;');
+                    const by = String(it.by || defaultBy || '').replace(/</g,'&lt;');
+                    const tAttr = String(it.name || 'Audio').replace(/"/g,'&quot;');
+                    const byAttr = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
+                    const coverAttr = String(it.cover || '').replace(/"/g,'&quot;');
+                    return `<div class="post-media-files-item"><div class="post-media-audio-head"><span class="post-media-audio-title">${t}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div><div class="player-card"><audio src="${it.url}" class="player-media" data-title="${tAttr}" data-by="${byAttr}" data-cover="${coverAttr}" preload="metadata"></audio><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
                 }
                 if (it.kind === 'playlist'){
                     const safeName = String(it.name || 'Playlist').replace(/</g,'&lt;');
@@ -481,6 +529,17 @@ class DashboardManager {
     setPlayIcon(btn, isPlaying){
         if (!btn) return;
         btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
+    }
+
+    resolveMediaNodeCover(node){
+        try{
+            if (!node) return '';
+            const direct = String(node.dataset?.cover || '').trim();
+            if (direct) return direct;
+            const card = node.closest('.wave-item,.video-item,.post-item,.player-card');
+            const img = card ? card.querySelector('img') : null;
+            return String(img?.src || '').trim();
+        }catch(_){ return ''; }
     }
 
     attachWaveAudioUI(media, host, opts = {}){
@@ -1011,7 +1070,7 @@ class DashboardManager {
         const miniTime = document.getElementById('mini-time');
         this.setMiniTitleText(item.title || 'Now playing');
         if (miniBy) miniBy.textContent = item.by || '';
-        if (miniCover && item.cover) miniCover.src = item.cover;
+        if (miniCover) miniCover.src = item.cover || 'images/default-bird.png';
         if (mini) mini.classList.add('show');
         if (playBtn){ playBtn.onclick = ()=>{ if (bg.paused){ bg.play().catch(()=>{}); } else { bg.pause(); } }; }
         if (repeatBtn){
@@ -1245,7 +1304,7 @@ class DashboardManager {
             const miniTime = document.getElementById('mini-time');
             this.setMiniTitleText(meta.title || 'Now playing');
             if (mBy) mBy.textContent = meta.by || '';
-            if (mCover && meta.cover) mCover.src = meta.cover;
+            if (mCover) mCover.src = meta.cover || this.resolveMediaNodeCover(mediaEl) || 'images/default-bird.png';
             if ('mediaSession' in navigator){
                 try{
                     const artwork = meta.cover ? [
@@ -1334,9 +1393,9 @@ class DashboardManager {
             const queue = nodes
                 .map((n)=>({
                     src: n.currentSrc || n.src || '',
-                    title: n.dataset?.title || n.closest('.wave-item,.video-item,.post-item')?.querySelector('.post-text')?.textContent?.trim() || 'Track',
-                    by: n.dataset?.by || '',
-                    cover: n.dataset?.cover || ''
+                    title: n.dataset?.title || n.closest('.wave-item,.video-item,.post-item')?.querySelector('.post-media-audio-title,.audio-title,.video-title,.post-text')?.textContent?.trim() || 'Track',
+                    by: n.dataset?.by || n.closest('.wave-item,.video-item,.post-item')?.querySelector('.post-media-audio-by,.audio-byline')?.textContent?.trim() || '',
+                    cover: this.resolveMediaNodeCover(n) || ''
                 }))
                 .filter((q)=> !!q.src);
             const currentSrc = source.currentSrc || source.src || '';
@@ -1410,8 +1469,8 @@ class DashboardManager {
                 };
 
                 media.addEventListener('play', ()=>{
-                    const title = media.dataset?.title || card.closest('.post-item')?.querySelector('.post-text')?.textContent?.slice(0, 60) || 'Now playing';
-                    const by = media.dataset?.by || card.closest('.post-item')?.querySelector('.byline')?.textContent || '';
+                    const title = media.dataset?.title || card.closest('.post-item')?.querySelector('.post-media-audio-title,.audio-title,.post-text')?.textContent?.slice(0, 60) || 'Now playing';
+                    const by = media.dataset?.by || card.closest('.post-item')?.querySelector('.post-media-audio-by,.byline,.audio-byline')?.textContent || '';
                     this.showMiniPlayer(media, { title, by });
                 });
             });
@@ -1928,7 +1987,9 @@ class DashboardManager {
                                     media.push({
                                         kind: 'playlist',
                                         name: String(item.name || 'Playlist'),
-                                        playlistId: String(item.playlistId || '')
+                                        playlistId: String(item.playlistId || ''),
+                                        by: String(item.by || ''),
+                                        cover: String(item.cover || '')
                                     });
                                     continue;
                                 }
@@ -1942,7 +2003,9 @@ class DashboardManager {
                                     media.push({
                                         kind: String(item.kind || this.inferMediaKindFromUrl(file.name || 'file')),
                                         url,
-                                        name: file.name || 'attachment'
+                                        name: file.name || 'attachment',
+                                        by: String(item.by || ''),
+                                        cover: String(item.cover || '')
                                     });
                                     continue;
                                 }
@@ -1950,7 +2013,9 @@ class DashboardManager {
                                     media.push({
                                         kind: String(item.kind || this.inferMediaKindFromUrl(item.url || '')),
                                         url: String(item.url || ''),
-                                        name: String(item.name || '')
+                                        name: String(item.name || ''),
+                                        by: String(item.by || ''),
+                                        cover: String(item.cover || '')
                                     });
                                 }
                             }
@@ -1959,14 +2024,32 @@ class DashboardManager {
                             return;
                         }
                     }
-                    const visualFirst = media.find((m)=> m && (m.kind === 'image' || m.kind === 'video')) || media.find((m)=> m && m.url);
+                    const uniqueMedia = [];
+                    media.forEach((m)=>{
+                        if (!m) return;
+                        const sig = [
+                            String(m.kind || ''),
+                            String(m.playlistId || ''),
+                            String(m.url || ''),
+                            String(m.name || '')
+                        ].join('|');
+                        if (!sig) return;
+                        if (uniqueMedia.some((x)=> [
+                            String(x.kind || ''),
+                            String(x.playlistId || ''),
+                            String(x.url || ''),
+                            String(x.name || '')
+                        ].join('|') === sig)) return;
+                        uniqueMedia.push(m);
+                    });
+                    const visualFirst = uniqueMedia.find((m)=> m && (m.kind === 'image' || m.kind === 'video')) || uniqueMedia.find((m)=> m && m.url);
                     const mediaUrl = String(visualFirst?.url || '');
                     await firebase.setDoc(postIdRef, {
                         id: postIdRef.id,
                         authorId: user.uid,
                         text,
                         mediaUrl,
-                        media,
+                        media: uniqueMedia,
                         visibility,
                         createdAt: new Date().toISOString(),
                         createdAtTS: firebase.serverTimestamp()
@@ -2230,7 +2313,7 @@ class DashboardManager {
                     </button>
                     <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                 </div>`;
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
                 div.innerHTML = `${repostBadge}${by}${media}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>
                                  <div class=\"post-actions\" data-post-id=\"${p.id}\" data-author=\"${p.authorId||''}\" style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center\">\n                                   <i class=\"fas fa-heart like-btn\" title=\"Like\" style=\"cursor:pointer\"></i>\n                                   <span class=\"likes-count\"></span>\n                                   <i class=\"fas fa-comment comment-btn\" title=\"Comments\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-retweet repost-btn\" title=\"Repost\" style=\"cursor:pointer\"></i>\n                                   <span class=\"reposts-count\"></span>\n                                   <i class=\"fas fa-ellipsis-h post-menu\" title=\"More\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-edit edit-post-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>\n                                   <i class=\"fas fa-trash delete-post-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>\n                                   <button class=\"btn btn-secondary visibility-btn\">${p.visibility==='public'?'Make Private':'Make Public'}</button>\n                                 </div>\n                                 <div class=\"comment-tree\" id=\"comments-${p.id}\" style=\"display:none\"></div>`;
@@ -2645,7 +2728,7 @@ class DashboardManager {
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                   <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                     <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -2821,7 +2904,7 @@ class DashboardManager {
                 const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                    <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                      <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -3074,7 +3157,7 @@ class DashboardManager {
                     const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                     const postTime = this.formatDateTime(p.createdAt);
                     const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
                     div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                                        <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                                          <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
@@ -3405,7 +3488,10 @@ class DashboardManager {
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
         const visible = Math.max(5, Number(this._waveLibraryVisible || 5));
-        items.slice(0, visible).forEach((w)=> lib.appendChild(this.renderWaveItem(w)));
+        items.slice(0, visible).forEach((w)=> lib.appendChild(this.renderWaveItem(w, {
+            allowRemove: true,
+            onRemoved: ()=> this.renderWaveLibrary(uid)
+        })));
         if (items.length > visible){
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
@@ -3418,15 +3504,17 @@ class DashboardManager {
         }
     }
 
-    renderWaveItem(w){
+    renderWaveItem(w, opts = {}){
         const div = document.createElement('div');
         div.className = 'wave-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
         const cover = w.coverUrl || 'images/default-bird.png';
+        const allowRemove = !!opts.allowRemove;
         const byline = w.authorName
           ? `<button type="button" class="audio-byline" data-user-preview="${String(w.authorId || '').replace(/"/g,'&quot;')}" style="font-size:12px;color:#aaa;background:none;border:none;padding:0;text-align:left;cursor:pointer">by ${(w.authorName||'').replace(/</g,'&lt;')}</button>`
           : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        const removeBtnHtml = allowRemove ? `<button class="btn btn-secondary remove-btn" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -3444,6 +3532,32 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
+        const removeBtn = div.querySelector('.remove-btn');
+        if (removeBtn){
+            removeBtn.onclick = async ()=>{
+                try{
+                    if (!confirm('Remove this track from My Library?')) return;
+                    const id = String(w.id || '').trim();
+                    if (id){
+                        await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'wave', id));
+                    } else {
+                        const me = await this.resolveCurrentUser();
+                        if (!me || !me.uid) return;
+                        const q = firebase.query(
+                            firebase.collection(window.firebaseService.db, 'wave'),
+                            firebase.where('ownerId', '==', me.uid),
+                            firebase.where('url', '==', String(w.url || ''))
+                        );
+                        const s = await firebase.getDocs(q);
+                        for (const d of (s.docs || [])){
+                            await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'wave', d.id));
+                        }
+                    }
+                    if (typeof opts.onRemoved === 'function') opts.onRemoved();
+                    this.showSuccess('Removed from library');
+                }catch(_){ this.showError('Failed to remove'); }
+            };
+        }
         const a = div.querySelector('.liber-lib-audio');
         if (a){
             const host = div.querySelector('.wave-item-audio-host') || div;
@@ -5035,7 +5149,7 @@ Do you want to proceed?`);
             const authorAvatar = String(p.coverUrl || data.avatarUrl || 'images/default-bird.png');
             const postTime = this.formatDateTime(p.createdAt);
             const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
+            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '' }) : '';
             card.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
                 <button type="button" data-user-preview="${String(p.authorId || uid).replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
                   <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">

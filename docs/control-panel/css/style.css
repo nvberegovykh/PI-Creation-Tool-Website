@@ -37,10 +37,14 @@
 }
 .post-media-block{margin-top:8px}
 .post-media-visual-wrap{overflow:auto;-webkit-overflow-scrolling:touch}
-.post-media-visual-slider{display:flex;gap:8px}
-.post-media-visual-item{flex:0 0 auto;min-width:min(82vw,420px);max-width:min(92vw,620px)}
-.post-media-image{max-width:100%;height:auto;border-radius:12px;display:block}
+.post-media-visual-slider{display:flex;gap:8px;scroll-snap-type:x mandatory}
+.post-media-visual-item{flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start}
+.post-media-image{width:100%;height:min(62vh,540px);object-fit:contain;border-radius:12px;display:block;background:#0f1116}
+.post-media-video{width:100%;height:min(62vh,540px);max-height:min(62vh,540px);object-fit:contain;border-radius:12px;background:#0f1116}
 .post-media-files-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.post-media-audio-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.post-media-audio-title{font-size:13px;color:#dbe7ff;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.post-media-audio-by{font-size:11px;color:#9db0cf;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .post-media-file-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-color);border-radius:10px;background:#0f1116;color:#d8e2f3;text-decoration:none}
 .post-media-file-chip:hover{text-decoration:none;opacity:.95}
 .player-card{ background:#0f1116; border:1px solid var(--border-color); border-radius:12px; padding:8px; }
@@ -283,30 +287,31 @@ img, video, canvas, svg, iframe {
   font-family: var(--typewriter-font);
 }
 
-/* Desktop card tiling and compact media widths */
+/* Desktop post masonry tiling (Pinterest-like) */
 @media (min-width: 1024px){
   #global-feed,
   #global-suggestions,
+  #space-suggestions,
   #space-feed,
-  #video-library,
-  #video-suggestions,
-  #video-search-results{
-    display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(280px, 400px));
-    gap:12px;
-    justify-content:start;
-    align-items:start;
+  #preview-feed{
+    column-width: 340px;
+    column-gap: 12px;
   }
   #global-feed .post-item,
   #global-suggestions .post-item,
+  #space-suggestions .post-item,
   #space-feed .post-item,
-  .video-item{
-    margin:0 !important;
+  #preview-feed .post-item{
+    display:inline-block;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
     width:100%;
-    max-width:400px;
+    margin:0 0 12px !important;
+    width:100%;
+    max-width:none;
   }
   .player-card{
-    max-width:400px;
+    max-width:none;
   }
   /* WaveConnect desktop: normal flow, only audio Upload + Library in one row */
   #wave-audio-pane{
