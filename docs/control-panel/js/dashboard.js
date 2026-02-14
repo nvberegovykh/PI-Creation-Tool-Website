@@ -3257,7 +3257,18 @@ class DashboardManager {
                             coverUrl = await firebase.getDownloadURL(cRef);
                         }
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
-                        await firebase.setDoc(docRef, { id: docRef.id, ownerId: me.uid, title, url, createdAt: new Date().toISOString(), authorId: me.uid, authorName, coverUrl });
+                        await firebase.setDoc(docRef, {
+                            id: docRef.id,
+                            owner: me.uid,
+                            ownerId: me.uid,
+                            title,
+                            url,
+                            createdAt: new Date().toISOString(),
+                            createdAtTS: firebase.serverTimestamp(),
+                            authorId: me.uid,
+                            authorName,
+                            coverUrl
+                        });
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
                         this.renderPlaylists();
