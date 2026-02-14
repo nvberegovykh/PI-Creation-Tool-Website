@@ -36,7 +36,7 @@
   box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
 }
 .post-media-block{margin-top:8px}
-.post-media-visual-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x}
+.post-media-visual-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x;scroll-behavior:smooth}
 .post-media-visual-wrap::-webkit-scrollbar{height:0;width:0}
 .post-media-visual-slider{display:flex;gap:8px;scroll-snap-type:x mandatory}
 .post-media-visual-item{flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start}
@@ -51,6 +51,9 @@
 .post-media-audio-title{font-size:13px;color:#dbe7ff;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .post-media-audio-by{font-size:11px;color:#9db0cf;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .post-media-audio-by-link{background:none;border:none;padding:0;cursor:pointer;text-align:left}
+.post-media-dots{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px}
+.post-media-dot{width:7px;height:7px;border-radius:999px;border:0;background:rgba(201,218,241,.35);padding:0;cursor:pointer;transition:all .16s ease}
+.post-media-dot.active{width:16px;background:#9fc5ff}
 .post-media-file-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-color);border-radius:10px;background:#0f1116;color:#d8e2f3;text-decoration:none}
 .post-media-file-chip:hover{text-decoration:none;opacity:.95}
 .player-card{ background:#0f1116; border:1px solid var(--border-color); border-radius:12px; padding:8px; }
@@ -293,26 +296,28 @@ img, video, canvas, svg, iframe {
   font-family: var(--typewriter-font);
 }
 
-/* Desktop adaptive post tiling (row-first: newest left->right, top first) */
+/* Desktop adaptive post tiling (masonry) */
 @media (min-width: 1024px){
   #global-feed,
   #global-suggestions,
   #space-suggestions,
   #space-feed,
   #preview-feed{
-    display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));
-    gap:12px;
-    align-items:start;
+    column-width:340px;
+    column-gap:12px;
   }
   #global-feed .post-item,
   #global-suggestions .post-item,
   #space-suggestions .post-item,
   #space-feed .post-item,
   #preview-feed .post-item{
-    margin:0 !important;
+    display:inline-block;
+    vertical-align:top;
+    margin:0 0 12px 0 !important;
     width:100%;
     max-width:none;
+    break-inside:avoid;
+    -webkit-column-break-inside:avoid;
   }
   .player-card{
     max-width:none;

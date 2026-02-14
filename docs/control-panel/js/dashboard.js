@@ -118,6 +118,100 @@ class DashboardManager {
         }, 320);
     }
 
+    applyHorizontalMasonryOrder(container){
+        try{
+            if (!container || window.innerWidth < 1024) return;
+            const cards = Array.from(container.querySelectorAll(':scope > .post-item'));
+            if (!cards.length) return;
+            cards.forEach((el, idx)=>{
+                if (!el.dataset.feedOrder) el.dataset.feedOrder = String(idx);
+            });
+            const base = cards.slice().sort((a,b)=> Number(a.dataset.feedOrder || 0) - Number(b.dataset.feedOrder || 0));
+            const colW = 340;
+            const gap = 12;
+            const width = Math.max(1, Number(container.clientWidth || 0));
+            const cols = Math.max(1, Math.floor((width + gap) / (colW + gap)));
+            if (cols <= 1){
+                base.forEach((el)=> container.appendChild(el));
+                return;
+            }
+            const buckets = Array.from({ length: cols }, ()=> []);
+            base.forEach((el, idx)=>{
+                buckets[idx % cols].push(el);
+            });
+            const ordered = [];
+            buckets.forEach((bucket)=> bucket.forEach((el)=> ordered.push(el)));
+            ordered.forEach((el)=> container.appendChild(el));
+        }catch(_){ }
+    }
+
+    async fetchPublicPlaylistsForUser(uid, limit = 20){
+        const rows = [];
+        const targetUid = String(uid || '').trim();
+        if (!targetUid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return rows;
+        const pushUnique = (id, p)=>{
+            const key = String(id || p?.id || '').trim();
+            if (!key) return;
+            if (rows.some((x)=> String(x.id || '') === key)) return;
+            rows.push({ id: key, ...(p || {}) });
+        };
+        const matchesOwner = (p)=>{
+            const ownerId = String(p?.ownerId || '').trim();
+            const ownerLegacy = String(p?.owner || '').trim();
+            return ownerId === targetUid || ownerLegacy === targetUid;
+        };
+        const isPublic = (p)=> String(p?.visibility || '').trim().toLowerCase() === 'public';
+        try{
+            const q = firebase.query(
+                firebase.collection(window.firebaseService.db, 'playlists'),
+                firebase.where('ownerId', '==', targetUid),
+                firebase.where('visibility', '==', 'public'),
+                firebase.limit(Math.max(20, limit))
+            );
+            const s = await firebase.getDocs(q);
+            s.forEach((d)=> pushUnique(d.id, d.data() || {}));
+        }catch(_){ }
+        if (!rows.length){
+            try{
+                const q2 = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('owner', '==', targetUid),
+                    firebase.where('visibility', '==', 'public'),
+                    firebase.limit(Math.max(20, limit))
+                );
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=> pushUnique(d.id, d.data() || {}));
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q3 = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('visibility', '==', 'public'),
+                    firebase.limit(300)
+                );
+                const s3 = await firebase.getDocs(q3);
+                s3.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q4 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', targetUid));
+                const s4 = await firebase.getDocs(q4);
+                s4.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q5 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', targetUid));
+                const s5 = await firebase.getDocs(q5);
+                s5.forEach((d)=>{ const p = d.data() || {}; if (isPublic(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+        return rows.slice(0, Math.max(1, limit));
+    }
+
     getMaxPostAttachments(){
         return 10;
     }
@@ -531,7 +625,7 @@ class DashboardManager {
                 const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
                 return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${tHtml}</div><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
-            }).join('')}</div></div>`
+            }).join('')}</div>${visual.length > 1 ? `<div class="post-media-dots">${visual.map((_,i)=> `<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}" aria-label="Slide ${i+1}"></button>`).join('')}</div>` : ''}</div>`
             : '';
 
         const restHtml = rest.length
@@ -1473,13 +1567,47 @@ class DashboardManager {
             root.querySelectorAll('.post-media-visual-wrap').forEach((wrap)=>{
                 if (wrap.dataset.hScrollBound === '1') return;
                 wrap.dataset.hScrollBound = '1';
+                const slider = wrap.querySelector('.post-media-visual-slider');
+                const dots = wrap.querySelector('.post-media-dots');
+                const getSlideStep = ()=>{
+                    const first = slider?.querySelector('.post-media-visual-item');
+                    if (!first) return Math.max(1, wrap.clientWidth || 1);
+                    const gap = 8;
+                    return Math.max(1, Math.round(first.clientWidth + gap));
+                };
+                const syncDots = ()=>{
+                    if (!dots) return;
+                    const step = getSlideStep();
+                    const idx = Math.max(0, Math.round((wrap.scrollLeft || 0) / step));
+                    dots.querySelectorAll('.post-media-dot').forEach((d, i)=> d.classList.toggle('active', i === idx));
+                };
+                if (dots){
+                    dots.querySelectorAll('.post-media-dot').forEach((btn)=>{
+                        btn.addEventListener('click', ()=>{
+                            const idx = Number(btn.getAttribute('data-slide-index') || 0);
+                            const step = getSlideStep();
+                            wrap.scrollTo({ left: Math.max(0, idx * step), behavior: 'smooth' });
+                            syncDots();
+                        });
+                    });
+                }
+                wrap.addEventListener('scroll', ()=> syncDots(), { passive: true });
                 wrap.addEventListener('wheel', (e)=>{
-                    // Desktop convenience: vertical wheel scrolls horizontal media slider.
+                    if (window.innerWidth < 1024) return;
                     const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
                     if (!Number.isFinite(delta) || delta === 0) return;
-                    wrap.scrollLeft += delta;
                     e.preventDefault();
+                    if (wrap.dataset.snapLock === '1') return;
+                    wrap.dataset.snapLock = '1';
+                    const step = getSlideStep();
+                    const cur = Math.round((wrap.scrollLeft || 0) / step);
+                    const dir = delta > 0 ? 1 : -1;
+                    const maxIdx = Math.max(0, (slider?.querySelectorAll('.post-media-visual-item').length || 1) - 1);
+                    const nextIdx = Math.max(0, Math.min(maxIdx, cur + dir));
+                    wrap.scrollTo({ left: nextIdx * step, behavior: 'smooth' });
+                    setTimeout(()=> { wrap.dataset.snapLock = '0'; syncDots(); }, 320);
                 }, { passive: false });
+                syncDots();
             });
             root.querySelectorAll('.player-card').forEach(card=>{
                 if (card.dataset.playerBound === '1') return;
@@ -2382,7 +2510,7 @@ class DashboardManager {
                     </button>
                     <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
                 </div>`;
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
                 const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
@@ -2404,6 +2532,7 @@ class DashboardManager {
                 this.activatePlayers(div);
             }
             this.bindUserPreviewTriggers(feed);
+            this.applyHorizontalMasonryOrder(feed);
             // Bind actions for my posts
             if (!meUser || !meUser.uid) return;
             document.querySelectorAll('#space-section .post-actions').forEach(async (pa)=>{
@@ -2693,24 +2822,27 @@ class DashboardManager {
                 card.appendChild(panel);
             }
             let rows = [];
-            try{
-                const q = firebase.query(
-                    firebase.collection(window.firebaseService.db, 'playlists'),
-                    firebase.where('ownerId','==', uid),
-                    ...(publicOnly ? [firebase.where('visibility','==','public')] : []),
-                    firebase.orderBy('updatedAt','desc'),
-                    firebase.limit(40)
-                );
-                const snap = await firebase.getDocs(q);
-                snap.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
-            }catch(_){
-                const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
-                const s2 = await firebase.getDocs(q2);
-                s2.forEach((d)=>{
-                    const p = d.data() || {};
-                    if (!publicOnly || p.visibility === 'public') rows.push({ id: d.id, ...p });
-                });
-                rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+            if (publicOnly){
+                rows = await this.fetchPublicPlaylistsForUser(uid, 40);
+            } else {
+                try{
+                    const q = firebase.query(
+                        firebase.collection(window.firebaseService.db, 'playlists'),
+                        firebase.where('ownerId','==', uid),
+                        firebase.orderBy('updatedAt','desc'),
+                        firebase.limit(40)
+                    );
+                    const snap = await firebase.getDocs(q);
+                    snap.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }catch(_){
+                    const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
+                    const s2 = await firebase.getDocs(q2);
+                    s2.forEach((d)=>{
+                        const p = d.data() || {};
+                        rows.push({ id: d.id, ...p });
+                    });
+                    rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+                }
             }
             const me = await this.resolveCurrentUser();
             const myUid = me?.uid || '';
@@ -2799,7 +2931,7 @@ class DashboardManager {
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
                 const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -2825,6 +2957,7 @@ class DashboardManager {
                 feedEl.appendChild(div);
             }
             this.bindUserPreviewTriggers(feedEl);
+            this.applyHorizontalMasonryOrder(feedEl);
             if (suggEl){
                 try{
                     const trending = await window.firebaseService.getTrendingPosts(term || '', 20);
@@ -2977,7 +3110,7 @@ class DashboardManager {
                 const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                 const postText = this.getPostDisplayText(p);
                 const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                 div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -3002,6 +3135,7 @@ class DashboardManager {
                 feed.appendChild(div);
             });
             this.bindUserPreviewTriggers(feed);
+            this.applyHorizontalMasonryOrder(feed);
             // Bind like/comment actions
             const me2 = await this.resolveCurrentUser();
             const me2Uid = me2?.uid || '';
@@ -3232,7 +3366,7 @@ class DashboardManager {
                     const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                     const postTime = this.formatDateTime(p.createdAt);
                     const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+                    const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
                     const postText = this.getPostDisplayText(p);
                     const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
                     div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -3246,6 +3380,7 @@ class DashboardManager {
                     if (feed) feed.appendChild(div);
                 });
                 this.bindUserPreviewTriggers(feed);
+                this.applyHorizontalMasonryOrder(feed);
                 this.renderSpacePlaylists(uid, true);
             }catch(_){ }
         }catch(_){ }
@@ -5226,7 +5361,7 @@ Do you want to proceed?`);
             const authorAvatar = String(p.coverUrl || data.avatarUrl || 'images/default-bird.png');
             const postTime = this.formatDateTime(p.createdAt);
             const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
-            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: authorAvatar, authorId: p.authorId || '' }) : '';
+            const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
             const postText = this.getPostDisplayText(p);
             const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
             card.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -5240,74 +5375,14 @@ Do you want to proceed?`);
           });
           this.bindUserPreviewTriggers(feed);
           this.activatePlayers(feed);
+          this.applyHorizontalMasonryOrder(feed);
         }
       }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
 
       // Public playlists section.
       const playlistsEl = overlay.querySelector('#preview-playlists');
       try{
-        let rows = [];
-        const targetUid = String(uid || '').trim();
-        const matchesOwner = (p)=> {
-          const ownerId = String(p?.ownerId || '').trim();
-          const ownerLegacy = String(p?.owner || '').trim();
-          return !!targetUid && (ownerId === targetUid || ownerLegacy === targetUid);
-        };
-        const isPublic = (p)=> String(p?.visibility || '').trim().toLowerCase() === 'public';
-        const pushUnique = (id, p)=>{
-          const key = String(id || p?.id || '').trim();
-          if (!key) return;
-          if (rows.some((x)=> String(x.id || '') === key)) return;
-          rows.push({ id: key, ...(p || {}) });
-        };
-        // 1) Fast path: indexed ownerId + visibility query
-        try{
-          const q = firebase.query(
-            firebase.collection(window.firebaseService.db, 'playlists'),
-            firebase.where('ownerId', '==', targetUid),
-            firebase.where('visibility', '==', 'public'),
-            firebase.limit(20)
-          );
-          const s = await firebase.getDocs(q);
-          s.forEach((d)=> pushUnique(d.id, d.data()));
-        }catch(_){ }
-        // 2) Legacy owner query with visibility constraint (rules-safe)
-        if (!rows.length){
-          try{
-            const q2 = firebase.query(
-              firebase.collection(window.firebaseService.db, 'playlists'),
-              firebase.where('owner', '==', targetUid),
-              firebase.where('visibility', '==', 'public'),
-              firebase.limit(20)
-            );
-            const s2 = await firebase.getDocs(q2);
-            s2.forEach((d)=> pushUnique(d.id, d.data() || {}));
-          }catch(_){ }
-        }
-        // 3) Broad public scan fallback, then owner filter.
-        if (!rows.length){
-          try{
-            const q4 = firebase.query(
-              firebase.collection(window.firebaseService.db, 'playlists'),
-              firebase.where('visibility', '==', 'public'),
-              firebase.limit(200)
-            );
-            const s4 = await firebase.getDocs(q4);
-            s4.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
-          }catch(_){ }
-        }
-        // 4) Last-resort scan (only docs allowed by rules), then filter client-side.
-        if (!rows.length){
-          try{
-            const s5 = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'playlists'));
-            s5.forEach((d)=>{
-              const p = d.data() || {};
-              if (isPublic(p) && matchesOwner(p)) pushUnique(d.id, p);
-            });
-          }catch(_){ }
-        }
-        rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-        rows = rows.slice(0, 10);
+        let rows = await this.fetchPublicPlaylistsForUser(uid, 10);
         if (!rows.length){
           playlistsEl.innerHTML = '<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">No public playlists.</div>';
         } else {
