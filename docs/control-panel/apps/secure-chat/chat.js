@@ -74,11 +74,73 @@
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
       this._recordingSendInFlight = false;
+      this._readMarkTimer = null;
       this.init();
     }
 
     computeConnKey(uids){
       try{ return (uids||[]).slice().sort().join('|'); }catch(_){ return ''; }
+    }
+
+    getReadMap(){
+      try{
+        const raw = localStorage.getItem('liber_chat_read_map_v1');
+        const data = raw ? JSON.parse(raw) : {};
+        return (data && typeof data === 'object') ? data : {};
+      }catch(_){ return {}; }
+    }
+
+    getReadMarkerForConn(connId){
+      try{
+        const map = this.getReadMap();
+        return Number(map[String(connId || '')] || 0) || 0;
+      }catch(_){ return 0; }
+    }
+
+    setReadMarkerForConn(connId, ts = Date.now()){
+      try{
+        const key = String(connId || '').trim();
+        if (!key) return;
+        const map = this.getReadMap();
+        map[key] = Number(ts || Date.now()) || Date.now();
+        localStorage.setItem('liber_chat_read_map_v1', JSON.stringify(map));
+      }catch(_){ }
+    }
+
+    async updateUnreadBadges(){
+      try{
+        let unreadChats = 0;
+        const map = this.getReadMap();
+        const listEl = document.getElementById('connections-list');
+        if (listEl){
+          listEl.querySelectorAll('li[data-id]').forEach((li)=>{
+            const id = li.getAttribute('data-id');
+            const conn = (this.connections || []).find((c)=> c && c.id === id);
+            const updatedMs = Number(new Date(conn?.updatedAt || 0).getTime() || 0) || 0;
+            const readMs = Number(map[String(id || '')] || 0) || 0;
+            const fromPeer = String(conn?.lastMessageSender || '').trim() && String(conn?.lastMessageSender || '').trim() !== this.currentUser?.uid;
+            const isUnread = !!id && fromPeer && updatedMs > readMs;
+            let dot = li.querySelector('.chat-unread-dot');
+            if (isUnread){
+              unreadChats += 1;
+              if (!dot){
+                dot = document.createElement('span');
+                dot.className = 'chat-unread-dot';
+                dot.style.cssText = 'margin-left:auto;min-width:8px;height:8px;border-radius:50%;background:#4da3ff;display:inline-block;box-shadow:0 0 0 2px rgba(77,163,255,.2)';
+                li.appendChild(dot);
+              }
+            } else if (dot){
+              dot.remove();
+            }
+          });
+        }
+        try{
+          if ('setAppBadge' in navigator){
+            if (unreadChats > 0) await navigator.setAppBadge(unreadChats);
+            else if ('clearAppBadge' in navigator) await navigator.clearAppBadge();
+          }
+        }catch(_){ }
+      }catch(_){ }
     }
 
     isMobileViewport(){
@@ -118,14 +180,73 @@
         ? msg.createdAtTS.toDate()
         : new Date(value || msg?.createdAt || Date.now());
       if (Number.isNaN(d.getTime())) return '';
+      try{
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const thatStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        const dayMs = 24 * 60 * 60 * 1000;
+        const deltaDays = Math.round((todayStart - thatStart) / dayMs);
+        if (deltaDays === 0) return 'Today';
+        if (deltaDays === 1) return 'Yesterday';
+      }catch(_){ }
       return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
     }
 
     formatDuration(seconds){
-      const s = Math.max(0, Math.floor(Number(seconds || 0)));
+      const raw = Number(seconds);
+      const s = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
       const m = Math.floor(s / 60);
       const ss = String(s % 60).padStart(2, '0');
       return `${m}:${ss}`;
+    }
+
+    isEditedMessage(msg){
+      try{
+        const createdMs = Number(msg?.createdAtTS?.toMillis?.() || 0) || Number(new Date(msg?.createdAt || 0).getTime() || 0) || 0;
+        const updatedMs = Number(new Date(msg?.updatedAt || 0).getTime() || 0) || 0;
+        return updatedMs > 0 && createdMs > 0 && updatedMs > (createdMs + 1000);
+      }catch(_){ return false; }
+    }
+
+    getDeliveryLabel(msg){
+      try{
+        if (!msg || msg.sender !== this.currentUser?.uid) return '';
+        const readBy = (this._activeConnReadBy && typeof this._activeConnReadBy === 'object')
+          ? this._activeConnReadBy
+          : (msg.readBy && typeof msg.readBy === 'object' ? msg.readBy : null);
+        if (readBy){
+          const peers = Object.entries(readBy).filter(([uid])=> uid && uid !== this.currentUser.uid);
+          const hasPeerRead = peers.some(([,ts])=> Number(new Date(ts || 0).getTime() || 0) > 0);
+          if (hasPeerRead) return 'Read';
+        }
+        return 'Sent';
+      }catch(_){ return ''; }
+    }
+
+    getMessageTimestampMs(msg){
+      try{
+        return Number(msg?.createdAtTS?.toMillis?.() || 0) || Number(new Date(msg?.createdAt || 0).getTime() || 0) || 0;
+      }catch(_){ return 0; }
+    }
+
+    applyNewMessagesSeparator(box){
+      try{
+        if (!box) return;
+        box.querySelectorAll('.new-messages-separator').forEach((el)=> el.remove());
+        const messages = Array.from(box.querySelectorAll('.message'));
+        let seenUnread = false;
+        for (const el of messages){
+          const isUnread = el.dataset.unread === '1';
+          if (isUnread){ seenUnread = true; continue; }
+          if (seenUnread){
+            const sep = document.createElement('div');
+            sep.className = 'new-messages-separator';
+            sep.textContent = 'New messages';
+            box.insertBefore(sep, el);
+            break;
+          }
+        }
+      }catch(_){ }
     }
 
     async dissolveOutRemove(el, ms = 220){
@@ -621,6 +742,55 @@
       return out;
     }
 
+    scrollMessageIntoViewSafely(messageEl, opts = {}){
+      try{
+        if (!messageEl || !messageEl.isConnected) return false;
+        const smooth = opts.smooth !== false;
+        try{
+          messageEl.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end', inline: 'nearest' });
+        }catch(_){
+          messageEl.scrollIntoView(false);
+        }
+        const prevShadow = messageEl.style.boxShadow;
+        const prevTransition = messageEl.style.transition;
+        messageEl.style.transition = `${prevTransition ? `${prevTransition}, ` : ''}box-shadow .2s ease`;
+        messageEl.style.boxShadow = '0 0 0 2px rgba(104, 180, 255, .88)';
+        if (messageEl._jumpFlashTimer) clearTimeout(messageEl._jumpFlashTimer);
+        messageEl._jumpFlashTimer = setTimeout(()=>{
+          try{
+            messageEl.style.boxShadow = prevShadow || '';
+            messageEl.style.transition = prevTransition || '';
+          }catch(_){ }
+        }, 1400);
+        return true;
+      }catch(_){ return false; }
+    }
+
+    async jumpToMessageById(messageId, opts = {}){
+      try{
+        const id = String(messageId || '').trim();
+        if (!id) return false;
+        const connId = String(this.activeConnection || '').trim();
+        const box = document.getElementById('messages');
+        if (!connId || !box) return false;
+        const queryId = id.replace(/"/g, '\\"');
+        let target = box.querySelector(`[data-msg-id="${queryId}"]`);
+        const pageSize = 50;
+        const maxAttempts = 5;
+        for (let i = 0; !target && i < maxAttempts; i++){
+          const currentLimit = Number(this._msgVisibleLimitByConn.get(connId) || pageSize);
+          const nextLimit = currentLimit + pageSize;
+          this._msgVisibleLimitByConn.set(connId, nextLimit);
+          this._loadMoreConnId = connId;
+          await this.loadMessages().catch(()=>{});
+          await this.yieldToUi();
+          target = box.querySelector(`[data-msg-id="${queryId}"]`);
+        }
+        if (!target) return false;
+        return this.scrollMessageIntoViewSafely(target, { smooth: opts.smooth !== false });
+      }catch(_){ return false; }
+    }
+
     openCurrentChatAttachmentsSheet(){
       const existing = document.getElementById('chat-attachments-sheet');
       const existingBackdrop = document.getElementById('chat-attachments-backdrop');
@@ -726,8 +896,13 @@
           };
           const open = document.createElement('button');
           open.className = 'btn secondary';
-          open.textContent = 'Open source';
-          open.onclick = ()=> window.open(a.fileUrl, '_blank', 'noopener,noreferrer');
+          open.textContent = 'Open message';
+          open.onclick = async ()=>{
+            const ok = await this.jumpToMessageById(a.id, { smooth: true });
+            if (!ok) alert('Message not found in this chat.');
+            try{ panel.remove(); }catch(_){ }
+            try{ backdrop.remove(); }catch(_){ }
+          };
           actions.appendChild(dl);
           actions.appendChild(open);
           card.appendChild(meta);
@@ -1163,6 +1338,7 @@
       });
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.bindVoiceTopStrip();
+      this.bindChatTitleProfileOpen();
     }
 
     bindVoiceTopStrip(){
@@ -1216,6 +1392,37 @@
         strip.classList.add('hidden');
         this.updateVoiceWidgets();
       });
+    }
+
+    bindChatTitleProfileOpen(){
+      const click = (e)=>{
+        const el = e.currentTarget;
+        const uid = String(el?.dataset?.userPreview || '').trim();
+        if (!uid) return;
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+        this.openUserPreviewFromChat(uid);
+      };
+      const ids = ['active-connection-name', 'chat-top-title'];
+      ids.forEach((id)=>{
+        const el = document.getElementById(id);
+        if (!el || el._userPreviewBound) return;
+        el._userPreviewBound = true;
+        el.addEventListener('click', click);
+      });
+    }
+
+    openUserPreviewFromChat(uid){
+      const id = String(uid || '').trim();
+      if (!id) return;
+      const hosts = [window.top, window.parent, window];
+      for (const host of hosts){
+        try{
+          if (host?.dashboardManager && typeof host.dashboardManager.showUserPreviewModal === 'function'){
+            host.dashboardManager.showUserPreviewModal(id);
+            return;
+          }
+        }catch(_){ }
+      }
     }
 
     getChatPlayerSrc(p){
@@ -1725,6 +1932,7 @@
         });
       }catch(_){ }
       // No recursive call
+      this.updateUnreadBadges().catch(()=>{});
     }
 
     async setActive(connId, displayName){
@@ -1750,6 +1958,7 @@
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Never block switching on metadata fetch; render immediately from cached connection data.
       let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
+      this._activeConnReadBy = (activeConnData && typeof activeConnData.readBy === 'object') ? activeConnData.readBy : {};
       if (!displayName){
         displayName = this.getConnectionDisplayName(activeConnData || {}) || 'Chat';
       }
@@ -1757,7 +1966,41 @@
       document.getElementById('active-connection-name').textContent = displayName;
       const topTitle = document.getElementById('chat-top-title');
       if (topTitle) topTitle.textContent = displayName;
+      try{
+        const peerUid = await this.getPeerUidForConn(this.activeConnection);
+        const isPersonal = !!peerUid;
+        const titleEl = document.getElementById('active-connection-name');
+        const topTitleEl = document.getElementById('chat-top-title');
+        [titleEl, topTitleEl].forEach((el)=>{
+          if (!el) return;
+          if (isPersonal){
+            el.dataset.userPreview = peerUid;
+            el.style.cursor = 'pointer';
+            el.title = 'Open profile';
+          }else{
+            delete el.dataset.userPreview;
+            el.style.cursor = '';
+            el.title = '';
+          }
+        });
+      }catch(_){ }
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
+      if (this._readMarkTimer){ clearTimeout(this._readMarkTimer); this._readMarkTimer = null; }
+      this._readMarkTimer = setTimeout(()=>{
+        try{
+          if (this.activeConnection !== (resolvedConnId || connId)) return;
+          const stamp = new Date().toISOString();
+          this.setReadMarkerForConn(this.activeConnection, Date.now());
+          try{
+            firebase.updateDoc(firebase.doc(this.db,'chatConnections', this.activeConnection), {
+              [`readBy.${this.currentUser.uid}`]: stamp
+            }).catch(()=>{});
+            this._activeConnReadBy = { ...(this._activeConnReadBy || {}), [this.currentUser.uid]: stamp };
+          }catch(_){ }
+          this.updateUnreadBadges().catch(()=>{});
+          this.loadMessages().catch(()=>{});
+        }catch(_){ }
+      }, 5000);
       this.startTypingListener(this.activeConnection);
       try{
         const box = document.getElementById('messages');
@@ -1775,6 +2018,7 @@
           if (setSeq !== this._setActiveSeq || this.activeConnection !== (resolvedConnId || connId)) return;
           if (!snapMeta.exists()) return;
           const data = snapMeta.data() || {};
+          this._activeConnReadBy = (data && typeof data.readBy === 'object') ? data.readBy : {};
           this.updateChatScopeUI(data);
           if (!displayName || displayName === 'Chat'){
             const parts = this.getConnParticipants(data);
@@ -1859,6 +2103,7 @@
         this._msgVisibleLimitByConn.set(activeConnId, pageSize);
       }
       const visibleLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize);
+      const readMarkerMs = this.getReadMarkerForConn(activeConnId);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
       const loadSeq = this._msgLoadSeq;
       this._attachmentPreviewQueue = [];
@@ -2018,6 +2263,9 @@
                 const el = document.createElement('div');
                 el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
                 el.dataset.msgId = String(d.id || m.id || '');
+                const msgTs = this.getMessageTimestampMs(m);
+                el.dataset.msgTs = String(msgTs || 0);
+                if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
                 if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
                 let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
                 if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
@@ -2042,7 +2290,10 @@
                 const dayLabel = this.formatMessageDay(m.createdAt, m);
                 if (dayLabel !== lastRenderedDay){ if (lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = lastRenderedDay; box.insertBefore(sep, box.firstElementChild); } lastRenderedDay = dayLabel; }
                 const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+                const delivery = this.getDeliveryLabel(m);
+                const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
@@ -2054,8 +2305,9 @@
               for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
               this._lastDocIdsByConn.set(activeConnId, docsPrimary.map(x=> x.id));
               this._lastDayByConn.set(activeConnId, lastRenderedDay);
-              if (pinnedBefore) box.scrollTop = box.scrollHeight;
+              if (pinnedBefore) box.scrollTop = 0;
               updateBottomUi();
+              this.applyNewMessagesSeparator(box);
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
               if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
@@ -2154,6 +2406,9 @@
               const el = document.createElement('div');
               el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
               el.dataset.msgId = String(d.id || m.id || '');
+              const msgTs = this.getMessageTimestampMs(m);
+              el.dataset.msgTs = String(msgTs || 0);
+              if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
               if (m.systemType === 'connection_request_intro'){
                 el.classList.add('message-system', 'message-connection-request');
               }
@@ -2209,7 +2464,10 @@
                 lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+              const delivery = this.getDeliveryLabel(m);
+              const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (appendOnly || forceInsertBefore){
@@ -2305,9 +2563,10 @@
               }
             }
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
-            if (pinnedBefore) box.scrollTop = box.scrollHeight;
+            if (pinnedBefore) box.scrollTop = 0;
             else box.scrollTop = prevTop;
             updateBottomUi();
+            this.applyNewMessagesSeparator(box);
             loadFinished = true;
             if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
             if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
@@ -2355,11 +2614,12 @@
             const delta = Math.max(0, box.scrollHeight - prevHeight);
             box.scrollTop = prevTop + delta;
           } else if (pinnedBefore){
-            box.scrollTop = box.scrollHeight;
+            box.scrollTop = 0;
           }else{
             box.scrollTop = prevTop;
           }
           updateBottomUi();
+          this.applyNewMessagesSeparator(box);
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
           if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
@@ -2445,6 +2705,7 @@
               box.innerHTML = '<div style="opacity:.75;padding:10px 2px">No messages yet</div>';
               box.dataset.renderedConnId = activeConnId;
               updateBottomUi();
+              this.applyNewMessagesSeparator(box);
               loadFinished = true;
             } else if (!loadFinished && /Loading messages/i.test(String(box.textContent || ''))){
               box.innerHTML = '<button id="chat-load-retry-btn" class="btn secondary" style="margin:10px 2px">Still loading... Tap to retry</button>';
@@ -2454,6 +2715,7 @@
                 retryBtn.addEventListener('click', ()=> this.loadMessages().catch(()=>{}), { once: true });
               }
               updateBottomUi();
+              this.applyNewMessagesSeparator(box);
             }
           }catch(_){ }
         }, 12000);
@@ -2500,6 +2762,9 @@
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            const msgTs = this.getMessageTimestampMs(m);
+            el.dataset.msgTs = String(msgTs || 0);
+            if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
             if (m.systemType === 'connection_request_intro'){
               el.classList.add('message-system', 'message-connection-request');
             }
@@ -2551,7 +2816,10 @@
               lastRenderedDay2 = dayLabel;
             }
             const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
+            const delivery = this.getDeliveryLabel(m);
+            const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -2574,9 +2842,10 @@
               await this.yieldToUi();
             }
           }
-          box.scrollTop = box.scrollHeight;
+          box.scrollTop = 0;
           box.dataset.renderedConnId = activeConnId;
           updateBottomUi();
+          this.applyNewMessagesSeparator(box);
         }catch(e){
           console.error('Failed to load messages:', e);
           box.innerHTML = '<div class="error">Failed to load messages. Check console.</div>';
@@ -3325,6 +3594,7 @@
       });
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',targetConnId),{
         lastMessage: text.slice(0,200),
+        lastMessageSender: this.currentUser.uid,
         updatedAt: new Date().toISOString()
       });
       if (fileUrl){
@@ -3862,9 +4132,12 @@
         const active = (!!playerSrc && (w.src === playerSrc || this.isSameMediaSrc(w.src, playerSrc)))
           || (!!this._voiceCurrentSrc && (w.src === this._voiceCurrentSrc || this.isSameMediaSrc(w.src, this._voiceCurrentSrc)))
           || (!!this._voiceCurrentAttachmentKey && !!w.srcKey && w.srcKey === this._voiceCurrentAttachmentKey);
-        const duration = Number(p.duration || 0);
-        const ct = Number(p.currentTime || 0);
-        if (active && duration > 0) w.durationGuess = duration;
+        const durationRaw = Number(p.duration || 0);
+        const durationIsFinite = Number.isFinite(durationRaw) && durationRaw > 0;
+        const duration = durationIsFinite ? durationRaw : Math.max(0, Number(w.durationGuess || 0));
+        const ctRaw = Number(p.currentTime || 0);
+        const ct = Number.isFinite(ctRaw) && ctRaw > 0 ? ctRaw : 0;
+        if (active && durationIsFinite) w.durationGuess = durationRaw;
         const ratio = active && duration > 0 ? Math.min(1, Math.max(0, ct / duration)) : 0;
         const bars = w.wave.querySelectorAll('.bar');
         const playedBars = Math.round(bars.length * ratio);
@@ -3931,6 +4204,7 @@
           this.setupMediaSessionForVoice(widget.title);
           this.pauseOtherInlineMedia(null);
           p.src = url;
+          try{ p.load(); }catch(_){ }
           p.currentTime = 0;
           p.play().catch(()=>{});
           const onMeta = ()=>{
@@ -3963,6 +4237,7 @@
           this.setupMediaSessionForVoice(widget.title);
           this.pauseOtherInlineMedia(null);
           p.src = url;
+          try{ p.load(); }catch(_){ }
           p.play().catch(()=>{});
           this.updateVoiceWidgets();
           return;
@@ -4498,7 +4773,7 @@
             }catch(_){ }
           }
           // Keep chat switching smooth: do not fan out decrypt attempts across all chats.
-          if (!decrypted && isVideoRecording){
+          if (!decrypted && (isVideoRecording || this.isVideoFilename(fileName))){
             const recentConnIds = (this.connections || [])
               .map((c)=> c && c.id)
               .filter((cid)=> cid && !candidateConnIds.includes(cid))
@@ -4542,7 +4817,7 @@
           });
           img.addEventListener('load', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
           });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
@@ -4563,7 +4838,7 @@
           }
           video.addEventListener('loadedmetadata', ()=>{
             const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
           });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
@@ -4579,7 +4854,7 @@
             this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
           const box = document.getElementById('messages');
-          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = box.scrollHeight;
+          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const cacheKey = `pdf|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
@@ -4689,7 +4964,11 @@
     }
 
     base64ToBlob(b64, mime){
-      const byteString = atob(b64);
+      const raw = String(b64 || '').trim();
+      const body = /^data:/i.test(raw) && raw.includes(',') ? raw.split(',')[1] : raw;
+      const normalized = String(body || '').replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+      const byteString = atob(padded);
       const len = byteString.length;
       const bytes = new Uint8Array(len);
       for (let i=0;i<len;i++) bytes[i] = byteString.charCodeAt(i);
@@ -4815,8 +5094,7 @@
               li.textContent = m.textContent.slice(0,120);
               li.addEventListener('click', ()=>{
                 wrapper.style.display='none';
-                const box=document.getElementById('messages');
-                if (box){ box.scrollTop = m.offsetTop - 40; }
+                this.scrollMessageIntoViewSafely(m, { smooth: true });
               });
               msgResults.appendChild(li);
             });

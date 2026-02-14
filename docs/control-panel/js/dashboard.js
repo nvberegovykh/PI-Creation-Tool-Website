@@ -17,6 +17,7 @@ class DashboardManager {
         this._playlistsVisible = 5;
         this._videoLibraryVisible = 5;
         this._videoSuggestionsVisible = 5;
+        this._userPreviewCache = new Map();
         try{
             const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
             if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
@@ -48,6 +49,52 @@ class DashboardManager {
             user = await this.resolveCurrentUser();
         }
         return user;
+    }
+
+    formatDateTime(value){
+        try{
+            const d = new Date(value || Date.now());
+            if (Number.isNaN(d.getTime())) return '';
+            return d.toLocaleString([], { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+        }catch(_){ return ''; }
+    }
+
+    isEdited(entity){
+        try{
+            const createdMs = Number(entity?.createdAtTS?.toMillis?.() || 0) || Number(new Date(entity?.createdAt || 0).getTime() || 0) || 0;
+            const updatedMs = Number(new Date(entity?.updatedAt || 0).getTime() || 0) || 0;
+            return updatedMs > 0 && createdMs > 0 && updatedMs > (createdMs + 1000);
+        }catch(_){ return false; }
+    }
+
+    async getUserPreviewData(uid){
+        const id = String(uid || '').trim();
+        if (!id) return null;
+        if (this._userPreviewCache.has(id)) return this._userPreviewCache.get(id);
+        try{
+            const d = await window.firebaseService.getUserData(id);
+            if (d){
+                this._userPreviewCache.set(id, d);
+                return d;
+            }
+        }catch(_){ }
+        return null;
+    }
+
+    bindUserPreviewTriggers(root){
+        try{
+            if (!root) return;
+            root.querySelectorAll('[data-user-preview]').forEach((el)=>{
+                if (el._userPreviewBound) return;
+                el._userPreviewBound = true;
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', (e)=>{
+                    try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+                    const uid = el.getAttribute('data-user-preview');
+                    if (uid) this.showUserPreviewModal(uid);
+                });
+            });
+        }catch(_){ }
     }
 
     async dissolveOutRemove(el, ms = 220){
@@ -523,10 +570,104 @@ class DashboardManager {
 
     savePlaylists(playlists){
         try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(playlists || [])); }catch(_){ }
+        this.syncPlaylistsToCloud(playlists || []).catch(()=>{});
     }
 
-    openAddToPlaylistPopup(track){
-        const playlists = this.getPlaylists();
+    async hydratePlaylistsFromCloud(){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return this.getPlaylists();
+            let cloudRows = [];
+            try{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('ownerId','==', me.uid),
+                    firebase.orderBy('updatedAt','desc'),
+                    firebase.limit(200)
+                );
+                const snap = await firebase.getDocs(q);
+                snap.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
+            }catch(_){
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', me.uid));
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
+            }
+            const local = this.getPlaylists();
+            const map = new Map();
+            [...local, ...cloudRows].forEach((p)=>{
+                if (!p || !p.id) return;
+                const prev = map.get(p.id);
+                const prevTs = Number(new Date(prev?.updatedAt || 0).getTime() || 0);
+                const nextTs = Number(new Date(p?.updatedAt || 0).getTime() || 0);
+                if (!prev || nextTs >= prevTs) map.set(p.id, p);
+            });
+            const merged = Array.from(map.values());
+            try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(merged)); }catch(_){ }
+            return merged;
+        }catch(_){ return this.getPlaylists(); }
+    }
+
+    async syncPlaylistsToCloud(playlists){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            const now = new Date().toISOString();
+            const safeRows = (playlists || []).map((pl)=> ({
+                id: String(pl.id || `pl_${Date.now()}`),
+                ownerId: String(pl.ownerId || me.uid),
+                ownerName: String(pl.ownerName || me.email || ''),
+                name: String(pl.name || 'Playlist'),
+                visibility: pl.visibility === 'public' ? 'public' : 'private',
+                sourcePlaylistId: String(pl.sourcePlaylistId || '').trim() || null,
+                sourceOwnerId: String(pl.sourceOwnerId || '').trim() || null,
+                items: Array.isArray(pl.items) ? pl.items.slice(0, 500) : [],
+                createdAt: pl.createdAt || now,
+                updatedAt: now
+            }));
+            for (const row of safeRows){
+                try{
+                    const ref = firebase.doc(window.firebaseService.db, 'playlists', row.id);
+                    await firebase.setDoc(ref, row, { merge: true });
+                }catch(_){ }
+            }
+            // Remove cloud playlists no longer present locally.
+            try{
+                const keep = new Set(safeRows.map((r)=> r.id));
+                const q = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', me.uid));
+                const s = await firebase.getDocs(q);
+                for (const d of (s.docs || [])){
+                    if (keep.has(d.id)) continue;
+                    try{ await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'playlists', d.id)); }catch(_){ }
+                }
+            }catch(_){ }
+        }catch(_){ }
+    }
+
+    async resolvePlaylistForRender(pl){
+        try{
+            if (!pl || !pl.sourcePlaylistId) return pl;
+            if (!(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return pl;
+            const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'playlists', pl.sourcePlaylistId));
+            if (!snap.exists()){
+                return { ...pl, _sourceMissing: true };
+            }
+            const src = snap.data() || {};
+            return {
+                ...pl,
+                _sourceMissing: false,
+                _resolvedFromSource: true,
+                sourceName: src.name || '',
+                sourceOwnerId: src.ownerId || pl.sourceOwnerId || '',
+                sourceOwnerName: src.ownerName || '',
+                items: Array.isArray(src.items) ? src.items : [],
+                visibility: src.visibility === 'public' ? 'public' : 'private',
+                updatedAt: src.updatedAt || pl.updatedAt
+            };
+        }catch(_){ return pl; }
+    }
+
+    async openAddToPlaylistPopup(track){
+        const playlists = await this.hydratePlaylistsFromCloud();
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -560,11 +701,24 @@ class DashboardManager {
             if (selectedId){
                 selected = playlists.find((p)=> p.id === selectedId) || null;
             } else if (newName){
-                selected = { id: `pl_${Date.now()}`, name: newName, items: [] };
+                selected = {
+                    id: `pl_${Date.now()}`,
+                    name: newName,
+                    visibility: 'private',
+                    ownerId: this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '',
+                    ownerName: this.currentUser?.email || '',
+                    items: []
+                };
                 playlists.push(selected);
             }
             if (!selected){ this.showError('Choose or create a playlist'); return; }
             if (!selected.items) selected.items = [];
+            const exists = (selected.items || []).some((it)=> String(it?.src || '') === String(track?.src || ''));
+            if (exists){
+                this.showSuccess('Already in playlist');
+                overlay.remove();
+                return;
+            }
             selected.items.push({
                 id: `it_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
                 src: track.src,
@@ -682,28 +836,43 @@ class DashboardManager {
     async renderPlaylists(){
         const host = document.getElementById('wave-playlists');
         if (!host) return;
-        const playlists = this.getPlaylists();
+        const playlists = await this.hydratePlaylistsFromCloud();
         host.innerHTML = '';
         if (!playlists.length){
             host.innerHTML = '<div style="opacity:.8">No playlists yet.</div>';
             return;
         }
         const visible = Math.max(5, Number(this._playlistsVisible || 5));
-        playlists.slice(0, visible).forEach((pl)=>{
+        for (const plRaw of playlists.slice(0, visible)){
+            const pl = await this.resolvePlaylistForRender(plRaw);
             const wrap = document.createElement('div');
             wrap.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:8px;margin-bottom:10px;background:#0f1116';
             const head = document.createElement('div');
             head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px';
-            head.innerHTML = `<strong>${(pl.name||'Playlist').replace(/</g,'&lt;')}</strong><button class="btn btn-secondary" data-del="${pl.id}"><i class="fas fa-trash"></i></button>`;
+            const visibility = (pl.visibility === 'public') ? 'public' : 'private';
+            const ownerName = String(pl.sourceOwnerName || pl.ownerName || '').trim();
+            const ownerId = String(pl.sourceOwnerId || pl.ownerId || '').trim();
+            const ownerHtml = ownerName
+              ? `<button type="button" data-user-preview="${ownerId.replace(/"/g,'&quot;')}" style="background:none;border:none;color:#9db3d5;padding:0;font-size:11px;cursor:pointer">${ownerName.replace(/</g,'&lt;')}</button>`
+              : '';
+            const sourceBadge = pl._resolvedFromSource ? '<span style="font-size:10px;opacity:.72">synced</span>' : '';
+            const missingNote = pl._sourceMissing ? '<span style="font-size:10px;color:#f2a0a0">source unavailable</span>' : '';
+            const removeLabel = plRaw.sourcePlaylistId ? 'Remove from My WaveConnect' : 'Remove';
+            head.innerHTML = `<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><div style="display:flex;align-items:center;gap:8px;min-width:0"><strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(pl.name||'Playlist').replace(/</g,'&lt;')}</strong><span style="font-size:10px;opacity:.75;border:1px solid rgba(255,255,255,.2);padding:1px 6px;border-radius:999px;text-transform:uppercase">${visibility}</span>${sourceBadge}</div><div style="display:flex;align-items:center;gap:8px">${ownerHtml}${missingNote}</div></div><div style="display:flex;gap:6px"><button class="btn btn-secondary" data-privacy="${plRaw.id}">${visibility === 'public' ? 'Make Private' : 'Make Public'}</button><button class="btn btn-secondary" data-remove-local="${plRaw.id}">${removeLabel}</button><button class="btn btn-secondary" data-del-all="${plRaw.id}">Delete</button></div>`;
             wrap.appendChild(head);
             const list = document.createElement('div');
+            const canEditItems = !pl._resolvedFromSource;
             (pl.items || []).forEach((it, idx)=>{
                 const row = document.createElement('div');
                 row.className = 'playlist-row';
-                row.draggable = true;
+                row.draggable = !!canEditItems;
                 row.dataset.idx = String(idx);
                 row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px;border-radius:8px;border:1px solid #273247;margin-bottom:6px;cursor:grab';
-                row.innerHTML = `<div style="min-width:0"><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${(it.title||'Track').replace(/</g,'&lt;')}</div><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.72">${(it.by||'').replace(/</g,'&lt;')}</div></div><div style="display:flex;gap:4px;flex-wrap:nowrap"><button class="playlist-mini-btn" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="playlist-mini-btn" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button><button class="playlist-mini-btn danger" data-remove="${it.id}" title="Remove"><i class="fas fa-xmark"></i></button></div>`;
+                const controls = canEditItems
+                  ? `<button class="playlist-mini-btn" data-up="${it.id}" title="Move up"><i class="fas fa-arrow-up"></i></button><button class="playlist-mini-btn" data-down="${it.id}" title="Move down"><i class="fas fa-arrow-down"></i></button><button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button><button class="playlist-mini-btn danger" data-remove="${it.id}" title="Remove"><i class="fas fa-xmark"></i></button>`
+                  : `<button class="playlist-mini-btn" data-play="${it.id}" title="Play"><i class="fas fa-play"></i></button>`;
+                row.style.cursor = canEditItems ? 'grab' : 'default';
+                row.innerHTML = `<div style="min-width:0"><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">${(it.title||'Track').replace(/</g,'&lt;')}</div><div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.72">${(it.by||'').replace(/</g,'&lt;')}</div></div><div style="display:flex;gap:4px;flex-wrap:nowrap">${controls}</div>`;
                 list.appendChild(row);
             });
             wrap.appendChild(list);
@@ -719,65 +888,97 @@ class DashboardManager {
                     this.playQueueIndex(this._playQueueIndex);
                 };
             });
-            list.querySelectorAll('[data-remove]').forEach((btn)=>{
-                btn.onclick = ()=>{
-                    const tid = btn.getAttribute('data-remove');
-                    pl.items = (pl.items || []).filter((x)=> x.id !== tid);
-                    this.savePlaylists(playlists);
+            if (canEditItems){
+                list.querySelectorAll('[data-remove]').forEach((btn)=>{
+                    btn.onclick = ()=>{
+                        const tid = btn.getAttribute('data-remove');
+                        plRaw.items = (plRaw.items || []).filter((x)=> x.id !== tid);
+                        this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
+                        this.renderPlaylists();
+                    };
+                });
+                list.querySelectorAll('[data-up]').forEach((btn)=>{
+                    btn.onclick = ()=>{
+                        const tid = btn.getAttribute('data-up');
+                        const arr = plRaw.items || [];
+                        const i = arr.findIndex((x)=> x.id === tid);
+                        if (i <= 0) return;
+                        [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
+                        plRaw.items = arr;
+                        this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
+                        this.renderPlaylists();
+                    };
+                });
+                list.querySelectorAll('[data-down]').forEach((btn)=>{
+                    btn.onclick = ()=>{
+                        const tid = btn.getAttribute('data-down');
+                        const arr = plRaw.items || [];
+                        const i = arr.findIndex((x)=> x.id === tid);
+                        if (i < 0 || i >= arr.length - 1) return;
+                        [arr[i+1], arr[i]] = [arr[i], arr[i+1]];
+                        plRaw.items = arr;
+                        this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
+                        this.renderPlaylists();
+                    };
+                });
+            }
+            const privacyBtn = wrap.querySelector('[data-privacy]');
+            if (privacyBtn){
+                privacyBtn.onclick = ()=>{
+                    plRaw.visibility = (plRaw.visibility === 'public') ? 'private' : 'public';
+                    this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, visibility: plRaw.visibility, updatedAt: new Date().toISOString() } : x));
                     this.renderPlaylists();
                 };
-            });
-            list.querySelectorAll('[data-up]').forEach((btn)=>{
-                btn.onclick = ()=>{
-                    const tid = btn.getAttribute('data-up');
-                    const arr = pl.items || [];
-                    const i = arr.findIndex((x)=> x.id === tid);
-                    if (i <= 0) return;
-                    [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
-                    pl.items = arr;
-                    this.savePlaylists(playlists);
-                    this.renderPlaylists();
-                };
-            });
-            list.querySelectorAll('[data-down]').forEach((btn)=>{
-                btn.onclick = ()=>{
-                    const tid = btn.getAttribute('data-down');
-                    const arr = pl.items || [];
-                    const i = arr.findIndex((x)=> x.id === tid);
-                    if (i < 0 || i >= arr.length - 1) return;
-                    [arr[i+1], arr[i]] = [arr[i], arr[i+1]];
-                    pl.items = arr;
-                    this.savePlaylists(playlists);
-                    this.renderPlaylists();
-                };
-            });
-            const delBtn = wrap.querySelector('[data-del]');
-            if (delBtn){
-                delBtn.onclick = ()=>{
-                    const next = playlists.filter((x)=> x.id !== pl.id);
+            }
+            const removeBtn = wrap.querySelector('[data-remove-local]');
+            if (removeBtn){
+                removeBtn.onclick = ()=>{
+                    const next = playlists.filter((x)=> x.id !== plRaw.id);
                     this.savePlaylists(next);
                     this.renderPlaylists();
                 };
             }
+            const delAllBtn = wrap.querySelector('[data-del-all]');
+            if (delAllBtn){
+                const meUid = this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '';
+                const ownerIdNow = String(plRaw.ownerId || '').trim();
+                const canDeleteForAll = !!meUid && ownerIdNow === meUid && !plRaw.sourcePlaylistId;
+                if (!canDeleteForAll){
+                    delAllBtn.style.display = 'none';
+                } else {
+                    delAllBtn.onclick = async ()=>{
+                        if (!confirm('Delete this playlist for everyone?')) return;
+                        try{
+                            await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'playlists', plRaw.id));
+                        }catch(_){ }
+                        const next = playlists.filter((x)=> x.id !== plRaw.id);
+                        this.savePlaylists(next);
+                        this.renderPlaylists();
+                    };
+                }
+            }
 
-            let dragSrc = -1;
-            list.querySelectorAll('.playlist-row').forEach((row)=>{
-                row.addEventListener('dragstart', ()=>{ dragSrc = Number(row.dataset.idx); row.style.opacity = '0.5'; });
-                row.addEventListener('dragend', ()=>{ row.style.opacity = '1'; });
-                row.addEventListener('dragover', (e)=>{ e.preventDefault(); });
-                row.addEventListener('drop', (e)=>{
-                    e.preventDefault();
-                    const target = Number(row.dataset.idx);
-                    if (!Number.isFinite(dragSrc) || !Number.isFinite(target) || dragSrc === target) return;
-                    const arr = pl.items || [];
-                    const [moved] = arr.splice(dragSrc, 1);
-                    arr.splice(target, 0, moved);
-                    pl.items = arr;
-                    this.savePlaylists(playlists);
-                    this.renderPlaylists();
+            if (canEditItems){
+                let dragSrc = -1;
+                list.querySelectorAll('.playlist-row').forEach((row)=>{
+                    row.addEventListener('dragstart', ()=>{ dragSrc = Number(row.dataset.idx); row.style.opacity = '0.5'; });
+                    row.addEventListener('dragend', ()=>{ row.style.opacity = '1'; });
+                    row.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+                    row.addEventListener('drop', (e)=>{
+                        e.preventDefault();
+                        const target = Number(row.dataset.idx);
+                        if (!Number.isFinite(dragSrc) || !Number.isFinite(target) || dragSrc === target) return;
+                        const arr = plRaw.items || [];
+                        const [moved] = arr.splice(dragSrc, 1);
+                        arr.splice(target, 0, moved);
+                        plRaw.items = arr;
+                        this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
+                        this.renderPlaylists();
+                    });
                 });
-            });
-        });
+            }
+            this.bindUserPreviewTriggers(wrap);
+        }
         if (playlists.length > visible){
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
@@ -820,10 +1021,15 @@ class DashboardManager {
             if (mCover && meta.cover) mCover.src = meta.cover;
             if ('mediaSession' in navigator){
                 try{
+                    const artwork = meta.cover ? [
+                        { src: meta.cover, sizes: '96x96' },
+                        { src: meta.cover, sizes: '192x192' },
+                        { src: meta.cover, sizes: '512x512' }
+                    ] : undefined;
                     navigator.mediaSession.metadata = new MediaMetadata({
                         title: meta.title || 'Now playing',
                         artist: meta.by || 'LIBER',
-                        artwork: meta.cover ? [{ src: meta.cover, sizes: '512x512', type: 'image/png' }] : undefined
+                        artwork
                     });
                     navigator.mediaSession.setActionHandler('play', ()=> source.play().catch(()=>{}));
                     navigator.mediaSession.setActionHandler('pause', ()=> source.pause());
@@ -1620,6 +1826,7 @@ class DashboardManager {
             // Initial feed load: show my posts in Personal Space
             this.loadMyPosts(user.uid);
             this.loadConnectionsForSpace();
+            this.renderSpacePlaylists(user.uid, false);
         }catch(e){ console.error('loadSpace error', e); }
     }
 
@@ -1713,11 +1920,22 @@ class DashboardManager {
                 (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) ||
                 new Date(b.createdAt||0) - new Date(a.createdAt||0)
             );
-            mergedPosts.forEach((p)=>{
+            for (const p of mergedPosts){
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                const by = p.authorName ? `<div class=\"byline\" style=\"display:flex;align-items:center;gap:8px;margin:4px 0\"><img src=\"${p.coverUrl||p.thumbnailUrl||'images/default-bird.png'}\" alt=\"cover\" style=\"width:20px;height:20px;border-radius:50%;object-fit:cover\"><span style=\"font-size:12px;color:#aaa\">by ${(p.authorName||'').replace(/</g,'&lt;')}</span></div>` : '';
+                const authorProfile = await this.getUserPreviewData(p.authorId || '');
+                const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || 'User');
+                const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
+                const postTime = this.formatDateTime(p.createdAt);
+                const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
+                const by = `<div class="byline" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0">
+                    <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+                        <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+                        <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
+                    </button>
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                </div>`;
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
                 const repostBadge = p._isRepostInMyFeed ? `<div style="font-size:12px;opacity:.8;margin-bottom:4px"><i class="fas fa-retweet"></i> Reposted</div>` : '';
                 div.innerHTML = `${repostBadge}<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${by}${media}
@@ -1736,7 +1954,8 @@ class DashboardManager {
                     lastTap = now;
                 }, { passive: true });
                 this.activatePlayers(div);
-            });
+            }
+            this.bindUserPreviewTriggers(feed);
             // Bind actions for my posts
             if (!meUser || !meUser.uid) return;
             document.querySelectorAll('#space-section .post-actions').forEach(async (pa)=>{
@@ -1828,13 +2047,32 @@ class DashboardManager {
                     const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
+                        const commentTs = this.formatDateTime(node.createdAt);
+                        const edited = this.isEdited(node) ? '<span style="font-size:10px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 5px">edited</span>' : '';
+                        const fallbackName = String(node.authorId || 'User');
+                        item.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                          <button type="button" data-user-preview="${String(node.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:inherit;padding:0">
+                            <img data-comment-avatar src="images/default-bird.png" style="width:18px;height:18px;border-radius:50%;object-fit:cover">
+                            <span data-comment-name style="font-size:11px;opacity:.86">${fallbackName.slice(0,14).replace(/</g,'&lt;')}</span>
+                          </button>
+                          <span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;opacity:.72">${commentTs}${edited}</span>
+                        </div>
+                        <div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
                         <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
                           <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                           <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
                           <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
                         </div>`;
                         container.appendChild(item);
+                        this.getUserPreviewData(node.authorId).then((u)=>{
+                            try{
+                                const nm = item.querySelector('[data-comment-name]');
+                                const av = item.querySelector('[data-comment-avatar]');
+                                if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                if (av && u?.avatarUrl) av.src = u.avatarUrl;
+                                this.bindUserPreviewTriggers(item);
+                            }catch(_){ }
+                        }).catch(()=>{ this.bindUserPreviewTriggers(item); });
                         // Reply input (hidden until click)
                         const replyBox = document.createElement('div');
                         replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
@@ -1995,6 +2233,81 @@ class DashboardManager {
         }catch(_){ }
     }
 
+    async renderSpacePlaylists(uid, publicOnly = false){
+        try{
+            const card = document.getElementById('space-feed-card');
+            if (!card || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            let panel = document.getElementById('space-playlists-panel');
+            if (!panel){
+                panel = document.createElement('div');
+                panel.id = 'space-playlists-panel';
+                panel.style.cssText = 'margin-top:14px';
+                card.appendChild(panel);
+            }
+            let rows = [];
+            try{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('ownerId','==', uid),
+                    ...(publicOnly ? [firebase.where('visibility','==','public')] : []),
+                    firebase.orderBy('updatedAt','desc'),
+                    firebase.limit(40)
+                );
+                const snap = await firebase.getDocs(q);
+                snap.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+            }catch(_){
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=>{
+                    const p = d.data() || {};
+                    if (!publicOnly || p.visibility === 'public') rows.push({ id: d.id, ...p });
+                });
+                rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+            }
+            const me = await this.resolveCurrentUser();
+            const myUid = me?.uid || '';
+            if (!rows.length){
+                panel.innerHTML = '<div style="opacity:.8">No playlists yet.</div>';
+                return;
+            }
+            panel.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4>${rows.slice(0, 20).map((pl)=>{
+                const canAdd = !!myUid && myUid !== String(pl.ownerId || '');
+                const addBtn = canAdd ? `<button class="btn btn-secondary" data-add-pl="${pl.id}">Add</button>` : '';
+                return `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75;display:flex;gap:8px;align-items:center"><button type="button" data-user-preview="${String(pl.ownerId || '').replace(/"/g,'&quot;')}" style="background:none;border:none;padding:0;color:#9db3d5;cursor:pointer">${String(pl.ownerName || '').replace(/</g,'&lt;')}</button><span>${Array.isArray(pl.items) ? pl.items.length : 0} tracks</span></div></div>${addBtn}</div>`;
+            }).join('')}`;
+            panel.querySelectorAll('[data-add-pl]').forEach((btn)=>{
+                btn.onclick = async ()=>{
+                    const plId = String(btn.getAttribute('data-add-pl') || '').trim();
+                    if (!plId) return;
+                    const mine = await this.hydratePlaylistsFromCloud();
+                    const exists = mine.some((x)=> String(x.id||'') === plId || String(x.sourcePlaylistId||'') === plId);
+                    if (exists){
+                        this.showSuccess('Playlist already added');
+                        return;
+                    }
+                    const src = rows.find((x)=> String(x.id) === plId);
+                    if (!me || !me.uid) return;
+                    const copy = {
+                        id: `pl_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+                        name: src?.name || 'Playlist',
+                        ownerId: me.uid,
+                        ownerName: me.email || '',
+                        visibility: 'private',
+                        sourcePlaylistId: plId,
+                        sourceOwnerId: src?.ownerId || uid,
+                        items: [],
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    this.savePlaylists([copy, ...mine]);
+                    await this.renderPlaylists();
+                    this.showSuccess('Playlist added');
+                };
+            });
+            this.bindUserPreviewTriggers(panel);
+        }catch(_){ }
+    }
+
     async loadGlobalFeed(searchTerm = ''){
         if (this._dashboardSuspended) return;
         try{
@@ -2028,13 +2341,25 @@ class DashboardManager {
                 })
                 : list;
             filteredList.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
-            filteredList.slice(0,20).forEach(p=>{
+            for (const p of filteredList.slice(0,20)){
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.dataset.postId = p.id;
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                const authorProfile = await this.getUserPreviewData(p.authorId || '');
+                const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || 'User');
+                const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
+                const postTime = this.formatDateTime(p.createdAt);
+                const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                div.innerHTML = `<div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                                  <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+                                    <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+                                    <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
+                                  </button>
+                                  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                </div>
+                                <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -2048,7 +2373,8 @@ class DashboardManager {
                                  </div>
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feedEl.appendChild(div);
-            });
+            }
+            this.bindUserPreviewTriggers(feedEl);
             if (suggEl){
                 try{
                     const trending = await window.firebaseService.getTrendingPosts(term || '', 20);
@@ -2096,13 +2422,32 @@ class DashboardManager {
                         const renderNode = (node, container)=>{
                             const item = document.createElement('div');
                             item.className = 'comment-item';
-                            item.innerHTML = `<div class=\"comment-text\">${(node.text||'').replace(/</g,'&lt;')}</div>
+                            const commentTs = this.formatDateTime(node.createdAt);
+                            const edited = this.isEdited(node) ? '<span style="font-size:10px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 5px">edited</span>' : '';
+                            const fallbackName = String(node.authorId || 'User');
+                            item.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                              <button type="button" data-user-preview="${String(node.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:inherit;padding:0">
+                                <img data-comment-avatar src="images/default-bird.png" style="width:18px;height:18px;border-radius:50%;object-fit:cover">
+                                <span data-comment-name style="font-size:11px;opacity:.86">${fallbackName.slice(0,14).replace(/</g,'&lt;')}</span>
+                              </button>
+                              <span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;opacity:.72">${commentTs}${edited}</span>
+                            </div>
+                            <div class=\"comment-text\">${(node.text||'').replace(/</g,'&lt;')}</div>
                             <div class=\"comment-actions\" data-comment-id=\"${node.id}\" data-author=\"${node.authorId}\" style=\"display:flex;gap:8px;margin-top:4px\">
                               <span class=\"reply-btn\" style=\"cursor:pointer\"><i class=\"fas fa-reply\"></i> Reply</span>
                               <i class=\"fas fa-edit edit-comment-btn\" title=\"Edit\" style=\"cursor:pointer\"></i>
                               <i class=\"fas fa-trash delete-comment-btn\" title=\"Delete\" style=\"cursor:pointer\"></i>
                             </div>`;
                             container.appendChild(item);
+                            this.getUserPreviewData(node.authorId).then((u)=>{
+                                try{
+                                    const nm = item.querySelector('[data-comment-name]');
+                                    const av = item.querySelector('[data-comment-avatar]');
+                                    if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                    if (av && u?.avatarUrl) av.src = u.avatarUrl;
+                                    this.bindUserPreviewTriggers(item);
+                                }catch(_){ }
+                            }).catch(()=>{ this.bindUserPreviewTriggers(item); });
                             const replyBox = document.createElement('div'); replyBox.style.cssText='margin:6px 0 0 0; display:none'; replyBox.innerHTML = `<input type=\"text\" class=\"reply-input\" placeholder=\"Reply...\" style=\"width:100%\">`; item.appendChild(replyBox);
                             item.querySelector('.reply-btn').onclick = ()=>{ replyBox.style.display = replyBox.style.display==='none'?'block':'none'; if (replyBox.style.display==='block'){ const inp=replyBox.querySelector('.reply-input'); inp && inp.focus(); } };
                             const inp = replyBox.querySelector('.reply-input'); if (inp){ inp.onkeydown = async (e)=>{ if (e.key==='Enter' && inp.value.trim()){ const meU = await this.resolveCurrentUser(); if (!meU || !meU.uid) return; await window.firebaseService.addComment(postId, meU.uid, inp.value.trim(), node.id); inp.value=''; tree.dataset.forceOpen = '1'; await commentBtn.onclick(); } }; }
@@ -2178,8 +2523,19 @@ class DashboardManager {
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                const authorName = String(p.authorName || titleName || 'User');
+                const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
+                const postTime = this.formatDateTime(p.createdAt);
+                const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
                 const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}
+                div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                                   <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+                                     <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+                                     <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
+                                   </button>
+                                   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                 </div>
+                                 <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}
                                  <div class="post-actions" data-post-id="${p.id}" data-author="${p.authorId}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
                                    <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
                                    <span class="likes-count"></span>
@@ -2193,6 +2549,7 @@ class DashboardManager {
                                  <div class="comment-tree" id="comments-${p.id}" style="display:none"></div>`;
                 feed.appendChild(div);
             });
+            this.bindUserPreviewTriggers(feed);
             // Bind like/comment actions
             const me2 = await this.resolveCurrentUser();
             const me2Uid = me2?.uid || '';
@@ -2254,13 +2611,32 @@ class DashboardManager {
                     const renderNode = (node, container)=>{
                         const item = document.createElement('div');
                         item.className = 'comment-item';
-                        item.innerHTML = `<div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
+                        const commentTs = this.formatDateTime(node.createdAt);
+                        const edited = this.isEdited(node) ? '<span style="font-size:10px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 5px">edited</span>' : '';
+                        const fallbackName = String(node.authorId || 'User');
+                        item.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                          <button type="button" data-user-preview="${String(node.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:inherit;padding:0">
+                            <img data-comment-avatar src="images/default-bird.png" style="width:18px;height:18px;border-radius:50%;object-fit:cover">
+                            <span data-comment-name style="font-size:11px;opacity:.86">${fallbackName.slice(0,14).replace(/</g,'&lt;')}</span>
+                          </button>
+                          <span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;opacity:.72">${commentTs}${edited}</span>
+                        </div>
+                        <div class="comment-text">${(node.text||'').replace(/</g,'&lt;')}</div>
                         <div class="comment-actions" data-comment-id="${node.id}" data-author="${node.authorId}" style="display:flex;gap:8px;margin-top:4px">
                           <span class="reply-btn" style="cursor:pointer"><i class=\"fas fa-reply\"></i> Reply</span>
                           <i class="fas fa-edit edit-comment-btn" title="Edit" style="cursor:pointer"></i>
                           <i class="fas fa-trash delete-comment-btn" title="Delete" style="cursor:pointer"></i>
                         </div>`;
                         container.appendChild(item);
+                        this.getUserPreviewData(node.authorId).then((u)=>{
+                            try{
+                                const nm = item.querySelector('[data-comment-name]');
+                                const av = item.querySelector('[data-comment-avatar]');
+                                if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                if (av && u?.avatarUrl) av.src = u.avatarUrl;
+                                this.bindUserPreviewTriggers(item);
+                            }catch(_){ }
+                        }).catch(()=>{ this.bindUserPreviewTriggers(item); });
                         // Reply input (hidden until click)
                         const replyBox = document.createElement('div');
                         replyBox.style.cssText = 'margin:6px 0 0 0; display:none';
@@ -2340,6 +2716,7 @@ class DashboardManager {
                 }catch(_){ sugg.innerHTML = ''; }
             }
             if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Wall` : 'My Wall';
+            this.renderSpacePlaylists(uid, true);
         }catch(e){ /* ignore */ }
     }
 
@@ -2399,10 +2776,23 @@ class DashboardManager {
                     const div = document.createElement('div');
                     div.className = 'post-item';
                     div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+                    const authorName = String(p.authorName || displayName || 'User');
+                    const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
+                    const postTime = this.formatDateTime(p.createdAt);
+                    const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
                     const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl) : '';
-                    div.innerHTML = `<div>${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
+                    div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                                       <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+                                         <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+                                         <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
+                                       </button>
+                                       <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+                                     </div>
+                                     <div class="post-text">${(p.text||'').replace(/</g,'&lt;')}</div>${media}`;
                     if (feed) feed.appendChild(div);
                 });
+                this.bindUserPreviewTriggers(feed);
+                this.renderSpacePlaylists(uid, true);
             }catch(_){ }
         }catch(_){ }
     }
@@ -2545,8 +2935,16 @@ class DashboardManager {
                 newPlaylistBtn.onclick = ()=>{
                     const name = String(prompt('Playlist name:') || '').trim();
                     if (!name) return;
+                    const makePublic = confirm('Make this playlist public?');
                     const playlists = this.getPlaylists();
-                    playlists.push({ id: `pl_${Date.now()}`, name, items: [] });
+                    playlists.push({
+                        id: `pl_${Date.now()}`,
+                        name,
+                        visibility: makePublic ? 'public' : 'private',
+                        ownerId: me.uid,
+                        ownerName: me.email || '',
+                        items: []
+                    });
                     this.savePlaylists(playlists);
                     this.renderPlaylists();
                 };
@@ -2667,8 +3065,10 @@ class DashboardManager {
         div.className = 'wave-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
         const cover = w.coverUrl || 'images/default-bird.png';
-        const byline = w.authorName ? `<div style="font-size:12px;color:#aaa">by ${(w.authorName||'').replace(/</g,'&lt;')}</div>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline.replace('<div style="font-size:12px;color:#aaa">','<div class="audio-byline" style="font-size:12px;color:#aaa">')}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+        const byline = w.authorName
+          ? `<button type="button" class="audio-byline" data-user-preview="${String(w.authorId || '').replace(/"/g,'&quot;')}" style="font-size:12px;color:#aaa;background:none;border:none;padding:0;text-align:left;cursor:pointer">by ${(w.authorName||'').replace(/</g,'&lt;')}</button>`
+          : '';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -2692,6 +3092,7 @@ class DashboardManager {
             this.attachWaveAudioUI(a, host, { hideNative: true });
             a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
         }
+        this.bindUserPreviewTriggers(div);
         return div;
     }
 
@@ -4104,6 +4505,7 @@ Do you want to proceed?`);
               <button id="start-chat" class="btn btn-secondary"><i class="fas fa-comments"></i> Start chat</button>
             </div>
             <div id="preview-feed"></div>
+            <div id="preview-playlists" style="margin-top:12px"></div>
             <div id="preview-audio" style="margin-top:12px"></div>
             <div id="preview-video" style="margin-top:12px"></div>
           </div>
@@ -4259,6 +4661,72 @@ Do you want to proceed?`);
         }
         feed.innerHTML = `<h4 style="margin:4px 0 8px">Posts</h4>` + (list.map(p => `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)">${(p.text || '').replace(/</g, '&lt;')}</div>`).join('') || '<div style="opacity:.8">No public posts yet.</div>');
       }catch(_){ feed.innerHTML = '<div style="opacity:.8">Unable to load posts.</div>'; }
+
+      // Public playlists section.
+      const playlistsEl = overlay.querySelector('#preview-playlists');
+      try{
+        let rows = [];
+        try{
+          const q = firebase.query(
+            firebase.collection(window.firebaseService.db, 'playlists'),
+            firebase.where('ownerId', '==', uid),
+            firebase.where('visibility', '==', 'public'),
+            firebase.orderBy('updatedAt', 'desc'),
+            firebase.limit(10)
+          );
+          const s = await firebase.getDocs(q);
+          s.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+        }catch(_){
+          const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', uid));
+          const s2 = await firebase.getDocs(q2);
+          s2.forEach((d)=>{
+            const p = d.data() || {};
+            if (p.visibility === 'public') rows.push({ id: d.id, ...p });
+          });
+          rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+          rows = rows.slice(0, 10);
+        }
+        if (!rows.length){
+          playlistsEl.innerHTML = '<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">No public playlists.</div>';
+        } else {
+          playlistsEl.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4>${rows.map((pl)=> `<div class="post-item" data-pl-id="${pl.id}" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75">${Array.isArray(pl.items) ? pl.items.length : 0} tracks</div></div><button class="btn btn-secondary" data-add-pl="${pl.id}">Add</button></div>`).join('')}`;
+          playlistsEl.querySelectorAll('[data-add-pl]').forEach((btn)=>{
+            btn.onclick = async ()=>{
+              const plId = String(btn.getAttribute('data-add-pl') || '').trim();
+              if (!plId) return;
+              try{
+                const mine = await this.hydratePlaylistsFromCloud();
+                const exists = mine.some((x)=> String(x.id||'') === plId || String(x.sourcePlaylistId||'') === plId);
+                if (exists){
+                  this.showSuccess('Playlist already added');
+                  return;
+                }
+                const src = rows.find((x)=> String(x.id) === plId);
+                const meNow = await this.resolveCurrentUser();
+                if (!meNow || !meNow.uid) return;
+                const copy = {
+                  id: `pl_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+                  name: src?.name || 'Playlist',
+                  ownerId: meNow.uid,
+                  ownerName: meNow.email || '',
+                  visibility: 'private',
+                  sourcePlaylistId: plId,
+                  sourceOwnerId: src?.ownerId || uid,
+                  items: [],
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                };
+                const next = [copy, ...mine];
+                this.savePlaylists(next);
+                await this.renderPlaylists();
+                this.showSuccess('Playlist added');
+              }catch(_){ this.showError('Failed to add playlist'); }
+            };
+          });
+        }
+      }catch(_){
+        playlistsEl.innerHTML = '<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">Unable to load playlists.</div>';
+      }
 
       // Audio preview section.
       const audioEl = overlay.querySelector('#preview-audio');
