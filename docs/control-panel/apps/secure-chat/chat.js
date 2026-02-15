@@ -223,9 +223,14 @@
       let d;
       try{
         const ts = msg?.createdAtTS;
-        const ms = ts && typeof ts.toMillis === 'function' ? Number(ts.toMillis()) : 0;
+        let ms = 0;
+        if (ts) {
+          if (typeof ts.toMillis === 'function') ms = Number(ts.toMillis());
+          else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
+        }
         if (ms > 0) d = new Date(ms);
-        else d = new Date(value || msg?.createdAt || Date.now());
+        else d = new Date(value || msg?.createdAt || 0);
+        if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -235,9 +240,14 @@
       let d;
       try{
         const ts = msg?.createdAtTS;
-        const ms = ts && typeof ts.toMillis === 'function' ? Number(ts.toMillis()) : 0;
+        let ms = 0;
+        if (ts) {
+          if (typeof ts.toMillis === 'function') ms = Number(ts.toMillis());
+          else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
+        }
         if (ms > 0) d = new Date(ms);
-        else d = new Date(value || msg?.createdAt || Date.now());
+        else d = new Date(value || msg?.createdAt || 0);
+        if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       try{
@@ -334,8 +344,15 @@
 
     getMessageTimestampMs(msg){
       try{
-        return Number(msg?.createdAtTS?.toMillis?.() || 0) || Number(new Date(msg?.createdAt || 0).getTime() || 0) || 0;
-      }catch(_){ return 0; }
+        const ts = msg?.createdAtTS;
+        let ms = 0;
+        if (ts) {
+          if (typeof ts.toMillis === 'function') ms = Number(ts.toMillis());
+          else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
+        }
+        if (ms <= 0) ms = Number(new Date(msg?.createdAt || 0).getTime() || 0);
+        return ms || 0;
+      }catch(_){ return Number(new Date(msg?.createdAt || 0).getTime() || 0) || 0; }
     }
 
     applyNewMessagesSeparator(box){
@@ -2578,7 +2595,7 @@
       const pageSize = 50;
       const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
       if (loadMoreRequestedAtStart){
-        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 18000);
+        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 2000);
       }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
@@ -2720,11 +2737,7 @@
             return (s2.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: cid }));
           }catch(_){ return []; }
         };
-        const normalizeDocTime = (m)=>{
-          try{
-            return Number(m?.createdAtTS?.toMillis?.() || 0) || Number(new Date(m?.createdAt || 0).getTime() || 0) || 0;
-          }catch(_){ return Number(new Date(m?.createdAt || 0).getTime() || 0) || 0; }
-        };
+        const normalizeDocTime = (m)=> this.getMessageTimestampMs(m);
         const handleSnap = async (snap, fromLive = false)=>{
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -3685,7 +3698,8 @@
     renderSharedAssetCardHtml(asset, msgId = ''){
       try{
         const a = (asset && typeof asset === 'object') ? asset : {};
-        const kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
+        let kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
+        if (!kind && a.url) kind = String(this.inferMediaKindFromUrl(a.url) || '').toLowerCase();
         if (kind === 'post'){
           const pRaw = (a.post && typeof a.post === 'object') ? a.post : {};
           const p = { ...pRaw };
@@ -3709,9 +3723,9 @@
           return `<div class="shared-asset-card post-item" data-shared-kind="post" data-shared-post-id="${this.renderText(postId)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520"><div class="byline post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0"><span style="font-size:12px;color:#aaa">${author}</span><span style="font-size:11px;opacity:.74">${created}</span></div><div class="shared-post-media post-media-block">${mediaHtml}</div>${textHtml}<div class="post-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
         }
         const url = String(a.url || '').trim();
-        const title = this.renderText(String(a.title || `Shared ${kind || 'asset'}`));
-        const by = this.renderText(String(a.by || ''));
-        const cover = String(a.cover || '').trim();
+        const title = this.renderText(String(a.title || a.name || `Shared ${kind || 'asset'}`));
+        const by = this.renderText(String(a.by || a.authorName || ''));
+        const cover = String(a.cover || a.coverUrl || a.thumbnailUrl || '').trim();
         const visual = kind === 'video'
           ? `<video src="${this.renderText(url)}" controls playsinline style="width:100%;max-height:280px;border-radius:10px;object-fit:contain;background:#000"></video>`
           : (kind === 'image' || kind === 'picture'
@@ -4085,7 +4099,7 @@
             });
           });
           mediaItems.sort((a,b)=> mediaRank(a) - mediaRank(b));
-          const combinedText = text.trim() || 'Shared';
+          const combinedText = text.trim() || '';
           await this.saveMessage({ text: combinedText, media: mediaItems, attachmentSourceConnId: this.activeConnection });
           mediaItems.forEach((it)=> this.pushRecentAttachment({ fileUrl: it.fileUrl, fileName: it.fileName, sentAt: new Date().toISOString() }));
         } else {
@@ -5400,6 +5414,17 @@
       return n.startsWith('voice.') || n.startsWith('audio.') || n.endsWith('.mp3') || n.endsWith('.wav') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.ogg') || n.endsWith('.oga') || n.endsWith('.weba');
     }
 
+    inferMediaKindFromUrl(url){
+      const href = String(url || '');
+      let pathOnly = href;
+      try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
+      const lower = pathOnly.toLowerCase();
+      if (['.png','.jpg','.jpeg','.gif','.webp','.avif'].some((ext)=> lower.endsWith(ext))) return 'image';
+      if (['.mp4','.webm','.mov','.mkv'].some((ext)=> lower.endsWith(ext))) return 'video';
+      if (['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some((ext)=> lower.endsWith(ext))) return 'audio';
+      return 'file';
+    }
+
     inferVideoMime(name){
       const n = String(name || '').toLowerCase();
       if (n.endsWith('.mp4') || n.endsWith('.m4v')) return 'video/mp4';
@@ -5838,13 +5863,6 @@
     isVideoRecordingMessage(message, fileName = ''){
       try{
         if (message && message.isVideoRecording === true) return true;
-        if (!this.isVideoFilename(fileName)) return false;
-        const n = String(fileName || '').toLowerCase().trim();
-        if (n.startsWith('video.')) return true;
-        const text = String(message?.text || '').trim();
-        if (/^\[video message\]/i.test(text)) return true;
-        const preview = String(message?.previewText || '').trim();
-        if (/^\[video message\]/i.test(preview)) return true;
         return false;
       }catch(_){ return false; }
     }
@@ -5965,32 +5983,23 @@
     }
 
     renderNamedAudioAttachment(containerEl, src, fileName, authorName = '', sourceKey = ''){
-      const wrap = document.createElement('div');
-      wrap.className = 'audio-attachment-block';
-      const head = document.createElement('div');
-      head.className = 'audio-attachment-head';
       const safeName = String(fileName || 'Audio');
       const safeAuthor = String(authorName || 'Unknown');
-      const meta = document.createElement('div');
-      meta.className = 'audio-attachment-meta';
-      meta.textContent = `${safeName} - ${safeAuthor}`;
+      // Use share-style card (post-media-files-item) with native audio controls so audio always plays.
+      const wrap = document.createElement('div');
+      wrap.className = 'audio-attachment-block post-media-files-item';
+      const coverFallback = '<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>';
+      wrap.innerHTML = `<div class="post-media-audio-head">${coverFallback}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div></div><audio src="${this.renderText(src)}" controls style="width:100%;margin-top:6px"></audio>`;
       const addBtn = document.createElement('button');
       addBtn.type = 'button';
       addBtn.className = 'btn secondary';
+      addBtn.style.marginTop = '6px';
       addBtn.innerHTML = '<i class="fas fa-plus"></i>';
       addBtn.title = 'Add to playlist';
-      addBtn.addEventListener('pointerdown', (e)=>{
-        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
-      });
       addBtn.onclick = (e)=>{
-        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
-        this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor, sourceKey });
+        try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor, sourceKey }); }catch(_){ }
       };
-      head.appendChild(meta);
-      head.appendChild(addBtn);
-      wrap.appendChild(head);
-      // Use the unified persistent player path for reliable play/stop/seek sync.
-      this.renderWaveAttachment(wrap, src, `${safeName} - ${safeAuthor}`, sourceKey);
+      wrap.appendChild(addBtn);
       containerEl.appendChild(wrap);
     }
 
@@ -7105,13 +7114,20 @@
         this._screenSharing = true;
         screenStream.getTracks().forEach(t => t.addEventListener('ended', () => this._stopScreenShare()));
         const screenTrack = screenStream.getVideoTracks()[0];
+        if (!screenTrack) throw new Error('No video track');
+        let replaced = 0;
         this._activePCs.forEach((p) => {
-          const videoSender = p.pc.getSenders?.().find(s => s.track?.kind === 'video');
-          if (videoSender) videoSender.replaceTrack(screenTrack);
+          const senders = p.pc.getSenders?.() || [];
+          const videoSender = senders.find(s => s.track?.kind === 'video');
+          if (videoSender) {
+            videoSender.replaceTrack(screenTrack);
+            replaced++;
+          }
         });
         const lv = document.getElementById('localVideo');
         if (lv) lv.srcObject = screenStream;
         shareBtn.classList.add('active');
+        if (replaced === 0) console.warn('Screen share: no video sender found (voice-only call?)');
       } catch (e) { console.warn('Screen share failed', e); }
     };
     if (hideBtn) hideBtn.onclick = () => { 
@@ -8101,8 +8117,9 @@
         const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
-        // Deduplicate once
-        const uniq = Array.from(new Set((conn.participants || []).filter(Boolean)));
+        const inCall = this._activePCs && this._activePCs.size > 0;
+        const peerUids = inCall ? Array.from(this._activePCs.keys()) : Array.from(new Set((conn.participants || []).filter(Boolean)));
+        const uniq = Array.from(new Set(peerUids.filter(Boolean)));
         const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };

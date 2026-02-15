@@ -440,6 +440,13 @@ img, video, canvas, svg, iframe {
     flex-wrap:wrap !important;
     gap:6px !important;
   }
+  #waveconnect-section .video-item{
+    padding:8px;
+    width:100%;
+    max-width:min(92vw, 280px);
+    margin-left:auto;
+    margin-right:auto;
+  }
   .video-item{
     padding:8px;
     width:100%;
@@ -461,6 +468,11 @@ img, video, canvas, svg, iframe {
     margin-top:4px;
     padding-top:6px;
     border-top:1px solid var(--border-color,#2b3240);
+  }
+  #waveconnect-section .video-item img[data-fullscreen-image="1"],
+  #waveconnect-section .video-item video,
+  #waveconnect-section .video-item .liber-lib-video{
+    max-height:min(50vh,240px) !important;
   }
   .video-item img[data-fullscreen-image="1"],
   .video-item video{
