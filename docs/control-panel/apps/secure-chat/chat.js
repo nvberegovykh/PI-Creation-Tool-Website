@@ -5869,10 +5869,62 @@
         if (!b64) {
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
+        if (!b64 && (isVideoRecording || isVoiceRecording) && cryptoMod) {
+          const senderUid = String(message?.sender || '').trim() || String(await this.getPeerUidForConn(urlConnId || sourceConnId) || '').trim();
+          const connIdsRec = [...new Set([urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean))];
+          const saltsRec = [hintSalt, urlConnId];
+          try {
+            const s = await this.getConnSaltForConn(urlConnId || sourceConnId || this.activeConnection);
+            const st = String(s?.stableSalt || '').trim();
+            if (st && !saltsRec.includes(st)) saltsRec.push(st);
+          } catch (_) {}
+          for (const s of saltsRec) {
+            if (b64 || !s) break;
+            try {
+              const k = await cryptoMod.deriveChatKey(`${s}|liber_secure_chat_conn_stable_v1`);
+              b64 = await chatCrypto.decryptWithKey(payload, k);
+            } catch (_) {}
+          }
+          for (const cid of connIdsRec) {
+            if (b64 || !cid) continue;
+            try {
+              const keys = await this.getFallbackKeyCandidatesForConn(cid);
+              for (const k of (keys || [])) {
+                if (b64) break;
+                try {
+                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                } catch (_) {}
+              }
+            } catch (_) {}
+            if (!b64) {
+              try {
+                const k = await this.getFallbackKeyForConn(cid);
+                b64 = await chatCrypto.decryptWithKey(payload, k);
+              } catch (_) {}
+            }
+          }
+          if (!b64 && senderUid) {
+            for (const cid of connIdsRec) {
+              if (b64 || !cid) continue;
+              try {
+                const k = await cryptoMod.deriveChatKey(`${[this.currentUser.uid, senderUid].sort().join('|')}|${cid}|liber_secure_chat_fallback_v1`);
+                b64 = await chatCrypto.decryptWithKey(payload, k);
+              } catch (_) {}
+              if (b64) break;
+            }
+            if (!b64 && cryptoMod.deriveFallbackSharedAesKey) {
+              for (const s of [urlConnId, ...connIdsRec, hintSalt].filter(Boolean)) {
+                if (b64) break;
+                try {
+                  const k = await cryptoMod.deriveFallbackSharedAesKey(this.currentUser.uid, senderUid, s);
+                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                } catch (_) {}
+              }
+            }
+          }
+        }
         if (!b64) {
           let decrypted = false;
-          // Try salt-based derivation and key candidates for any attachment when we have urlConnId or hintSalt.
-          // Sender uses getFallbackKeyForConn — we try hintSalt first, then connId, then stableSalt from connection.
           if (urlConnId || hintSalt) {
             try {
               const saltsToTry = [];
