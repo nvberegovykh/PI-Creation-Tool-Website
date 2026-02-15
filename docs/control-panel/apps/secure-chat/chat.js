@@ -5799,18 +5799,31 @@
         if (!b64) {
           let decrypted = false;
           if (typeof console?.log === 'function' && (isVideoRecording || isVoiceRecording)) {
-            console.log('[decrypt] Recording fallback:', { fileUrl: (fileUrl||'').slice(0,80), urlConnId, hintSalt: hintSalt||'(empty)', sourceConnId });
+            console.log('[decrypt] Recording:', { urlConnId, hintSalt: hintSalt||'(empty)', sourceConnId });
           }
-          // For recordings: mirror sender path exactly — sender uses getFallbackKeyForConn(targetConnId), urlConnId IS targetConnId from storage path.
+          // For recordings: mirror sender path exactly — sender uses getFallbackKeyForConn(targetConnId).
           if ((isVideoRecording || isVoiceRecording) && urlConnId) {
             try {
-              const allCandidates = await this.getFallbackKeyCandidatesForConn(urlConnId);
-              for (const k of (allCandidates || [])) {
-                if (decrypted) break;
+              const salts = await this.getConnSaltForConn(urlConnId);
+              const stableSalt = String(salts?.stableSalt || urlConnId || '').trim();
+              const connKey = stableSalt || urlConnId;
+              if (typeof console?.log === 'function') console.log('[decrypt] stableSalt from conn:', stableSalt || '(empty)');
+              if (connKey) {
                 try {
-                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                  const key = await window.chatCrypto.deriveChatKey(`${connKey}|liber_secure_chat_conn_stable_v1`);
+                  b64 = await chatCrypto.decryptWithKey(payload, key);
                   decrypted = true;
                 } catch (_) {}
+              }
+              if (!decrypted) {
+                const allCandidates = await this.getFallbackKeyCandidatesForConn(urlConnId);
+                for (const k of (allCandidates || [])) {
+                  if (decrypted) break;
+                  try {
+                    b64 = await chatCrypto.decryptWithKey(payload, k);
+                    decrypted = true;
+                  } catch (_) {}
+                }
               }
               if (!decrypted) {
                 const fallbackKey = await this.getFallbackKeyForConn(urlConnId);
