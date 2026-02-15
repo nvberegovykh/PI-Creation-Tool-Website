@@ -5804,6 +5804,7 @@
           }
           for (const salt of saltsToTryFirst) {
             if (decrypted) break;
+            if (typeof console?.log === 'function') console.log('[decrypt] Trying salt:', salt);
             try {
               const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
