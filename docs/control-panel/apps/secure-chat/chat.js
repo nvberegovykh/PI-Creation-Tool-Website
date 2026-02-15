@@ -5725,11 +5725,36 @@
         const isVideoRecording = this.isVideoRecordingMessage(message, fileName);
         const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
         let b64;
-        try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); }
-        catch {
+        const hintSalt = String(message?.attachmentKeySalt || '').trim();
+        const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
+        // For video/voice recordings: try attachmentKeySalt-derived keys first (saved on send; most reliable)
+        if (!b64 && (isVideoRecording || isVoiceRecording) && hintSalt) {
+          try {
+            const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+            b64 = await chatCrypto.decryptWithKey(payload, key);
+          } catch (_) {}
+          if (!b64 && window.chatCrypto?.deriveFallbackSharedAesKey) {
+            const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(sourceConnId);
+            if (peerUid) {
+              try {
+                const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, hintSalt);
+                b64 = await chatCrypto.decryptWithKey(payload, key);
+              } catch (_) {}
+            }
+          }
+          if (!b64 && urlConnId && urlConnId !== hintSalt) {
+            try {
+              const key = await window.chatCrypto.deriveChatKey(`${urlConnId}|liber_secure_chat_conn_stable_v1`);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+            } catch (_) {}
+          }
+        }
+        if (!b64) {
+          try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
+        }
+        if (!b64) {
           let decrypted = false;
-          const hintSalt = String(message?.attachmentKeySalt || '').trim();
-          if (!decrypted && hintSalt) {
+          if (hintSalt) {
             try {
               const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
@@ -5746,7 +5771,6 @@
               }
             }
           }
-          const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
           const connIdsToTry = [urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean);
           const seen = new Set();
           for (const cid of connIdsToTry) {
@@ -6015,16 +6039,50 @@
           const url = this.getStableBlobUrl(cacheKey, blob);
           const video = document.createElement('video');
           video.src = url;
-          video.controls = !isVideoRecording;
           video.playsInline = true;
           video.style.maxWidth = '100%';
-          video.style.borderRadius='8px';
+          video.style.borderRadius = '8px';
           if (isVideoRecording){
+            video.controls = false;
             video.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(video);
-            this.bindInlineVideoPlayback(video, fileName || 'Video message');
+            const wrap = document.createElement('div');
+            wrap.className = 'video-recording-wrap';
+            wrap.style.cssText = 'position:relative;display:inline-block;cursor:pointer';
+            const playOverlay = document.createElement('div');
+            playOverlay.className = 'video-recording-play-overlay';
+            playOverlay.innerHTML = '<i class="fas fa-play"></i>';
+            playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.9);font-size:48px;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none';
+            wrap.appendChild(video);
+            wrap.appendChild(playOverlay);
+            const updateIcon = ()=>{
+              playOverlay.innerHTML = video.paused ? '<i class="fas fa-play"></i>' : '<i class="fas fa-pause"></i>';
+              playOverlay.style.opacity = video.paused ? '1' : '0.6';
+            };
+            wrap.addEventListener('click', (e)=>{
+              e.preventDefault();
+              e.stopPropagation();
+              if (video.paused){
+                try{ const p = this.ensureChatBgPlayer(); if (p && !p.paused) p.pause(); }catch(_){ }
+                try{ const hostBg = this.getGlobalBgPlayer(); if (hostBg && !hostBg.paused) hostBg.pause(); }catch(_){ }
+                this.pauseOtherInlineMedia(video);
+                video.play().catch(()=>{});
+                this.bindTopStripToMedia(video, fileName || 'Video message');
+              } else {
+                video.pause();
+              }
+              updateIcon();
+              this.updateVoiceWidgets?.();
+            });
+            video.addEventListener('play', ()=>{ this.bindTopStripToMedia(video, fileName || 'Video message'); updateIcon(); });
+            video.addEventListener('pause', updateIcon);
+            video.addEventListener('loadedmetadata', updateIcon);
+            updateIcon();
+            containerEl.appendChild(wrap);
+          } else {
+            video.controls = true;
+            containerEl.appendChild(video);
           }
-          containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(resolvedB64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(resolvedB64, mime);
@@ -6116,16 +6174,45 @@
         if (this.isVideoFilename(name)){
           const v = document.createElement('video');
           v.src = fileUrl;
-          v.controls = !isVideoRecording;
           v.playsInline = true;
           v.style.maxWidth = '100%';
           v.style.borderRadius = '8px';
           if (isVideoRecording){
+            v.controls = false;
             v.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(v);
-            this.bindInlineVideoPlayback(v, name || 'Video message');
+            const wrap = document.createElement('div');
+            wrap.className = 'video-recording-wrap';
+            wrap.style.cssText = 'position:relative;display:inline-block;cursor:pointer';
+            const playOverlay = document.createElement('div');
+            playOverlay.className = 'video-recording-play-overlay';
+            playOverlay.innerHTML = '<i class="fas fa-play"></i>';
+            playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.9);font-size:48px;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none';
+            wrap.appendChild(v);
+            wrap.appendChild(playOverlay);
+            const updateIcon = ()=>{ playOverlay.innerHTML = v.paused ? '<i class="fas fa-play"></i>' : '<i class="fas fa-pause"></i>'; playOverlay.style.opacity = v.paused ? '1' : '0.6'; };
+            wrap.addEventListener('click', (e)=>{
+              e.preventDefault();
+              e.stopPropagation();
+              if (v.paused){
+                try{ const p = this.ensureChatBgPlayer(); if (p && !p.paused) p.pause(); }catch(_){ }
+                try{ const hostBg = this.getGlobalBgPlayer(); if (hostBg && !hostBg.paused) hostBg.pause(); }catch(_){ }
+                this.pauseOtherInlineMedia(v);
+                v.play().catch(()=>{});
+                this.bindTopStripToMedia(v, name || 'Video message');
+              } else { v.pause(); }
+              updateIcon();
+              this.updateVoiceWidgets?.();
+            });
+            v.addEventListener('play', ()=>{ this.bindTopStripToMedia(v, name || 'Video message'); updateIcon(); });
+            v.addEventListener('pause', updateIcon);
+            v.addEventListener('loadedmetadata', updateIcon);
+            updateIcon();
+            containerEl.appendChild(wrap);
+          } else {
+            v.controls = true;
+            containerEl.appendChild(v);
           }
-          containerEl.appendChild(v);
           return;
         }
         if (this.isAudioFilename(name)){
