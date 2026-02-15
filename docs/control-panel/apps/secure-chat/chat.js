@@ -44,6 +44,7 @@
       this._voiceCurrentSrc = '';
       this._voiceCurrentAttachmentKey = '';
       this._voiceCurrentTitle = 'Voice message';
+      this._voiceUserIntendedPlay = false;
       this._voiceWaveCache = new Map();
       this._voiceDurationCache = new Map();
       this._voiceWaveCtx = null;
@@ -1577,11 +1578,11 @@
         const playerSrc = this.getChatPlayerSrc(p);
         const m = this._topMediaEl;
         if (playerSrc){
-          if (p.paused) p.play().catch(()=>{});
-          else p.pause();
+          if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
+          else{ this._voiceUserIntendedPlay = false; p.pause(); }
         } else if (m && m.isConnected){
-          if (m.paused) m.play().catch(()=>{});
-          else m.pause();
+          if (m.paused){ this._voiceUserIntendedPlay = true; m.play().catch(()=>{}); }
+          else{ this._voiceUserIntendedPlay = false; m.pause(); }
         }
         this.updateVoiceWidgets();
       });
@@ -1589,6 +1590,7 @@
         try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
         const m = this._topMediaEl;
         const p = this.ensureChatBgPlayer();
+        this._voiceUserIntendedPlay = false;
         this._forceHideVoiceStripUntil = Date.now() + 260;
         this.pauseOtherInlineMedia(null);
         if (m && m.isConnected){
@@ -5184,7 +5186,7 @@
         }
       }catch(_){}
 
-      // Email notifications now handled server-side by Cloud Function on chat message create
+      // Chat: push only, no email. Server onChatMessageWrite sends push only.
     }
 
     async getOrCreateSharedAesKey(){
@@ -5552,7 +5554,25 @@
         p.addEventListener('durationchange', sync);
         p.addEventListener('seeking', sync);
         p.addEventListener('seeked', sync);
-        p.addEventListener('ended', ()=>{ stopTick(); sync(); });
+        p.addEventListener('ended', ()=>{ this._voiceUserIntendedPlay = false; stopTick(); sync(); });
+      }
+      // Resume after external interruption (phone call, tab switch, other app).
+      if (!p._voiceVisibilityBound){
+        p._voiceVisibilityBound = true;
+        document.addEventListener('visibilitychange', ()=>{
+          if (document.visibilityState !== 'visible') return;
+          const player = this.ensureChatBgPlayer();
+          const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
+          if (this._voiceUserIntendedPlay && topMedia && topMedia.paused){
+            topMedia.play().catch(()=>{});
+            this.updateVoiceWidgets();
+            return;
+          }
+          if (this._voiceUserIntendedPlay && !!this.getChatPlayerSrc(player) && player.paused){
+            player.play().catch(()=>{});
+            this.updateVoiceWidgets();
+          }
+        });
       }
       // Keep a single-track experience across host and app shell.
       if (!p._singleTrackBound){
@@ -5574,6 +5594,7 @@
             this._voiceCurrentAttachmentKey = String(next.sourceKey || '').trim();
             this._voiceCurrentTitle = next.title || 'Audio';
             p.src = next.src;
+            this._voiceUserIntendedPlay = true;
             p.play().catch(()=>{});
           }catch(_){ }
         });
@@ -5714,6 +5735,7 @@
           p.src = url;
           try{ p.load(); }catch(_){ }
           p.currentTime = 0;
+          this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
           const onMeta = ()=>{
             if (Number.isFinite(p.duration) && p.duration > 0){
@@ -5730,7 +5752,7 @@
           p.currentTime = clamped * p.duration;
           widget.durationGuess = p.duration;
         }
-        if (p.paused) p.play().catch(()=>{});
+        if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
         this.updateVoiceWidgets();
       };
 
@@ -5746,6 +5768,7 @@
           this.pauseOtherInlineMedia(null);
           p.src = url;
           try{ p.load(); }catch(_){ }
+          this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
           this.updateVoiceWidgets();
           return;
@@ -5754,9 +5777,11 @@
           widget.durationGuess = p.duration;
         }
         if (p.paused) {
+          this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
         } else {
           // Keep stable behavior: pause/resume on tap; hard stop only via top-strip close.
+          this._voiceUserIntendedPlay = false;
           p.pause();
         }
         this.updateVoiceWidgets();
@@ -5793,6 +5818,7 @@
         this._voiceCurrentTitle = meta.title || 'Voice message';
         if (p.src !== src) p.src = src;
         if (!Number.isNaN(mediaEl.currentTime)) p.currentTime = mediaEl.currentTime;
+        this._voiceUserIntendedPlay = true;
         p.play().catch(()=>{});
         mediaEl.pause();
         this.setupMediaSessionForVoice(this._voiceCurrentTitle);
@@ -5803,6 +5829,7 @@
     bindTopStripToMedia(mediaEl, title = 'Media'){
       try{
         this._topMediaEl = mediaEl;
+        if (mediaEl && !mediaEl.paused) this._voiceUserIntendedPlay = true;
         this._voiceCurrentTitle = title || 'Media';
         const sync = ()=> this.updateVoiceWidgets();
         if (!mediaEl._topStripBound){
@@ -5810,7 +5837,7 @@
           mediaEl.addEventListener('play', sync);
           mediaEl.addEventListener('pause', sync);
           mediaEl.addEventListener('timeupdate', sync);
-          mediaEl.addEventListener('ended', ()=>{ this._topMediaEl = null; this.updateVoiceWidgets(); });
+          mediaEl.addEventListener('ended', ()=>{ this._voiceUserIntendedPlay = false; this._topMediaEl = null; this.updateVoiceWidgets(); });
         }
         this.updateVoiceWidgets();
       }catch(_){ }
@@ -6079,8 +6106,8 @@
           title,
           artist: 'LIBER Chat'
         });
-        navigator.mediaSession.setActionHandler('play', ()=> p.play().catch(()=>{}));
-        navigator.mediaSession.setActionHandler('pause', ()=> p.pause());
+        navigator.mediaSession.setActionHandler('play', ()=>{ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); });
+        navigator.mediaSession.setActionHandler('pause', ()=>{ this._voiceUserIntendedPlay = false; p.pause(); });
         navigator.mediaSession.setActionHandler('seekbackward', ()=>{ p.currentTime = Math.max(0, (p.currentTime||0)-10); });
         navigator.mediaSession.setActionHandler('seekforward', ()=>{ p.currentTime = Math.min((p.duration||0), (p.currentTime||0)+10); });
       }catch(_){ }
