@@ -2753,7 +2753,11 @@
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
-                if (hasFile && el.querySelector('.file-preview')) this.enqueueAttachmentPreview(()=> this.renderEncryptedAttachment(el.querySelector('.file-preview'), m.fileUrl, inferredFileName, aesKey, this.resolveAttachmentSourceConnId(m, sourceConnId), senderName, { ...m, text }), loadSeq, activeConnId);
+                if (hasFile && el.querySelector('.file-preview')){
+                  const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
+                  const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
+                  this.enqueueAttachmentPreview(()=> this.renderEncryptedAttachment(el.querySelector('.file-preview'), m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }), loadSeq, activeConnId);
+                }
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
                 if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
                 const shareBtn = el.querySelector('.msg-share'); if (shareBtn) shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
@@ -2965,8 +2969,9 @@
                 const preview = el.querySelector('.file-preview');
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
+                  const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   this.enqueueAttachmentPreview(
-                    ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                    ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }),
                     loadSeq,
                     activeConnId
                   );
@@ -3355,8 +3360,9 @@
               const preview = el.querySelector('.file-preview');
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
+                const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
                 this.enqueueAttachmentPreview(
-                  ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, aesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                  ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }),
                   loadSeq,
                   activeConnId
                 );
@@ -3911,7 +3917,7 @@
         try{ decoded = decodeURIComponent(raw); }catch(_){ decoded = raw; }
         let m = /(?:^|\/)chat\/([^/]+)\//i.exec(decoded);
         if (m && m[1]) return m[1];
-        // Firebase Storage: .../o/chat%2FconnId%2F... — path may be in "o" query-like segment
+        // Firebase Storage: .../o/chat%2FconnId%2F... — path in "o" segment
         const oMatch = /\/o\/([^?#]+)/i.exec(raw);
         if (oMatch && oMatch[1]) {
           try {
@@ -3920,6 +3926,9 @@
             if (m && m[1]) return m[1];
           }catch(_){}
         }
+        // Encoded path: chat%2FconnId%2F... when full decode fails
+        const enc = /chat%2F([^%?#/]+)(?:%2F|\/|$)/i.exec(raw);
+        if (enc && enc[1]) return (decodeURIComponent(enc[1]) || enc[1]).replace(/^["'\s]+|["'\s]+$/g, '');
         return '';
       }catch(_){ return ''; }
     }
@@ -5831,14 +5840,17 @@
         }
         if (!b64) {
           let decrypted = false;
-          // For recordings: sender uses getFallbackKeyForConn — try connId first (auto-id connections), then stableSalt from doc.
-          if ((isVideoRecording || isVoiceRecording) && urlConnId) {
+          // Try salt-based derivation and key candidates for any attachment when we have urlConnId or hintSalt.
+          // Sender uses getFallbackKeyForConn — we try hintSalt first, then connId, then stableSalt from connection.
+          if (urlConnId || hintSalt) {
             try {
-              const saltsToTry = [urlConnId];
+              const saltsToTry = [];
+              if (hintSalt) saltsToTry.push(hintSalt);
+              if (urlConnId && !saltsToTry.includes(urlConnId)) saltsToTry.push(urlConnId);
               try {
-                const salts = await this.getConnSaltForConn(urlConnId);
+                const salts = await this.getConnSaltForConn(urlConnId || sourceConnId || this.activeConnection);
                 const stableSalt = String(salts?.stableSalt || '').trim();
-                if (stableSalt && stableSalt !== urlConnId) saltsToTry.unshift(stableSalt);
+                if (stableSalt && !saltsToTry.includes(stableSalt)) saltsToTry.unshift(stableSalt);
               } catch (_) {}
               for (const salt of saltsToTry) {
                 if (decrypted || !salt) break;
@@ -5848,8 +5860,9 @@
                   decrypted = true;
                 } catch (_) {}
               }
-              if (!decrypted) {
-                const allCandidates = await this.getFallbackKeyCandidatesForConn(urlConnId);
+              const connIdForKey = urlConnId || sourceConnId || message?.attachmentSourceConnId || this.activeConnection;
+              if (!decrypted && connIdForKey) {
+                const allCandidates = await this.getFallbackKeyCandidatesForConn(connIdForKey);
                 for (const k of (allCandidates || [])) {
                   if (decrypted) break;
                   try {
@@ -5858,8 +5871,8 @@
                   } catch (_) {}
                 }
               }
-              if (!decrypted) {
-                const fallbackKey = await this.getFallbackKeyForConn(urlConnId);
+              if (!decrypted && connIdForKey) {
+                const fallbackKey = await this.getFallbackKeyForConn(connIdForKey);
                 try {
                   b64 = await chatCrypto.decryptWithKey(payload, fallbackKey);
                   decrypted = true;
@@ -5868,9 +5881,9 @@
             } catch (_) {}
           }
           // Salt-based derivation (attachmentKeySalt, connection key, etc.)
-          let saltsToTryFirst = (isVideoRecording || isVoiceRecording) ? [hintSalt, urlConnId].filter(Boolean) : [];
-          if (isVideoRecording || isVoiceRecording) {
-            const connIdsForKey = [sourceConnId, message?.attachmentSourceConnId, message?.connId, urlConnId, this.activeConnection].filter(Boolean);
+          let saltsToTryFirst = [hintSalt, urlConnId].filter(Boolean);
+          const connIdsForKey = [sourceConnId, message?.attachmentSourceConnId, message?.connId, urlConnId, this.activeConnection].filter(Boolean);
+          if (connIdsForKey.length) {
             const seenKeys = new Set(saltsToTryFirst);
             for (const cid of connIdsForKey) {
               const row = (this.connections || []).find((c)=> c && c.id === cid);
@@ -5889,7 +5902,6 @@
           }
           for (const salt of saltsToTryFirst) {
             if (decrypted) break;
-            if (typeof console?.log === 'function') console.log('[decrypt] Trying salt:', salt);
             try {
               const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
