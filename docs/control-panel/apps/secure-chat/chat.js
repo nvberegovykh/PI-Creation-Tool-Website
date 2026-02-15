@@ -5755,6 +5755,9 @@
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
         if (!containerEl?.isConnected) return;
+        if (!fileUrl || !String(fileUrl).includes('/o/')) {
+          if (typeof console?.warn === 'function') console.warn('[decrypt] fileUrl missing or invalid (no /o/ path):', (fileUrl||'').slice(0,120));
+        }
         const res = await fetch(fileUrl, { mode: 'cors', cache: 'default' });
         if (!res.ok) throw new Error('attachment-fetch-failed');
         const ct = res.headers.get('content-type')||'';
@@ -6117,6 +6120,15 @@
                 }
               }
             }catch(_){ }
+          }
+          if (!decrypted && (isVideoRecording || isVoiceRecording)){
+            try{
+              const ecdh = await this.getOrCreateSharedAesKey();
+              if (ecdh) {
+                b64 = await chatCrypto.decryptWithKey(payload, ecdh);
+                decrypted = true;
+              }
+            }catch(_){}
           }
           if (!decrypted){
             // Legacy recordings could be encrypted with non-connection key.
