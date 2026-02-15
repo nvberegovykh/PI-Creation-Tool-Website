@@ -272,6 +272,13 @@ img, video, canvas, svg, iframe {
     right: 35vw;
     bottom: 18px;
   }
+  .mini-queue-panel{
+    right: 35vw;
+    bottom: 74px;
+    width: min(34vw, 420px);
+    max-height: 52vh;
+    z-index: 1305;
+  }
 }
 
 /* Micro-interactions */

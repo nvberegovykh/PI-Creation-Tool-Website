@@ -1203,6 +1203,11 @@ class DashboardManager {
                 const s2 = await firebase.getDocs(q2);
                 s2.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
             }
+            try{
+                const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', me.uid));
+                const s3 = await firebase.getDocs(q3);
+                s3.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
+            }catch(_){ }
             const local = this.getPlaylists();
             const map = new Map();
             (local || []).forEach((p)=>{
@@ -1233,6 +1238,9 @@ class DashboardManager {
                 ownerName: String(pl.ownerName || me.email || ''),
                 name: String(pl.name || 'Playlist'),
                 visibility: pl.visibility === 'public' ? 'public' : 'private',
+                isPublic: pl.visibility === 'public',
+                public: pl.visibility === 'public',
+                privacy: pl.visibility === 'public' ? 'public' : 'private',
                 sourcePlaylistId: String(pl.sourcePlaylistId || '').trim() || null,
                 sourceOwnerId: String(pl.sourceOwnerId || '').trim() || null,
                 items: Array.isArray(pl.items) ? pl.items.slice(0, 500) : [],
@@ -1402,6 +1410,9 @@ class DashboardManager {
         const playBtn = document.getElementById('mini-play');
         const repeatBtn = document.getElementById('mini-repeat');
         const addBtn = document.getElementById('mini-add-playlist');
+        const queueBtn = document.getElementById('mini-queue');
+        const queuePanel = document.getElementById('mini-queue-panel');
+        const queueClose = document.getElementById('mini-queue-close');
         const closeBtn = document.getElementById('mini-close');
         const miniProgress = document.getElementById('mini-progress');
         const miniFill = document.getElementById('mini-fill');
@@ -1452,6 +1463,13 @@ class DashboardManager {
                 cover: (miniCover && miniCover.src) || item.cover || ''
             });
         }
+        if (queueBtn && queuePanel){
+            queueBtn.onclick = ()=>{
+                this.renderQueuePanel();
+                queuePanel.style.display = queuePanel.style.display === 'none' ? 'block' : 'none';
+            };
+        }
+        if (queueClose && queuePanel){ queueClose.onclick = ()=> queuePanel.style.display = 'none'; }
         if (closeBtn){ closeBtn.onclick = ()=>{ if (mini) mini.classList.remove('show'); try{ bg.pause(); }catch(_){} if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; } }; }
         syncMiniBtn();
         syncProgress();
@@ -1554,7 +1572,8 @@ class DashboardManager {
             if (privacyBtn){
                 privacyBtn.onclick = ()=>{
                     plRaw.visibility = (plRaw.visibility === 'public') ? 'private' : 'public';
-                    this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, visibility: plRaw.visibility, updatedAt: new Date().toISOString() } : x));
+                    const isPublic = plRaw.visibility === 'public';
+                    this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, visibility: plRaw.visibility, isPublic, public: isPublic, privacy: plRaw.visibility, updatedAt: new Date().toISOString() } : x));
                     this.renderPlaylists();
                 };
             }
@@ -1821,21 +1840,6 @@ class DashboardManager {
                 }, { passive: true });
                 wrap.addEventListener('touchend', ()=>{ horizontalLock = false; }, { passive: true });
                 wrap.addEventListener('scroll', ()=> syncDots(), { passive: true });
-                wrap.addEventListener('wheel', (e)=>{
-                    if (window.innerWidth < 1024) return;
-                    const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-                    if (!Number.isFinite(delta) || delta === 0) return;
-                    e.preventDefault();
-                    if (wrap.dataset.snapLock === '1') return;
-                    wrap.dataset.snapLock = '1';
-                    const step = getSlideStep();
-                    const cur = Math.round((wrap.scrollLeft || 0) / step);
-                    const dir = delta > 0 ? 1 : -1;
-                    const maxIdx = Math.max(0, (slider?.querySelectorAll('.post-media-visual-item').length || 1) - 1);
-                    const nextIdx = Math.max(0, Math.min(maxIdx, cur + dir));
-                    wrap.scrollTo({ left: nextIdx * step, behavior: 'smooth' });
-                    setTimeout(()=> { wrap.dataset.snapLock = '0'; syncDots(); }, 320);
-                }, { passive: false });
                 syncDots();
             });
             root.querySelectorAll('.player-card').forEach(card=>{
@@ -2367,9 +2371,19 @@ class DashboardManager {
             const moodEl = document.getElementById('space-mood');
             const avatarEl = document.getElementById('space-avatar');
             const feedTitle = document.getElementById('space-feed-title');
-            if (unameEl) unameEl.value = data.username || user.email || '';
+            const cachedName = localStorage.getItem(`liber_profile_username_${user.uid}`) || '';
+            const cachedAvatar = localStorage.getItem(`liber_profile_avatar_${user.uid}`) || '';
+            const stableName = String(data.username || '').trim() || String(cachedName || '').trim() || String(user.email || '').split('@')[0] || '';
+            const stableAvatar = String(data.avatarUrl || '').trim() || String(cachedAvatar || '').trim() || String(user.photoURL || '').trim() || 'images/default-bird.png';
+            if (String(data.username || '').trim()){
+                try{ localStorage.setItem(`liber_profile_username_${user.uid}`, String(data.username || '').trim()); }catch(_){ }
+            }
+            if (String(data.avatarUrl || '').trim()){
+                try{ localStorage.setItem(`liber_profile_avatar_${user.uid}`, String(data.avatarUrl || '').trim()); }catch(_){ }
+            }
+            if (unameEl) unameEl.value = stableName;
             if (moodEl) moodEl.value = data.mood || '';
-            if (avatarEl) avatarEl.src = data.avatarUrl || 'images/default-bird.png';
+            if (avatarEl) avatarEl.src = stableAvatar;
             if (feedTitle) feedTitle.textContent = 'My Wall';
 
             const saveBtn = document.getElementById('space-save-profile');
@@ -2389,6 +2403,7 @@ class DashboardManager {
                             const url = await firebase.getDownloadURL(r);
                             await window.firebaseService.updateUserProfile(user.uid, { avatarUrl: url });
                             if (avatarEl) avatarEl.src = url;
+                            try{ localStorage.setItem(`liber_profile_avatar_${user.uid}`, url); }catch(_){ }
                         }catch(e){ /* ignore avatar errors */ }
                     }
                     this.showSuccess('Profile saved');
@@ -3075,6 +3090,16 @@ class DashboardManager {
                         const p = d.data() || {};
                         rows.push({ id: d.id, ...p });
                     });
+                    if (!rows.length){
+                        try{
+                            const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', uid));
+                            const s3 = await firebase.getDocs(q3);
+                            s3.forEach((d)=>{
+                                const p = d.data() || {};
+                                rows.push({ id: d.id, ...p });
+                            });
+                        }catch(_){ }
+                    }
                     rows.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
                 }
             }
@@ -3085,9 +3110,10 @@ class DashboardManager {
                 return;
             }
             panel.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4>${rows.slice(0, 20).map((pl)=>{
-                const canAdd = !!myUid && myUid !== String(pl.ownerId || '');
+                const ownerAny = String(pl.ownerId || pl.owner || '').trim();
+                const canAdd = !!myUid && myUid !== ownerAny;
                 const addBtn = canAdd ? `<button class="btn btn-secondary" data-add-pl="${pl.id}">Add</button>` : '';
-                return `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75;display:flex;gap:8px;align-items:center"><button type="button" data-user-preview="${String(pl.ownerId || '').replace(/"/g,'&quot;')}" style="background:none;border:none;padding:0;color:#9db3d5;cursor:pointer">${String(pl.ownerName || '').replace(/</g,'&lt;')}</button><span>${Array.isArray(pl.items) ? pl.items.length : 0} tracks</span></div></div>${addBtn}</div>`;
+                return `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75;display:flex;gap:8px;align-items:center"><button type="button" data-user-preview="${String(ownerAny || '').replace(/"/g,'&quot;')}" style="background:none;border:none;padding:0;color:#9db3d5;cursor:pointer">${String(pl.ownerName || '').replace(/</g,'&lt;')}</button><span>${Array.isArray(pl.items) ? pl.items.length : 0} tracks</span></div></div>${addBtn}</div>`;
             }).join('')}`;
             panel.querySelectorAll('[data-add-pl]').forEach((btn)=>{
                 btn.onclick = async ()=>{
@@ -5696,7 +5722,9 @@ Do you want to proceed?`);
             const card = document.createElement('div');
             card.className = 'post-item';
             card.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)';
-            card.innerHTML = `<div style="margin-bottom:6px">${(w.title||'Audio').replace(/</g,'&lt;')}</div><audio class="liber-lib-audio" src="${w.url||''}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div>`;
+            const cover = String(w.coverUrl || '').trim() || 'images/default-bird.png';
+            const byline = String(w.authorName || '').trim();
+            card.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${cover}" alt="cover" style="width:34px;height:34px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div class="audio-title" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(w.title||'Audio').replace(/</g,'&lt;')}</div>${byline ? `<div class="audio-byline" style="font-size:12px;color:#aaa;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">by ${byline.replace(/</g,'&lt;')}</div>` : ''}</div></div><audio class="liber-lib-audio" src="${w.url||''}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${cover.replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div>`;
             audioEl.appendChild(card);
             const a = card.querySelector('.liber-lib-audio');
             const host = card.querySelector('.wave-item-audio-host') || card;

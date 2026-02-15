@@ -459,18 +459,17 @@ class AuthManager {
             const result = await firebase.signInWithPopup(window.firebaseService.auth, provider);
             const user = result.user;
             if (user){
-                // Ensure a Firestore user doc exists; create if missing
-                const data = await window.firebaseService.getUserData(user.uid);
-                if (!data){
-                    await window.firebaseService.updateUserProfile(user.uid, {
-                        username: (user.displayName||user.email||'').split('@')[0],
-                        email: user.email,
-                        role: 'user',
-                        isVerified: true,
-                        status: 'approved'
-                    });
-                }
-                this.currentUser = { id: user.uid, username: (data&&data.username)||user.displayName||'', email: user.email, role: (data&&data.role)||'user' };
+                // Ensure doc exists without forcing provider displayName over custom username.
+                await window.firebaseService.ensureUserDoc(user.uid, {
+                    username: '',
+                    email: user.email || '',
+                    role: 'user',
+                    isVerified: true,
+                    status: 'approved'
+                });
+                const data = (await window.firebaseService.getUserData(user.uid)) || {};
+                const stableUsername = String(data.username || '').trim() || String(user.email || '').split('@')[0] || 'user';
+                this.currentUser = { id: user.uid, username: stableUsername, email: user.email, role: (data&&data.role)||'user' };
                 this.createSession();
                 this.showDashboard();
             }
