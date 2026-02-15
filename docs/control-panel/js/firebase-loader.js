@@ -76,6 +76,7 @@ async function loadFirebaseVersion(version) {
 		getDownloadURL,
 		deleteObject
 	} = storageMod;
+	const getBlob = typeof storageMod.getBlob === 'function' ? storageMod.getBlob : null;
 
 	const functionsFns = fnMod
 		? (function(){ const { getFunctions, httpsCallable } = fnMod; return { getFunctions, httpsCallable }; })()
@@ -137,6 +138,7 @@ async function loadFirebaseVersion(version) {
 		uploadBytes,
 		uploadBytesResumable,
 		getDownloadURL,
+		getBlob: getBlob || (()=>{}),
 		deleteObject
 	};
 
