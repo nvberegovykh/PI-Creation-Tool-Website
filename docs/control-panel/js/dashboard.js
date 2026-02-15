@@ -251,21 +251,31 @@ class DashboardManager {
     }
 
     makeAssetLikeKey(kind, url){
-        const normalizedUrl = this.normalizeMediaUrl(url);
-        const base = `${String(kind || 'asset').toLowerCase()}|${normalizedUrl || String(url || '').trim()}`;
-        const digest = this.hashStringShort(base);
-        return `ak2_${String(kind || 'asset').toLowerCase()}_${digest}`;
+        const normalizedUrl = this.normalizeMediaUrl(url) || String(url || '').trim();
+        const digest = this.hashStringShort(normalizedUrl);
+        return `ak2_u_${digest}`;
     }
 
     getAssetLikeKeys(kind, url){
         const keys = [];
         const k1 = this.makeAssetLikeKey(kind, url);
         if (k1) keys.push(k1);
-        try{
-            const legacyBase = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
-            const legacy = `ak_${btoa(unescape(encodeURIComponent(legacyBase))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')}`;
-            if (legacy && !keys.includes(legacy)) keys.push(legacy);
-        }catch(_){ }
+        const rawUrl = String(url || '').trim();
+        const normUrl = this.normalizeMediaUrl(rawUrl) || rawUrl;
+        const kinds = Array.from(new Set([
+            String(kind || 'asset').toLowerCase(),
+            'asset', 'audio', 'video', 'image', 'picture', 'file'
+        ]));
+        for (const k of kinds){
+            for (const u of [rawUrl, normUrl]){
+                if (!u) continue;
+                try{
+                    const legacyBase = `${k}|${u}`;
+                    const legacy = `ak_${btoa(unescape(encodeURIComponent(legacyBase))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')}`;
+                    if (legacy && !keys.includes(legacy)) keys.push(legacy);
+                }catch(_){ }
+            }
+        }
         return keys;
     }
 

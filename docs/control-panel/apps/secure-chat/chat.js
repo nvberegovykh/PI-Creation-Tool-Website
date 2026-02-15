@@ -2372,7 +2372,6 @@
         try{
           if (this.activeConnection !== (resolvedConnId || connId)) return;
           this.markConnectionReadAfterDelay(this.activeConnection).catch(()=>{});
-          this.loadMessages().catch(()=>{});
         }catch(_){ }
       }, 5000);
       this.startTypingListener(this.activeConnection);
@@ -2474,7 +2473,7 @@
       const pageSize = 50;
       const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
       if (loadMoreRequestedAtStart){
-        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 1800);
+        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 6000);
       }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
@@ -2514,6 +2513,18 @@
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         const canShow = box.childElementCount > 5;
         toBottomBtn.style.display = (!pinned && canShow) ? 'inline-block' : 'none';
+      };
+      const ensureLoadMoreAnchor = ()=>{
+        try{
+          const wrap = box.querySelector('.msg-load-more-wrap');
+          if (!wrap) return;
+          const isReverse = String(getComputedStyle(box).flexDirection || '').toLowerCase().includes('reverse');
+          if (isReverse){
+            if (box.lastElementChild !== wrap) box.appendChild(wrap);
+          }else{
+            if (box.firstElementChild !== wrap) box.insertBefore(wrap, box.firstElementChild);
+          }
+        }catch(_){ }
       };
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
@@ -2987,6 +2998,7 @@
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
             if (pinnedBefore) box.scrollTop = 0;
             else box.scrollTop = prevTop;
+            ensureLoadMoreAnchor();
             updateBottomUi();
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
@@ -3039,6 +3051,7 @@
           }else{
             box.scrollTop = prevTop;
           }
+          ensureLoadMoreAnchor();
           updateBottomUi();
           this.applyNewMessagesSeparator(box);
           loadFinished = true;
@@ -3084,6 +3097,7 @@
           this._unsubMessages = firebase.onSnapshot(
             q,
             (snap)=>{
+              if (!loadFinished) return;
               const primed = this._liveSnapshotPrimedByConn.get(activeConnId) === true;
               if (!primed){
                 this._liveSnapshotPrimedByConn.set(activeConnId, true);
@@ -3356,21 +3370,31 @@
     }
 
     makeAssetLikeKey(kind, url){
-      const normalizedUrl = this.normalizeMediaUrl(url);
-      const base = `${String(kind || 'asset').toLowerCase()}|${normalizedUrl || String(url || '').trim()}`;
-      const digest = this.hashStringShort(base);
-      return `ak2_${String(kind || 'asset').toLowerCase()}_${digest}`;
+      const normalizedUrl = this.normalizeMediaUrl(url) || String(url || '').trim();
+      const digest = this.hashStringShort(normalizedUrl);
+      return `ak2_u_${digest}`;
     }
 
     getAssetLikeKeys(kind, url){
       const keys = [];
       const k1 = this.makeAssetLikeKey(kind, url);
       if (k1) keys.push(k1);
-      try{
-        const legacyBase = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
-        const legacy = `ak_${btoa(unescape(encodeURIComponent(legacyBase))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')}`;
-        if (legacy && !keys.includes(legacy)) keys.push(legacy);
-      }catch(_){ }
+      const rawUrl = String(url || '').trim();
+      const normUrl = this.normalizeMediaUrl(rawUrl) || rawUrl;
+      const kinds = Array.from(new Set([
+        String(kind || 'asset').toLowerCase(),
+        'asset', 'audio', 'video', 'image', 'picture', 'file'
+      ]));
+      for (const k of kinds){
+        for (const u of [rawUrl, normUrl]){
+          if (!u) continue;
+          try{
+            const legacyBase = `${k}|${u}`;
+            const legacy = `ak_${btoa(unescape(encodeURIComponent(legacyBase))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')}`;
+            if (legacy && !keys.includes(legacy)) keys.push(legacy);
+          }catch(_){ }
+        }
+      }
       return keys;
     }
 
@@ -3422,14 +3446,13 @@
         const kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
           const p = (a.post && typeof a.post === 'object') ? a.post : {};
-          const text = this.renderText(String(p.text || a.title || 'Shared post'));
-          const media = Array.isArray(p.media) ? p.media : [];
-          const first = media[0] || {};
-          const firstUrl = String(first.url || first.mediaUrl || p.mediaUrl || '').trim();
-          const preview = firstUrl
-            ? (/(?:\.mp4|\.webm|video)/i.test(firstUrl) ? `<video src="${this.renderText(firstUrl)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>` : `<img src="${this.renderText(firstUrl)}" alt="shared post media" style="width:100%;max-height:220px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`)
-            : '';
-          return `<div class="shared-asset-card" data-shared-kind="post" data-shared-post-id="${this.renderText(String(a.postId || p.id || ''))}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520"><div class="shared-post-media">${preview}</div><div class="shared-post-text" style="margin-top:6px;white-space:pre-wrap">${text}</div><div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
+          const postId = String(a.postId || p.id || '').trim();
+          const author = this.renderText(String(p.authorName || a.by || 'User'));
+          const created = this.renderText(String(this.formatMessageTime(p.createdAt || Date.now(), p) || ''));
+          const text = String(p.text || '').trim();
+          const textHtml = text ? `<div class="shared-post-text post-text" style="margin-top:8px">${this.renderText(text)}</div>` : `<div class="shared-post-text post-text" style="display:none"></div>`;
+          const mediaHtml = this.renderSharedPostMediaHtml(p);
+          return `<div class="shared-asset-card post-item" data-shared-kind="post" data-shared-post-id="${this.renderText(postId)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520"><div class="byline post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0"><span style="font-size:12px;color:#aaa">${author}</span><span style="font-size:11px;opacity:.74">${created}</span></div><div class="shared-post-media post-media-block">${mediaHtml}</div>${textHtml}<div class="post-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
         }
         const url = String(a.url || '').trim();
         const title = this.renderText(String(a.title || `Shared ${kind || 'asset'}`));
@@ -3444,6 +3467,28 @@
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
+    renderSharedPostMediaHtml(post){
+      try{
+        const p = (post && typeof post === 'object') ? post : {};
+        const media = Array.isArray(p.media) ? p.media.slice() : [];
+        if (!media.length && p.mediaUrl){
+          media.push({ kind: this.inferMediaKindFromUrl(String(p.mediaUrl || '')), url: String(p.mediaUrl || '') });
+        }
+        if (!media.length) return '';
+        const html = media.slice(0, 10).map((m)=>{
+          const url = String((m && (m.url || m.mediaUrl)) || '').trim();
+          if (!url) return '';
+          const kind = String(m?.kind || this.inferMediaKindFromUrl(url) || '').toLowerCase();
+          if (kind === 'video') return `<div class="post-media-visual-item"><video src="${this.renderText(url)}" controls style="width:100%;max-height:260px;border-radius:10px;object-fit:cover"></video></div>`;
+          if (kind === 'image' || kind === 'picture') return `<div class="post-media-visual-item"><img src="${this.renderText(url)}" alt="post media" class="post-media-image" style="max-height:260px;object-fit:cover" data-fullscreen-image="1"></div>`;
+          if (kind === 'audio') return `<div class="post-media-files-item"><audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`;
+          if (kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02)"><div style="font-weight:700">${this.renderText(String(m?.title || 'Playlist'))}</div></div>`;
+          return `<div class="post-media-files-item"><a href="${this.renderText(url)}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${this.renderText(String(m?.title || m?.name || 'Attachment'))}</a></div>`;
+        }).filter(Boolean).join('');
+        return html;
+      }catch(_){ return ''; }
+    }
+
     async hydrateSharedPostCard(root, postId){
       try{
         const card = root && root.classList?.contains('shared-asset-card') ? root : (root?.querySelector?.('.shared-asset-card') || null);
@@ -3453,19 +3498,25 @@
         if (!snap.exists()) return;
         const p = snap.data() || {};
         const text = String(p.text || '').trim();
-        const media = Array.isArray(p.media) ? p.media : [];
-        const first = media[0] || {};
-        const firstUrl = String(first.url || first.mediaUrl || p.mediaUrl || '').trim();
-        let mediaHtml = '';
-        if (firstUrl){
-          mediaHtml = (/(?:\.mp4|\.webm|video)/i.test(firstUrl))
-            ? `<video src="${this.renderText(firstUrl)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>`
-            : `<img src="${this.renderText(firstUrl)}" alt="shared post media" style="width:100%;max-height:220px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`;
+        const mediaHtml = this.renderSharedPostMediaHtml(p);
+        const head = card.querySelector('.post-head');
+        if (head){
+          const author = this.renderText(String(p.authorName || 'User'));
+          const created = this.renderText(String(this.formatMessageTime(p.createdAt || Date.now(), p) || ''));
+          head.innerHTML = `<span style="font-size:12px;color:#aaa">${author}</span><span style="font-size:11px;opacity:.74">${created}</span>`;
         }
         const mediaHost = card.querySelector('.shared-post-media');
         if (mediaHost) mediaHost.innerHTML = mediaHtml;
         const textHost = card.querySelector('.shared-post-text');
-        if (textHost) textHost.textContent = text || 'Post';
+        if (textHost){
+          if (text){
+            textHost.style.display = '';
+            textHost.innerHTML = this.renderText(text);
+          }else{
+            textHost.style.display = 'none';
+            textHost.innerHTML = '';
+          }
+        }
       }catch(_){ }
     }
 
@@ -5743,6 +5794,47 @@
             }
           }
           if (!decrypted){
+            // Last-chance compatibility pass for legacy encrypted payload wrappers.
+            try{
+              const payloadCandidates = this.extractEncryptedPayloadCandidates(payload);
+              const keyCandidates = [];
+              const keySeen = new Set();
+              const pushKey = (k)=>{
+                const key = String(k || '');
+                if (!key || keySeen.has(key)) return;
+                keySeen.add(key);
+                keyCandidates.push(k);
+              };
+              pushKey(aesKey);
+              try{
+                for (const cid of candidateConnIds){
+                  const ks = await this.getFallbackKeyCandidatesForConn(cid);
+                  (ks || []).forEach((k)=> pushKey(k));
+                }
+              }catch(_){ }
+              try{
+                if (isVideoRecording || this.isVideoFilename(fileName)){
+                  const allConnIds = await this.getAllMyConnectionIdsForDecrypt(1500);
+                  for (const cid of allConnIds){
+                    const ks = await this.getFallbackKeyCandidatesForConn(cid);
+                    (ks || []).forEach((k)=> pushKey(k));
+                  }
+                }
+              }catch(_){ }
+              try{ pushKey(await this.getFallbackKey()); }catch(_){ }
+              for (const cand of payloadCandidates){
+                if (decrypted) break;
+                for (const key of keyCandidates){
+                  try{
+                    b64 = await chatCrypto.decryptWithKey(cand, key);
+                    decrypted = true;
+                    break;
+                  }catch(_){ }
+                }
+              }
+            }catch(_){ }
+          }
+          if (!decrypted){
             // Legacy recordings could be encrypted with non-connection key.
             try{
               const legacy = await this.getFallbackKey();
@@ -5931,6 +6023,38 @@
         }
       }catch(_){ }
       return '';
+    }
+
+    extractEncryptedPayloadCandidates(payload){
+      const out = [];
+      const seen = new Set();
+      const push = (v)=>{
+        if (v === undefined || v === null) return;
+        const key = typeof v === 'string' ? `s:${v}` : (()=>{ try{ return `o:${JSON.stringify(v)}`; }catch(_){ return ''; } })();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push(v);
+      };
+      const walk = (v, depth = 0)=>{
+        if (depth > 2 || v === undefined || v === null) return;
+        push(v);
+        if (typeof v === 'string'){
+          const raw = String(v || '').trim();
+          if (!raw) return;
+          try{
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') walk(parsed, depth + 1);
+          }catch(_){ }
+          return;
+        }
+        if (typeof v !== 'object') return;
+        const keys = ['cipher', 'ciphertext', 'encrypted', 'enc', 'payload', 'data', 'content', 'value', 'body', 'blob', 'file', 'bytes'];
+        keys.forEach((k)=>{ try{ walk(v[k], depth + 1); }catch(_){ } });
+      };
+      try{
+        walk(payload, 0);
+      }catch(_){ }
+      return out;
     }
 
     base64ToBlob(b64, mime){
