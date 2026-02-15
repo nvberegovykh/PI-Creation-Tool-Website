@@ -1126,6 +1126,11 @@
         ? data.participants
         : (Array.isArray(data?.users) ? data.users : (Array.isArray(data?.memberIds) ? data.memberIds : []));
       if (parts.length) return parts.filter(Boolean);
+      // Participants as map {uid: true}
+      if (data?.participants && typeof data.participants === 'object' && !Array.isArray(data.participants)) {
+        const fromMap = Object.keys(data.participants).filter(Boolean);
+        if (fromMap.length) return fromMap;
+      }
       if (typeof data?.key === 'string' && data.key.includes('|')) return data.key.split('|').filter(Boolean);
       return [];
     }
@@ -3873,9 +3878,20 @@
       try{
         const raw = String(fileUrl || '');
         if (!raw) return '';
-        const decoded = decodeURIComponent(raw);
-        const m = /(?:^|\/)chat\/([^/]+)\//i.exec(decoded);
-        return (m && m[1]) ? m[1] : '';
+        let decoded = raw;
+        try{ decoded = decodeURIComponent(raw); }catch(_){ decoded = raw; }
+        let m = /(?:^|\/)chat\/([^/]+)\//i.exec(decoded);
+        if (m && m[1]) return m[1];
+        // Firebase Storage: .../o/chat%2FconnId%2F... — path may be in "o" query-like segment
+        const oMatch = /\/o\/([^?#]+)/i.exec(raw);
+        if (oMatch && oMatch[1]) {
+          try {
+            const pathDecoded = decodeURIComponent(oMatch[1]);
+            m = /chat\/([^/]+)\//i.exec(pathDecoded);
+            if (m && m[1]) return m[1];
+          }catch(_){}
+        }
+        return '';
       }catch(_){ return ''; }
     }
 
@@ -5782,7 +5798,30 @@
         }
         if (!b64) {
           let decrypted = false;
-          // For recordings: attachmentKeySalt was stored at send time — try it first before generic aesKey fallbacks.
+          if (typeof console?.log === 'function' && (isVideoRecording || isVoiceRecording)) {
+            console.log('[decrypt] Recording fallback:', { fileUrl: (fileUrl||'').slice(0,80), urlConnId, hintSalt: hintSalt||'(empty)', sourceConnId });
+          }
+          // For recordings: mirror sender path exactly — sender uses getFallbackKeyForConn(targetConnId), urlConnId IS targetConnId from storage path.
+          if ((isVideoRecording || isVoiceRecording) && urlConnId) {
+            try {
+              const allCandidates = await this.getFallbackKeyCandidatesForConn(urlConnId);
+              for (const k of (allCandidates || [])) {
+                if (decrypted) break;
+                try {
+                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                  decrypted = true;
+                } catch (_) {}
+              }
+              if (!decrypted) {
+                const fallbackKey = await this.getFallbackKeyForConn(urlConnId);
+                try {
+                  b64 = await chatCrypto.decryptWithKey(payload, fallbackKey);
+                  decrypted = true;
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }
+          // Salt-based derivation (attachmentKeySalt, connection key, etc.)
           let saltsToTryFirst = (isVideoRecording || isVoiceRecording) ? [hintSalt, urlConnId].filter(Boolean) : [];
           if (isVideoRecording || isVoiceRecording) {
             const connIdsForKey = [sourceConnId, message?.attachmentSourceConnId, message?.connId, urlConnId, this.activeConnection].filter(Boolean);
