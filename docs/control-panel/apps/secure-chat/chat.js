@@ -7989,7 +7989,13 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         (window.top?.console||console).log('[VIDEO-DEBUG] SEND:', filename, 'isVideo=', isVideo);
         try{ window._videoDebug.send = { t: Date.now(), filename, isVideo }; }catch(_){}
         const salts = await self.getConnSaltForConn(targetConnId);
-        const aesKey = await self.getFallbackKeyForConn(targetConnId);
+        const salt = String(salts?.stableSalt || targetConnId || '').trim();
+        let aesKey;
+        if (salt && window.chatCrypto?.deriveChatKey) {
+          aesKey = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
+        } else {
+          aesKey = await self.getFallbackKeyForConn(targetConnId);
+        }
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = `chat/${targetConnId}/${Date.now()}_${filename}`;
