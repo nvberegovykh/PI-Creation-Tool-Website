@@ -5755,9 +5755,6 @@
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
         if (!containerEl?.isConnected) return;
-        if (!fileUrl || !String(fileUrl).includes('/o/')) {
-          if (typeof console?.warn === 'function') console.warn('[decrypt] fileUrl missing or invalid (no /o/ path):', (fileUrl||'').slice(0,120));
-        }
         const res = await fetch(fileUrl, { mode: 'cors', cache: 'default' });
         if (!res.ok) throw new Error('attachment-fetch-failed');
         const ct = res.headers.get('content-type')||'';
@@ -5801,19 +5798,19 @@
         }
         if (!b64) {
           let decrypted = false;
-          if (typeof console?.log === 'function' && (isVideoRecording || isVoiceRecording)) {
-            console.log('[decrypt] Recording:', { urlConnId, hintSalt: hintSalt||'(empty)', sourceConnId });
-          }
-          // For recordings: mirror sender path exactly — sender uses getFallbackKeyForConn(targetConnId).
+          // For recordings: sender uses getFallbackKeyForConn — try connId first (auto-id connections), then stableSalt from doc.
           if ((isVideoRecording || isVoiceRecording) && urlConnId) {
             try {
-              const salts = await this.getConnSaltForConn(urlConnId);
-              const stableSalt = String(salts?.stableSalt || urlConnId || '').trim();
-              const connKey = stableSalt || urlConnId;
-              if (typeof console?.log === 'function') console.log('[decrypt] stableSalt from conn:', stableSalt || '(empty)');
-              if (connKey) {
+              const saltsToTry = [urlConnId];
+              try {
+                const salts = await this.getConnSaltForConn(urlConnId);
+                const stableSalt = String(salts?.stableSalt || '').trim();
+                if (stableSalt && stableSalt !== urlConnId) saltsToTry.unshift(stableSalt);
+              } catch (_) {}
+              for (const salt of saltsToTry) {
+                if (decrypted || !salt) break;
                 try {
-                  const key = await window.chatCrypto.deriveChatKey(`${connKey}|liber_secure_chat_conn_stable_v1`);
+                  const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
                   b64 = await chatCrypto.decryptWithKey(payload, key);
                   decrypted = true;
                 } catch (_) {}
@@ -6245,6 +6242,24 @@
           err.className = 'file-link';
           err.textContent = isInvalidPayload ? 'Invalid attachment format' : 'Unable to decrypt attachment';
           containerEl.appendChild(err);
+          // Backfill attachmentKeySalt for recordings missing it — next load may decrypt
+          const msg = message; const fUrl = fileUrl; const fName = fileName; const srcConn = sourceConnId;
+          if (msg?.id && !String(msg?.attachmentKeySalt||'').trim()) {
+            const uid = this.extractConnIdFromAttachmentUrl(fUrl);
+            const rec = /\.(webm|mp4|mov|mkv)\.enc\.json/i.test(String(fUrl||'')) || (fName||'').toLowerCase().startsWith('video.');
+            if (rec && uid) {
+              Promise.resolve().then(async ()=>{
+                try {
+                  const salts = await this.getConnSaltForConn(uid);
+                  const salt = String(salts?.stableSalt || uid || '').trim();
+                  const cid = msg?.connId || srcConn || uid;
+                  if (salt && cid) {
+                    await firebase.updateDoc(firebase.doc(this.db,'chatMessages',cid,'messages',msg.id),{ attachmentKeySalt: salt, attachmentSourceConnId: cid, isVideoRecording: true });
+                  }
+                }catch(_){}
+              });
+            }
+          }
           return;
         }
         if (looksEncrypted && isFetchFail){
