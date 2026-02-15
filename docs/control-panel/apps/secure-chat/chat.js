@@ -72,6 +72,7 @@
       this._avatarCache = new Map();
       this._attachmentBlobUrlByKey = new Map();
       this._liveSnapshotPrimedByConn = new Map();
+      this._suppressLivePatchUntilByConn = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -313,6 +314,8 @@
         }
         // If the peer already sent a later message, they obviously saw earlier ones.
         const msgTs = this.getMessageTimestampMs(msg);
+        const connReadMs = this.getEffectiveReadMarkerForConn(String(this.activeConnection || ''));
+        if (connReadMs > 0 && msgTs > 0 && connReadMs >= msgTs) return 'Read';
         const latestPeerMs = Number(this._latestPeerMessageMsByConn.get(String(this.activeConnection || '')) || 0) || 0;
         if (latestPeerMs > 0 && msgTs > 0 && latestPeerMs >= msgTs) return 'Read';
         return 'Sent';
@@ -2469,6 +2472,10 @@
       if (!this.activeConnection) return;
       const activeConnId = this.activeConnection;
       const pageSize = 50;
+      const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
+      if (loadMoreRequestedAtStart){
+        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 1800);
+      }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
         this._msgVisibleLimitByConn.set(activeConnId, pageSize);
@@ -2603,6 +2610,10 @@
         const handleSnap = async (snap, fromLive = false)=>{
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+            const suppressUntil = Number(this._suppressLivePatchUntilByConn.get(activeConnId) || 0);
+            if (fromLive && Date.now() < suppressUntil){
+              return;
+            }
             const renderedConnId = String(box.dataset.renderedConnId || '');
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
@@ -2936,7 +2947,13 @@
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
           const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
           const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
-          const useDocChanges = fromLive && renderedConnId === activeConnId && extraIdsInit.length === 0 && changes.length > 0 && !alreadyHaveAll;
+          const useDocChanges = fromLive
+            && renderedConnId === activeConnId
+            && extraIdsInit.length === 0
+            && changes.length > 0
+            && !alreadyHaveAll
+            && this._loadMoreConnId !== activeConnId
+            && Date.now() >= Number(this._suppressLivePatchUntilByConn.get(activeConnId) || 0);
           if (useDocChanges){
             let didMutate = false;
             for (const c of changes){
@@ -3016,9 +3033,7 @@
           const isLoadMore = this._loadMoreConnId === activeConnId;
           this._loadMoreConnId = '';
           if (isLoadMore && !appendOnly){
-            const nextHeight = box.scrollHeight;
-            const delta = Math.max(0, nextHeight - prevHeight);
-            box.scrollTop = prevTop + delta;
+            box.scrollTop = prevTop;
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -3316,6 +3331,22 @@
       }catch(_){ return String(url || '').trim().toLowerCase(); }
     }
 
+    hashStringShort(input){
+      try{
+        const str = String(input || '');
+        let h1 = 2166136261 >>> 0;
+        let h2 = 2166136261 >>> 0;
+        for (let i = 0; i < str.length; i++){
+          const c = str.charCodeAt(i);
+          h1 ^= c;
+          h1 = Math.imul(h1, 16777619) >>> 0;
+          h2 ^= (c + ((i * 13) & 255));
+          h2 = Math.imul(h2, 16777619) >>> 0;
+        }
+        return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+      }catch(_){ return '0000000000000000'; }
+    }
+
     urlsLikelySame(a, b){
       const x = this.normalizeMediaUrl(a);
       const y = this.normalizeMediaUrl(b);
@@ -3327,12 +3358,8 @@
     makeAssetLikeKey(kind, url){
       const normalizedUrl = this.normalizeMediaUrl(url);
       const base = `${String(kind || 'asset').toLowerCase()}|${normalizedUrl || String(url || '').trim()}`;
-      try{
-        const enc = btoa(unescape(encodeURIComponent(base))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
-        return `ak_${enc}`;
-      }catch(_){
-        return `ak_${base.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,220)}`;
-      }
+      const digest = this.hashStringShort(base);
+      return `ak2_${String(kind || 'asset').toLowerCase()}_${digest}`;
     }
 
     getAssetLikeKeys(kind, url){
@@ -3392,7 +3419,7 @@
     renderSharedAssetCardHtml(asset, msgId = ''){
       try{
         const a = (asset && typeof asset === 'object') ? asset : {};
-        const kind = String(a.kind || a.type || (a.post ? 'post' : '')).toLowerCase();
+        const kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
           const p = (a.post && typeof a.post === 'object') ? a.post : {};
           const text = this.renderText(String(p.text || a.title || 'Shared post'));
@@ -3448,7 +3475,7 @@
         const root = el.querySelector('.shared-asset-card');
         if (!root) return;
         const a = (asset && typeof asset === 'object') ? asset : {};
-        const kind = String(a.kind || a.type || (a.post ? 'post' : '')).toLowerCase();
+        const kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
           const postId = String(a.postId || a?.post?.id || '').trim();
           if (!postId) return;
@@ -3484,6 +3511,8 @@
         }
         const url = String(a.url || '').trim();
         if (!url) return;
+        root.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
+        root.dataset.assetLikeUrl = this.normalizeMediaUrl(url);
         const likeBtn = root.querySelector('.shared-like-btn');
         const likeCnt = root.querySelector('.shared-like-count');
         const keys = this.getAssetLikeKeys(kind || 'asset', url);
@@ -3492,6 +3521,15 @@
           try{
             const n = await this.getAssetAggregatedLikeCount(kind || 'asset', url);
             if (likeCnt) likeCnt.textContent = String(n);
+            const norm = this.normalizeMediaUrl(url);
+            document.querySelectorAll('.shared-asset-card[data-asset-like-kind][data-asset-like-url]').forEach((host)=>{
+              const k = String(host.getAttribute('data-asset-like-kind') || '').toLowerCase();
+              const u = String(host.getAttribute('data-asset-like-url') || '').trim();
+              if (k !== String(kind || 'asset').toLowerCase()) return;
+              if (!this.urlsLikelySame(u, norm)) return;
+              const cnt = host.querySelector('.shared-like-count');
+              if (cnt) cnt.textContent = String(n);
+            });
           }catch(_){ }
         };
         refreshAssetLikeCount();
@@ -4735,6 +4773,28 @@
       return this.getFallbackKeyForConn(this.activeConnection);
     }
 
+    async getAllMyConnectionIdsForDecrypt(limit = 1200){
+      const out = new Set();
+      try{
+        (this.connections || []).forEach((c)=>{
+          const id = String(c?.id || '').trim();
+          if (id) out.add(id);
+        });
+      }catch(_){ }
+      try{
+        const uid = String(this.currentUser?.uid || '').trim();
+        if (!uid) return Array.from(out);
+        const pull = async (q)=>{
+          const s = await firebase.getDocs(q);
+          s.forEach((d)=>{ const id = String(d.id || '').trim(); if (id) out.add(id); });
+        };
+        await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('participants','array-contains', uid), firebase.limit(limit)));
+        try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('users','array-contains', uid), firebase.limit(limit))); }catch(_){ }
+        try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('memberIds','array-contains', uid), firebase.limit(limit))); }catch(_){ }
+      }catch(_){ }
+      return Array.from(out);
+    }
+
     isImageFilename(name){
       const n = (name||'').toLowerCase();
       return n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.gif') || n.endsWith('.webp');
@@ -5628,6 +5688,25 @@
                     b64 = await chatCrypto.decryptWithKey(payload, k);
                     decrypted = true;
                     break;
+                  }catch(_){ }
+                }
+              }catch(_){ }
+            }
+            if (!decrypted){
+              try{
+                const allConnIds = await this.getAllMyConnectionIdsForDecrypt(1500);
+                for (const cid of allConnIds){
+                  if (decrypted) break;
+                  if (!cid || candidateConnIds.includes(cid)) continue;
+                  try{
+                    const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+                    for (const k of (candidates || [])){
+                      try{
+                        b64 = await chatCrypto.decryptWithKey(payload, k);
+                        decrypted = true;
+                        break;
+                      }catch(_){ }
+                    }
                   }catch(_){ }
                 }
               }catch(_){ }

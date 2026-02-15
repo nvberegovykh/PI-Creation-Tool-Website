@@ -234,15 +234,27 @@ class DashboardManager {
         document.head.appendChild(style);
     }
 
+    hashStringShort(input){
+        try{
+            const str = String(input || '');
+            let h1 = 2166136261 >>> 0;
+            let h2 = 2166136261 >>> 0;
+            for (let i = 0; i < str.length; i++){
+                const c = str.charCodeAt(i);
+                h1 ^= c;
+                h1 = Math.imul(h1, 16777619) >>> 0;
+                h2 ^= (c + ((i * 13) & 255));
+                h2 = Math.imul(h2, 16777619) >>> 0;
+            }
+            return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+        }catch(_){ return '0000000000000000'; }
+    }
+
     makeAssetLikeKey(kind, url){
         const normalizedUrl = this.normalizeMediaUrl(url);
         const base = `${String(kind || 'asset').toLowerCase()}|${normalizedUrl || String(url || '').trim()}`;
-        try{
-            const enc = btoa(unescape(encodeURIComponent(base))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
-            return `ak_${enc}`;
-        }catch(_){
-            return `ak_${base.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0, 220)}`;
-        }
+        const digest = this.hashStringShort(base);
+        return `ak2_${String(kind || 'asset').toLowerCase()}_${digest}`;
     }
 
     getAssetLikeKeys(kind, url){
@@ -487,6 +499,8 @@ class DashboardManager {
             const kind = String(asset.kind || this.inferMediaKindFromUrl(asset.url) || 'file');
             const url = String(asset.url || '').trim();
             if (!url) return;
+            cardEl.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
+            cardEl.dataset.assetLikeUrl = this.normalizeMediaUrl(url);
             const likeBtn = cardEl.querySelector('.asset-like-btn');
             const likeCount = cardEl.querySelector('.asset-like-count');
             const shareChatBtn = cardEl.querySelector('.asset-share-chat-btn');
@@ -496,6 +510,15 @@ class DashboardManager {
                 try{
                     const n = await this.getAssetAggregatedLikeCount(kind, url);
                     if (likeCount) likeCount.textContent = `${n}`;
+                    const norm = this.normalizeMediaUrl(url);
+                    document.querySelectorAll('[data-asset-like-kind][data-asset-like-url]').forEach((host)=>{
+                        const k = String(host.getAttribute('data-asset-like-kind') || '').toLowerCase();
+                        const u = String(host.getAttribute('data-asset-like-url') || '').trim();
+                        if (k !== String(kind || '').toLowerCase()) return;
+                        if (!this.urlsLikelySame(u, norm)) return;
+                        const cnt = host.querySelector('.asset-like-count');
+                        if (cnt) cnt.textContent = `${n}`;
+                    });
                 }catch(_){ }
             };
             refreshCount();
