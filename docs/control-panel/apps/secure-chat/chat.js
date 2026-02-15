@@ -67,6 +67,7 @@
       this._msgVisibleLimitByConn = new Map();
       this._lastLoadedConnId = '';
       this._loadMoreConnId = '';
+      this._loadMoreInProgressByConn = new Set();
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -2346,6 +2347,7 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      this._loadMoreInProgressByConn?.clear();
       this.clearPendingAttachments();
       try{
         const pendingShared = this.takePendingSharedAssetsForConn(this.activeConnection);
@@ -2494,7 +2496,7 @@
       const pageSize = 50;
       const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
       if (loadMoreRequestedAtStart){
-        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 6000);
+        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 10000);
       }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
@@ -2800,10 +2802,20 @@
                 moreBtn.className = 'btn secondary msg-load-more-btn';
                 moreBtn.textContent = `Load ${pageSize} more`;
                 moreBtn.onclick = ()=>{
+                  if (this._loadMoreInProgressByConn.has(activeConnId)) return;
+                  this._loadMoreInProgressByConn.add(activeConnId);
+                  moreBtn.disabled = true;
                   const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
                   this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
                   this._loadMoreConnId = activeConnId;
-                  this.loadMessages().catch(()=>{});
+                  this.loadMessages()
+                    .catch(()=>{})
+                    .finally(()=>{
+                      this._loadMoreInProgressByConn.delete(activeConnId);
+                      const w = box?.querySelector('.msg-load-more-wrap');
+                      const b = w?.querySelector('.msg-load-more-btn');
+                      if (b) b.disabled = false;
+                    });
                 };
                 moreWrap.appendChild(moreBtn);
               }
@@ -3070,7 +3082,14 @@
           if (isLoadMore && !appendOnly){
             const nextHeight = box.scrollHeight;
             const delta = Math.max(0, nextHeight - prevHeight);
-            box.scrollTop = prevTop + delta;
+            const targetScroll = prevTop + delta;
+            requestAnimationFrame(()=>{
+              requestAnimationFrame(()=>{
+                if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId && box.isConnected){
+                  box.scrollTop = targetScroll;
+                }
+              });
+            });
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -3117,7 +3136,7 @@
           ]);
           await handleSnap(sInit, false);
         }catch(_){ }
-        if (firebase.onSnapshot){
+        if (firebase.onSnapshot && this.activeConnection === activeConnId && loadSeq === this._msgLoadSeq){
           this._liveSnapshotPrimedByConn.set(activeConnId, false);
           this._unsubMessages = firebase.onSnapshot(
             q,
@@ -3499,12 +3518,44 @@
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
+    normalizePostMediaForShared(media, post = {}){
+      const raw = Array.isArray(media) ? media : (media ? [media] : []);
+      const defaultBy = String(post?.authorName || '').trim();
+      const defaultCover = String(post?.coverUrl || post?.thumbnailUrl || '').trim();
+      const out = [];
+      raw.forEach((entry)=>{
+        if (!entry) return;
+        if (typeof entry === 'string'){
+          const url = String(entry || '').trim();
+          if (!url) return;
+          const kind = this.inferMediaKindFromUrl(url);
+          out.push({ kind, url, name: kind === 'image' ? 'Picture' : (kind === 'video' ? 'Video' : 'Attachment'), by: defaultBy, cover: defaultCover });
+          return;
+        }
+        if (typeof entry === 'object'){
+          const kind = String(entry.kind || entry.mediaType || '').trim().toLowerCase();
+          const url = String(entry.url || entry.mediaUrl || '').trim();
+          const name = String(entry.name || entry.title || '').trim();
+          if (kind === 'playlist'){
+            out.push({ kind: 'playlist', name: name || 'Playlist', playlistId: String(entry.playlistId || entry.id || '').trim() || null, by: String(entry.by || entry.authorName || '').trim(), cover: String(entry.cover || entry.coverUrl || '').trim(), items: Array.isArray(entry.items) ? entry.items.slice(0, 120) : [] });
+            return;
+          }
+          if (url){
+            const resolvedKind = ['image','picture','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url);
+            out.push({ kind: resolvedKind, url, name: name || (resolvedKind === 'image' || resolvedKind === 'picture' ? 'Picture' : (resolvedKind === 'video' ? 'Video' : (resolvedKind === 'audio' ? 'Audio' : 'Attachment'))), by: String(entry.by || entry.authorName || defaultBy || '').trim(), cover: String(entry.cover || entry.coverUrl || defaultCover || '').trim() });
+          }
+        }
+      });
+      return out;
+    }
+
     renderSharedPostMediaHtml(post){
       try{
         const p = (post && typeof post === 'object') ? post : {};
+        const mediaInput = p.media || p.mediaUrl || [];
         try{
           if (window.dashboardManager && typeof window.dashboardManager.renderPostMedia === 'function'){
-            const html = window.dashboardManager.renderPostMedia(p.media || p.mediaUrl, {
+            const html = window.dashboardManager.renderPostMedia(mediaInput, {
               defaultBy: p.authorName || '',
               defaultCover: p.coverUrl || p.thumbnailUrl || '',
               authorId: p.authorId || ''
@@ -3512,22 +3563,27 @@
             if (html) return html;
           }
         }catch(_){ }
-        const media = Array.isArray(p.media) ? p.media.slice() : [];
-        if (!media.length && p.mediaUrl){
-          media.push({ kind: this.inferMediaKindFromUrl(String(p.mediaUrl || '')), url: String(p.mediaUrl || '') });
+        const items = this.normalizePostMediaForShared(mediaInput, p);
+        if (!items.length) return '';
+        const mediaRank = (it)=> (it.kind === 'image' || it.kind === 'picture' || it.kind === 'video') ? 0 : 1;
+        const ordered = items.slice(0, 10).sort((a,b)=> mediaRank(a) - mediaRank(b));
+        const visual = ordered.filter((it)=> it.kind === 'image' || it.kind === 'picture' || it.kind === 'video');
+        const rest = ordered.filter((it)=> it.kind !== 'image' && it.kind !== 'picture' && it.kind !== 'video');
+        let visualHtml = '';
+        if (visual.length){
+          const slideItems = visual.map((it)=>{
+            if (it.kind === 'image' || it.kind === 'picture') return `<div class="post-media-visual-item"><img src="${this.renderText(it.url)}" alt="media" class="post-media-image" style="max-height:260px;object-fit:cover" data-fullscreen-image="1"></div>`;
+            return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${this.renderText(it.name || 'Video')}</div><video src="${this.renderText(it.url)}" class="player-media post-media-video" controls playsinline style="width:100%;max-height:260px;border-radius:10px;object-fit:cover"></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>`;
+          }).join('');
+          visualHtml = `<div class="post-media-visual-shell"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${slideItems}</div></div>${visual.length > 1 ? `<div class="post-media-dots">${visual.map((_,i)=> `<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>` : ''}</div>`;
         }
-        if (!media.length) return '';
-        const html = media.slice(0, 10).map((m)=>{
-          const url = String((m && (m.url || m.mediaUrl)) || '').trim();
-          if (!url) return '';
-          const kind = String(m?.kind || this.inferMediaKindFromUrl(url) || '').toLowerCase();
-          if (kind === 'video') return `<div class="post-media-visual-item"><video src="${this.renderText(url)}" controls style="width:100%;max-height:260px;border-radius:10px;object-fit:cover"></video></div>`;
-          if (kind === 'image' || kind === 'picture') return `<div class="post-media-visual-item"><img src="${this.renderText(url)}" alt="post media" class="post-media-image" style="max-height:260px;object-fit:cover" data-fullscreen-image="1"></div>`;
-          if (kind === 'audio') return `<div class="post-media-files-item"><audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`;
-          if (kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02)"><div style="font-weight:700">${this.renderText(String(m?.title || 'Playlist'))}</div></div>`;
-          return `<div class="post-media-files-item"><a href="${this.renderText(url)}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${this.renderText(String(m?.title || m?.name || 'Attachment'))}</a></div>`;
-        }).filter(Boolean).join('');
-        return html;
+        const restHtml = rest.length ? `<div class="post-media-files-list">${rest.map((it)=>{
+          if (it.kind === 'audio' && it.url) return `<div class="post-media-files-item"><div class="post-media-audio-head">${it.cover ? `<img src="${this.renderText(it.cover)}" alt="cover" class="post-media-audio-cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(it.name || 'Audio')}</span>${it.by ? `<span class="post-media-audio-by">by ${this.renderText(it.by)}</span>` : ''}</div></div><audio src="${this.renderText(it.url)}" controls style="width:100%"></audio></div>`;
+          if (it.kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02)"><div style="font-weight:600">${this.renderText(it.name || 'Playlist')}</div>${it.by ? `<div style="font-size:12px;opacity:.8">by ${this.renderText(it.by)}</div>` : ''}</div>`;
+          if (it.url) return `<div class="post-media-files-item"><a href="${this.renderText(it.url)}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${this.renderText(it.name || 'Attachment')}</a></div>`;
+          return '';
+        }).filter(Boolean).join('')}</div>` : '';
+        return `<div class="post-media-block">${visualHtml}${restHtml}</div>`;
       }catch(_){ return ''; }
     }
 
@@ -3555,6 +3611,14 @@
         }
         const mediaHost = card.querySelector('.shared-post-media');
         if (mediaHost) mediaHost.innerHTML = mediaHtml;
+        try{
+          if (window.dashboardManager && typeof window.dashboardManager.activatePlayers === 'function'){
+            window.dashboardManager.activatePlayers(card);
+          }
+          if (window.dashboardManager && typeof window.dashboardManager.bindUserPreviewTriggers === 'function'){
+            window.dashboardManager.bindUserPreviewTriggers(card);
+          }
+        }catch(_){ }
         const textHost = card.querySelector('.shared-post-text');
         if (textHost){
           const nextText = String(text || 'Shared post').trim() || 'Shared post';
