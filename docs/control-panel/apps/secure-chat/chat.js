@@ -5838,6 +5838,12 @@
         if (!b64) {
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
+        if (!b64 && hintSalt) {
+          try {
+            const hintedKey = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+            b64 = await chatCrypto.decryptWithKey(payload, hintedKey);
+          } catch (_) {}
+        }
         if (!b64) {
           let decrypted = false;
           // Try salt-based derivation and key candidates for any attachment when we have urlConnId or hintSalt.
@@ -5850,7 +5856,7 @@
               try {
                 const salts = await this.getConnSaltForConn(urlConnId || sourceConnId || this.activeConnection);
                 const stableSalt = String(salts?.stableSalt || '').trim();
-                if (stableSalt && !saltsToTry.includes(stableSalt)) saltsToTry.unshift(stableSalt);
+                if (stableSalt && !saltsToTry.includes(stableSalt)) saltsToTry.push(stableSalt);
               } catch (_) {}
               for (const salt of saltsToTry) {
                 if (decrypted || !salt) break;
