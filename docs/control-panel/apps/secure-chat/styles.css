@@ -31,7 +31,11 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .icon-btn, .btn, .composer textarea, .search-box input{ -webkit-user-select:none; user-select:none }
 .messages .message{ -webkit-user-select:text; user-select:text }
 .sidebar.collapsed .search-box, .sidebar.collapsed #connections-list{display:none}
-.sidebar-header h2{font-size:14px;letter-spacing:.5px;text-transform:uppercase;color:#9aa4b2;margin:0}
+.sidebar-header h2{font-size:14px;letter-spacing:.5px;text-transform:uppercase;color:#9aa4b2;margin:0;display:flex;align-items:center;gap:6px}
+.nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;font-size:11px;font-weight:600;background:#2563eb;color:#fff;border-radius:999px}
+.nav-badge.hidden{display:none !important}
+.icon-btn.has-badge{position:relative}
+.icon-btn.has-badge .nav-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;font-size:10px}
 .search-box{padding:10px 12px}
 .search-box input{width:100%;padding:10px 12px;border:1px solid var(--border-color,#1f222a);border-radius:10px;background:#14161b;color:#eaeaea;outline:none;font-size:16px}
 .connections-panel{display:flex;flex-direction:column;min-height:0;height:100%}
@@ -338,9 +342,9 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   border-radius:14px;
   padding:6px 10px;
   margin-top:6px;
-  width:100%;
+  width:fit-content;
   max-width:100%;
-  min-width:0;
+  min-width:160px;
   box-sizing:border-box;
   overflow:hidden;
 }
@@ -360,6 +364,9 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear}
 .voice-wave-player .wave .bar.played{background:#ffffff}
 .voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;max-width:72px;flex:0 0 auto;text-align:right;cursor:pointer;white-space:nowrap}
+/* Slider in chat: width of content, not full bubble */
+.message .msg-media-slider,
+.message .post-media-visual-shell.msg-media-slider{width:fit-content;max-width:100%;min-width:min(180px,100%)}
 /* Recording indicator */
 .recording-indicator{ position:absolute; left:50%; transform:translateX(-50%); bottom:62px; z-index:30 }
 .recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }

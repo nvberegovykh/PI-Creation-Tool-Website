@@ -28,6 +28,7 @@ class DashboardManager {
         this._realtimeFeedTimers = new Map();
         this._resumeBySrc = new Map();
         this._isAdminSession = false;
+        this._pendingRequestUnsub = null;
         try{
             const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
             if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
@@ -645,8 +646,13 @@ class DashboardManager {
                         kind,
                         url,
                         title: String(asset.title || asset.name || ''),
+                        name: String(asset.title || asset.name || ''),
                         by: String(asset.by || asset.authorName || ''),
-                        cover: String(asset.cover || asset.coverUrl || asset.thumbnailUrl || '')
+                        authorName: String(asset.by || asset.authorName || ''),
+                        cover: String(asset.cover || asset.coverUrl || asset.thumbnailUrl || ''),
+                        coverUrl: String(asset.cover || asset.coverUrl || asset.thumbnailUrl || ''),
+                        thumbnailUrl: String(asset.cover || asset.coverUrl || asset.thumbnailUrl || ''),
+                        sourceId: String(asset.sourceId || asset.id || '')
                     }
                 });
             }
@@ -1288,6 +1294,70 @@ class DashboardManager {
                 list.appendChild(btn);
             });
             overlay.querySelector('#space-wave-picker-close').onclick = ()=> overlay.remove();
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+        }catch(_){ this.showError('Failed to load WaveConnect items'); }
+    }
+
+    async openWaveConnectPickerForChat(onSelect){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid) return;
+            const audioRows = []; const videoRows = [];
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid), firebase.orderBy('createdAt','desc'), firebase.limit(60));
+                const s = await firebase.getDocs(q); s.forEach((d)=> audioRows.push(d.data() || {}));
+            }catch(_){
+                try{
+                    const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid));
+                    const s2 = await firebase.getDocs(q2); s2.forEach((d)=> audioRows.push(d.data() || {}));
+                }catch(__){ }
+            }
+            try{
+                const qv = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', me.uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(60));
+                const sv = await firebase.getDocs(qv); sv.forEach((d)=> videoRows.push(d.data() || {}));
+            }catch(_){
+                try{
+                    const qv2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', me.uid));
+                    const sv2 = await firebase.getDocs(qv2); sv2.forEach((d)=> videoRows.push(d.data() || {}));
+                }catch(__){ }
+            }
+            const rows = [
+                ...audioRows.map((w)=> ({ type:'audio', data:w })),
+                ...videoRows.map((v)=> {
+                    const mediaType = String(v?.mediaType || 'video');
+                    const sourceType = String(v?.sourceMediaType || '').toLowerCase();
+                    const inferred = sourceType === 'image' ? 'image' : (sourceType === 'video' ? 'video' : mediaType);
+                    return ({ type: inferred === 'image' ? 'image' : 'video', data: v });
+                })
+            ];
+            rows.sort((a,b)=> new Date(b.data?.createdAt||0) - new Date(a.data?.createdAt||0));
+            if (!rows.length){ this.showError('No WaveConnect media found'); return; }
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add from WaveConnect (to composer)</div><div id="chat-wave-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="chat-wave-picker-close" class="btn btn-secondary">Close</button></div></div>`;
+            const list = overlay.querySelector('#chat-wave-picker-list');
+            rows.slice(0,80).forEach((entry)=>{
+                const w = entry.data || {};
+                const isVideo = entry.type === 'video';
+                const isImage = entry.type === 'image';
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary';
+                btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                btn.innerHTML = `<i class="fas ${isVideo ? 'fa-video' : (isImage ? 'fa-image' : 'fa-music')}"></i> ${(w.title || (isVideo ? 'Video' : (isImage ? 'Picture' : 'Audio'))).replace(/</g,'&lt;')}`;
+                btn.onclick = ()=>{
+                    const payload = isVideo
+                        ? { kind:'video', url: String(w.url || ''), title: String(w.title || 'Video'), name: String(w.title || 'Video'), by: String(w.authorName || ''), authorName: String(w.authorName || ''), cover: String(w.thumbnailUrl || w.coverUrl || ''), thumbnailUrl: String(w.thumbnailUrl || w.coverUrl || ''), sourceId: String(w.id || '') }
+                        : (isImage
+                        ? { kind:'image', url: String(w.url || ''), title: String(w.title || 'Picture'), name: String(w.title || 'Picture'), by: String(w.authorName || ''), authorName: String(w.authorName || ''), cover: String(w.thumbnailUrl || w.coverUrl || w.url || ''), thumbnailUrl: String(w.thumbnailUrl || w.coverUrl || w.url || ''), sourceId: String(w.id || '') }
+                        : { kind:'audio', url: String(w.url || ''), title: String(w.title || 'Audio'), name: String(w.title || 'Audio'), by: String(w.authorName || ''), authorName: String(w.authorName || ''), cover: String(w.coverUrl || ''), coverUrl: String(w.coverUrl || ''), sourceId: String(w.id || '') });
+                    if (typeof onSelect === 'function') onSelect(payload);
+                    overlay.remove();
+                };
+                list.appendChild(btn);
+            });
+            overlay.querySelector('#chat-wave-picker-close').onclick = ()=> overlay.remove();
             overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
             document.body.appendChild(overlay);
         }catch(_){ this.showError('Failed to load WaveConnect items'); }
@@ -3359,6 +3429,8 @@ class DashboardManager {
                     this.currentUser = u || null;
                     this.updateVerificationBanner();
                     this.updateNavigation();
+                    this.stopPendingRequestListener();
+                    if (u && u.uid) this.startPendingRequestListener();
                 });
             }catch(_){ }
             this.updateVerificationBanner();
@@ -4367,6 +4439,48 @@ class DashboardManager {
                 if (!ok) await this.loadMyPosts(uid);
             });
         }catch(_){ }
+    }
+
+    stopPendingRequestListener(){
+        try{
+            if (typeof this._pendingRequestUnsub === 'function'){
+                this._pendingRequestUnsub();
+                this._pendingRequestUnsub = null;
+            }
+            this.updatePendingRequestBadge(0);
+        }catch(_){ }
+    }
+
+    startPendingRequestListener(){
+        try{
+            const me = this.currentUser || window.firebaseService?.auth?.currentUser;
+            if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            if (typeof firebase.onSnapshot !== 'function') return;
+            const coll = firebase.collection(window.firebaseService.db, 'connections', me.uid, 'peers');
+            this._pendingRequestUnsub = firebase.onSnapshot(coll, (snap)=>{
+                let count = 0;
+                snap.forEach((d)=>{
+                    const d0 = d.data ? d.data() : d;
+                    const status = String(d0?.status || '');
+                    const requestedTo = String(d0?.requestedTo || '');
+                    if (status === 'pending' && requestedTo === me.uid) count++;
+                });
+                this.updatePendingRequestBadge(count);
+            }, (err)=>{ this.updatePendingRequestBadge(0); });
+        }catch(_){ this.updatePendingRequestBadge(0); }
+    }
+
+    updatePendingRequestBadge(count){
+        const ids = ['nav-space-request-badge','nav-profile-request-badge','mobile-space-request-badge','mobile-profile-request-badge'];
+        const n = Math.min(99, Math.max(0, count || 0));
+        const text = n > 0 ? (n > 99 ? '99+' : String(n)) : '0';
+        ids.forEach((id)=>{
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text;
+            el.classList.toggle('hidden', n === 0);
+            el.setAttribute('aria-hidden', n === 0 ? 'true' : 'false');
+        });
     }
 
     async loadConnectionsForSpace(){
@@ -5779,7 +5893,7 @@ class DashboardManager {
             this.attachWaveAudioUI(a, host, { hideNative: true });
             a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
         }
-        this.bindAssetCardInteractions(div, { kind:'audio', url: w.url, title: w.title, by: w.authorName, cover: w.coverUrl });
+        this.bindAssetCardInteractions(div, { kind:'audio', url: w.url, title: w.title, by: w.authorName, cover: w.coverUrl, sourceId: w.id });
         this.bindUserPreviewTriggers(div);
         return div;
     }
@@ -5974,7 +6088,7 @@ class DashboardManager {
                 }catch(_){ this.showError('Failed to remove from library'); }
             };
         }
-        this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl });
+        this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl, sourceId: v.id });
         return div;
     }
 
@@ -6155,7 +6269,7 @@ class DashboardManager {
                 }catch(_){ this.showError('Failed to remove from library'); }
             };
         }
-        this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url });
+        this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url, sourceId: v.id });
         return div;
     }
 

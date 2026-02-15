@@ -24,6 +24,42 @@
 #space-search-results li:hover {
   background: var(--tertiary-bg);
 }
+
+/* Nav badge for pending connection requests */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.nav-badge.hidden {
+  display: none !important;
+}
+.nav-btn .nav-badge {
+  position: relative;
+}
+/* Mobile nav: icon-only, badge at top-right */
+.mobile-nav-btn {
+  position: relative;
+}
+.mobile-nav-btn .nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  margin-left: 0;
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
 .password-input {
   width: 100%;  /* Full width */
   position: relative;

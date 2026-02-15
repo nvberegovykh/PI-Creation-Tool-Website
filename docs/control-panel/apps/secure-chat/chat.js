@@ -86,6 +86,8 @@
       this._readMarkTimer = null;
       this._activeConnOpenedAt = 0;
       this._latestPeerMessageMsByConn = new Map();
+      this._pendingRequestCount = 0;
+      this._pendingRequestUnsub = null;
       this.init();
     }
 
@@ -231,7 +233,10 @@
           else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
         }
         if (ms > 0) d = new Date(ms);
-        else d = new Date(value || msg?.createdAt || 0);
+        else {
+          d = new Date(value || msg?.createdAt || 0);
+          if (msg?.sender === this.currentUser?.uid && (Number.isNaN(d.getTime()) || d.getTime() <= 0)) d = new Date();
+        }
         if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
@@ -248,8 +253,16 @@
           else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
         }
         if (ms > 0) d = new Date(ms);
-        else d = new Date(value || msg?.createdAt || 0);
+        else {
+          d = new Date(value || msg?.createdAt || 0);
+          if (msg?.sender === this.currentUser?.uid && (Number.isNaN(d.getTime()) || d.getTime() <= 0)) d = new Date();
+        }
         if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
+        if (msg?.sender === this.currentUser?.uid){
+          const now = Date.now();
+          const age = now - d.getTime();
+          if (Math.abs(age) < 10 * 60 * 1000) d = new Date(now);
+        }
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       try{
@@ -714,6 +727,16 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
+      const addWaveBtn = document.createElement('button');
+      addWaveBtn.className = 'btn secondary';
+      addWaveBtn.innerHTML = '<i class="fas fa-music"></i> Add from WaveConnect';
+      addWaveBtn.style.marginBottom = '8px';
+      addWaveBtn.onclick = ()=>{
+        panel.remove();
+        backdrop.remove();
+        this.openWaveConnectPickerForComposer();
+      };
+      panel.appendChild(addWaveBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -1376,6 +1399,38 @@
       // Ensure self is cached
       this.usernameCache.set(this.currentUser.uid, { username: this.me?.username || 'You', avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png' });
       this._avatarCache.set(this.currentUser.uid, this.me?.avatarUrl || '../../images/default-bird.png');
+      this.startPendingRequestListener();
+    }
+
+    startPendingRequestListener(){
+      try{
+        if (this._pendingRequestUnsub) this._pendingRequestUnsub();
+        if (!this.db || !this.currentUser?.uid) return;
+        const peersRef = firebase.collection(this.db, 'connections', this.currentUser.uid, 'peers');
+        this._pendingRequestUnsub = firebase.onSnapshot(peersRef, (snap)=>{
+          let count = 0;
+          snap.forEach(d=>{
+            const data = d.data() || {};
+            if (data.status === 'pending' && String(data.requestedTo || '') === this.currentUser?.uid) count++;
+          });
+          this._pendingRequestCount = count;
+          this.updatePendingRequestBadge();
+        }, ()=>{});
+      }catch(_){ }
+    }
+
+    updatePendingRequestBadge(){
+      const n = this._pendingRequestCount || 0;
+      const backBadge = document.getElementById('back-request-badge');
+      const connBadge = document.getElementById('connections-request-badge');
+      if (backBadge){
+        backBadge.textContent = n > 99 ? '99+' : String(n);
+        backBadge.classList.toggle('hidden', n === 0);
+      }
+      if (connBadge){
+        connBadge.textContent = n > 99 ? '99+' : String(n);
+        connBadge.classList.toggle('hidden', n === 0);
+      }
     }
 
     bindUI(){
@@ -1405,17 +1460,21 @@
         actionBtn.addEventListener('click', ()=> this.handleActionButton());
         actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
         actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
-        ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
+        ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, (e)=> this.handleActionPressEnd(e)));
       }
       if (!this._globalRecReleaseBound){
         this._globalRecReleaseBound = true;
-        window.addEventListener('mouseup', ()=> this.handleActionPressEnd(), true);
-        window.addEventListener('touchend', ()=> this.handleActionPressEnd(), true);
-        window.addEventListener('touchcancel', ()=> this.handleActionPressEnd(), true);
+        window.addEventListener('mouseup', (e)=> this.handleActionPressEnd(e), true);
+        window.addEventListener('touchend', (e)=> this.handleActionPressEnd(e), true);
+        window.addEventListener('touchcancel', (e)=> this.handleActionPressEnd(e), true);
       }
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         this.showAttachmentQuickActions();
       });
+      const addWaveBtn = document.getElementById('add-waveconnect-btn');
+      if (addWaveBtn){
+        addWaveBtn.addEventListener('click', ()=> this.openWaveConnectPickerForComposer());
+      }
       document.getElementById('file-input').addEventListener('change', (e)=>{
         this.queueAttachments(e.target.files);
         try{ e.target.value = ''; }catch(_){ }
@@ -1931,6 +1990,78 @@
       }catch(_){ }
     }
 
+    async openWaveConnectPickerForComposer(){
+      try{
+        if (!this.db) return;
+        const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+        if (dm && typeof dm.openWaveConnectPickerForChat === 'function'){
+          dm.openWaveConnectPickerForChat((payload)=>{
+            this.queueRemoteSharedAssets([{ sharedAsset: payload }]);
+          });
+          return;
+        }
+        const me = this.currentUser || window.firebaseService?.auth?.currentUser;
+        const uid = me?.uid;
+        if (!uid){ alert('Sign in to add from WaveConnect'); return; }
+        const audioRows = []; const videoRows = [];
+        try{
+          const q = firebase.query(firebase.collection(this.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(60));
+          const s = await firebase.getDocs(q); s.forEach((d)=> audioRows.push(d.data() || {}));
+        }catch(_){
+          try{
+            const q2 = firebase.query(firebase.collection(this.db,'wave'), firebase.where('ownerId','==', uid));
+            const s2 = await firebase.getDocs(q2); s2.forEach((d)=> audioRows.push(d.data() || {}));
+          }catch(__){ }
+        }
+        try{
+          const qv = firebase.query(firebase.collection(this.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(60));
+          const sv = await firebase.getDocs(qv); sv.forEach((d)=> videoRows.push(d.data() || {}));
+        }catch(_){
+          try{
+            const qv2 = firebase.query(firebase.collection(this.db,'videos'), firebase.where('owner','==', uid));
+            const sv2 = await firebase.getDocs(qv2); sv2.forEach((d)=> videoRows.push(d.data() || {}));
+          }catch(__){ }
+        }
+        const rows = [
+          ...audioRows.map((w)=> ({ type:'audio', data:w })),
+          ...videoRows.map((v)=> {
+            const st = String(v?.sourceMediaType || '').toLowerCase();
+            const inferred = st === 'image' ? 'image' : (st === 'video' ? 'video' : (String(v?.mediaType||'') === 'image' ? 'image' : 'video'));
+            return ({ type: inferred, data: v });
+          })
+        ];
+        rows.sort((a,b)=> new Date(b.data?.createdAt||0) - new Date(a.data?.createdAt||0));
+        if (!rows.length){ alert('No WaveConnect media found'); return; }
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = '<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add from WaveConnect (to composer)</div><div id="chat-wave-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="chat-wave-picker-close" class="btn btn-secondary">Close</button></div></div>';
+        const list = overlay.querySelector('#chat-wave-picker-list');
+        rows.slice(0,80).forEach((entry)=>{
+          const w = entry.data || {};
+          const isVideo = entry.type === 'video';
+          const isImage = entry.type === 'image';
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-secondary';
+          btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+          btn.innerHTML = `<i class="fas ${isVideo ? 'fa-video' : (isImage ? 'fa-image' : 'fa-music')}"></i> ${(w.title || (isVideo ? 'Video' : (isImage ? 'Picture' : 'Audio'))).replace(/</g,'&lt;')}`;
+          btn.onclick = ()=>{
+            const payload = isVideo
+              ? { kind:'video', url: String(w.url||''), title: String(w.title||'Video'), name: String(w.title||'Video'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.thumbnailUrl||w.coverUrl||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||''), sourceId: String(w.id||'') }
+              : (isImage
+              ? { kind:'image', url: String(w.url||''), title: String(w.title||'Picture'), name: String(w.title||'Picture'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.thumbnailUrl||w.coverUrl||w.url||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||w.url||''), sourceId: String(w.id||'') }
+              : { kind:'audio', url: String(w.url||''), title: String(w.title||'Audio'), name: String(w.title||'Audio'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.coverUrl||''), coverUrl: String(w.coverUrl||''), sourceId: String(w.id||'') });
+            this.queueRemoteSharedAssets([{ sharedAsset: payload }]);
+            overlay.remove();
+          };
+          list.appendChild(btn);
+        });
+        overlay.querySelector('#chat-wave-picker-close').onclick = ()=> overlay.remove();
+        overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+      }catch(_){ alert('Failed to load WaveConnect'); }
+    }
+
     queueRemoteSharedAssets(items){
       try{
         const rows = Array.isArray(items) ? items : [];
@@ -2013,9 +2144,10 @@
       const input = document.getElementById('message-input');
       if ((input && input.value.trim().length) || ((Array.isArray(this._pendingAttachments) && this._pendingAttachments.length) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length) || (Array.isArray(this._pendingReusedAttachments) && this._pendingReusedAttachments.length))) return; // only record when empty
       if (this._activeRecorder) return;
+      if (e && e.type === 'mousedown' && (this._lastTouchStartAt || 0) && (Date.now() - (this._lastTouchStartAt || 0)) < 500) return; // ignore synthetic mouse after touch
       this._actionPressArmed = true;
       if (e && e.type === 'touchstart'){
-        // Ignore synthetic click fired after touchend.
+        this._lastTouchStartAt = Date.now();
         this._suppressActionClickUntil = Date.now() + 650;
       }
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
@@ -2033,7 +2165,7 @@
           if (indicator) indicator.classList.add('hidden');
           this._actionPressArmed = false;
         }
-      }, 120);
+      }, 200);
     }
 
     // Crystal-clear recording: noise suppression, auto gain, stereo, high sample rate.
@@ -2069,14 +2201,14 @@
       }catch(_){ return {}; }
     }
 
-    handleActionPressEnd(){
+    handleActionPressEnd(e){
       if (!this._actionPressArmed && !this._isRecordingByHold && !this._pressTimer) return;
+      if (e && e.type === 'mouseup' && (this._lastTouchStartAt || 0) && (Date.now() - (this._lastTouchStartAt || 0)) < 500){ this._actionPressArmed = false; this._pressTimer && clearTimeout(this._pressTimer); this._pressTimer = null; return; }
       const hadPressTimer = !!this._pressTimer;
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
       if (this._isRecordingByHold){
         try{ if (this._recStop) this._recStop(); }catch(_){ }
       } else if (hadPressTimer){
-        // Short tap fallback for touch devices: toggle mode here to avoid click races.
         const input = document.getElementById('message-input');
         const review = document.getElementById('recording-review');
         if (!this._activeRecorder && (!input || !input.value.trim().length) && (!review || review.classList.contains('hidden'))){
@@ -3708,6 +3840,9 @@
         const title = this.renderText(String(a.title || a.name || `Shared ${kind || 'asset'}`));
         const by = this.renderText(String(a.by || a.authorName || ''));
         const cover = String(a.cover || a.coverUrl || a.thumbnailUrl || '').trim();
+        const byline = by ? `<div class="shared-asset-byline" style="font-size:12px;opacity:.85;margin-top:2px">by ${by}</div>` : '';
+        const coverImg = cover ? `<img src="${this.renderText(cover)}" alt="" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover">` : '';
+        const header = `<div class="shared-asset-head" style="margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;min-width:0"><div style="flex-shrink:0">${coverImg}</div><div style="min-width:0;flex:1;overflow:hidden"><div class="shared-asset-title" style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>${byline}</div></div>`;
         const visual = kind === 'video'
           ? `<video src="${this.renderText(url)}" controls playsinline style="width:100%;max-height:280px;border-radius:10px;object-fit:contain;background:#000"></video>`
           : (kind === 'image' || kind === 'picture'
@@ -3715,8 +3850,9 @@
               : (kind === 'audio'
                   ? `<div class="post-media-files-item"><div class="post-media-audio-head">${cover ? `<img src="${this.renderText(cover)}" alt="cover" class="post-media-audio-cover" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${title}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div></div><audio src="${this.renderText(url)}" controls style="width:100%;margin-top:6px"></audio></div>`
                   : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`));
-        const titleBy = (kind === 'video' || kind === 'image' || kind === 'picture') ? `<div style="margin-top:6px;font-weight:600">${title}</div>${by ? `<div style="opacity:.8;font-size:12px">${by}</div>` : ''}` : '';
-        return `<div class="shared-asset-card" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520">${visual}${titleBy}<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div></div>`;
+        const titleBy = (kind === 'video' || kind === 'image' || kind === 'picture') ? header : '';
+        const actions = `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div>`;
+        return `<div class="shared-asset-card shared-asset-waveconnect" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520">${titleBy}${visual}${actions}</div>`;
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
@@ -7130,7 +7266,7 @@
       if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
       camBtn.classList.toggle('muted', !this._videoEnabled);
     };
-    if (shareBtn) shareBtn.style.display = video ? '' : 'none';
+    if (shareBtn) shareBtn.style.display = '';
     if (shareBtn) shareBtn.onclick = async () => {
       if (this._screenSharing) { await this._stopScreenShare(); return; }
       try {
@@ -7310,8 +7446,8 @@
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 5000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 12000);
+      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -7620,8 +7756,8 @@
     // Add watchdogs on joiner too
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-    const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 12000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 12000);
+    const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connected', video);
@@ -8133,6 +8269,9 @@
           if (d.kind === 'audioinput' && typeof d.stop === 'function') d.stop();
         });
       } catch (_) {}
+      this.updateRoomUI();
+      const sb = document.getElementById('start-call-btn');
+      if (sb) sb.style.display = '';
     }
 
     async updatePresence(state, hasVideo = false){
@@ -8196,10 +8335,16 @@
       } catch (err) {
         console.error('UI update error:', err);
       }
+      const inCall = !!(this._activePCs && this._activePCs.size > 0);
       const statusEl = document.getElementById('call-status');
       if (statusEl) {
-        statusEl.textContent = (this._roomState && this._roomState.activeCallId) ? 'In call' : 'Ready for call.';
+        statusEl.textContent = inCall ? 'In call' : ((this._roomState && this._roomState.activeCallId) ? 'Connecting...' : 'Ready for call.');
       }
+      // Hide header call buttons when in call to avoid duplicated icons
+      [ 'voice-call-btn', 'video-call-btn', 'mobile-voice-call-btn', 'mobile-video-call-btn' ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = inCall ? 'none' : '';
+      });
     }
 
     async renegotiateCall(callId, video){

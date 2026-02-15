@@ -29,8 +29,8 @@
         <aside class="sidebar">
             <div class="sidebar-header" id="sidebar-header">
                 <div class="left-actions">
-                    <a href="../../index.html" id="back-btn" class="icon-btn" aria-label="Back to apps"><i class="fas fa-arrow-left"></i></a>
-                    <h2>Connections</h2>
+                    <a href="../../index.html" id="back-btn" class="icon-btn has-badge" aria-label="Back to apps"><i class="fas fa-arrow-left"></i><span id="back-request-badge" class="nav-badge hidden" aria-hidden="true">0</span></a>
+                    <h2>Connections<span id="connections-request-badge" class="nav-badge hidden" aria-hidden="true">0</span></h2>
                 </div>
                 <div class="header-actions">
                     <button id="fix-duplicates-btn" class="icon-btn" title="Fix duplicate chats"><i class="fas fa-wand-magic-sparkles"></i></button>
@@ -92,6 +92,7 @@
             <div class="composer">
                 <input id="file-input" type="file" accept="*/*" multiple style="display:none" />
                 <button id="attach-btn" class="icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
+                <button id="add-waveconnect-btn" class="icon-btn" title="Add from WaveConnect"><i class="fas fa-music"></i></button>
                 <button id="sticker-btn" class="icon-btn" title="Stickers"><i class="fas fa-note-sticky"></i></button>
                 <textarea id="message-input" rows="1" placeholder="Type a message..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
                 <button id="action-btn" class="icon-btn" title="Send"><i class="fas fa-microphone"></i></button>
