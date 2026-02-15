@@ -5780,7 +5780,27 @@
         }
         if (!b64) {
           let decrypted = false;
-          if (hintSalt) {
+          // For recordings: attachmentKeySalt was stored at send time — try it first before generic aesKey fallbacks.
+          const saltsToTryFirst = (isVideoRecording || isVoiceRecording) ? [hintSalt, urlConnId].filter(Boolean) : [];
+          for (const salt of saltsToTryFirst) {
+            if (decrypted) break;
+            try {
+              const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+              decrypted = true;
+            } catch (_) {}
+            if (!decrypted && window.chatCrypto?.deriveFallbackSharedAesKey) {
+              const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(sourceConnId || urlConnId);
+              if (peerUid) {
+                try {
+                  const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, salt);
+                  b64 = await chatCrypto.decryptWithKey(payload, key);
+                  decrypted = true;
+                } catch (_) {}
+              }
+            }
+          }
+          if (!decrypted && hintSalt && !saltsToTryFirst.includes(hintSalt)) {
             try {
               const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, key);
