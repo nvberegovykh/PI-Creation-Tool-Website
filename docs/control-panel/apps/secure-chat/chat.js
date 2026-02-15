@@ -247,6 +247,49 @@
       return `${m}:${ss}`;
     }
 
+    openFullscreenImage(src, alt = 'image'){
+      try{
+        const url = String(src || '').trim();
+        if (!url) return;
+        const existing = document.getElementById('chat-image-lightbox');
+        if (existing) existing.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'chat-image-lightbox';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = `<button type="button" aria-label="Close" style="position:fixed;top:12px;right:12px;background:rgba(16,20,28,.92);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;z-index:1"><i class="fas fa-xmark"></i></button><img src="${url.replace(/"/g,'&quot;')}" alt="${String(alt || 'image').replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:10px">`;
+        const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
+        overlay.addEventListener('click', (e)=>{ if (e.target === overlay) close(); });
+        const closeBtn = overlay.querySelector('button');
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        document.body.appendChild(overlay);
+      }catch(_){ }
+    }
+
+    setupFullscreenImagePreview(){
+      if (this._fullscreenImagePreviewBound) return;
+      this._fullscreenImagePreviewBound = true;
+      document.addEventListener('click', (e)=>{
+        try{
+          const target = e.target;
+          if (!(target instanceof HTMLElement)) return;
+          const img = target.closest('img');
+          if (!(img instanceof HTMLImageElement)) return;
+          if (img.closest('button,[data-user-preview],.chat-conn-avatar,.avatar,.mini-player')) return;
+          const isPreviewImage = img.closest('.msg-text')
+            || img.closest('.file-preview')
+            || img.closest('#chat-attachments-sheet')
+            || img.classList.contains('composer-attachment-thumb')
+            || img.getAttribute('data-fullscreen-image') === '1';
+          if (!isPreviewImage) return;
+          const src = String(img.currentSrc || img.src || '').trim();
+          if (!src) return;
+          e.preventDefault();
+          e.stopPropagation();
+          this.openFullscreenImage(src, img.alt || 'image');
+        }catch(_){ }
+      }, true);
+    }
+
     isEditedMessage(msg){
       try{
         const createdMs = Number(msg?.createdAtTS?.toMillis?.() || 0) || Number(new Date(msg?.createdAt || 0).getTime() || 0) || 0;
@@ -1241,6 +1284,7 @@
 
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
+      this.setupFullscreenImagePreview();
       // If a connId is provided via query param, set active after connections load
       try{
         const params = new URLSearchParams(location.search);
@@ -5193,13 +5237,7 @@
           const url = this.getStableBlobUrl(cacheKey, blob);
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
-          img.addEventListener('click', ()=>{
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:16px';
-            overlay.innerHTML = `<img src="${url}" alt="${(fileName||'image').replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;border-radius:10px;object-fit:contain" />`;
-            overlay.addEventListener('click', ()=> overlay.remove());
-            document.body.appendChild(overlay);
-          });
+          img.setAttribute('data-fullscreen-image', '1');
           img.addEventListener('load', ()=>{
             const box = document.getElementById('messages');
             if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
@@ -5312,6 +5350,7 @@
           img.style.maxWidth = '100%';
           img.style.height = 'auto';
           img.style.borderRadius = '8px';
+          img.setAttribute('data-fullscreen-image', '1');
           containerEl.appendChild(img);
           return;
         }

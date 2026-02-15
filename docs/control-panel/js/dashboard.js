@@ -59,6 +59,49 @@ class DashboardManager {
         return user;
     }
 
+    openFullscreenImage(src, alt = 'image'){
+        try{
+            const url = String(src || '').trim();
+            if (!url) return;
+            const existing = document.getElementById('liber-image-lightbox');
+            if (existing) existing.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'liber-image-lightbox';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<button type="button" aria-label="Close" style="position:fixed;top:12px;right:12px;background:rgba(16,20,28,.92);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;z-index:1"><i class="fas fa-xmark"></i></button><img src="${url.replace(/"/g,'&quot;')}" alt="${String(alt || 'image').replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:10px">`;
+            const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay) close(); });
+            const closeBtn = overlay.querySelector('button');
+            if (closeBtn) closeBtn.addEventListener('click', close);
+            document.body.appendChild(overlay);
+        }catch(_){ }
+    }
+
+    setupFullscreenImagePreview(){
+        if (this._fullscreenImagePreviewBound) return;
+        this._fullscreenImagePreviewBound = true;
+        document.addEventListener('click', (e)=>{
+            try{
+                const target = e.target;
+                if (!(target instanceof HTMLElement)) return;
+                const img = target.closest('img');
+                if (!(img instanceof HTMLImageElement)) return;
+                if (img.closest('button,[data-user-preview],.avatar,.mobile-bottom-nav,.dashboard-nav,.mini-player')) return;
+                const isPreviewImage = img.classList.contains('post-media-image')
+                    || img.closest('.space-post-preview-card')
+                    || img.closest('#preview-pictures')
+                    || img.getAttribute('data-fullscreen-image') === '1'
+                    || img.closest('.file-preview');
+                if (!isPreviewImage) return;
+                const src = String(img.currentSrc || img.src || '').trim();
+                if (!src) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.openFullscreenImage(src, img.alt || 'image');
+            }catch(_){ }
+        }, true);
+    }
+
     formatDateTime(value){
         try{
             const d = new Date(value || Date.now());
@@ -1047,7 +1090,9 @@ class DashboardManager {
                 const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
                 const aid = String(authorId || '').replace(/"/g,'&quot;');
-                const actions = `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}" style="margin-right:6px"><i class="fas fa-image"></i> To My Pictures</button><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-video"></i> To My Videos</button></div>`;
+                const actions = it.kind === 'image'
+                    ? `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-image"></i> To My Pictures</button></div>`
+                    : `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-video"></i> To My Videos</button></div>`;
                 if (it.kind === 'image'){
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image">${actions}</div>`;
                 }
@@ -2237,6 +2282,7 @@ class DashboardManager {
      */
     init() {
         this.setupEventListeners();
+        this.setupFullscreenImagePreview();
         this.setupFeedTabs();
         this.setupVideoHostTabs();
         window.addEventListener('liber:app-shell-open', ()=> this.suspendDashboardActivity());
@@ -4076,7 +4122,8 @@ class DashboardManager {
                         tA.classList.toggle('active', name === 'audio');
                         tV.classList.toggle('active', name === 'video');
                         tP.classList.toggle('active', name === 'pictures');
-                        pA.style.display = name === 'audio' ? 'block' : 'none';
+                        // Keep CSS-controlled layout for audio pane (grid on desktop).
+                        pA.style.display = name === 'audio' ? '' : 'none';
                         pV.style.display = name === 'video' ? 'block' : 'none';
                         pP.style.display = name === 'pictures' ? 'block' : 'none';
                         if (name === 'audio') this.loadWaveConnect();
@@ -4372,13 +4419,19 @@ class DashboardManager {
         try{
             const me = await this.resolveCurrentUser();
             if (!me || !me.uid || !media || !media.url) return false;
-            const asPicture = targetBucket === 'pictures';
+            const rawKind = String(media.kind || '').toLowerCase();
+            const inferredKind = ['image','video'].includes(rawKind) ? rawKind : this.inferMediaKindFromUrl(String(media.url || ''));
+            if (!['image','video'].includes(inferredKind)){
+                this.showError('Only picture or video can be added here');
+                return false;
+            }
+            const asPicture = inferredKind === 'image';
             const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
             const title = String(media.title || media.name || (asPicture ? 'Picture' : 'Video')).trim() || (asPicture ? 'Picture' : 'Video');
             const ownerName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
             const originalAuthorId = String(media.originalAuthorId || media.authorId || '').trim() || null;
             const originalAuthorName = String(media.originalAuthorName || media.authorName || media.by || '').trim() || null;
-            const sourceMediaType = String(media.kind || '').toLowerCase() === 'image' ? 'image' : 'video';
+            const sourceMediaType = inferredKind;
             await firebase.setDoc(docRef, {
                 id: docRef.id,
                 owner: me.uid,
@@ -4399,6 +4452,15 @@ class DashboardManager {
             if (asPicture) this.loadPictureHost(); else this.loadVideoHost();
             return true;
         }catch(_){ this.showError('Failed to add to library'); return false; }
+    }
+
+    resolveVisualKind(item){
+        const src = String(item?.sourceMediaType || '').toLowerCase().trim();
+        if (src === 'image' || src === 'video') return src;
+        const mt = String(item?.mediaType || '').toLowerCase().trim();
+        if (mt === 'image' || mt === 'video') return mt;
+        const urlKind = this.inferMediaKindFromUrl(String(item?.url || ''));
+        return urlKind === 'image' ? 'image' : 'video';
     }
 
     async renderWaveLibrary(uid){
@@ -4623,7 +4685,8 @@ class DashboardManager {
                     res.innerHTML='';
                     if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-                    snap.forEach(d=>{ const v=d.data(); if ((v.mediaType||'video') !== 'image' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
+                    res.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
+                    snap.forEach(d=>{ const v=d.data(); if (this.resolveVisualKind(v) === 'video' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
                 };
             }
 
@@ -4650,7 +4713,8 @@ class DashboardManager {
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
-        const filtered = items.filter((v)=> (v.mediaType || 'video') !== 'image');
+        const filtered = items.filter((v)=> this.resolveVisualKind(v) === 'video');
+        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
         const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
         const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
         const ordered = nonPost.concat(fromPosts);
@@ -4661,6 +4725,7 @@ class DashboardManager {
                 const sep = document.createElement('div');
                 sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
                 sep.textContent = 'Posts';
+                sep.style.gridColumn = '1 / -1';
                 lib.appendChild(sep);
                 postSeparatorShown = true;
             }
@@ -4670,6 +4735,7 @@ class DashboardManager {
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
             more.textContent = 'Show 5 more';
+            more.style.gridColumn = '1 / -1';
             more.onclick = ()=>{
                 this._videoLibraryVisible = visible + 5;
                 this.renderVideoLibrary(uid);
@@ -4681,15 +4747,17 @@ class DashboardManager {
     async renderVideoSuggestions(uid){
         const sug = document.getElementById('video-suggestions'); if (!sug) return;
         sug.innerHTML = '';
+        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
         try{
             const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && (v.mediaType || 'video') !== 'image') list.push(v); });
+            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && this.resolveVisualKind(v) === 'video') list.push(v); });
             const visible = Math.max(5, Number(this._videoSuggestionsVisible || 5));
             list.slice(0, visible).forEach(v=> sug.appendChild(this.renderVideoItem(v)));
             if (list.length > visible){
                 const more = document.createElement('button');
                 more.className = 'btn btn-secondary';
                 more.textContent = 'Show 5 more';
+                more.style.gridColumn = '1 / -1';
                 more.onclick = ()=>{
                     this._videoSuggestionsVisible = visible + 5;
                     this.renderVideoSuggestions(uid);
@@ -4702,19 +4770,19 @@ class DashboardManager {
     renderVideoItem(v){
         const div = document.createElement('div');
         div.className = 'video-item';
-        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
         const thumb = v.thumbnailUrl || 'images/default-bird.png';
         const sourceType = String(v.sourceMediaType || '').toLowerCase();
         const isImageSource = sourceType === 'image' || this.inferMediaKindFromUrl(String(v.url || '')) === 'image';
         const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
         const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
         const mediaHtml = isImageSource
-            ? `<img src="${v.url}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
+            ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
             : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button><button class="btn btn-secondary save-video-as-picture-btn" title="Add to My Pictures"><i class="fas fa-image"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4732,17 +4800,6 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
-        const saveAsPicture = div.querySelector('.save-video-as-picture-btn');
-        if (saveAsPicture){
-            saveAsPicture.onclick = ()=> this.saveVisualToLibrary({
-                kind: 'video',
-                url: String(v.url || ''),
-                title: String(v.title || 'Video'),
-                by: String(v.authorName || ''),
-                cover: String(v.thumbnailUrl || ''),
-                authorId: String(v.originalAuthorId || v.authorId || '')
-            }, 'pictures');
-        }
         const vEl = div.querySelector('.liber-lib-video');
         if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
         return div;
@@ -4821,7 +4878,8 @@ class DashboardManager {
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
-        const filtered = items.filter((v)=> (v.mediaType||'') === 'image');
+        const filtered = items.filter((v)=> this.resolveVisualKind(v) === 'image');
+        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px';
         const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
         const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
         const ordered = nonPost.concat(fromPosts);
@@ -4832,6 +4890,7 @@ class DashboardManager {
                 const sep = document.createElement('div');
                 sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
                 sep.textContent = 'Posts';
+                sep.style.gridColumn = '1 / -1';
                 lib.appendChild(sep);
                 postSeparatorShown = true;
             }
@@ -4841,6 +4900,7 @@ class DashboardManager {
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
             more.textContent = 'Show 5 more';
+            more.style.gridColumn = '1 / -1';
             more.onclick = ()=>{
                 this._videoLibraryVisible = visible + 5;
                 this.renderPictureLibrary(uid);
@@ -4852,10 +4912,11 @@ class DashboardManager {
     async renderPictureSuggestions(uid){
         const sug = document.getElementById('picture-suggestions'); if (!sug) return;
         sug.innerHTML = '';
+        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px';
         try{
             const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
             const list = [];
-            snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && (v.mediaType||'') === 'image') list.push(v); });
+            snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && this.resolveVisualKind(v) === 'image') list.push(v); });
             list.slice(0, Math.max(5, Number(this._videoSuggestionsVisible || 5))).forEach(v=> sug.appendChild(this.renderPictureItem(v)));
         }catch(_){ }
     }
@@ -4863,7 +4924,7 @@ class DashboardManager {
     renderPictureItem(v){
         const div = document.createElement('div');
         div.className = 'video-item';
-        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
         const thumb = v.thumbnailUrl || v.url || 'images/default-bird.png';
         const sourceType = String(v.sourceMediaType || '').toLowerCase();
         const isVideoSource = sourceType === 'video' || this.inferMediaKindFromUrl(String(v.url || '')) === 'video';
@@ -4871,10 +4932,10 @@ class DashboardManager {
         const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
         const mediaHtml = isVideoSource
             ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
-            : `<img src="${v.url}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
+            : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-picture-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-picture-btn" title="Repost"><i class="fas fa-retweet"></i></button><button class="btn btn-secondary save-picture-as-video-btn" title="Add to My Videos"><i class="fas fa-video"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-picture-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-picture-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4892,17 +4953,6 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
-        const saveAsVideo = div.querySelector('.save-picture-as-video-btn');
-        if (saveAsVideo){
-            saveAsVideo.onclick = ()=> this.saveVisualToLibrary({
-                kind: 'image',
-                url: String(v.url || ''),
-                title: String(v.title || 'Picture'),
-                by: String(v.authorName || ''),
-                cover: String(v.thumbnailUrl || v.url || ''),
-                authorId: String(v.originalAuthorId || v.authorId || '')
-            }, 'videos');
-        }
         return div;
     }
 
@@ -6181,6 +6231,7 @@ Do you want to proceed?`);
             <div id="preview-feed"></div>
             <div id="preview-playlists" style="margin-top:12px"></div>
             <div id="preview-audio" style="margin-top:12px"></div>
+            <div id="preview-pictures" style="margin-top:12px"></div>
             <div id="preview-video" style="margin-top:12px"></div>
           </div>
         </div>`;
@@ -6451,7 +6502,8 @@ Do you want to proceed?`);
         }
       }catch(_){ audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4><div style="opacity:.8">Unable to load audio.</div>'; }
 
-      // Video preview section.
+      // Pictures + Video preview sections.
+      const picturesEl = overlay.querySelector('#preview-pictures');
       const videoEl = overlay.querySelector('#preview-video');
       try{
         let rows = [];
@@ -6464,8 +6516,20 @@ Do you want to proceed?`);
           rows.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0)-(a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0)-new Date(a.createdAt||0));
           rows = rows.slice(0,8);
         }
-        videoEl.innerHTML = `<h4 style="margin:4px 0 8px">Videos</h4>` + (rows.length ? rows.map(v=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Video').replace(/</g,'&lt;')}</div><video controls playsinline style="width:100%;max-height:260px" src="${v.url||''}"></video></div>`).join('') : '<div style="opacity:.8">No videos uploaded.</div>');
-      }catch(_){ videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4><div style="opacity:.8">Unable to load videos.</div>'; }
+        const videoRows = rows.filter((v)=> this.resolveVisualKind(v) === 'video');
+        const pictureRows = rows.filter((v)=> this.resolveVisualKind(v) === 'image');
+        if (picturesEl){
+          picturesEl.innerHTML = `<h4 style="margin:4px 0 8px">Pictures</h4>` + (pictureRows.length
+            ? pictureRows.map((v)=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Picture').replace(/</g,'&lt;')}</div><img loading="lazy" data-fullscreen-image="1" style="width:100%;max-height:260px;object-fit:contain;border-radius:8px;background:#000" src="${v.url||''}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}"></div>`).join('')
+            : '<div style="opacity:.8">No pictures uploaded.</div>');
+        }
+        videoEl.innerHTML = `<h4 style="margin:4px 0 8px">Videos</h4>` + (videoRows.length
+          ? videoRows.map((v)=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Video').replace(/</g,'&lt;')}</div><video controls playsinline style="width:100%;max-height:260px" src="${v.url||''}"></video></div>`).join('')
+          : '<div style="opacity:.8">No videos uploaded.</div>');
+      }catch(_){
+        if (picturesEl) picturesEl.innerHTML = '<h4 style="margin:4px 0 8px">Pictures</h4><div style="opacity:.8">Unable to load pictures.</div>';
+        videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4><div style="opacity:.8">Unable to load videos.</div>';
+      }
     }
 
     async openAdvancedCommentsFallback(postId, tree, myUid){

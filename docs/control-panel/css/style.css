@@ -210,7 +210,7 @@ img, video, canvas, svg, iframe {
 }
 
 /* Sticky mini player (soundcloud-like) */
-.mini-player{ position:fixed; left:8px; right:8px; bottom:72px; background:linear-gradient(180deg,#121722,#0c1018); border:1px solid #2b3445; border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.45); padding:10px 12px; display:none; flex-direction:column; align-items:stretch; gap:8px; z-index:1200; transition:transform .22s ease, opacity .22s ease }
+.mini-player{ position:fixed; left:8px; right:8px; bottom:72px; background:linear-gradient(180deg,#121722,#0c1018); border:1px solid #2b3445; border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.45); padding:10px 12px; display:none; flex-direction:column; align-items:stretch; gap:8px; z-index:11080; transition:transform .22s ease, opacity .22s ease }
 .mini-player.show{ display:flex; animation:miniRise .2s ease }
 .mini-main-row{display:flex;align-items:center;gap:8px;min-width:0}
 .mini-player .cover{ width:42px; height:42px; border-radius:8px; object-fit:cover; flex:0 0 42px }
@@ -255,7 +255,7 @@ img, video, canvas, svg, iframe {
   background:#0f1724;
   border:1px solid #2b3445;
   border-radius:12px;
-  z-index:1210;
+  z-index:11090;
   box-shadow:0 14px 34px rgba(0,0,0,.45);
   padding:8px;
 }
@@ -277,7 +277,7 @@ img, video, canvas, svg, iframe {
     bottom: 74px;
     width: min(34vw, 420px);
     max-height: 52vh;
-    z-index: 1305;
+    z-index: 11095;
   }
 }
 
