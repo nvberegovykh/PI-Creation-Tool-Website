@@ -438,15 +438,18 @@ class DashboardManager {
             const byKey = new Map();
             rows.forEach((c)=>{
                 if (!c || !c.id) return;
-                if (c.archived === true || String(c.mergedInto || '').trim()) return;
                 const parts = getParticipants(c);
                 const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
-                const dmKey = parts.length ? parts.slice().sort().join('|') : String(c.id || '');
+                const dmKey = (parts.length >= 2) ? parts.slice().sort().join('|') : `id:${String(c.id || '')}`;
                 const key = isGroup ? `group:${c.id}` : `dm:${dmKey}`;
                 const prev = byKey.get(key);
                 if (!prev){ byKey.set(key, c); return; }
                 const prevTs = Number(new Date(prev.updatedAt || 0).getTime() || 0);
                 const curTs = Number(new Date(c.updatedAt || 0).getTime() || 0);
+                const prevArchived = prev.archived === true || !!String(prev.mergedInto || '').trim();
+                const curArchived = c.archived === true || !!String(c.mergedInto || '').trim();
+                if (prevArchived && !curArchived){ byKey.set(key, c); return; }
+                if (curArchived && !prevArchived) return;
                 if (curTs >= prevTs) byKey.set(key, c);
             });
             rows = Array.from(byKey.values()).sort((a,b)=> Number(new Date(b.updatedAt || 0).getTime() || 0) - Number(new Date(a.updatedAt || 0).getTime() || 0));
@@ -593,7 +596,18 @@ class DashboardManager {
                     try{
                         const me = await this.resolveCurrentUser();
                         if (!me || !me.uid){ this.showError('Please sign in'); return; }
-                        const refs = keys.map((key)=> firebase.doc(window.firebaseService.db, 'assetLikes', key, 'likes', me.uid));
+                        const refs = [];
+                        for (const key of keys){
+                            try{
+                                if (!key || String(key).length > 1200) continue;
+                                refs.push(firebase.doc(window.firebaseService.db, 'assetLikes', key, 'likes', me.uid));
+                            }catch(_){ }
+                        }
+                        if (!refs.length){
+                            if (primaryKey){
+                                try{ refs.push(firebase.doc(window.firebaseService.db, 'assetLikes', primaryKey, 'likes', me.uid)); }catch(_){ }
+                            }
+                        }
                         let hasLike = false;
                         for (const ref of refs){
                             try{
@@ -605,9 +619,18 @@ class DashboardManager {
                             await Promise.all(refs.map(async (ref)=>{ try{ await firebase.deleteDoc(ref); }catch(_){ } }));
                             setActive(false);
                         } else {
-                            if (primaryKey){
-                                const ref = firebase.doc(window.firebaseService.db, 'assetLikes', primaryKey, 'likes', me.uid);
-                                await firebase.setDoc(ref, { uid: me.uid, createdAt: new Date().toISOString(), kind, url });
+                            let wrote = false;
+                            const writeKeys = Array.from(new Set([primaryKey, ...keys].filter(Boolean)));
+                            for (const key of writeKeys){
+                                try{
+                                    const ref = firebase.doc(window.firebaseService.db, 'assetLikes', key, 'likes', me.uid);
+                                    await firebase.setDoc(ref, { uid: me.uid, createdAt: new Date().toISOString(), kind, url });
+                                    wrote = true;
+                                    break;
+                                }catch(_){ }
+                            }
+                            if (!wrote){
+                                throw new Error('asset-like-write-failed');
                             }
                             setActive(true);
                         }

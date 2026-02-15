@@ -1870,7 +1870,11 @@
         const existing = new Set((this._pendingRemoteShares || []).map((x)=> `${x?.sharedAsset?.kind || ''}|${x?.sharedAsset?.url || ''}|${x?.sharedAsset?.postId || ''}`));
         rows.forEach((it)=>{
           if (!it || typeof it !== 'object') return;
-          const a = it.sharedAsset || it.asset || it;
+          const raw = it.sharedAsset || it.asset || it;
+          const inferredKind = String(raw?.kind || raw?.type || (raw?.post || raw?.postId ? 'post' : '')).toLowerCase();
+          const a = (inferredKind === 'post')
+            ? { ...raw, kind: 'post', postId: String(raw?.postId || raw?.post?.id || '').trim() || null }
+            : { ...raw, kind: inferredKind || String(raw?.kind || raw?.type || '').toLowerCase() };
           const sig = `${String(a.kind || '')}|${String(a.url || '')}|${String(a.postId || '')}`;
           const canQueue = String(a.url || '').trim() || (String(a.kind || '').toLowerCase() === 'post' && String(a.postId || a?.post?.id || '').trim());
           if (!canQueue || existing.has(sig)) return;
@@ -1896,7 +1900,22 @@
           else keep.push(row);
         });
         localStorage.setItem(key, JSON.stringify(keep.slice(-80)));
-        return picked.map((x)=> ({ sharedAsset: x?.payload?.asset || (x?.payload?.post ? { kind:'post', postId: x.payload.post.id, title: x.payload.post.text || 'Post', by: x.payload.post.authorName || '', post: x.payload.post } : null) })).filter((x)=> x.sharedAsset);
+        return picked.map((x)=> {
+          const payload = x?.payload || {};
+          const asset = payload.asset && typeof payload.asset === 'object' ? payload.asset : null;
+          const post = payload.post && typeof payload.post === 'object' ? payload.post : (asset?.post && typeof asset.post === 'object' ? asset.post : null);
+          const inferredKind = String(asset?.kind || asset?.type || (post || payload?.postId ? 'post' : '')).toLowerCase();
+          if (asset){
+            if (inferredKind === 'post'){
+              return { sharedAsset: { ...asset, kind: 'post', postId: String(asset.postId || post?.id || payload?.postId || '').trim() || null, post: post || asset.post || null } };
+            }
+            return { sharedAsset: { ...asset, kind: inferredKind || String(asset.kind || '').toLowerCase() } };
+          }
+          if (post || payload?.postId){
+            return { sharedAsset: { kind:'post', postId: String(payload.postId || post?.id || '').trim() || null, title: String(post?.text || 'Post'), by: String(post?.authorName || ''), post: post || null } };
+          }
+          return { sharedAsset: null };
+        }).filter((x)=> x.sharedAsset);
       }catch(_){ return []; }
     }
 
@@ -2739,7 +2758,7 @@
             this._latestPeerMessageMsByConn.set(activeConnId, latestPeerMs);
             const prevTop = box.scrollTop;
             const prevHeight = box.scrollHeight;
-            const pinnedBefore = box.dataset.pinnedBottom !== '0';
+            const pinnedBefore = box.scrollTop <= 36;
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
             const isFirstPaint = renderedConnId !== activeConnId;
@@ -3045,7 +3064,9 @@
           const isLoadMore = this._loadMoreConnId === activeConnId;
           this._loadMoreConnId = '';
           if (isLoadMore && !appendOnly){
-            box.scrollTop = prevTop;
+            const nextHeight = box.scrollHeight;
+            const delta = Math.max(0, nextHeight - prevHeight);
+            box.scrollTop = prevTop + delta;
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -3449,7 +3470,13 @@
           const postId = String(a.postId || p.id || '').trim();
           const author = this.renderText(String(p.authorName || a.by || 'User'));
           const created = this.renderText(String(this.formatMessageTime(p.createdAt || Date.now(), p) || ''));
-          const text = String(p.text || '').trim();
+          let text = String(p.text || '').trim();
+          try{
+            if (window.dashboardManager && typeof window.dashboardManager.getPostDisplayText === 'function'){
+              const t = String(window.dashboardManager.getPostDisplayText(p) || '').trim();
+              if (t) text = t;
+            }
+          }catch(_){ }
           const textHtml = text ? `<div class="shared-post-text post-text" style="margin-top:8px">${this.renderText(text)}</div>` : `<div class="shared-post-text post-text" style="display:none"></div>`;
           const mediaHtml = this.renderSharedPostMediaHtml(p);
           return `<div class="shared-asset-card post-item" data-shared-kind="post" data-shared-post-id="${this.renderText(postId)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520"><div class="byline post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0"><span style="font-size:12px;color:#aaa">${author}</span><span style="font-size:11px;opacity:.74">${created}</span></div><div class="shared-post-media post-media-block">${mediaHtml}</div>${textHtml}<div class="post-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
@@ -3470,6 +3497,16 @@
     renderSharedPostMediaHtml(post){
       try{
         const p = (post && typeof post === 'object') ? post : {};
+        try{
+          if (window.dashboardManager && typeof window.dashboardManager.renderPostMedia === 'function'){
+            const html = window.dashboardManager.renderPostMedia(p.media || p.mediaUrl, {
+              defaultBy: p.authorName || '',
+              defaultCover: p.coverUrl || p.thumbnailUrl || '',
+              authorId: p.authorId || ''
+            });
+            if (html) return html;
+          }
+        }catch(_){ }
         const media = Array.isArray(p.media) ? p.media.slice() : [];
         if (!media.length && p.mediaUrl){
           media.push({ kind: this.inferMediaKindFromUrl(String(p.mediaUrl || '')), url: String(p.mediaUrl || '') });
@@ -3497,7 +3534,13 @@
         const snap = await firebase.getDoc(firebase.doc(this.db, 'posts', pid));
         if (!snap.exists()) return;
         const p = snap.data() || {};
-        const text = String(p.text || '').trim();
+        let text = String(p.text || '').trim();
+        try{
+          if (window.dashboardManager && typeof window.dashboardManager.getPostDisplayText === 'function'){
+            const t = String(window.dashboardManager.getPostDisplayText(p) || '').trim();
+            if (t) text = t;
+          }
+        }catch(_){ }
         const mediaHtml = this.renderSharedPostMediaHtml(p);
         const head = card.querySelector('.post-head');
         if (head){
@@ -3600,7 +3643,18 @@
         if (likeBtn){
           likeBtn.onclick = async ()=>{
             try{
-              const refs = keys.map((key)=> firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid));
+              const refs = [];
+              for (const key of keys){
+                try{
+                  if (!key || String(key).length > 1200) continue;
+                  refs.push(firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid));
+                }catch(_){ }
+              }
+              if (!refs.length){
+                if (primaryKey){
+                  try{ refs.push(firebase.doc(this.db,'assetLikes',primaryKey,'likes', this.currentUser.uid)); }catch(_){ }
+                }
+              }
               let hasLike = false;
               for (const ref of refs){
                 const s = await firebase.getDoc(ref);
@@ -3609,10 +3663,17 @@
               if (hasLike){
                 await Promise.all(refs.map(async (ref)=>{ try{ await firebase.deleteDoc(ref); }catch(_){ } }));
               } else {
-                if (primaryKey){
-                  const ref = firebase.doc(this.db,'assetLikes',primaryKey,'likes', this.currentUser.uid);
-                  await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
+                let wrote = false;
+                const writeKeys = Array.from(new Set([primaryKey, ...keys].filter(Boolean)));
+                for (const key of writeKeys){
+                  try{
+                    const ref = firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid);
+                    await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
+                    wrote = true;
+                    break;
+                  }catch(_){ }
                 }
+                if (!wrote) throw new Error('asset-like-write-failed');
               }
               await refreshAssetLikeCount();
             }catch(_){ }
@@ -3704,13 +3765,27 @@
       }
       if (!nextText && fileUrl) nextText = '[file]';
       const src = sourceMessage && typeof sourceMessage === 'object' ? sourceMessage : {};
+      const derivedSharedAsset = (()=> {
+        if (src && typeof src.sharedAsset === 'object') return src.sharedAsset;
+        const inferredKind = String(src.kind || src.type || (src.post || src.postId ? 'post' : '')).toLowerCase();
+        if (inferredKind === 'post'){
+          return {
+            kind: 'post',
+            postId: String(src.postId || src?.post?.id || '').trim() || null,
+            title: String(src?.post?.text || src.title || 'Post'),
+            by: String(src?.post?.authorName || src.by || ''),
+            post: (src.post && typeof src.post === 'object') ? src.post : null
+          };
+        }
+        return null;
+      })();
       const originalAuthorUid = String(src.sharedOriginalAuthorUid || src.sender || '').trim() || null;
       const originalAuthorName = String(src.sharedOriginalAuthorName || sourceSenderName || '').trim() || null;
       return {
         text: nextText,
         fileUrl: fileUrl || null,
         fileName: inferredName || null,
-        sharedAsset: (src && typeof src.sharedAsset === 'object') ? src.sharedAsset : null,
+        sharedAsset: derivedSharedAsset,
         attachmentSourceConnId: sourceConnId || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isShared: true,
@@ -3862,10 +3937,9 @@
       const targetMap = new Map();
       rawTargets.forEach((c)=>{
         if (!c || !c.id) return;
-        if (c.archived === true || String(c.mergedInto || '').trim()) return;
         const parts = this.getConnParticipants(c).filter(Boolean);
         const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
-        const dmKey = parts.length ? parts.slice().sort().join('|') : String(c.id || '');
+        const dmKey = (parts.length >= 2) ? parts.slice().sort().join('|') : `id:${String(c.id || '')}`;
         const key = isGroup ? `group:${c.id}` : `dm:${dmKey}`;
         const prev = targetMap.get(key);
         if (!prev){
@@ -5851,12 +5925,16 @@
             }
           }
         }
+        const resolvedB64 = this.normalizeBinaryPayloadString(b64);
+        if (!resolvedB64){
+          throw new Error('empty-decrypted-payload');
+        }
         if (this.isImageFilename(fileName)){
           const mime = fileName.toLowerCase().endsWith('.png') ? 'image/png'
                       : fileName.toLowerCase().endsWith('.webp') ? 'image/webp'
                       : fileName.toLowerCase().endsWith('.gif') ? 'image/gif'
                       : 'image/jpeg';
-          const blob = this.base64ToBlob(b64, mime);
+          const blob = this.base64ToBlob(resolvedB64, mime);
           const cacheKey = `img|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
           const img = document.createElement('img');
@@ -5864,8 +5942,8 @@
           img.setAttribute('data-fullscreen-image', '1');
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
-          const mime = this.detectMimeFromBase64(b64, this.inferVideoMime(fileName));
-          const blob = this.base64ToBlob(b64, mime);
+          const mime = this.detectMimeFromBase64(resolvedB64, this.inferVideoMime(fileName));
+          const blob = this.base64ToBlob(resolvedB64, mime);
           const cacheKey = `vid|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
           const video = document.createElement('video');
@@ -5881,8 +5959,8 @@
           }
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
-          const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
-          const blob = this.base64ToBlob(b64, mime);
+          const mime = this.detectMimeFromBase64(resolvedB64, this.inferAudioMime(fileName));
+          const blob = this.base64ToBlob(resolvedB64, mime);
           const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const cacheKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
@@ -5893,7 +5971,7 @@
             this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
-          const blob = this.base64ToBlob(b64, 'application/pdf');
+          const blob = this.base64ToBlob(resolvedB64, 'application/pdf');
           const cacheKey = `pdf|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
           const row = document.createElement('div');
@@ -5913,7 +5991,7 @@
           row.appendChild(btn);
           containerEl.appendChild(row);
         } else {
-          const blob = this.base64ToBlob(b64, 'application/octet-stream');
+          const blob = this.base64ToBlob(resolvedB64, 'application/octet-stream');
           const cacheKey = `bin|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
           const row = document.createElement('div');
@@ -6023,6 +6101,20 @@
         }
       }catch(_){ }
       return '';
+    }
+
+    normalizeBinaryPayloadString(value){
+      try{
+        if (typeof value === 'string'){
+          const raw = String(value || '').trim();
+          if (!raw) return '';
+          if (/^data:[^,]+,/.test(raw)) return raw.split(',')[1] || '';
+          return raw;
+        }
+        const inline = this.extractInlineBase64Payload(value);
+        if (inline) return inline;
+        return '';
+      }catch(_){ return ''; }
     }
 
     extractEncryptedPayloadCandidates(payload){
