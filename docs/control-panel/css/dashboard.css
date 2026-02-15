@@ -1146,6 +1146,7 @@
     min-height: 100dvh;
     height: 100dvh;
     padding: 0;
+    padding-top: env(safe-area-inset-top);
   }
   .dashboard-content {
     width: 100%;

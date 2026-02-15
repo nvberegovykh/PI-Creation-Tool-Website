@@ -1846,8 +1846,8 @@ class DashboardManager {
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
                 const aid = String(authorId || '').replace(/"/g,'&quot;');
                 const actions = it.kind === 'image'
-                    ? `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" style="display:inline-flex;align-items:center;gap:6px;transition:transform .22s ease, background-color .22s ease, border-color .22s ease" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i><span>To My Pictures</span></button></div>`
-                    : `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" style="display:inline-flex;align-items:center;gap:6px;transition:transform .22s ease, background-color .22s ease, border-color .22s ease" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i><span>To My Videos</span></button></div>`;
+                    ? `<div class="post-media-files-item post-save-visual-wrap" style="padding:8px 0 0"><button type="button" class="post-save-visual-btn" title="To My Pictures" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i></button></div>`
+                    : `<div class="post-media-files-item post-save-visual-wrap" style="padding:8px 0 0"><button type="button" class="post-save-visual-btn" title="To My Videos" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i></button></div>`;
                 if (it.kind === 'image'){
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image">${actions}</div>`;
                 }
@@ -2173,6 +2173,16 @@ class DashboardManager {
     }
 
     handleMiniPlaybackEnded(source){
+        const isVideo = source && String(source.tagName || '').toUpperCase() === 'VIDEO';
+        if (isVideo && this._interruptedAudioState){
+            const s = this._interruptedAudioState;
+            this._interruptedAudioState = null;
+            try{
+                if (s.mediaEl && !isNaN(s.currentTime)) s.mediaEl.currentTime = s.currentTime;
+                this.showMiniPlayer(s.mediaEl);
+            }catch(_){ }
+            return;
+        }
         const queue = this._playQueue || [];
         const len = queue.length;
         const idx = Number.isFinite(Number(this._playQueueIndex)) ? Number(this._playQueueIndex) : -1;
@@ -2886,10 +2896,14 @@ class DashboardManager {
                 try{ this._currentPlayer.pause(); }catch(_){}
                 try{ this._currentPlayer._waveAttachProxy && this._currentPlayer._waveAttachProxy(null); }catch(_){ }
             }
+            const prevPlayer = this._currentPlayer;
             this._currentPlayer = mediaEl;
             // Promote playback to a hidden background audio so it persists across sections
             const bg = this.getBgPlayer();
             const isVideo = String(mediaEl?.tagName || '').toUpperCase() === 'VIDEO';
+            if (isVideo && bg && bg.currentSrc && prevPlayer && String(prevPlayer.tagName || '').toUpperCase() !== 'VIDEO'){
+                this._interruptedAudioState = { src: bg.currentSrc, currentTime: bg.currentTime, mediaEl: prevPlayer };
+            }
             const source = isVideo ? mediaEl : bg;
             const mini = document.getElementById('mini-player'); if (!mini) return;
             const mTitle = document.getElementById('mini-title');
@@ -2924,11 +2938,16 @@ class DashboardManager {
             if (mCover) mCover.src = resolvedCover || 'images/default-bird.png';
             if ('mediaSession' in navigator){
                 try{
-                    const artwork = resolvedCover ? [
-                        { src: resolvedCover, sizes: '96x96' },
-                        { src: resolvedCover, sizes: '192x192' },
-                        { src: resolvedCover, sizes: '512x512' }
-                    ] : undefined;
+                    const coverUrl = resolvedCover || 'images/default-bird.png';
+                    const imgType = /\.webp(\?|$)/i.test(coverUrl) ? 'image/webp' : /\.gif(\?|$)/i.test(coverUrl) ? 'image/gif' : /\.(jpe?g)(\?|$)/i.test(coverUrl) ? 'image/jpeg' : 'image/png';
+                    const artwork = [
+                        { src: coverUrl, sizes: '96x96', type: imgType },
+                        { src: coverUrl, sizes: '128x128', type: imgType },
+                        { src: coverUrl, sizes: '192x192', type: imgType },
+                        { src: coverUrl, sizes: '256x256', type: imgType },
+                        { src: coverUrl, sizes: '384x384', type: imgType },
+                        { src: coverUrl, sizes: '512x512', type: imgType }
+                    ];
                     navigator.mediaSession.metadata = new MediaMetadata({
                         title: resolvedTitle || 'Now playing',
                         artist: resolvedArtist,
@@ -3104,9 +3123,8 @@ class DashboardManager {
                     const set = target === 'pictures' ? idx.pictures : idx.videos;
                     if (!set || !set.has(url)) return;
                     btn.dataset.saved = '1';
-                    btn.innerHTML = `<i class="fas fa-check"></i><span>Saved</span>`;
-                    btn.style.backgroundColor = 'rgba(24,120,62,.86)';
-                    btn.style.borderColor = 'rgba(110,255,162,.55)';
+                    btn.innerHTML = `<i class="fas fa-check"></i>`;
+                    btn.title = 'Saved - click to remove';
                 }).catch(()=>{});
                 btn.addEventListener('click', async ()=>{
                     const media = {
@@ -3128,9 +3146,8 @@ class DashboardManager {
                             set && set.delete(String(media.url || '').trim());
                         }catch(_){ }
                         btn.dataset.saved = '0';
-                        btn.innerHTML = `<i class="fas fa-plus"></i><span>${target === 'pictures' ? 'To My Pictures' : 'To My Videos'}</span>`;
-                        btn.style.backgroundColor = '';
-                        btn.style.borderColor = '';
+                        btn.innerHTML = `<i class="fas fa-plus"></i>`;
+                        btn.title = target === 'pictures' ? 'To My Pictures' : 'To My Videos';
                         return;
                     }
                     const ok = await this.saveVisualToLibrary(media, target === 'pictures' ? 'pictures' : 'videos');
@@ -3141,9 +3158,8 @@ class DashboardManager {
                         set && set.add(String(media.url || '').trim());
                     }catch(_){ }
                     btn.dataset.saved = '1';
-                    btn.innerHTML = `<i class="fas fa-check"></i><span>Saved</span>`;
-                    btn.style.backgroundColor = 'rgba(24,120,62,.86)';
-                    btn.style.borderColor = 'rgba(110,255,162,.55)';
+                    btn.innerHTML = `<i class="fas fa-check"></i>`;
+                    btn.title = 'Saved - click to remove';
                 });
             });
             root.querySelectorAll('.post-playlist-play-btn').forEach((btn)=>{
@@ -5569,14 +5585,12 @@ class DashboardManager {
                 const saved = !!set && set.has(url);
                 if (saved){
                     btn.dataset.saved = '1';
-                    btn.innerHTML = `<i class="fas fa-check"></i><span>Saved</span>`;
-                    btn.style.backgroundColor = 'rgba(24,120,62,.86)';
-                    btn.style.borderColor = 'rgba(110,255,162,.55)';
+                    btn.innerHTML = `<i class="fas fa-check"></i>`;
+                    btn.title = 'Saved - click to remove';
                 } else {
                     btn.dataset.saved = '0';
-                    btn.innerHTML = `<i class="fas fa-plus"></i><span>${target === 'pictures' ? 'To My Pictures' : 'To My Videos'}</span>`;
-                    btn.style.backgroundColor = '';
-                    btn.style.borderColor = '';
+                    btn.innerHTML = `<i class="fas fa-plus"></i>`;
+                    btn.title = target === 'pictures' ? 'To My Pictures' : 'To My Videos';
                 }
             });
         }catch(_){ }
@@ -5926,10 +5940,10 @@ class DashboardManager {
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
             : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
+        div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img src="${thumb}" alt="cover" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6106,9 +6120,9 @@ class DashboardManager {
             ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
             : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img class="picture-author-avatar" src="${thumb}" alt="author" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
+        div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img class="picture-author-avatar" src="${thumb}" alt="author" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();

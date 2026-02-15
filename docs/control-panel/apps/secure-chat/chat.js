@@ -63,7 +63,7 @@
       this._setActiveSeq = 0;
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
-      this._attachmentPreviewMax = 2;
+      this._attachmentPreviewMax = 4;
       this._msgVisibleLimitByConn = new Map();
       this._lastLoadedConnId = '';
       this._loadMoreConnId = '';
@@ -80,6 +80,7 @@
       this._recordingSendInFlight = false;
       this._pendingAttachments = [];
       this._pendingRemoteShares = [];
+      this._pendingReusedAttachments = [];
       this._readMarkTimer = null;
       this._activeConnOpenedAt = 0;
       this._latestPeerMessageMsByConn = new Map();
@@ -219,17 +220,25 @@
     }
 
     formatMessageTime(value, msg = null){
-      const d = (msg?.createdAtTS?.toDate && typeof msg.createdAtTS.toDate === 'function')
-        ? msg.createdAtTS.toDate()
-        : new Date(value || msg?.createdAt || Date.now());
+      let d;
+      try{
+        const ts = msg?.createdAtTS;
+        const ms = ts && typeof ts.toMillis === 'function' ? Number(ts.toMillis()) : 0;
+        if (ms > 0) d = new Date(ms);
+        else d = new Date(value || msg?.createdAt || Date.now());
+      }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     formatMessageDay(value, msg = null){
-      const d = (msg?.createdAtTS?.toDate && typeof msg.createdAtTS.toDate === 'function')
-        ? msg.createdAtTS.toDate()
-        : new Date(value || msg?.createdAt || Date.now());
+      let d;
+      try{
+        const ts = msg?.createdAtTS;
+        const ms = ts && typeof ts.toMillis === 'function' ? Number(ts.toMillis()) : 0;
+        if (ms > 0) d = new Date(ms);
+        else d = new Date(value || msg?.createdAt || Date.now());
+      }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       try{
         const now = new Date();
@@ -577,7 +586,8 @@
 
     pumpAttachmentPreviewQueue(){
       try{
-        while ((this._attachmentPreviewRunning || 0) < (this._attachmentPreviewMax || 2) && this._attachmentPreviewQueue.length){
+        const max = this._attachmentPreviewMax || 4;
+        while ((this._attachmentPreviewRunning || 0) < max && this._attachmentPreviewQueue.length){
           const item = this._attachmentPreviewQueue.shift();
           this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
           const run = async ()=>{
@@ -592,7 +602,7 @@
               this.pumpAttachmentPreviewQueue();
             }
           };
-          setTimeout(()=>{ Promise.resolve(run()).catch(()=>{}); }, 0);
+          setTimeout(()=> Promise.resolve(run()).catch(()=>{}), 0);
         }
       }catch(_){ }
     }
@@ -1108,8 +1118,17 @@
             try{ panel.remove(); }catch(_){ }
             try{ backdrop.remove(); }catch(_){ }
           };
+          const addToComposer = document.createElement('button');
+          addToComposer.className = 'btn secondary';
+          addToComposer.textContent = 'Add to composer';
+          addToComposer.onclick = ()=>{
+            this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName, message: a.message, sender: a.sender });
+            try{ panel.remove(); }catch(_){ }
+            try{ backdrop.remove(); }catch(_){ }
+          };
           actions.appendChild(dl);
           actions.appendChild(open);
+          actions.appendChild(addToComposer);
           card.appendChild(meta);
           card.appendChild(sub);
           card.appendChild(preview);
@@ -1758,7 +1777,7 @@
       const review = document.getElementById('recording-review');
       const actionBtn = document.getElementById('action-btn');
       const inReview = review && !review.classList.contains('hidden');
-      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0);
+      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0) || (Array.isArray(this._pendingReusedAttachments) && this._pendingReusedAttachments.length > 0);
       const hasContent = !!(input && input.value.trim().length) || hasQueuedAttachments;
       if (hasContent){
         actionBtn.title = 'Send';
@@ -1805,7 +1824,20 @@
       }catch(_){ }
       this._pendingAttachments = [];
       this._pendingRemoteShares = [];
+      this._pendingReusedAttachments = [];
       this.renderComposerAttachmentQueue();
+    }
+
+    queueReusedAttachment({ fileUrl, fileName, message }){
+      try{
+        if (!fileUrl || !String(fileUrl).trim()) return;
+        this._pendingReusedAttachments = this._pendingReusedAttachments || [];
+        const sig = `${String(fileUrl||'').trim()}`;
+        const existing = new Set((this._pendingReusedAttachments || []).map((x)=> String(x?.fileUrl || '').trim()));
+        if (existing.has(sig)) return;
+        this._pendingReusedAttachments.push({ fileUrl: String(fileUrl).trim(), fileName: String(fileName || 'Attachment').trim(), message: message || null });
+        this.renderComposerAttachmentQueue();
+      }catch(_){ }
     }
 
     renderComposerAttachmentQueue(){
@@ -1814,7 +1846,8 @@
         if (!host) return;
         const queue = Array.isArray(this._pendingAttachments) ? this._pendingAttachments : [];
         const remote = Array.isArray(this._pendingRemoteShares) ? this._pendingRemoteShares : [];
-        const allQueue = queue.concat(remote);
+        const reused = Array.isArray(this._pendingReusedAttachments) ? this._pendingReusedAttachments : [];
+        const allQueue = queue.concat(remote).concat(reused.map((r)=>({ reused: r })));
         if (!allQueue.length){
           host.classList.add('hidden');
           host.innerHTML = '';
@@ -1843,6 +1876,14 @@
               ? `<img src="${this.renderText(String(a.cover || a.url || ''))}" alt="${this.renderText(String(a.title || 'shared'))}" class="composer-attachment-thumb">`
               : `<span class="composer-attachment-icon"><i class="fas ${kind === 'video' ? 'fa-video' : (kind === 'audio' ? 'fa-music' : (kind === 'image' ? 'fa-image' : 'fa-file'))}"></i></span>`;
             card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(String(a.title || `Shared ${kind || 'asset'}`))}</div><div class="composer-attachment-size">Shared card</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
+          } else if (item && item.reused){
+            const r = item.reused;
+            const fn = String(r.fileName || 'Attachment').trim();
+            const isImg = this.isImageFilename(fn);
+            const isVid = this.isVideoFilename(fn);
+            const isAud = this.isAudioFilename(fn);
+            const icon = `<span class="composer-attachment-icon"><i class="fas ${isImg ? 'fa-image' : (isVid ? 'fa-video' : (isAud ? 'fa-music' : 'fa-file'))}"></i></span>`;
+            card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(fn)}</div><div class="composer-attachment-size">From chat</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
           } else {
             return;
           }
@@ -1855,7 +1896,8 @@
                 try{ URL.revokeObjectURL(removedUrl); }catch(_){ }
               }
               if (idx < queue.length) this._pendingAttachments.splice(idx, 1);
-              else this._pendingRemoteShares.splice(idx - queue.length, 1);
+              else if (idx < queue.length + remote.length) this._pendingRemoteShares.splice(idx - queue.length, 1);
+              else this._pendingReusedAttachments.splice(idx - queue.length - remote.length, 1);
               this.renderComposerAttachmentQueue();
             });
           }
@@ -1952,7 +1994,7 @@
       if (Date.now() < (this._suppressActionClickUntil || 0)) return;
       const input = document.getElementById('message-input');
       const review = document.getElementById('recording-review');
-      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0);
+      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0) || (Array.isArray(this._pendingReusedAttachments) && this._pendingReusedAttachments.length > 0);
       if (this._activeRecorder && this._recStop){
         try{ this._recStop(); }catch(_){ }
         return;
@@ -1972,7 +2014,7 @@
 
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
-      if ((input && input.value.trim().length) || ((Array.isArray(this._pendingAttachments) && this._pendingAttachments.length) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length))) return; // only record when empty
+      if ((input && input.value.trim().length) || ((Array.isArray(this._pendingAttachments) && this._pendingAttachments.length) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length) || (Array.isArray(this._pendingReusedAttachments) && this._pendingReusedAttachments.length))) return; // only record when empty
       if (this._activeRecorder) return;
       this._actionPressArmed = true;
       if (e && e.type === 'touchstart'){
@@ -1997,10 +2039,22 @@
       }, 120);
     }
 
+    // Crystal-clear recording: noise suppression, auto gain, stereo, high sample rate.
+    getRecordingAudioConstraints(){
+      return {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: { ideal: 48000 },
+        channelCount: { ideal: 2 }
+      };
+    }
+
     getPreferredMediaRecorderOptions(kind = 'audio'){
       try{
         const MR = window.MediaRecorder;
         if (!MR || typeof MR.isTypeSupported !== 'function') return {};
+        const audioBits = 128000; // Crystal-clear voice + ambient
         if (kind === 'video'){
           const videoTypes = [
             'video/webm;codecs=vp9,opus',
@@ -2010,11 +2064,11 @@
             'video/mp4'
           ];
           const chosen = videoTypes.find((t)=> MR.isTypeSupported(t));
-          return chosen ? { mimeType: chosen } : {};
+          return chosen ? { mimeType: chosen, audioBitsPerSecond: audioBits } : {};
         }
         const audioTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
         const chosen = audioTypes.find((t)=> MR.isTypeSupported(t));
-        return chosen ? { mimeType: chosen } : {};
+        return chosen ? { mimeType: chosen, audioBitsPerSecond: audioBits } : {};
       }catch(_){ return {}; }
     }
 
@@ -2720,10 +2774,11 @@
                   Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, (user?.username || user?.email || m.sender.slice(0,8))); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
                 }
                 const inferredFileName = this.inferAttachmentFileName(m, text);
-                const hasFile = !!m.fileUrl;
+                const hasMedia = Array.isArray(m.media) && m.media.length > 0;
+                const hasFile = !!m.fileUrl && !hasMedia;
                 const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName) || this.isImageFilename(inferredFileName);
                 const cleanedText = this.stripPlaceholderText(text);
-                const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+                const isMediaOnlyMessage = (hasFile || hasMedia) && !cleanedText && (hasFile ? previewOnlyFile : true);
                 if (isMediaOnlyMessage) el.classList.add('message-media-only');
                 let bodyHtml = this.renderText(cleanedText);
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
@@ -2745,10 +2800,27 @@
                 const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
                 const delivery = this.getDeliveryLabel(m);
                 const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-                el.innerHTML = `<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                const mediaBlockHtml = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
+                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
+                if (hasMedia){
+                  const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
+                  const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
+                  m.media.forEach((mediaItem, idx)=>{
+                    const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
+                    if (container){
+                      const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                      this.enqueueAttachmentPreview(()=>{
+                        const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
+                        if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
+                      }, loadSeq, activeConnId);
+                    }
+                  });
+                  try{ const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager; if (dm && typeof dm.activatePlayers === 'function') dm.activatePlayers(el); }catch(_){ }
+                  this.activateChatPlayers(el);
+                }
                 if (hasFile && el.querySelector('.file-preview')){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
@@ -2846,6 +2918,11 @@
                   if (this._loadMoreInProgressByConn.has(activeConnId)) return;
                   this._loadMoreInProgressByConn.add(activeConnId);
                   moreBtn.disabled = true;
+                  moreBtn.classList.add('loading');
+                  const prevText = moreBtn.textContent;
+                  moreBtn.textContent = 'Loading...';
+                  const prevHeight = box.scrollHeight;
+                  const prevTop = box.scrollTop;
                   const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
                   this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
                   this._loadMoreConnId = activeConnId;
@@ -2855,7 +2932,11 @@
                       this._loadMoreInProgressByConn.delete(activeConnId);
                       const w = box?.querySelector('.msg-load-more-wrap');
                       const b = w?.querySelector('.msg-load-more-btn');
-                      if (b) b.disabled = false;
+                      if (b){
+                        b.disabled = false;
+                        b.classList.remove('loading');
+                        b.textContent = `Load ${pageSize} more`;
+                      }
                     });
                 };
                 moreWrap.appendChild(moreBtn);
@@ -2917,11 +2998,12 @@
                 });
               }
               const inferredFileName = this.inferAttachmentFileName(m, text);
-              const hasFile = !!m.fileUrl;
+              const hasMedia = Array.isArray(m.media) && m.media.length > 0;
+              const hasFile = !!m.fileUrl && !hasMedia;
               const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName) || this.isImageFilename(inferredFileName);
             // Render call invites as buttons
               const cleanedText = this.stripPlaceholderText(text);
-              const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+              const isMediaOnlyMessage = (hasFile || hasMedia) && !cleanedText && (hasFile ? previewOnlyFile : true);
               if (isMediaOnlyMessage) el.classList.add('message-media-only');
               let bodyHtml = this.renderText(cleanedText);
               if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
@@ -2960,7 +3042,8 @@
               const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
               const delivery = this.getDeliveryLabel(m);
               const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-              el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              const mediaBlockHtml2 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
+              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (appendOnly || forceInsertBefore){
@@ -2970,6 +3053,22 @@
               }
               const joinBtn = el.querySelector('button[data-call-id]');
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
+              if (hasMedia){
+                const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
+                const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
+                m.media.forEach((mediaItem, idx)=>{
+                  const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
+                  if (container){
+                    const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                    this.enqueueAttachmentPreview(()=>{
+                      const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
+                      if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
+                    }, loadSeq, activeConnId);
+                  }
+                });
+                try{ const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager; if (dm && typeof dm.activatePlayers === 'function') dm.activatePlayers(el); }catch(_){ }
+                this.activateChatPlayers(el);
+              }
               if (hasFile){
                 const preview = el.querySelector('.file-preview');
                 if (preview){
@@ -3328,11 +3427,12 @@
               });
             }
             const inferredFileName = this.inferAttachmentFileName(m, text);
-            const hasFile = !!m.fileUrl;
+            const hasMedia = Array.isArray(m.media) && m.media.length > 0;
+            const hasFile = !!m.fileUrl && !hasMedia;
             const previewOnlyFile = this.isAudioFilename(inferredFileName) || this.isVideoFilename(inferredFileName) || this.isImageFilename(inferredFileName);
             // Render call invites as buttons
             const cleanedText = this.stripPlaceholderText(text);
-            const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
+            const isMediaOnlyMessage = (hasFile || hasMedia) && !cleanedText && (hasFile ? previewOnlyFile : true);
             if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
             if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
@@ -3367,10 +3467,28 @@
             const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
             const delivery = this.getDeliveryLabel(m);
             const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
-            el.innerHTML = `<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            const mediaBlockHtml3 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
+            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
+            if (hasMedia){
+              const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
+              const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
+              m.media.forEach((mediaItem, idx)=>{
+                const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
+                if (container){
+                  const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                  const msgId = String(d.id || m.id || '');
+                  this.enqueueAttachmentPreview(()=>{
+                    const c = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
+                    if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
+                  }, loadSeq, activeConnId);
+                }
+              });
+              try{ const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager; if (dm && typeof dm.activatePlayers === 'function') dm.activatePlayers(el); }catch(_){ }
+              this.activateChatPlayers(el);
+            }
             if (hasFile){
               const preview = el.querySelector('.file-preview');
               if (preview){
@@ -3550,19 +3668,38 @@
       }catch(_){ return 0; }
     }
 
+    getMessageMediaBlockHtml(m){
+      if (!Array.isArray(m?.media) || !m.media.length) return '';
+      const visual = m.media.filter((it)=> this.isImageFilename(it.fileName) || this.isVideoFilename(it.fileName));
+      const rest = m.media.filter((it)=> !this.isImageFilename(it.fileName) && !this.isVideoFilename(it.fileName));
+      let html = '<div class="msg-media-block" style="margin-bottom:8px">';
+      if (visual.length){
+        const slideItems = visual.map((_,i)=> `<div class="msg-media-item" data-media-index="${i}" style="min-width:0;scroll-snap-align:start"><div class="file-preview" style="min-height:60px"></div></div>`).join('');
+        html += `<div class="post-media-visual-shell"><div class="post-media-visual-wrap"><div class="post-media-visual-slider" style="display:flex;gap:8px;overflow-x:auto;scroll-snap-type: x mandatory;-webkit-overflow-scrolling:touch">${slideItems}</div></div>${visual.length>1?`<div class="post-media-dots">${visual.map((_,i)=>`<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>`:''}</div>`;
+      }
+      if (rest.length) html += `<div class="msg-media-files" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${rest.map((_,i)=> `<div class="msg-media-item" data-media-index="${visual.length+i}" style="min-width:0"><div class="file-preview" style="min-height:40px"></div></div>`).join('')}</div>`;
+      html += '</div>';
+      return html;
+    }
+
     renderSharedAssetCardHtml(asset, msgId = ''){
       try{
         const a = (asset && typeof asset === 'object') ? asset : {};
         const kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
-          const p = (a.post && typeof a.post === 'object') ? a.post : {};
+          const pRaw = (a.post && typeof a.post === 'object') ? a.post : {};
+          const p = { ...pRaw };
+          if ((!p.media || !Array.isArray(p.media) || !p.media.length) && (a.media || a.attachments)){
+            p.media = Array.isArray(a.media) ? a.media : (Array.isArray(a.attachments) ? a.attachments : [a.media || a.attachments]);
+          }
           const postId = String(a.postId || p.id || '').trim();
           const author = this.renderText(String(p.authorName || a.by || 'User'));
           const created = this.renderText(String(this.formatMessageTime(p.createdAt || Date.now(), p) || ''));
           let text = String(p.text || a.title || '').trim();
           try{
-            if (window.dashboardManager && typeof window.dashboardManager.getPostDisplayText === 'function'){
-              const t = String(window.dashboardManager.getPostDisplayText(p) || '').trim();
+            const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+            if (dm && typeof dm.getPostDisplayText === 'function'){
+              const t = String(dm.getPostDisplayText(p) || '').trim();
               if (t) text = t;
             }
           }catch(_){ }
@@ -3576,11 +3713,14 @@
         const by = this.renderText(String(a.by || ''));
         const cover = String(a.cover || '').trim();
         const visual = kind === 'video'
-          ? `<video src="${this.renderText(url)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>`
-          : (kind === 'image'
-              ? `<img src="${this.renderText(url)}" alt="${title}" style="width:100%;max-height:240px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`
-              : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`);
-        return `<div class="shared-asset-card" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520">${visual}<div style="margin-top:6px;font-weight:600">${title}</div>${by ? `<div style="opacity:.8;font-size:12px">${by}</div>` : ''}<div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div></div>`;
+          ? `<video src="${this.renderText(url)}" controls playsinline style="width:100%;max-height:280px;border-radius:10px;object-fit:contain;background:#000"></video>`
+          : (kind === 'image' || kind === 'picture'
+              ? `<img src="${this.renderText(url)}" alt="${title}" style="width:100%;max-height:320px;object-fit:contain;border-radius:10px" data-fullscreen-image="1">`
+              : (kind === 'audio'
+                  ? `<div class="post-media-files-item"><div class="post-media-audio-head">${cover ? `<img src="${this.renderText(cover)}" alt="cover" class="post-media-audio-cover" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${title}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div></div><audio src="${this.renderText(url)}" controls style="width:100%;margin-top:6px"></audio></div>`
+                  : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`));
+        const titleBy = (kind === 'video' || kind === 'image' || kind === 'picture') ? `<div style="margin-top:6px;font-weight:600">${title}</div>${by ? `<div style="opacity:.8;font-size:12px">${by}</div>` : ''}` : '';
+        return `<div class="shared-asset-card" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520">${visual}${titleBy}<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div></div>`;
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
@@ -3618,10 +3758,11 @@
     renderSharedPostMediaHtml(post){
       try{
         const p = (post && typeof post === 'object') ? post : {};
-        const mediaInput = p.media || p.mediaUrl || [];
+        const mediaInput = p.media || p.mediaUrl || p.attachments || [];
         try{
-          if (window.dashboardManager && typeof window.dashboardManager.renderPostMedia === 'function'){
-            const html = window.dashboardManager.renderPostMedia(mediaInput, {
+          const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+          if (dm && typeof dm.renderPostMedia === 'function'){
+            const html = dm.renderPostMedia(mediaInput, {
               defaultBy: p.authorName || '',
               defaultCover: p.coverUrl || p.thumbnailUrl || '',
               authorId: p.authorId || ''
@@ -3645,7 +3786,7 @@
         }
         const restHtml = rest.length ? `<div class="post-media-files-list">${rest.map((it)=>{
           if (it.kind === 'audio' && it.url) return `<div class="post-media-files-item"><div class="post-media-audio-head">${it.cover ? `<img src="${this.renderText(it.cover)}" alt="cover" class="post-media-audio-cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(it.name || 'Audio')}</span>${it.by ? `<span class="post-media-audio-by">by ${this.renderText(it.by)}</span>` : ''}</div></div><audio src="${this.renderText(it.url)}" controls style="width:100%"></audio></div>`;
-          if (it.kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02)"><div style="font-weight:600">${this.renderText(it.name || 'Playlist')}</div>${it.by ? `<div style="font-size:12px;opacity:.8">by ${this.renderText(it.by)}</div>` : ''}</div>`;
+          if (it.kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02);min-width:0;max-width:100%;overflow:hidden"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.renderText(it.name || 'Playlist')}</div>${it.by ? `<div style="font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">by ${this.renderText(it.by)}</div>` : ''}</div>`;
           if (it.url) return `<div class="post-media-files-item"><a href="${this.renderText(it.url)}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${this.renderText(it.name || 'Attachment')}</a></div>`;
           return '';
         }).filter(Boolean).join('')}</div>` : '';
@@ -3658,6 +3799,7 @@
         const card = root && root.classList?.contains('shared-asset-card') ? root : (root?.querySelector?.('.shared-asset-card') || null);
         const pid = String(postId || card?.dataset?.sharedPostId || '').trim();
         if (!card || !pid) return;
+        if (!this.db) return;
         const snap = await firebase.getDoc(firebase.doc(this.db, 'posts', pid));
         if (!snap.exists()) return;
         const p = snap.data() || {};
@@ -3678,19 +3820,71 @@
         const mediaHost = card.querySelector('.shared-post-media');
         if (mediaHost) mediaHost.innerHTML = mediaHtml;
         try{
-          if (window.dashboardManager && typeof window.dashboardManager.activatePlayers === 'function'){
-            window.dashboardManager.activatePlayers(card);
+          const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+          if (dm){
+            if (typeof dm.activatePlayers === 'function') dm.activatePlayers(card);
+            if (typeof dm.bindUserPreviewTriggers === 'function') dm.bindUserPreviewTriggers(card);
           }
-          if (window.dashboardManager && typeof window.dashboardManager.bindUserPreviewTriggers === 'function'){
-            window.dashboardManager.bindUserPreviewTriggers(card);
-          }
-        }catch(_){ }
+          this.activateChatPlayers(card);
+        }catch(_){ this.activateChatPlayers(card); }
         const textHost = card.querySelector('.shared-post-text');
         if (textHost){
           const nextText = String(text || 'Shared post').trim() || 'Shared post';
           textHost.style.display = '';
           textHost.innerHTML = this.renderText(nextText);
         }
+      }catch(_){ }
+    }
+
+    activateChatPlayers(root){
+      try{
+        if (!root || !root.querySelectorAll) return;
+        const setPlayIcon = (btn, isPlaying)=>{ if (btn) btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`; };
+        root.querySelectorAll('.player-card').forEach((card)=>{
+          if (card.dataset.chatPlayerBound === '1') return;
+          card.dataset.chatPlayerBound = '1';
+          const media = card.querySelector('.player-media');
+          if (!media) return;
+          const btn = card.querySelector('.btn-icon');
+          const fill = card.querySelector('.progress .fill');
+          let knob = card.querySelector('.progress .knob');
+          if (!knob){ const k = document.createElement('div'); k.className='knob'; const bar = card.querySelector('.progress'); if (bar){ bar.appendChild(k); knob = k; } }
+          const time = card.querySelector('.time');
+          const fmt = (s)=>{ const m=Math.floor(s/60); const ss=Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${ss}`; };
+          const sync = ()=>{ if (!media.duration) return; const p=(media.currentTime/media.duration)*100; if (fill) fill.style.width = `${p}%`; if (knob) knob.style.left = `${p}%`; if (time) time.textContent = `${fmt(media.currentTime)} / ${fmt(media.duration)}`; };
+          if (btn){
+            btn.onclick = ()=>{
+              if (media.paused){
+                this.pauseOtherInlineMedia(media);
+                media.play().catch(()=>{});
+                setPlayIcon(btn, true);
+              } else {
+                media.pause();
+                setPlayIcon(btn, false);
+              }
+            };
+          }
+          media.addEventListener('timeupdate', sync);
+          media.addEventListener('loadedmetadata', sync);
+          media.addEventListener('play', ()=> setPlayIcon(btn, true));
+          media.addEventListener('pause', ()=> setPlayIcon(btn, false));
+          media.addEventListener('ended', ()=> setPlayIcon(btn, false));
+          const bar = card.querySelector('.progress');
+          if (bar){
+            const seekTo = (clientX)=>{
+              const rect = bar.getBoundingClientRect();
+              const ratio = Math.min(1, Math.max(0, (clientX-rect.left)/rect.width));
+              if (media.duration){ media.currentTime = ratio * media.duration; }
+              if (media.paused){ this.pauseOtherInlineMedia(media); media.play().catch(()=>{}); setPlayIcon(btn, true); }
+            };
+            bar.addEventListener('click', (e)=> seekTo(e.clientX));
+            let dragging = false;
+            bar.addEventListener('pointerdown', (e)=>{ dragging = true; bar.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+            bar.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+            bar.addEventListener('pointerup', (e)=>{ dragging = false; bar.releasePointerCapture(e.pointerId); });
+          }
+          sync();
+        });
       }catch(_){ }
     }
 
@@ -3860,7 +4054,8 @@
       const text = input.value.trim();
       const queuedFiles = (this._pendingAttachments || []).map((x)=> x && x.file).filter((f)=> f instanceof File);
       const queuedShared = (this._pendingRemoteShares || []).map((x)=> x && x.sharedAsset).filter((x)=> x && typeof x === 'object');
-      if ((!text && !queuedFiles.length && !queuedShared.length) || !this.activeConnection) return;
+      const queuedReused = (this._pendingReusedAttachments || []).filter((x)=> x && x.fileUrl);
+      if ((!text && !queuedFiles.length && !queuedShared.length && !queuedReused.length) || !this.activeConnection) return;
       const can = await this.canSendToActiveConnection();
       if (!can.ok){
         alert(can.reason || 'Cannot send message');
@@ -3870,12 +4065,48 @@
       this.clearPendingAttachments();
       this.publishTypingState(false, { force: true }).catch(()=>{});
       try{
-        if (text) await this.saveMessage({ text });
-        if (queuedFiles.length){
-          const result = await this.sendFiles(queuedFiles, { silent: true });
-          if (result.failedFiles && result.failedFiles.length){
-            this.queueAttachments(result.failedFiles);
-            alert(`Sent ${result.sentCount || 0} attachments, ${result.failedFiles.length} failed. Failed files are still in queue.`);
+        const mediaRank = (it)=> (this.isImageFilename(it.fileName) ? 0 : (this.isVideoFilename(it.fileName) ? 1 : (this.isAudioFilename(it.fileName) ? 2 : 3)));
+        const shouldCombine = (queuedFiles.length + queuedReused.length) > 1 || ((queuedFiles.length + queuedReused.length) >= 1 && !!text.trim());
+        if (shouldCombine && (queuedFiles.length || queuedReused.length)){
+          let mediaItems = [];
+          if (queuedFiles.length){
+            const up = await this.uploadFilesForBatch(queuedFiles);
+            mediaItems = mediaItems.concat(up.uploaded || []);
+            if (up.failedFiles && up.failedFiles.length) this.queueAttachments(up.failedFiles);
+          }
+          queuedReused.forEach((r)=>{
+            const msg = r.message || {};
+            mediaItems.push({
+              fileUrl: r.fileUrl,
+              fileName: r.fileName,
+              attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
+              attachmentSourceConnId: this.activeConnection,
+              isVideoRecording: !!msg.isVideoRecording
+            });
+          });
+          mediaItems.sort((a,b)=> mediaRank(a) - mediaRank(b));
+          const combinedText = text.trim() || 'Shared';
+          await this.saveMessage({ text: combinedText, media: mediaItems, attachmentSourceConnId: this.activeConnection });
+          mediaItems.forEach((it)=> this.pushRecentAttachment({ fileUrl: it.fileUrl, fileName: it.fileName, sentAt: new Date().toISOString() }));
+        } else {
+          if (text) await this.saveMessage({ text });
+          if (queuedFiles.length){
+            const result = await this.sendFiles(queuedFiles, { silent: true });
+            if (result.failedFiles && result.failedFiles.length){
+              this.queueAttachments(result.failedFiles);
+              alert(`Sent ${result.sentCount || 0} attachments, ${result.failedFiles.length} failed. Failed files are still in queue.`);
+            }
+          }
+          for (const r of queuedReused){
+            const msg = r.message || {};
+            await this.saveMessage({
+              text: this.isAudioFilename(r.fileName) ? '[voice message]' : (this.isVideoFilename(r.fileName) ? '[video message]' : `[file] ${r.fileName}`),
+              fileUrl: r.fileUrl,
+              fileName: r.fileName,
+              attachmentSourceConnId: this.activeConnection,
+              attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
+              isVideoRecording: !!msg.isVideoRecording
+            });
           }
         }
         for (const sharedAsset of queuedShared){
@@ -3885,6 +4116,7 @@
         input.value = text;
         if (queuedFiles.length) this.queueAttachments(queuedFiles);
         if (queuedShared.length) this.queueRemoteSharedAssets(queuedShared.map((a)=> ({ sharedAsset: a })));
+        if (queuedReused.length) this._pendingReusedAttachments = (this._pendingReusedAttachments || []).concat(queuedReused);
         this.publishTypingState(!!text, { force: true }).catch(()=>{});
         throw e;
       }
@@ -3980,22 +4212,27 @@
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, media, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
-      const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
+      const mediaArr = Array.isArray(media) && media.length ? media : null;
+      const firstMedia = mediaArr && mediaArr[0] ? mediaArr[0] : null;
+      const legacyFileUrl = fileUrl || (firstMedia && firstMedia.fileUrl) || null;
+      const legacyFileName = fileName || (firstMedia && firstMedia.fileName) || null;
+      const previewText = this.stripPlaceholderText(text) || (legacyFileName ? `[Attachment] ${legacyFileName}` : (mediaArr ? `[${mediaArr.length} attachments]` : ''));
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',connId,'messages'));
-      await firebase.setDoc(msgRef,{
+      const doc = {
         id: msgRef.id,
         connId,
         sender: this.currentUser.uid,
         cipher,
-        fileUrl: fileUrl || null,
-        fileName: fileName || null,
+        fileUrl: legacyFileUrl,
+        fileName: legacyFileName,
         sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
-        attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
-        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
-        isVideoRecording: isVideoRecording === true,
+        media: mediaArr,
+        attachmentSourceConnId: String(attachmentSourceConnId || connId || '').trim() || null,
+        attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
+        isVideoRecording: isVideoRecording === true || (firstMedia && firstMedia.isVideoRecording === true),
         isShared: !!isShared,
         sharedFromConnId: String(sharedFromConnId || '').trim() || null,
         sharedFromMessageId: String(sharedFromMessageId || '').trim() || null,
@@ -4004,7 +4241,9 @@
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
-      });
+      };
+      if (!mediaArr) delete doc.media;
+      await firebase.setDoc(msgRef, doc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',connId),{
         lastMessage: String(text || '').slice(0,200),
         updatedAt: new Date().toISOString()
@@ -4278,6 +4517,41 @@
         el.textContent = '';
         el.classList.remove('show');
       }
+    }
+
+    async uploadFilesForBatch(files){
+      const result = { uploaded: [], failedFiles: [] };
+      const targetConnId = this.activeConnection;
+      if (!files || !files.length || !targetConnId || !this.storage) return result;
+      try{
+        const salts = await this.getConnSaltForConn(targetConnId);
+        const aesKey = await this.getFallbackKeyForConn(targetConnId);
+        const salt = String(salts?.stableSalt || targetConnId || '');
+        for (const f of files){
+          try{
+            const base64 = await new Promise((resolve, reject)=>{
+              const reader = new FileReader();
+              reader.onload = ()=>{ const s = String(reader.result || ''); resolve(s.includes(',') ? s.split(',')[1] : ''); };
+              reader.onerror = reject;
+              reader.readAsDataURL(f);
+            });
+            const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
+            const blob = new Blob([JSON.stringify(cipher)], { type: 'application/json' });
+            const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const r = firebase.ref(this.storage, `chat/${targetConnId}/${Date.now()}_${safeName}.enc.json`);
+            await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
+            const url = await firebase.getDownloadURL(r);
+            result.uploaded.push({
+              fileUrl: url,
+              fileName: f.name,
+              attachmentKeySalt: salt,
+              attachmentSourceConnId: targetConnId,
+              isVideoRecording: this.isVideoFilename(f.name)
+            });
+          }catch(_){ result.failedFiles.push(f); }
+        }
+      }catch(_){ }
+      return result;
     }
 
     async sendFiles(files, opts = {}){
@@ -4691,29 +4965,35 @@
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, sharedAsset, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording}){
+    async saveMessage({text,fileUrl,fileName, sharedAsset, media, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
-      const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
+      const mediaArr = Array.isArray(media) && media.length ? media : null;
+      const firstMedia = mediaArr && mediaArr[0] ? mediaArr[0] : null;
+      const legacyFileUrl = fileUrl || (firstMedia && firstMedia.fileUrl) || null;
+      const legacyFileName = fileName || (firstMedia && firstMedia.fileName) || null;
+      const previewText = this.stripPlaceholderText(text) || (legacyFileName ? `[Attachment] ${legacyFileName}` : (mediaArr ? `[${mediaArr.length} attachments]` : ''));
       const msgRef = firebase.doc(firebase.collection(this.db,'chatMessages',targetConnId,'messages'));
-      await firebase.setDoc(msgRef,{
+      const doc = {
         id: msgRef.id,
         connId: targetConnId,
         sender: this.currentUser.uid,
         cipher,
-        fileUrl: fileUrl||null,
-        fileName: fileName||null,
+        fileUrl: legacyFileUrl,
+        fileName: legacyFileName,
         sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
-        attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
-        isVideoRecording: isVideoRecording === true,
+        attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
+        isVideoRecording: isVideoRecording === true || (firstMedia && firstMedia.isVideoRecording === true),
         isVoiceRecording: isVoiceRecording === true,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
-      });
+      };
+      if (mediaArr) doc.media = mediaArr;
+      await firebase.setDoc(msgRef, doc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',targetConnId),{
         lastMessage: text.slice(0,200),
         lastMessageSender: this.currentUser.uid,
@@ -6740,9 +7020,8 @@
     await this.ensureRoom();
     const ov = document.getElementById('call-overlay');
     if (ov) ov.classList.remove('hidden');
-    const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Room open. Waiting for speech to start call...';
-    const status = document.getElementById('call-status');
-    if (status) status.textContent = 'Room open. Waiting for speech to start call...';
+    const cs = document.getElementById('call-status');
+    if (cs) cs.textContent = 'Room open. Click Start Call or wait for other to start.';
     this.initCallControls(video);
     if (this._roomUnsub) this._roomUnsub();
     if (this._peersUnsub) this._peersUnsub();
@@ -6750,18 +7029,18 @@
     const onSnapErr = ()=>{};
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
-      // Only auto-join when a call is active and I'm NOT the initiator of this active call
       const activeCid = this._roomState.activeCallId;
       const startedBy = this._roomState.startedBy;
-      const iAmInitiator = !!activeCid && (startedBy === (this.currentUser && this.currentUser.uid)) || (activeCid === this._connectingCid);
-      const alreadyActiveHere = !!this._activeCid && this._activeCid === activeCid;
-      if (activeCid && !iAmInitiator && !alreadyActiveHere && this._activePCs.size === 0 && !this._joiningCall && !this._startingCall && this._lastJoinedCallId !== activeCid) {
+      const iAmInitiator = !!activeCid && ((startedBy === (this.currentUser?.uid)) || (activeCid === this._connectingCid));
+      const alreadyConnected = !!this._activeCid && this._activeCid === activeCid && this._activePCs.size > 0;
+      const canRetry = this._lastJoinedCallId === activeCid && this._activePCs.size === 0 && (Date.now() - (this._lastJoinAttemptAt || 0)) > 3000;
+      if (activeCid && !iAmInitiator && !alreadyConnected && !this._joiningCall && !this._startingCall && (this._lastJoinedCallId !== activeCid || canRetry)) {
+        this._lastJoinAttemptAt = Date.now();
         await this.joinMultiCall(activeCid, video);
       }
-      // Do not auto-cleanup here; end is controlled by silence timer or End button
       await this.updateRoomUI();
       const status = document.getElementById('call-status');
-      if (status) status.textContent = activeCid ? 'In call' : 'Room open. Waiting for speech to start call...';
+      if (status) status.textContent = activeCid ? 'In call' : 'Room open. Click Start Call or wait for other to start.';
     }, onSnapErr);
     const peersRef = firebase.collection(this.db,'callRooms', this.activeConnection, 'peers');
     this._peersUnsub = firebase.onSnapshot(peersRef, snap => {
@@ -6779,18 +7058,24 @@
 
   initCallControls(video){
     const ov = document.getElementById('call-overlay');
+    const startBtn = document.getElementById('start-call-btn');
     const endBtn = document.getElementById('end-call-btn');
     const micBtn = document.getElementById('toggle-mic-btn');
     const camBtn = document.getElementById('toggle-camera-btn');
+    const shareBtn = document.getElementById('share-screen-btn');
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
     const exitBtn = document.getElementById('exit-room-btn');
+    if (startBtn) startBtn.onclick = async () => {
+      await this.attemptStartRoomCall(this._videoEnabled);
+      startBtn.style.display = 'none';
+    };
     if (endBtn) endBtn.onclick = async () => { 
-      console.log('End clicked'); 
-      // End the call for everyone but keep overlay open for the room
       await this.cleanupActiveCall(true, 'end_button');
       const status = document.getElementById('call-status');
-      if (status) status.textContent = 'Room open. Waiting for speech to start call...';
+      if (status) status.textContent = 'Room open. Ready for call.';
+      const sb = document.getElementById('start-call-btn');
+      if (sb) sb.style.display = '';
     };
     if (exitBtn) exitBtn.onclick = async () => { 
       console.log('Exit clicked'); 
@@ -6798,20 +7083,36 @@
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
     };
-    if (micBtn) micBtn.onclick = async () => {
-      console.log('Mic toggle');
+    if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
-      this._activePCs.forEach(p => p.stream.getAudioTracks().forEach(t => t.enabled = this._micEnabled));
-      if (this._roomState.activeCallId) await this.renegotiateCall(this._roomState.activeCallId, this._videoEnabled);
+      this._activePCs.forEach(p => { const s = p.stream; if (s) s.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; }); });
+      micBtn.classList.toggle('muted', !this._micEnabled);
     };
-    if (camBtn) camBtn.onclick = async () => {
-      console.log('Camera toggle');
+    if (camBtn) camBtn.onclick = () => {
       this._videoEnabled = !this._videoEnabled;
-      this._activePCs.forEach(p => p.stream.getVideoTracks().forEach(t => t.enabled = this._videoEnabled));
-      await this.updatePresence(this._roomState ? this._roomState.status : 'idle', this._videoEnabled);
+      this._activePCs.forEach(p => { const s = p.stream; if (s) s.getVideoTracks().forEach(t => { t.enabled = this._videoEnabled; }); });
+      this.updatePresence(this._roomState ? this._roomState.status : 'idle', this._videoEnabled);
       const lv = document.getElementById('localVideo');
       if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
-      if (this._roomState.activeCallId) await this.renegotiateCall(this._roomState.activeCallId, this._videoEnabled);
+      camBtn.classList.toggle('muted', !this._videoEnabled);
+    };
+    if (shareBtn) shareBtn.style.display = video ? '' : 'none';
+    if (shareBtn) shareBtn.onclick = async () => {
+      if (this._screenSharing) { await this._stopScreenShare(); return; }
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        this._screenStream = screenStream;
+        this._screenSharing = true;
+        screenStream.getTracks().forEach(t => t.addEventListener('ended', () => this._stopScreenShare()));
+        const screenTrack = screenStream.getVideoTracks()[0];
+        this._activePCs.forEach((p) => {
+          const videoSender = p.pc.getSenders?.().find(s => s.track?.kind === 'video');
+          if (videoSender) videoSender.replaceTrack(screenTrack);
+        });
+        const lv = document.getElementById('localVideo');
+        if (lv) lv.srcObject = screenStream;
+        shareBtn.classList.add('active');
+      } catch (e) { console.warn('Screen share failed', e); }
     };
     if (hideBtn) hideBtn.onclick = () => { 
       console.log('Hide clicked'); 
@@ -6892,7 +7193,8 @@
   }
 
   async startMultiCall(callId, video = false){
-    console.log('Starting multi call', callId, video);
+    const statusEl = document.getElementById('call-status');
+    if (statusEl) statusEl.textContent = 'Starting call...';
     if (this._activePCs && this._activePCs.size > 0) {
       await this.cleanupActiveCall(false, 'start_multi_preclean');
     }
@@ -6913,6 +7215,8 @@
       stream = await navigator.mediaDevices.getUserMedia(config);
     } catch (err) {
       console.error('getUserMedia failed:', err);
+      const se = document.getElementById('call-status');
+      if (se) se.textContent = 'Microphone/camera access denied.';
       return;
     }
     stream.getVideoTracks().forEach(t => t.enabled = !!video);
@@ -7044,15 +7348,17 @@
           console.error('setRemote failed for ' + peerUid, err);
         }
       }));
+      const seenCands = new Set();
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
         snap.forEach(d => {
           const v = d.data();
-          if (v.type === 'answer' && v.fromUid === peerUid && v.toUid === this.currentUser.uid && v.candidate) {
-            if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-            if (pc.signalingState === 'closed') return;
-            if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-            pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
-          }
+          if (v.type !== 'answer' || v.fromUid !== peerUid || v.toUid !== this.currentUser.uid || !v.candidate) return;
+          const key = JSON.stringify(v.candidate);
+          if (seenCands.has(key)) return;
+          seenCands.add(key);
+          if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
+          if (pc.signalingState === 'closed') return;
+          pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
         });
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
@@ -7060,12 +7366,15 @@
     await this.updatePresence('connected', video);
     this._setupRoomInactivityMonitor();
     this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+    const sb = document.getElementById('start-call-btn');
+    if (sb) sb.style.display = 'none';
   }
 
   async joinMultiCall(callId, video = false){
-    console.log('Joining multi call', callId, video);
     if (this._joiningCall) return;
-    if (this._lastJoinedCallId === callId && this._activePCs.size > 0) { return; }
+    if (this._lastJoinedCallId === callId && this._activePCs.size > 0) return;
+    const statusEl = document.getElementById('call-status');
+    if (statusEl) statusEl.textContent = 'Connecting...';
     this._lastJoinedCallId = callId;
     this._joiningCall = true;
     try{
@@ -7081,6 +7390,8 @@
       localStream = await navigator.mediaDevices.getUserMedia(localCfg);
     } catch (err) {
       console.error('getUserMedia failed:', err);
+      const se = document.getElementById('call-status');
+      if (se) se.textContent = 'Microphone/camera access denied.';
       return;
     }
     localStream.getVideoTracks().forEach(t => t.enabled = !!video);
@@ -7117,6 +7428,8 @@
       }
       if (!offerDoc.exists()){
         console.warn('No offer for current user found; room may not be active yet');
+        const se = document.getElementById('call-status');
+        if (se) se.textContent = 'Room open. Waiting for offer...';
         return;
       }
     }
@@ -7222,16 +7535,17 @@
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
     const unsubs = [];
+    const seenCands = new Set();
     unsubs.push(firebase.onSnapshot(candsRef, snap => {
       snap.forEach(d => {
         const v = d.data();
-        if (v.type === 'offer' && v.fromUid === peerUid && v.toUid === myUid && v.candidate) {
-          // Guard against calling before remoteDescription set
-          if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-          if (pc.signalingState === 'closed') return;
-          if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
-          pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
-        }
+        if (v.type !== 'offer' || v.fromUid !== peerUid || v.toUid !== myUid || !v.candidate) return;
+        const key = JSON.stringify(v.candidate);
+        if (seenCands.has(key)) return;
+        seenCands.add(key);
+        if (!pc.remoteDescription) { remoteCandidateQueue.push(v.candidate); return; }
+        if (pc.signalingState === 'closed') return;
+        pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
       });
     }));
     // Listen for future offers (ICE restarts/renegotiations) from initiator
@@ -7266,6 +7580,8 @@
       await this.updatePresence('connected', video);
       this._setupRoomInactivityMonitor();
       this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+      const sb = document.getElementById('start-call-btn');
+      if (sb) sb.style.display = 'none';
     } finally {
       this._joiningCall = false;
     }
@@ -7606,17 +7922,27 @@
     }
     async recordVoiceMessage(){
       try{
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        let stream;
+        try{
+          stream = await navigator.mediaDevices.getUserMedia({ audio: this.getRecordingAudioConstraints() });
+        }catch(_){
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
         await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('audio'), 60_000, 'voice.webm');
       }catch(e){ console.warn('Voice record unavailable', e); }
     }
     async recordVideoMessage(){
       try{
+        const audioCfg = this.getRecordingAudioConstraints();
         let stream;
         try{
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: this._recFacing || 'user' } });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: audioCfg, video: { facingMode: this._recFacing || 'user' } });
         }catch(_){
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          try{
+            stream = await navigator.mediaDevices.getUserMedia({ audio: audioCfg, video: true });
+          }catch(__){
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: this._recFacing || 'user' } });
+          }
         }
         const indicator = document.getElementById('recording-indicator');
         if (indicator){ indicator.classList.remove('hidden'); indicator.querySelector('i').className = 'fas fa-video'; }
@@ -7701,10 +8027,33 @@
       }catch(_){ }
     }
 
+    async _stopScreenShare(){
+      if (!this._screenSharing) return;
+      this._screenSharing = false;
+      const shareBtn = document.getElementById('share-screen-btn');
+      if (shareBtn) shareBtn.classList.remove('active');
+      try {
+        if (this._screenStream) {
+          this._screenStream.getTracks().forEach(t => t.stop());
+          this._screenStream = null;
+        }
+        let localStream = null;
+        this._activePCs.forEach((p) => {
+          const videoSender = p.pc.getSenders?.().find(s => s.track?.kind === 'video');
+          const camTrack = p.stream?.getVideoTracks?.()[0];
+          if (videoSender && camTrack) videoSender.replaceTrack(camTrack);
+          if (p.stream) localStream = p.stream;
+        });
+        const lv = document.getElementById('localVideo');
+        if (lv && localStream) lv.srcObject = localStream;
+      } catch (e) { console.warn('Stop screen share error', e); }
+    }
+
     async cleanupActiveCall(endRoom = false, reason = 'unknown'){
     this._startingCall = false;
     this._joiningCall = false;
     this._lastJoinedCallId = null;
+    if (this._screenSharing) await this._stopScreenShare();
       this._activePCs.forEach((p, uid) => {
         try{ const key = (this._activeCid||'')+':'+uid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); } }catch(_){ }
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
@@ -7799,23 +8148,23 @@
       } catch (err) {
         console.error('UI update error:', err);
       }
-      // statusEl
       const statusEl = document.getElementById('call-status');
       if (statusEl) {
-        statusEl.textContent = this._roomState.activeCallId ? 'In call' : 'Waiting for speech...';
+        statusEl.textContent = (this._roomState && this._roomState.activeCallId) ? 'In call' : 'Ready for call.';
       }
     }
 
     async renegotiateCall(callId, video){
-      this._activePCs.forEach(async (p, peerUid) => {
+      for (const [peerUid, p] of this._activePCs) {
         const pc = p.pc;
-        pc.addTransceiver('audio', { direction: 'sendrecv' });
-        pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
+        const videoSender = pc.getSenders?.().find(s => s.track?.kind === 'video');
+        const videoTrack = p.stream?.getVideoTracks?.()[0];
+        if (videoSender && videoTrack) videoSender.replaceTrack(video ? videoTrack : null);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         const offersRef = firebase.collection(this.db,'calls',callId,'offers');
         await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
-      });
+      }
     }
   }
 
@@ -7866,9 +8215,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
           const currFacing = self._recFacing || 'user';
           const next = currFacing === 'user' ? 'environment' : 'user';
           self._recFacing = next;
-          const newStream = await navigator.mediaDevices.getUserMedia({ audio:true, video:{ facingMode: next } });
-          // restart capture
-          await self.captureMedia(newStream, { mimeType: 'video/webm;codecs=vp9' }, 30_000, 'video.webm');
+          const newStream = await navigator.mediaDevices.getUserMedia({ audio: self.getRecordingAudioConstraints(), video: { facingMode: next } });
+          await self.captureMedia(newStream, self.getPreferredMediaRecorderOptions('video'), 30_000, 'video.webm');
         }catch(_){ }
       };
     }

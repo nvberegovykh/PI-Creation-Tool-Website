@@ -31,8 +31,16 @@ self.addEventListener('message', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-	let payload = {};
-	try { payload = event.data ? event.data.json() : {}; } catch(_) {}
+	let raw = {};
+	try { raw = event.data ? event.data.json() : {}; } catch(_) {}
+	// Normalize FCM payload: notification + data at top level
+	const payload = {
+		title: raw.notification?.title || raw.title || 'LIBER/APPS',
+		body: raw.notification?.body || raw.body || '',
+		icon: raw.notification?.icon || raw.icon,
+		data: { ...(raw.data || {}), ...(raw.notification?.data || {}) },
+		silent: raw.silent,
+	};
 	event.waitUntil(showNotification(payload));
 });
 
@@ -40,22 +48,26 @@ self.addEventListener('push', (event) => {
 // Focus an existing client or open a new tab when the user clicks a notification
 self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
-	const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || '/control-panel/index.html';
+	const d = (event.notification && event.notification.data) || {};
+	let targetUrl = d.url;
+	if (!targetUrl && d.type === 'chat_message' && d.connId) {
+		const base = (self.location?.origin || '').replace(/\/$/, '');
+		targetUrl = `${base}/control-panel/apps/secure-chat/index.html?connId=${encodeURIComponent(String(d.connId))}`;
+	}
+	targetUrl = targetUrl || '/control-panel/index.html';
+	const fullUrl = targetUrl.startsWith('http') ? targetUrl : (self.location.origin || '') + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
 	event.waitUntil((async () => {
 		const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
 		for (const client of allClients) {
-			// If our app is already open, navigate/focus it
 			try {
-				await client.navigate(targetUrl);
+				await client.navigate(fullUrl);
 				return client.focus();
 			} catch(_) {
-				// Fallback to focus only
 				return client.focus();
 			}
 		}
-		// Otherwise open a new window
 		if (clients.openWindow) {
-			return clients.openWindow(targetUrl);
+			return clients.openWindow(fullUrl);
 		}
 	})());
 });

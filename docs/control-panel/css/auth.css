@@ -5,13 +5,13 @@
     left: 0;
     width: 100%;
     height: 100svh;
+    height: 100dvh;
     background: linear-gradient(135deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 1000;
-    padding: 20px;
-    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
 }
 
 .auth-container {

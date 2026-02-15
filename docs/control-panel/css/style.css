@@ -37,14 +37,24 @@
 }
 .post-media-block{margin-top:8px}
 .post-media-visual-shell{display:block}
-.post-media-visual-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:auto;scroll-behavior:smooth}
+.post-media-visual-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x;scroll-behavior:smooth;scroll-snap-type:x mandatory}
 .post-media-visual-wrap::-webkit-scrollbar{height:0;width:0}
-.post-media-visual-slider{display:flex;gap:8px;scroll-snap-type:x mandatory}
-.post-media-visual-item{flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start}
+.post-media-visual-slider{display:flex;gap:8px}
+.post-media-visual-item{flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start;scroll-snap-stop:always}
 .post-media-video-head{font-size:12px;color:#cfe0f7;opacity:.9;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .post-media-image{width:100%;height:min(62vh,540px);object-fit:contain;border-radius:12px;display:block;background:#0f1116}
 .post-media-video{width:100%;height:min(62vh,540px);max-height:min(62vh,540px);object-fit:contain;border-radius:12px;background:#0f1116}
-.post-media-files-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.post-media-files-list{display:flex;flex-direction:column;gap:8px;margin-top:8px;min-width:0}
+.post-media-files-item{min-width:0;max-width:100%}
+.post-save-visual-wrap{display:flex;justify-content:center;align-items:center}
+.post-save-visual-btn{background:transparent !important;border:none !important;color:inherit;cursor:pointer;display:flex;justify-content:center;align-items:center;padding:8px;font-size:1.1rem;transition:transform .22s ease, opacity .2s ease;min-width:36px;min-height:36px}
+.post-save-visual-btn:hover{opacity:.9}
+.post-save-visual-btn[data-saved="1"]{color:var(--success-color,#4ade80)}
+/* Playlist cards in posts - constrain to space, truncate names on mobile */
+.post-playlist-card{min-width:0;max-width:100%;overflow:hidden}
+.post-playlist-card>div:first-of-type{min-width:0}
+.post-playlist-card>div>div{min-width:0;overflow:hidden}
+.post-playlist-card>div>div>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .post-media-audio-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .post-media-audio-head-text{display:flex;flex-direction:column;min-width:0;gap:2px}
 .post-media-audio-cover{width:30px;height:30px;border-radius:8px;object-fit:cover;border:1px solid var(--border-color);background:#0f1116;flex:0 0 auto}
@@ -384,6 +394,82 @@ img, video, canvas, svg, iframe {
     max-width:100%;
     width:100%;
     margin:8px 0 !important;
+  }
+}
+
+/* WaveConnect: videos, pictures, buttons on small screens */
+.video-item{
+  max-width:100%;
+  min-width:0;
+  overflow:hidden;
+  box-sizing:border-box;
+}
+.video-item img:not([alt="cover"]):not([alt="author"]),
+.video-item video,
+.video-item .liber-lib-video{
+  max-width:100% !important;
+  width:100% !important;
+  box-sizing:border-box;
+}
+.video-item-header{ position:relative; z-index:1 }
+.video-item-actions{ pointer-events:auto }
+
+@media (max-width: 767px){
+  #waveconnect-section .section-header{
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  #waveconnect-section .section-header .tabs,
+  #waveconnect-section .section-header > div[style*="display:flex"]{
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  #waveconnect-section .btn{
+    padding:8px 10px;
+    font-size:13px;
+  }
+  #waveconnect-section .btn i{ margin-right:4px }
+  #wave-video-pane .btn,
+  #wave-pictures-pane .btn{
+    padding:8px 10px;
+    font-size:12px;
+    min-width:auto;
+  }
+  #wave-video-pane > .settings-card > div[style*="display:flex"],
+  #wave-pictures-pane > .settings-card > div[style*="display:flex"]{
+    flex-wrap:wrap !important;
+    gap:6px !important;
+  }
+  .video-item{
+    padding:8px;
+    width:100%;
+    max-width:100%;
+  }
+  .video-item-header{
+    flex-direction:column;
+    align-items:flex-start;
+    padding-right:0 !important;
+    margin-bottom:8px;
+  }
+  .video-item-header > div{
+    width:100%;
+  }
+  .video-item-actions{
+    position:static !important;
+    width:100%;
+    justify-content:flex-start;
+    margin-top:4px;
+    padding-top:6px;
+    border-top:1px solid var(--border-color,#2b3240);
+  }
+  .video-item img[data-fullscreen-image="1"],
+  .video-item video{
+    max-height:min(50vh,280px) !important;
+  }
+  #video-library,
+  #picture-library{
+    max-width:100%;
+    min-width:0;
   }
   #wave-library .player-card,
   #wave-playlists .player-card,
