@@ -78,6 +78,7 @@
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
       this._recordingSendInFlight = false;
+      this._pendingRecording = null;
       this._pendingAttachments = [];
       this._pendingRemoteShares = [];
       this._pendingReusedAttachments = [];
@@ -1425,9 +1426,9 @@
       if (actionBtn){
         actionBtn.addEventListener('click', ()=> this.handleActionButton());
         actionBtn.addEventListener('mousedown', (e)=> this.handleActionPressStart(e));
+        actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
+        ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       }
-      actionBtn.addEventListener('touchstart', (e)=> this.handleActionPressStart(e));
-      ['mouseup','touchend','touchcancel'].forEach(evt=> actionBtn.addEventListener(evt, ()=> this.handleActionPressEnd()));
       if (!this._globalRecReleaseBound){
         this._globalRecReleaseBound = true;
         window.addEventListener('mouseup', ()=> this.handleActionPressEnd(), true);
@@ -2102,7 +2103,7 @@
         if (!this._activeRecorder && (!input || !input.value.trim().length) && (!review || review.classList.contains('hidden'))){
           this._recordMode = this._recordMode === 'video' ? 'audio' : 'video';
           this.refreshActionButton();
-          this._suppressActionClickUntil = Date.now() + 550;
+          this._suppressActionClickUntil = Date.now() + 600;
         }
       }
       this._isRecordingByHold = false;
@@ -8014,7 +8015,7 @@
         mediaEl.controls = false;
         mediaEl.srcObject = stream;
         if (hasVideo){
-          mediaEl.classList.add('circular');
+          mediaEl.classList.add('video-recording-mask');
           this.applyRandomTriangleMask(mediaEl);
         }
         player.appendChild(mediaEl);
@@ -8206,9 +8207,10 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       const mediaEl = document.createElement('video');
       mediaEl.controls = true;
       mediaEl.src = url;
-      mediaEl.style.maxWidth = '100%';
       mediaEl.playsInline = true;
-      mediaEl.classList.add('circular');
+      mediaEl.classList.add('video-recording-mask');
+      mediaEl.style.maxWidth = '100%';
+      mediaEl.addEventListener('loadedmetadata', ()=>{ try{ self.applyRandomTriangleMask(mediaEl); }catch(_){ } });
       mediaEl.addEventListener('play', ()=>{
         try{
           const hostBg = self.getGlobalBgPlayer();
@@ -8216,6 +8218,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         }catch(_){ }
       });
       player.appendChild(mediaEl);
+      mediaEl.load();
     } else {
       // Keep type-bar review consistent with in-chat voice UI.
       self.renderWaveAttachment(player, url, 'You');
@@ -8241,17 +8244,21 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       if (self._recordingSendInFlight) return;
       const targetConnId = self.activeConnection;
       if (!targetConnId) return;
+      const pending = self._pendingRecording;
+      if (!pending || !pending.blob){ review.classList.add('hidden'); player.innerHTML = ''; return; }
+      const blob = pending.blob;
+      const isVideoSend = (pending.type||'').startsWith('video');
+      const filename = pending.filename || (isVideoSend ? 'video.webm' : 'voice.webm');
       self._recordingSendInFlight = true;
+      self._pendingRecording = null;
       sendBtn.disabled = true;
       discardBtn.disabled = true;
       sendBtn.style.opacity = '0.65';
       discardBtn.style.opacity = '0.65';
-      // Hide/clear review immediately to prevent duplicate sends and UI freeze.
       review.classList.add('hidden');
       player.innerHTML = '';
       if (input) input.style.display='';
       if (actionBtn){ actionBtn.innerHTML = `<i class="fas ${self._recordMode === 'video' ? 'fa-video' : 'fa-microphone'}"></i>`; actionBtn.title = self._recordMode === 'video' ? 'Video message' : 'Voice message'; }
-      // Validate storage availability
       if (!self.storage) {
         console.error('Storage not available for recording');
         alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
@@ -8282,7 +8289,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         const aesKey = await self.getFallbackKeyForConn(targetConnId);
         const salts = await self.getConnSaltForConn(targetConnId);
         let base64;
-        if (isVideo) {
+        if (isVideoSend) {
           const buf = await blob.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const chunkSize = 0x8000;
@@ -8300,14 +8307,14 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
         const url2 = await firebase.getDownloadURL(sref);
         await self.saveMessage({
-          text: isVideo? '[video message]': '[voice message]',
+          text: isVideoSend ? '[video message]' : '[voice message]',
           fileUrl: url2,
           fileName: filename,
           connId: targetConnId,
           attachmentSourceConnId: targetConnId,
           attachmentKeySalt: String(salts?.stableSalt ?? targetConnId ?? ''),
-          isVideoRecording: isVideo === true,
-          isVoiceRecording: !isVideo
+          isVideoRecording: isVideoSend,
+          isVoiceRecording: !isVideoSend
         });
       } catch (err) {
         console.error('Recording upload error:', err.code, err.message, err);
@@ -8325,6 +8332,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         discardBtn.disabled = false;
         sendBtn.style.opacity = '';
         discardBtn.style.opacity = '';
+        try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
         review.classList.add('hidden');
         player.innerHTML='';
         if (input) input.style.display='';
@@ -8333,6 +8341,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     };
     discardBtn.onclick = ()=>{
       if (self._recordingSendInFlight) return;
+      self._pendingRecording = null;
+      try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
       review.classList.add('hidden');
       player.innerHTML='';
       if (input) input.style.display='';

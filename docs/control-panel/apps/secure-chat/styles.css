@@ -382,7 +382,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 }
 .recording-review.hidden{ display:none }
 .recording-review audio,.recording-review video{ max-width:100%; width:100%; border-radius:8px; background:#000 }
-.recording-review video.circular{ width:180px; height:180px; border-radius:50%; object-fit:cover }
+.recording-review video.video-recording-mask{ width:min(64vw,220px); height:min(64vw,220px); max-width:220px; max-height:220px; object-fit:cover; display:block }
 .review-actions{ display:flex; gap:8px; margin-left:auto }
 .review-actions #send-recording-btn{ display:inline-flex !important; }
 #recording-player{ flex:1; min-width: 0; }
