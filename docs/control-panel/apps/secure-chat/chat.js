@@ -5775,47 +5775,6 @@
         const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
-        const attachSourceConn = String(message?.attachmentSourceConnId || message?.connId || '').trim();
-        // For video/voice recordings: attachmentKeySalt (saved at encrypt) is most reliable – try it first. Then urlConnId, then all candidates.
-        if (!b64 && (isVideoRecording || isVoiceRecording)) {
-          const saltsToTry = [hintSalt, urlConnId, attachSourceConn, sourceConnId].filter(Boolean);
-          const seen = new Set();
-          for (const salt of saltsToTry) {
-            if (!salt || seen.has(salt)) continue;
-            seen.add(salt);
-            try {
-              const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
-              b64 = await chatCrypto.decryptWithKey(payload, key);
-              if (b64) break;
-            } catch (_) {}
-          }
-          if (!b64 && window.chatCrypto?.deriveFallbackSharedAesKey) {
-            const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(urlConnId || sourceConnId);
-            if (peerUid) {
-              for (const salt of [hintSalt, urlConnId, attachSourceConn]) {
-                if (!salt) continue;
-                try {
-                  const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, salt);
-                  b64 = await chatCrypto.decryptWithKey(payload, key);
-                  if (b64) break;
-                } catch (_) {}
-              }
-            }
-          }
-          if (!b64) {
-            for (const cid of [urlConnId, attachSourceConn, sourceConnId, this.activeConnection].filter(Boolean)) {
-              if (!cid) continue;
-              const candidates = await this.getFallbackKeyCandidatesForConn(cid);
-              for (const k of (candidates || [])) {
-                try {
-                  b64 = await chatCrypto.decryptWithKey(payload, k);
-                  if (b64) break;
-                } catch (_) {}
-              }
-              if (b64) break;
-            }
-          }
-        }
         if (!b64) {
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
