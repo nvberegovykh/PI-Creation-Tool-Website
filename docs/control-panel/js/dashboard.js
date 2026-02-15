@@ -102,23 +102,121 @@ class DashboardManager {
             const q = queryFactory();
             if (!q) return;
             this.clearRealtimeFeedSubscription(k);
-            const trigger = ()=>{
+            const trigger = (payload = null)=>{
                 const prev = this._realtimeFeedTimers.get(k);
                 if (prev) clearTimeout(prev);
-                const t = setTimeout(()=>{ Promise.resolve(onChange()).catch(()=>{}); }, 240);
+                const t = setTimeout(()=>{ Promise.resolve(onChange(payload)).catch(()=>{}); }, 240);
                 this._realtimeFeedTimers.set(k, t);
             };
             let initialDelivered = false;
             const unsub = firebase.onSnapshot(
                 q,
-                ()=>{
+                (snap)=>{
                     if (!initialDelivered){ initialDelivered = true; return; }
-                    trigger();
+                    trigger({ snapshot: snap, key: k });
                 },
-                ()=> trigger()
+                (error)=> trigger({ error, key: k })
             );
             this._realtimeFeedUnsubs.set(k, unsub);
         }catch(_){ }
+    }
+
+    getPostCreatedTs(post){
+        try{
+            return Number(post?.createdAtTS?.toMillis?.() || 0) || Number(new Date(post?.createdAt || 0).getTime() || 0) || 0;
+        }catch(_){ return Number(new Date(post?.createdAt || 0).getTime() || 0) || 0; }
+    }
+
+    async buildRealtimeFeedPostElement(post, opts = {}){
+        const p = post || {};
+        const div = document.createElement('div');
+        div.className = 'post-item';
+        div.dataset.postId = String(p.id || '');
+        div.dataset.postCreatedTs = String(this.getPostCreatedTs(p));
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
+        const authorProfile = await this.getUserPreviewData(p.authorId || '');
+        const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || opts.displayName || 'User');
+        const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
+        const postTime = this.formatDateTime(p.createdAt);
+        const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
+        const media = (p.media || p.mediaUrl) ? this.renderPostMedia(p.media || p.mediaUrl, { defaultBy: p.authorName || '', defaultCover: p.coverUrl || p.thumbnailUrl || '', authorId: p.authorId || '' }) : '';
+        const postText = this.getPostDisplayText(p);
+        const postTextHtml = postText ? `<div class="post-text">${postText.replace(/</g,'&lt;')}</div>` : '';
+        const includeVisibility = opts.includeVisibility === true;
+        const visibilityBtn = includeVisibility ? `<button class="btn btn-secondary visibility-btn">${p.visibility==='public'?'Make Private':'Make Public'}</button>` : '';
+        div.innerHTML = `<div class="post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+            <button type="button" data-user-preview="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="display:inline-flex;align-items:center;gap:8px;background:none;border:none;color:inherit;padding:0">
+              <img src="${authorAvatar}" alt="author" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+              <span style="font-size:12px;color:#aaa">${authorName.replace(/</g,'&lt;')}</span>
+            </button>
+            <span class="post-head-meta" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;opacity:.74">${postTime}${editedBadge}</span>
+          </div>${media}${postTextHtml}
+          <div class="post-actions" data-post-id="${String(p.id || '').replace(/"/g,'&quot;')}" data-author="${String(p.authorId || '').replace(/"/g,'&quot;')}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+            <i class="fas fa-heart like-btn" title="Like" style="cursor:pointer"></i>
+            <span class="likes-count"></span>
+            <i class="fas fa-comment comment-btn" title="Comments" style="cursor:pointer"></i>
+            <span class="comments-count"></span>
+            <i class="fas fa-retweet repost-btn" title="Repost" style="cursor:pointer"></i>
+            <span class="reposts-count"></span>
+            <i class="fas fa-ellipsis-h post-menu" title="More" style="cursor:pointer"></i>
+            <i class="fas fa-edit edit-post-btn" title="Edit" style="cursor:pointer"></i>
+            <i class="fas fa-trash delete-post-btn" title="Delete" style="cursor:pointer"></i>
+            ${visibilityBtn}
+          </div>
+          <div class="comment-tree" id="comments-${String(p.id || '').replace(/"/g,'&quot;')}" style="display:none"></div>`;
+        return div;
+    }
+
+    sortFeedPostCards(container){
+        try{
+            if (!container) return;
+            const cards = Array.from(container.querySelectorAll(':scope > .post-item[data-post-id]'));
+            cards.sort((a,b)=> Number(b.dataset.postCreatedTs || 0) - Number(a.dataset.postCreatedTs || 0));
+            cards.forEach((el)=> container.appendChild(el));
+        }catch(_){ }
+    }
+
+    async applyRealtimePostChanges(container, payload, opts = {}){
+        try{
+            if (!container || !payload || !payload.snapshot || typeof payload.snapshot.docChanges !== 'function') return false;
+            const changes = payload.snapshot.docChanges() || [];
+            if (!changes.length) return true;
+            const term = String(opts.searchTerm || '').trim().toLowerCase();
+            const includeVisibility = opts.includeVisibility === true;
+            const matches = (p)=>{
+                if (!term) return true;
+                const text = String(p?.text || '').toLowerCase();
+                const author = String(p?.authorName || '').toLowerCase();
+                return text.includes(term) || author.includes(term);
+            };
+            for (const ch of changes){
+                const id = String(ch?.doc?.id || '').trim();
+                if (!id) continue;
+                if (ch.type === 'removed'){
+                    const ex = container.querySelector(`.post-item[data-post-id="${id}"]`);
+                    if (ex) ex.remove();
+                    continue;
+                }
+                const p = { ...(ch.doc.data() || {}), id };
+                if (!matches(p)){
+                    const ex = container.querySelector(`.post-item[data-post-id="${id}"]`);
+                    if (ex) ex.remove();
+                    continue;
+                }
+                await this.primeWaveMetaForMedia(p?.media || p?.mediaUrl);
+                const nextEl = await this.buildRealtimeFeedPostElement(p, { includeVisibility, displayName: opts.displayName || '' });
+                const existing = container.querySelector(`.post-item[data-post-id="${id}"]`);
+                if (existing) existing.replaceWith(nextEl);
+                else container.appendChild(nextEl);
+            }
+            this.sortFeedPostCards(container);
+            this.bindUserPreviewTriggers(container);
+            this.activatePlayers(container);
+            this.clearPostActionListeners(container);
+            this.activatePostActions(container);
+            this.applyHorizontalMasonryOrder(container);
+            return true;
+        }catch(_){ return false; }
     }
 
     ensurePreviewAddButtonStyles(){
@@ -129,8 +227,8 @@ class DashboardManager {
         .preview-visual-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
         .preview-visual-card{border:1px solid var(--border-color);border-radius:12px;padding:10px;background:var(--secondary-bg)}
         .preview-visual-media{position:relative;border-radius:10px;overflow:hidden;background:#000}
-        .preview-add-my-btn{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(1);border:1px solid rgba(255,255,255,.35);background:rgba(8,12,18,.72);color:#fff;border-radius:999px;min-width:44px;height:44px;padding:0 12px;font-weight:700;font-size:18px;line-height:1;cursor:pointer;backdrop-filter:blur(2px);transition:all .24s ease}
-        .preview-add-my-btn:hover{transform:translate(-50%,-50%) scale(1.05)}
+        .preview-add-my-btn{position:absolute;right:10px;bottom:10px;transform:scale(1);border:1px solid rgba(255,255,255,.35);background:rgba(8,12,18,.72);color:#fff;border-radius:999px;min-width:38px;height:38px;padding:0 10px;font-weight:700;font-size:16px;line-height:1;cursor:pointer;backdrop-filter:blur(2px);transition:all .24s ease}
+        .preview-add-my-btn:hover{transform:scale(1.05)}
         .preview-add-my-btn.saved{font-size:12px;letter-spacing:.2px;min-width:72px;background:rgba(24,120,62,.86);border-color:rgba(110,255,162,.55)}
         `;
         document.head.appendChild(style);
@@ -146,15 +244,58 @@ class DashboardManager {
         }
     }
 
+    normalizeMediaUrl(url){
+        try{
+            const raw = String(url || '').trim();
+            if (!raw) return '';
+            let decoded = raw;
+            try{ decoded = decodeURIComponent(raw); }catch(_){ decoded = raw; }
+            let out = decoded.toLowerCase();
+            out = out.replace(/^https?:\/\//, '');
+            out = out.replace(/^www\./, '');
+            const cut = out.split('?')[0].split('#')[0];
+            return cut.replace(/\/+$/, '');
+        }catch(_){ return String(url || '').trim().toLowerCase(); }
+    }
+
+    urlsLikelySame(a, b){
+        const x = this.normalizeMediaUrl(a);
+        const y = this.normalizeMediaUrl(b);
+        if (!x || !y) return false;
+        if (x === y) return true;
+        return x.endsWith(y) || y.endsWith(x);
+    }
+
     async getAssetAggregatedLikeCount(kind, url){
         try{
             const href = String(url || '').trim();
             if (!href) return 0;
+            const normHref = this.normalizeMediaUrl(href);
             let total = 0;
+            const countedPostIds = new Set();
             const key = this.makeAssetLikeKey(kind, href);
             try{
                 const likesSnap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'assetLikes', key, 'likes'));
                 total += Number(likesSnap.size || 0);
+            }catch(_){ }
+            try{
+                const qWaveByUrl = firebase.query(
+                    firebase.collection(window.firebaseService.db,'wave'),
+                    firebase.where('url','==', href),
+                    firebase.limit(50)
+                );
+                const sWave = await firebase.getDocs(qWaveByUrl);
+                for (const d of (sWave.docs || [])){
+                    const w = d.data() || {};
+                    const pid = String(w.sourcePostId || '').trim();
+                    if (!pid) continue;
+                    if (countedPostIds.has(pid)) continue;
+                    try{
+                        const likes = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'));
+                        total += Number(likes.size || 0);
+                        countedPostIds.add(pid);
+                    }catch(_){ }
+                }
             }catch(_){ }
             try{
                 const postRows = [];
@@ -164,20 +305,25 @@ class DashboardManager {
                     s.forEach((d)=> postRows.push({ id: d.id, ...(d.data() || {}) }));
                 }catch(_){ }
                 try{
-                    const qAll = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.limit(220));
+                    const qAll = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.limit(500));
                     const sAll = await firebase.getDocs(qAll);
                     sAll.forEach((d)=>{
                         const p = d.data() || {};
                         if (postRows.some((x)=> x.id === d.id)) return;
                         const media = Array.isArray(p.media) ? p.media : [];
-                        const hasUrl = media.some((m)=> String((m && (m.url || m.mediaUrl)) || '').trim() === href);
-                        if (hasUrl) postRows.push({ id: d.id, ...p });
+                        const mediaUrl = String(p.mediaUrl || '').trim();
+                        const hasMediaUrl = mediaUrl && this.urlsLikelySame(mediaUrl, normHref);
+                        const hasUrl = media.some((m)=> this.urlsLikelySame(String((m && (m.url || m.mediaUrl)) || '').trim(), normHref));
+                        if (hasUrl || hasMediaUrl) postRows.push({ id: d.id, ...p });
                     });
                 }catch(_){ }
                 for (const p of postRows.slice(0, 120)){
                     try{
-                        const likes = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'posts', String(p.id || ''), 'likes'));
+                        const pid = String(p.id || '').trim();
+                        if (!pid || countedPostIds.has(pid)) continue;
+                        const likes = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'posts', pid, 'likes'));
                         total += Number(likes.size || 0);
+                        countedPostIds.add(pid);
                     }catch(_){ }
                 }
             }catch(_){ }
@@ -203,16 +349,59 @@ class DashboardManager {
                 });
             }
             if (!rows.length){ this.showError('No existing chats found'); return; }
+            const getParticipants = (c)=>{
+                const p = Array.isArray(c?.participants) ? c.participants : (Array.isArray(c?.users) ? c.users : (Array.isArray(c?.memberIds) ? c.memberIds : []));
+                return p.filter(Boolean);
+            };
+            const byKey = new Map();
+            rows.forEach((c)=>{
+                if (!c || !c.id) return;
+                if (c.archived === true || String(c.mergedInto || '').trim()) return;
+                const parts = getParticipants(c);
+                const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
+                const key = isGroup ? `group:${c.id}` : `dm:${parts.slice().sort().join('|') || c.id}`;
+                const prev = byKey.get(key);
+                if (!prev){ byKey.set(key, c); return; }
+                const prevTs = Number(new Date(prev.updatedAt || 0).getTime() || 0);
+                const curTs = Number(new Date(c.updatedAt || 0).getTime() || 0);
+                if (curTs >= prevTs) byKey.set(key, c);
+            });
+            rows = Array.from(byKey.values()).sort((a,b)=> Number(new Date(b.updatedAt || 0).getTime() || 0) - Number(new Date(a.updatedAt || 0).getTime() || 0));
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
             overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
             overlay.innerHTML = `<div style="width:min(96vw,520px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Share to chat</div><div id="share-chat-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="share-chat-close" class="btn btn-secondary">Close</button></div></div>`;
             const list = overlay.querySelector('#share-chat-list');
+            const metaMap = new Map();
+            const resolveMeta = async (c)=>{
+                const parts = getParticipants(c);
+                const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
+                if (isGroup){
+                    return {
+                        title: String(c.groupName || this.getConnectionDisplayName(c) || 'Group chat').trim(),
+                        subtitle: 'Group chat',
+                        cover: String(c.groupCoverUrl || 'images/default-bird.png').trim() || 'images/default-bird.png'
+                    };
+                }
+                const peerUid = parts.find((uid)=> uid && uid !== me.uid) || '';
+                let title = String(this.getConnectionDisplayName(c) || 'Chat').trim();
+                let cover = 'images/default-bird.png';
+                if (peerUid){
+                    try{
+                        const u = await window.firebaseService.getUserData(peerUid);
+                        title = String(u?.username || u?.email || title).trim();
+                        cover = String(u?.avatarUrl || cover).trim() || 'images/default-bird.png';
+                    }catch(_){ }
+                }
+                return { title, subtitle: 'Direct chat', cover };
+            };
+            await Promise.all(rows.slice(0, 120).map(async (c)=> metaMap.set(c.id, await resolveMeta(c))));
             rows.slice(0, 120).forEach((c)=>{
+                const meta = metaMap.get(c.id) || { title: this.getConnectionDisplayName(c), subtitle: '', cover: 'images/default-bird.png' };
                 const btn = document.createElement('button');
                 btn.className = 'btn btn-secondary';
-                btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-                btn.textContent = this.getConnectionDisplayName(c);
+                btn.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                btn.innerHTML = `<img src="${String(meta.cover || 'images/default-bird.png').replace(/"/g,'&quot;')}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;flex:0 0 auto"><span style="min-width:0;display:flex;flex-direction:column"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(meta.title || 'Chat').replace(/</g,'&lt;')}</span><span style="opacity:.72;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(meta.subtitle || '').replace(/</g,'&lt;')}</span></span>`;
                 btn.onclick = ()=>{
                     try{
                         const key = 'liber_chat_pending_shares_v1';
@@ -269,12 +458,12 @@ class DashboardManager {
                     if (!me || !me.uid) return;
                     const myRef = firebase.doc(window.firebaseService.db, 'assetLikes', key, 'likes', me.uid);
                     const cur = await firebase.getDoc(myRef).catch(()=> null);
-                    if (cur && cur.exists()) likeBtn.classList.add('active');
+                    if (cur && cur.exists()){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff6b81'; }
                     likeBtn.onclick = async ()=>{
                         try{
                             const snap = await firebase.getDoc(myRef);
-                            if (snap.exists()){ await firebase.deleteDoc(myRef); likeBtn.classList.remove('active'); }
-                            else { await firebase.setDoc(myRef, { uid: me.uid, createdAt: new Date().toISOString(), kind, url }); likeBtn.classList.add('active'); }
+                            if (snap.exists()){ await firebase.deleteDoc(myRef); likeBtn.classList.remove('active'); likeBtn.style.color = '#d6deeb'; }
+                            else { await firebase.setDoc(myRef, { uid: me.uid, createdAt: new Date().toISOString(), kind, url }); likeBtn.classList.add('active'); likeBtn.style.color = '#ff6b81'; }
                             const n = await this.getAssetAggregatedLikeCount(kind, url);
                             if (likeCount) likeCount.textContent = `${n}`;
                         }catch(_){ }
@@ -934,7 +1123,14 @@ class DashboardManager {
                     const cur = this.getSpacePostAttachments();
                     if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
                     const next = cur.slice();
-                    const added = this.addUniqueSpaceAttachment(next, { kind:'playlist', name: String(pl.name || 'Playlist'), playlistId: String(pl.id || '') });
+                    const added = this.addUniqueSpaceAttachment(next, {
+                        kind:'playlist',
+                        name: String(pl.name || 'Playlist'),
+                        playlistId: String(pl.id || ''),
+                        by: String(pl.ownerName || ''),
+                        cover: String((pl.items && pl.items[0] && pl.items[0].cover) || ''),
+                        items: Array.isArray(pl.items) ? pl.items.slice(0, 120) : []
+                    });
                     if (!added){ this.showError('Already added'); return; }
                     this._spacePostAttachments = next;
                     this.renderSpacePostComposerQueue();
@@ -1390,7 +1586,8 @@ class DashboardManager {
                         name: name || 'Playlist',
                         playlistId: String(entry.playlistId || entry.id || '').trim() || null,
                         by: String(entry.by || entry.authorName || '').trim(),
-                        cover: String(entry.cover || entry.coverUrl || '').trim()
+                        cover: String(entry.cover || entry.coverUrl || '').trim(),
+                        items: Array.isArray(entry.items) ? entry.items.slice(0, 120) : []
                     });
                     return;
                 }
@@ -1424,6 +1621,11 @@ class DashboardManager {
                 const vTitle = String(items[0]?.name || '').trim();
                 if (vTitle && raw.toLowerCase() === vTitle.toLowerCase()) return '';
             }
+            if (items.length === 1 && items[0]?.kind === 'playlist'){
+                const pTitle = String(items[0]?.name || '').trim();
+                const normalized = raw.replace(/^playlist:\s*/i, '').trim();
+                if (pTitle && normalized.toLowerCase() === pTitle.toLowerCase()) return '';
+            }
             return raw;
         }catch(_){ return String(post?.text || '').trim(); }
     }
@@ -1446,8 +1648,8 @@ class DashboardManager {
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
                 const aid = String(authorId || '').replace(/"/g,'&quot;');
                 const actions = it.kind === 'image'
-                    ? `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-image"></i> To My Pictures</button></div>`
-                    : `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-video"></i> To My Videos</button></div>`;
+                    ? `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" style="display:inline-flex;align-items:center;gap:6px;transition:transform .22s ease, background-color .22s ease, border-color .22s ease" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i><span>To My Pictures</span></button></div>`
+                    : `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" style="display:inline-flex;align-items:center;gap:6px;transition:transform .22s ease, background-color .22s ease, border-color .22s ease" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-plus"></i><span>To My Videos</span></button></div>`;
                 if (it.kind === 'image'){
                     return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image">${actions}</div>`;
                 }
@@ -1471,7 +1673,25 @@ class DashboardManager {
                 }
                 if (it.kind === 'playlist'){
                     const safeName = String(it.name || 'Playlist').replace(/</g,'&lt;');
-                    return `<div class="post-media-files-item"><span class="post-media-file-chip"><i class="fas fa-list-music"></i> Playlist: ${safeName}</span></div>`;
+                    const safeBy = String(it.by || defaultBy || '').replace(/</g,'&lt;');
+                    const safeCover = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
+                    const rows = Array.isArray(it.items) ? it.items.slice(0, 5) : [];
+                    const encoded = encodeURIComponent(JSON.stringify(rows));
+                    const playlistId = String(it.playlistId || '').replace(/"/g,'&quot;');
+                    const rowsHtml = rows.length
+                        ? `<div style="display:grid;gap:4px;margin-top:8px">${rows.map((row)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;opacity:.88"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${String(row?.title || 'Track').replace(/</g,'&lt;')}</span><span style="opacity:.7;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${String(row?.by || '').replace(/</g,'&lt;')}</span></div>`).join('')}</div>`
+                        : `<div style="margin-top:8px;font-size:12px;opacity:.75">Playlist card</div>`;
+                    return `<div class="post-media-files-item post-playlist-card" style="border:1px solid var(--border-color);border-radius:10px;padding:10px;background:rgba(255,255,255,.02)">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          ${safeCover ? `<img src="${safeCover}" alt="playlist cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : `<span style="width:40px;height:40px;border-radius:8px;display:grid;place-items:center;background:#1b2230"><i class="fas fa-list-music"></i></span>`}
+                          <div style="min-width:0;flex:1">
+                            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${safeName}</div>
+                            <div style="font-size:12px;opacity:.8">${safeBy ? `by ${safeBy}` : 'Playlist'}</div>
+                          </div>
+                          <button type="button" class="btn btn-secondary post-playlist-play-btn" data-playlist-items="${encoded}" data-playlist-id="${playlistId}" title="Play playlist"><i class="fas fa-play"></i></button>
+                        </div>
+                        ${rowsHtml}
+                    </div>`;
                 }
                 if (it.url){
                     const safeName = String(it.name || 'Open attachment').replace(/</g,'&lt;');
@@ -1887,9 +2107,38 @@ class DashboardManager {
         }catch(_){ return []; }
     }
 
+    normalizePlaylistRows(playlists, ownerUid = ''){
+        const uid = String(ownerUid || this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim();
+        const input = Array.isArray(playlists) ? playlists : [];
+        const map = new Map();
+        input.forEach((pl, idx)=>{
+            if (!pl || typeof pl !== 'object') return;
+            const resolvedId = String(pl.id || '').trim() || `pl_${Date.now()}_${idx}_${Math.random().toString(36).slice(2,6)}`;
+            const visibility = pl.visibility === 'public' ? 'public' : 'private';
+            const row = {
+                ...pl,
+                id: resolvedId,
+                owner: String(pl.owner || pl.ownerId || uid),
+                ownerId: String(pl.ownerId || pl.owner || uid),
+                userId: String(pl.userId || pl.ownerId || pl.owner || uid),
+                authorId: String(pl.authorId || pl.ownerId || pl.owner || uid),
+                visibility,
+                isPublic: visibility === 'public',
+                public: visibility === 'public',
+                privacy: visibility === 'public' ? 'public' : 'private',
+                items: Array.isArray(pl.items) ? pl.items : [],
+                updatedAt: pl.updatedAt || new Date().toISOString(),
+                createdAt: pl.createdAt || new Date().toISOString()
+            };
+            map.set(resolvedId, row);
+        });
+        return Array.from(map.values()).sort((a,b)=> new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    }
+
     savePlaylists(playlists){
-        try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(playlists || [])); }catch(_){ }
-        this._pendingPlaylistSyncRows = Array.isArray(playlists) ? playlists.slice() : [];
+        const normalized = this.normalizePlaylistRows(playlists || []);
+        try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(normalized)); }catch(_){ }
+        this._pendingPlaylistSyncRows = normalized.slice();
         if (this._playlistSyncTimer) clearTimeout(this._playlistSyncTimer);
         this._playlistSyncTimer = setTimeout(()=>{
             const rows = Array.isArray(this._pendingPlaylistSyncRows) ? this._pendingPlaylistSyncRows.slice() : [];
@@ -1902,30 +2151,53 @@ class DashboardManager {
         try{
             const me = await this.resolveCurrentUser();
             if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return this.getPlaylists();
-            const local = this.getPlaylists();
+            const local = this.normalizePlaylistRows(this.getPlaylists(), me.uid);
+            try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(local)); }catch(_){ }
             if (local.length){
                 try{ await this.syncPlaylistsToCloud(local); }catch(_){ }
             }
-            let cloudRows = [];
-            try{
-                const q = firebase.query(
-                    firebase.collection(window.firebaseService.db, 'playlists'),
-                    firebase.where('ownerId','==', me.uid),
-                    firebase.orderBy('updatedAt','desc'),
-                    firebase.limit(200)
-                );
-                const snap = await firebase.getDocs(q);
-                snap.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
-            }catch(_){
-                const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', me.uid));
-                const s2 = await firebase.getDocs(q2);
-                s2.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
+            const readCloudRows = async ()=>{
+                const rows = [];
+                try{
+                    const q = firebase.query(
+                        firebase.collection(window.firebaseService.db, 'playlists'),
+                        firebase.where('ownerId','==', me.uid),
+                        firebase.orderBy('updatedAt','desc'),
+                        firebase.limit(200)
+                    );
+                    const snap = await firebase.getDocs(q);
+                    snap.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }catch(_){
+                    const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('ownerId','==', me.uid));
+                    const s2 = await firebase.getDocs(q2);
+                    s2.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }
+                try{
+                    const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', me.uid));
+                    const s3 = await firebase.getDocs(q3);
+                    s3.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }catch(_){ }
+                try{
+                    const q4 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('userId','==', me.uid));
+                    const s4 = await firebase.getDocs(q4);
+                    s4.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }catch(_){ }
+                try{
+                    const q5 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('authorId','==', me.uid));
+                    const s5 = await firebase.getDocs(q5);
+                    s5.forEach((d)=> rows.push({ id: d.id, ...d.data() }));
+                }catch(_){ }
+                return this.normalizePlaylistRows(rows, me.uid);
+            };
+            let cloudRows = await readCloudRows();
+            if (local.length){
+                const cloudIds = new Set((cloudRows || []).map((x)=> String(x?.id || '').trim()).filter(Boolean));
+                const missingFromCloud = local.filter((x)=> !!x?.id && !cloudIds.has(String(x.id)));
+                if (missingFromCloud.length){
+                    try{ await this.syncPlaylistsToCloud(missingFromCloud); }catch(_){ }
+                    cloudRows = await readCloudRows();
+                }
             }
-            try{
-                const q3 = firebase.query(firebase.collection(window.firebaseService.db, 'playlists'), firebase.where('owner','==', me.uid));
-                const s3 = await firebase.getDocs(q3);
-                s3.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
-            }catch(_){ }
             const map = new Map();
             (local || []).forEach((p)=>{
                 if (!p || !p.id) return;
@@ -1946,13 +2218,16 @@ class DashboardManager {
     async syncPlaylistsToCloud(playlists){
         try{
             const me = await this.resolveCurrentUser();
-            if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
+            const authUid = String(me?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim();
+            if (!authUid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return;
             const now = new Date().toISOString();
-            const safeRows = (playlists || []).map((pl)=> ({
+            const safeRows = this.normalizePlaylistRows(playlists || [], authUid).map((pl)=> ({
                 id: String(pl.id || `pl_${Date.now()}`),
-                owner: String(pl.owner || pl.ownerId || me.uid),
-                ownerId: String(pl.ownerId || me.uid),
-                ownerName: String(pl.ownerName || me.email || ''),
+                owner: String(pl.owner || pl.ownerId || authUid),
+                ownerId: String(pl.ownerId || authUid),
+                ownerName: String(pl.ownerName || me?.email || window.firebaseService?.auth?.currentUser?.email || ''),
+                userId: String(pl.userId || pl.ownerId || pl.owner || authUid),
+                authorId: String(pl.authorId || pl.ownerId || pl.owner || authUid),
                 name: String(pl.name || 'Playlist'),
                 visibility: pl.visibility === 'public' ? 'public' : 'private',
                 isPublic: pl.visibility === 'public',
@@ -1968,7 +2243,9 @@ class DashboardManager {
                 try{
                     const ref = firebase.doc(window.firebaseService.db, 'playlists', row.id);
                     await firebase.setDoc(ref, row, { merge: true });
-                }catch(_){ }
+                }catch(err){
+                    console.warn('Playlist cloud sync failed for row', row.id, err?.code || err?.message || err);
+                }
             }
             // No cross-device delete sweep here: a stale client must not delete newer cloud rows.
         }catch(_){ }
@@ -2570,6 +2847,7 @@ class DashboardManager {
                 if (btn.dataset.boundSaveVisual === '1') return;
                 btn.dataset.boundSaveVisual = '1';
                 btn.addEventListener('click', async ()=>{
+                    if (btn.dataset.saved === '1') return;
                     const media = {
                         kind: String(btn.dataset.kind || ''),
                         url: String(btn.dataset.url || ''),
@@ -2579,7 +2857,54 @@ class DashboardManager {
                         authorId: String(btn.dataset.authorId || '')
                     };
                     const target = String(btn.dataset.saveTarget || 'videos');
-                    await this.saveVisualToLibrary(media, target === 'pictures' ? 'pictures' : 'videos');
+                    const ok = await this.saveVisualToLibrary(media, target === 'pictures' ? 'pictures' : 'videos');
+                    if (!ok) return;
+                    btn.dataset.saved = '1';
+                    btn.innerHTML = `<i class="fas fa-check"></i><span>Saved</span>`;
+                    btn.style.backgroundColor = 'rgba(24,120,62,.86)';
+                    btn.style.borderColor = 'rgba(110,255,162,.55)';
+                    try{
+                        btn.animate(
+                            [
+                                { transform: 'scale(0.92)', opacity: 0.75 },
+                                { transform: 'scale(1.08)', opacity: 1 },
+                                { transform: 'scale(1)', opacity: 1 }
+                            ],
+                            { duration: 320, easing: 'ease-out' }
+                        );
+                    }catch(_){ }
+                });
+            });
+            root.querySelectorAll('.post-playlist-play-btn').forEach((btn)=>{
+                if (btn.dataset.boundPlaylistPlay === '1') return;
+                btn.dataset.boundPlaylistPlay = '1';
+                btn.addEventListener('click', async ()=>{
+                    try{
+                        const fromCard = decodeURIComponent(String(btn.dataset.playlistItems || ''));
+                        let items = [];
+                        try{ items = JSON.parse(fromCard); }catch(_){ items = []; }
+                        if (!Array.isArray(items) || !items.length){
+                            const pid = String(btn.dataset.playlistId || '').trim();
+                            if (pid){
+                                try{
+                                    const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'playlists', pid));
+                                    if (snap.exists()) items = Array.isArray(snap.data()?.items) ? snap.data().items : [];
+                                }catch(_){ }
+                            }
+                        }
+                        const queue = (Array.isArray(items) ? items : [])
+                            .filter((x)=> String(x?.src || '').trim())
+                            .map((x)=> ({
+                                src: String(x.src || ''),
+                                title: String(x.title || 'Track'),
+                                by: String(x.by || ''),
+                                cover: String(x.cover || '')
+                            }));
+                        if (!queue.length){ this.showError('Playlist is empty'); return; }
+                        this._playQueue = queue;
+                        this._playQueueIndex = 0;
+                        this.playQueueIndex(0, { restart: true });
+                    }catch(_){ this.showError('Failed to play playlist'); }
                 });
             });
             root.querySelectorAll('.player-card').forEach(card=>{
@@ -3198,7 +3523,8 @@ class DashboardManager {
                                         name: String(item.name || 'Playlist'),
                                         playlistId: String(item.playlistId || ''),
                                         by: String(item.by || ''),
-                                        cover: String(item.cover || '')
+                                        cover: String(item.cover || ''),
+                                        items: Array.isArray(item.items) ? item.items.slice(0, 120) : []
                                     });
                                     continue;
                                 }
@@ -3748,8 +4074,10 @@ class DashboardManager {
             this.activatePostActions(feed);
             this.subscribeRealtimeFeed(`space-my-posts:${uid}`, ()=>{
                 return firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
-            }, async ()=>{
-                if (this.currentSection === 'space') await this.loadMyPosts(uid);
+            }, async (payload)=>{
+                if (this.currentSection !== 'space') return;
+                const ok = await this.applyRealtimePostChanges(feed, payload, { includeVisibility: true });
+                if (!ok) await this.loadMyPosts(uid);
             });
         }catch(_){ }
     }
@@ -4108,8 +4436,10 @@ class DashboardManager {
             this.activatePlayers(feedEl);
             this.subscribeRealtimeFeed('feed-global-public', ()=>{
                 return firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('visibility','==','public'));
-            }, async ()=>{
-                if (this.currentSection === 'feed') await this.loadGlobalFeed(this._wallSearchTerm || term || '');
+            }, async (payload)=>{
+                if (this.currentSection !== 'feed') return;
+                const ok = await this.applyRealtimePostChanges(feedEl, payload, { searchTerm: this._wallSearchTerm || term || '' });
+                if (!ok) await this.loadGlobalFeed(this._wallSearchTerm || term || '');
             });
         }catch(_){ }
     }
@@ -4360,8 +4690,10 @@ class DashboardManager {
                     firebase.where('authorId','==', uid),
                     firebase.where('visibility','==','public')
                 );
-            }, async ()=>{
-                if (this.currentSection === 'space') await this.loadFeed(uid, titleName);
+            }, async (payload)=>{
+                if (this.currentSection !== 'space') return;
+                const ok = await this.applyRealtimePostChanges(feed, payload, { displayName: titleName || '' });
+                if (!ok) await this.loadFeed(uid, titleName);
             });
             this.renderSpacePlaylists(uid, true);
         }catch(e){ /* ignore */ }
@@ -4449,8 +4781,10 @@ class DashboardManager {
                         firebase.where('authorId','==', uid),
                         firebase.where('visibility','==','public')
                     );
-                }, async ()=>{
-                    if (this.currentSection === 'space') await this.openUserSpace(uid, displayName);
+                }, async (payload)=>{
+                    if (this.currentSection !== 'space') return;
+                    const ok = await this.applyRealtimePostChanges(feed, payload, { displayName: displayName || '' });
+                    if (!ok) await this.openUserSpace(uid, displayName);
                 });
                 this.renderSpacePlaylists(uid, true);
             }catch(_){ }
@@ -4857,6 +5191,44 @@ class DashboardManager {
         }catch(_){ this.showError('Failed to add to library'); return false; }
     }
 
+    async removeVisualFromLibrary(kind, url, ownerUid = ''){
+        try{
+            const me = await this.resolveCurrentUser();
+            const uid = String(ownerUid || me?.uid || '').trim();
+            const href = String(url || '').trim();
+            const targetKind = String(kind || '').toLowerCase() === 'image' ? 'image' : 'video';
+            if (!uid || !href) return false;
+            let rows = [];
+            try{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'videos'),
+                    firebase.where('owner', '==', uid),
+                    firebase.where('url', '==', href),
+                    firebase.limit(50)
+                );
+                const s = await firebase.getDocs(q);
+                s.forEach((d)=> rows.push({ id: d.id, ...(d.data() || {}) }));
+            }catch(_){
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'videos'), firebase.where('owner', '==', uid));
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=>{
+                    const v = d.data() || {};
+                    if (String(v.url || '').trim() === href) rows.push({ id: d.id, ...v });
+                });
+            }
+            let removed = 0;
+            for (const v of rows){
+                const rk = this.resolveVisualKind(v);
+                if (rk !== targetKind) continue;
+                try{
+                    await firebase.deleteDoc(firebase.doc(window.firebaseService.db, 'videos', String(v.id || '').trim()));
+                    removed += 1;
+                }catch(_){ }
+            }
+            return removed > 0;
+        }catch(_){ return false; }
+    }
+
     resolveVisualKind(item){
         const src = String(item?.sourceMediaType || '').toLowerCase().trim();
         if (src === 'image' || src === 'video') return src;
@@ -4984,8 +5356,9 @@ class DashboardManager {
         const byline = w.authorName
           ? `<button type="button" class="audio-byline" data-user-preview="${String(w.authorId || '').replace(/"/g,'&quot;')}" style="font-size:12px;color:#aaa;background:none;border:none;padding:0;text-align:left;cursor:pointer">by ${(w.authorName||'').replace(/</g,'&lt;')}</button>`
           : '';
-        const removeBtnHtml = allowRemove ? `<button class="btn btn-secondary remove-btn" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-secondary asset-like-btn" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="btn btn-secondary asset-share-chat-btn" title="Share to chat"><i class="fas fa-comments"></i></button><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+        const iconBtn = 'background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.92;color:#d6deeb';
+        const removeBtnHtml = allowRemove ? `<button class="remove-btn" style="${iconBtn}" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6837,16 +7210,33 @@ Do you want to proceed?`);
       // Public playlists section.
       const playlistsEl = overlay.querySelector('#preview-playlists');
       try{
-        let rows = await this.fetchPublicPlaylistsForUser(uid, 10);
-        if (!rows.length){
-          playlistsEl.innerHTML = '<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">No public playlists.</div>';
+        let rows = [];
+        if (isSelfPreview){
+          const mine = await this.hydratePlaylistsFromCloud();
+          rows = (mine || [])
+            .filter((pl)=>{
+              const ownerId = String(pl?.ownerId || pl?.owner || pl?.userId || pl?.authorId || '').trim();
+              return ownerId === String(uid || '').trim();
+            })
+            .sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0))
+            .slice(0, 20);
         } else {
-          playlistsEl.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4>${rows.map((pl)=> `<div class="post-item" data-pl-id="${pl.id}" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75">${Array.isArray(pl.items) ? pl.items.length : 0} tracks</div></div><button class="btn btn-secondary" data-add-pl="${pl.id}">Add</button></div>`).join('')}`;
+          rows = await this.fetchPublicPlaylistsForUser(uid, 20);
+        }
+        if (!rows.length){
+          playlistsEl.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4><div style="opacity:.8">${isSelfPreview ? 'No playlists yet.' : 'No public playlists.'}</div>`;
+        } else {
+          playlistsEl.innerHTML = `<h4 style="margin:4px 0 8px">Playlists</h4>${rows.map((pl)=> { const vis = String(pl.visibility||'private').toLowerCase()==='public'?'public':'private'; return `<div class="post-item" data-pl-id="${pl.id}" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(pl.name || 'Playlist').replace(/</g,'&lt;')}</div><div style="font-size:11px;opacity:.75">${Array.isArray(pl.items) ? pl.items.length : 0} tracks${isSelfPreview ? ` · ${vis}` : ''}</div></div><button class="btn btn-secondary" data-add-pl="${pl.id}">${isSelfPreview ? 'Open' : 'Add'}</button></div>`; }).join('')}`;
           playlistsEl.querySelectorAll('[data-add-pl]').forEach((btn)=>{
             btn.onclick = async ()=>{
               const plId = String(btn.getAttribute('data-add-pl') || '').trim();
               if (!plId) return;
               try{
+                if (isSelfPreview){
+                  await this.renderPlaylists();
+                  this.showSuccess('Playlists refreshed in WaveConnect');
+                  return;
+                }
                 const mine = await this.hydratePlaylistsFromCloud();
                 const exists = mine.some((x)=> String(x.id||'') === plId || String(x.sourcePlaylistId||'') === plId);
                 if (exists){
@@ -6941,13 +7331,25 @@ Do you want to proceed?`);
           const btn = document.createElement('button');
           btn.className = `preview-add-my-btn${isSaved ? ' saved' : ''}`;
           btn.textContent = isSaved ? 'Saved' : '+';
-          btn.title = isSaved ? 'Already saved' : 'Add to my library';
+          btn.title = isSaved ? 'Remove from my library' : 'Add to my library';
           btn.onclick = async (e)=>{
             e.preventDefault();
             e.stopPropagation();
             const url = String(v?.url || '').trim();
             if (!url) return;
-            if (targetSet.has(url)) return;
+            if (targetSet.has(url)){
+              const removed = await this.removeVisualFromLibrary(kind, url, me.uid);
+              if (!removed){ this.showError('Failed to remove from library'); return; }
+              targetSet.delete(url);
+              btn.classList.remove('saved');
+              btn.textContent = '+';
+              btn.title = 'Add to my library';
+              btn.animate(
+                [{ transform:'scale(0.95)', opacity:0.75 }, { transform:'scale(1.06)', opacity:1 }, { transform:'scale(1)', opacity:1 }],
+                { duration: 260, easing: 'ease-out' }
+              );
+              return;
+            }
             const ok = await this.saveVisualToLibrary({
               kind,
               url,
@@ -6960,8 +7362,9 @@ Do you want to proceed?`);
             targetSet.add(url);
             btn.classList.add('saved');
             btn.textContent = 'Saved';
+            btn.title = 'Remove from my library';
             btn.animate(
-              [{ transform:'translate(-50%,-50%) scale(0.9)', opacity:0.7 }, { transform:'translate(-50%,-50%) scale(1.08)', opacity:1 }, { transform:'translate(-50%,-50%) scale(1)', opacity:1 }],
+              [{ transform:'scale(0.95)', opacity:0.7 }, { transform:'scale(1.08)', opacity:1 }, { transform:'scale(1)', opacity:1 }],
               { duration: 320, easing: 'ease-out' }
             );
           };

@@ -3546,21 +3546,79 @@
       });
     }
 
-    openShareMessageSheet(payload){
+    async openShareMessageSheet(payload){
       const existing = document.getElementById('msg-share-sheet');
       const existingBackdrop = document.getElementById('msg-share-backdrop');
       if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); }
-      const targets = (this.connections || []).filter((c)=> c && c.id && c.id !== this.activeConnection);
-      const seenShareTargetKeys = new Set();
-      const dedupedTargets = [];
-      targets.forEach((c)=>{
-        const participants = this.getConnParticipants(c).filter((uid)=> uid && uid !== this.currentUser.uid).sort();
-        const key = participants.length ? participants.join('|') : `id:${c.id}`;
-        if (seenShareTargetKeys.has(key)) return;
-        seenShareTargetKeys.add(key);
-        dedupedTargets.push(c);
+      const rawTargets = (this.connections || []).filter((c)=> c && c.id && c.id !== this.activeConnection);
+      const targetMap = new Map();
+      rawTargets.forEach((c)=>{
+        if (!c || !c.id) return;
+        if (c.archived === true || String(c.mergedInto || '').trim()) return;
+        const parts = this.getConnParticipants(c).filter(Boolean);
+        const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
+        const key = isGroup ? `group:${c.id}` : `dm:${parts.slice().sort().join('|') || c.id}`;
+        const prev = targetMap.get(key);
+        if (!prev){
+          targetMap.set(key, c);
+          return;
+        }
+        const prevTs = Number(new Date(prev.updatedAt || 0).getTime() || 0);
+        const curTs = Number(new Date(c.updatedAt || 0).getTime() || 0);
+        const prevArchived = prev.archived === true || !!String(prev.mergedInto || '').trim();
+        const curArchived = c.archived === true || !!String(c.mergedInto || '').trim();
+        if (prevArchived && !curArchived){ targetMap.set(key, c); return; }
+        if (curArchived && !prevArchived) return;
+        if (curTs >= prevTs) targetMap.set(key, c);
       });
+      const dedupedTargets = Array.from(targetMap.values())
+        .sort((a,b)=> Number(new Date(b.updatedAt || 0).getTime() || 0) - Number(new Date(a.updatedAt || 0).getTime() || 0));
       if (!dedupedTargets.length){ alert('No other chats to share into yet'); return; }
+
+      const targetMetaById = new Map();
+      const resolveMeta = async (c)=>{
+        try{
+          const conn = c || {};
+          const parts = this.getConnParticipants(conn).filter(Boolean);
+          const isGroup = parts.length > 2 || !!String(conn.groupName || '').trim() || !!String(conn.groupCoverUrl || '').trim();
+          if (isGroup){
+            const title = String(conn.groupName || this.getConnectionDisplayName(conn) || 'Group chat').trim();
+            const cover = String(conn.groupCoverUrl || '../../images/default-bird.png').trim() || '../../images/default-bird.png';
+            return { title, subtitle: 'Group chat', cover };
+          }
+          const peerUid = parts.find((uid)=> uid && uid !== this.currentUser.uid) || '';
+          let title = String(this.getConnectionDisplayName(conn) || 'Chat').trim();
+          let cover = '../../images/default-bird.png';
+          if (peerUid){
+            const cachedAvatar = this._avatarCache.get(peerUid);
+            if (cachedAvatar) cover = String(cachedAvatar || cover);
+            const cached = this.usernameCache.get(peerUid);
+            if (cached && typeof cached === 'object'){
+              if (cached.username) title = String(cached.username);
+              if (cached.avatarUrl) cover = String(cached.avatarUrl);
+            }else if (typeof cached === 'string' && cached.trim()){
+              title = cached.trim();
+            }
+            try{
+              const u = await window.firebaseService.getUserData(peerUid);
+              if (u){
+                const uname = String(u.username || u.email || title || 'Chat').trim();
+                const avatar = String(u.avatarUrl || cover || '../../images/default-bird.png').trim() || '../../images/default-bird.png';
+                title = uname;
+                cover = avatar;
+                this.usernameCache.set(peerUid, { username: uname, avatarUrl: avatar });
+                this._avatarCache.set(peerUid, avatar);
+              }
+            }catch(_){ }
+          }
+          return { title, subtitle: 'Direct chat', cover };
+        }catch(_){
+          return { title: 'Chat', subtitle: '', cover: '../../images/default-bird.png' };
+        }
+      };
+      await Promise.all(dedupedTargets.map(async (c)=>{
+        targetMetaById.set(c.id, await resolveMeta(c));
+      }));
 
       const backdrop = document.createElement('div');
       backdrop.id = 'msg-share-backdrop';
@@ -3576,12 +3634,17 @@
         const q = String(term || '').trim().toLowerCase();
         list.innerHTML = '';
         dedupedTargets
-          .filter((c)=> this.getConnectionDisplayName(c).toLowerCase().includes(q))
+          .filter((c)=>{
+            const m = targetMetaById.get(c.id) || {};
+            const hay = `${String(m.title || this.getConnectionDisplayName(c) || '')} ${String(m.subtitle || '')}`.toLowerCase();
+            return hay.includes(q);
+          })
           .forEach((c)=>{
+            const meta = targetMetaById.get(c.id) || { title: this.getConnectionDisplayName(c), subtitle: '', cover: '../../images/default-bird.png' };
             const row = document.createElement('button');
             row.className = 'btn secondary';
-            row.style.cssText = 'display:block;width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-            row.textContent = this.getConnectionDisplayName(c);
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;margin-bottom:6px;padding:8px 10px;border-radius:10px';
+            row.innerHTML = `<img src="${String(meta.cover || '../../images/default-bird.png').replace(/"/g,'&quot;')}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;flex:0 0 auto"><span style="min-width:0;display:flex;flex-direction:column"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(meta.title || 'Chat').replace(/</g,'&lt;')}</span><span style="opacity:.72;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(meta.subtitle || '').replace(/</g,'&lt;')}</span></span>`;
             row.onclick = async ()=>{
               const can = await this.canSendToConnection(c.id);
               if (!can.ok){ alert(can.reason || 'Cannot share into this chat'); return; }
