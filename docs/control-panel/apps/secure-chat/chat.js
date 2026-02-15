@@ -5867,8 +5867,9 @@
           }catch(_){}
         }
         let payload;
+        const isRec = this.isVideoRecordingMessage(message, fileName) || this.isVoiceRecordingMessage(message, fileName);
         const storagePathMatch = /\/o\/([^?#]+)/i.exec(String(fileUrl || ''));
-        if (this.storage && firebase.getBlob && storagePathMatch && storagePathMatch[1]) {
+        if (!isRec && this.storage && firebase.getBlob && storagePathMatch?.[1]) {
           try {
             const pathDecoded = decodeURIComponent(storagePathMatch[1]);
             const sref = firebase.ref(this.storage, pathDecoded);
@@ -5882,7 +5883,9 @@
           if (!res.ok) throw new Error('attachment-fetch-failed');
           const raw = await res.text();
           try{ payload = raw ? JSON.parse(raw) : null; }
-          catch(e){ if (raw?.length > 1000) (window.top?.console||console).warn('[VIDEO] fetch JSON parse fail', e?.message, 'len='+raw?.length); payload = raw; }
+          catch(e){
+            if (raw?.length > 100) (window.top?.console||console).warn('[VIDEO] fetch JSON parse fail', e?.message, 'len='+raw?.length, 'preview='+String(raw).slice(0,80));
+          }
         }
         const payloadCands = this.extractEncryptedPayloadCandidates(payload || {});
         let found = payload && typeof payload.iv === 'string' && typeof payload.data === 'string' ? payload : null;
@@ -5925,9 +5928,13 @@
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
         const cryptoMod = window.chatCrypto || (typeof chatCrypto !== 'undefined' ? chatCrypto : null);
-        if (!b64 && aesKey) {
+        if (!b64 && aesKey && payload?.iv && payload?.data) {
+          const dLen = payload.data?.length || 0;
+          if ((isVideoRecording || isVoiceRecording) && dLen < 1000) {
+            (window.top?.console||console).warn('[VIDEO] payload truncated?', fileName, 'dataLen='+dLen, 'expected large for recording');
+          }
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (e) {
-            if (payload?.data && (isVideoRecording || isVoiceRecording)) (window.top?.console||console).warn('[VIDEO] first decrypt fail', fileName, e?.name, e?.message, 'dataLen='+(payload?.data?.length||0));
+            if ((isVideoRecording || isVoiceRecording)) (window.top?.console||console).warn('[VIDEO] decrypt fail', fileName, e?.name, e?.message, 'dataLen='+dLen);
           }
         }
         if (!b64 && hintSalt && cryptoMod) {
