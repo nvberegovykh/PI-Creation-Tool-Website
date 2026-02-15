@@ -3663,9 +3663,10 @@
           };
           refreshPostCounters();
           if (firebase && typeof firebase.onSnapshot === 'function'){
-            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'likes'), ()=> refreshPostCounters()); }catch(_){ }
-            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'comments'), ()=> refreshPostCounters()); }catch(_){ }
-            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'reposts'), ()=> refreshPostCounters()); }catch(_){ }
+            const onErr = ()=>{};
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'likes'), ()=> refreshPostCounters(), onErr); }catch(_){ }
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'comments'), ()=> refreshPostCounters(), onErr); }catch(_){ }
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'reposts'), ()=> refreshPostCounters(), onErr); }catch(_){ }
           }
           if (likeBtn) likeBtn.onclick = async ()=>{ try{ const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim(); if (!uid) return; const ref = firebase.doc(this.db,'posts',postId,'likes', uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')); if (likeCnt) likeCnt.textContent = String(n.size||0); }catch(_){ } };
           if (repBtn) repBtn.onclick = async ()=>{ try{ const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim(); if (!uid) return; const ref = firebase.doc(this.db,'posts',postId,'reposts', uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')); if (repCnt) repCnt.textContent = String(n.size||0); }catch(_){ } };
@@ -3705,8 +3706,9 @@
           }, 6000);
         }catch(_){ }
         if (firebase && typeof firebase.onSnapshot === 'function'){
+          const onErr = ()=>{};
           keys.forEach((key)=>{
-            try{ firebase.onSnapshot(firebase.collection(this.db,'assetLikes',key,'likes'), ()=> refreshAssetLikeCount()); }catch(_){ }
+            try{ firebase.onSnapshot(firebase.collection(this.db,'assetLikes',key,'likes'), ()=> refreshAssetLikeCount(), onErr); }catch(_){ }
           });
         }
         if (likeBtn){
@@ -4183,7 +4185,7 @@
           const data = snap.exists() ? (snap.data() || {}) : {};
           this._typingByUid = (data && data.typing && typeof data.typing === 'object') ? data.typing : {};
           this.renderTypingIndicator();
-        });
+        }, ()=>{});
         this._typingTicker = setInterval(()=> this.renderTypingIndicator(), 1500);
       }catch(_){ }
     }
@@ -5781,7 +5783,25 @@
         if (!b64) {
           let decrypted = false;
           // For recordings: attachmentKeySalt was stored at send time — try it first before generic aesKey fallbacks.
-          const saltsToTryFirst = (isVideoRecording || isVoiceRecording) ? [hintSalt, urlConnId].filter(Boolean) : [];
+          let saltsToTryFirst = (isVideoRecording || isVoiceRecording) ? [hintSalt, urlConnId].filter(Boolean) : [];
+          if (isVideoRecording || isVoiceRecording) {
+            const connIdsForKey = [sourceConnId, message?.attachmentSourceConnId, message?.connId, urlConnId, this.activeConnection].filter(Boolean);
+            const seenKeys = new Set(saltsToTryFirst);
+            for (const cid of connIdsForKey) {
+              const row = (this.connections || []).find((c)=> c && c.id === cid);
+              let connKey = String(row?.key || '').trim() || (row ? this.computeConnKey(this.getConnParticipants(row)) : '');
+              if (!connKey && cid) {
+                try {
+                  const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', cid));
+                  if (snap.exists()) {
+                    const d = snap.data() || {};
+                    connKey = String(d.key || '').trim() || this.computeConnKey(this.getConnParticipants(d));
+                  }
+                }catch(_){}
+              }
+              if (connKey && !seenKeys.has(connKey)){ seenKeys.add(connKey); saltsToTryFirst.push(connKey); }
+            }
+          }
           for (const salt of saltsToTryFirst) {
             if (decrypted) break;
             try {
@@ -6508,6 +6528,7 @@
     if (this._roomUnsub) this._roomUnsub();
     if (this._peersUnsub) this._peersUnsub();
     const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    const onSnapErr = ()=>{};
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
       // Only auto-join when a call is active and I'm NOT the initiator of this active call
@@ -6522,13 +6543,13 @@
       await this.updateRoomUI();
       const status = document.getElementById('call-status');
       if (status) status.textContent = activeCid ? 'In call' : 'Room open. Waiting for speech to start call...';
-    });
+    }, onSnapErr);
     const peersRef = firebase.collection(this.db,'callRooms', this.activeConnection, 'peers');
     this._peersUnsub = firebase.onSnapshot(peersRef, snap => {
       this._peersPresence = {};
       snap.forEach(d => this._peersPresence[d.id] = d.data());
       this.updateRoomUI();
-    });
+    }, onSnapErr);
     await this.updatePresence('idle', false);
     // Start silence monitor if no call active
     if (this._roomState.status === 'idle') {
