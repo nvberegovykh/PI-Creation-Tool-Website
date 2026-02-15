@@ -710,7 +710,21 @@
         row.onclick = async ()=>{
           panel.remove();
           backdrop.remove();
-          await this.saveMessage({ text: '[file]', fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+          const targetConnId = this.activeConnection;
+          if (!targetConnId) return;
+          const sourceConnId = this.extractConnIdFromAttachmentUrl(a.fileUrl) || targetConnId;
+          const salts = await this.getConnSaltForConn(sourceConnId);
+          const isVideo = this.isVideoFilename(a.fileName || '');
+          const isVoice = this.isAudioFilename(a.fileName || '');
+          const text = isVideo ? '[video message]' : isVoice ? '[voice message]' : '[file]';
+          await this.saveMessage({
+            text,
+            fileUrl: a.fileUrl,
+            fileName: a.fileName || 'file',
+            attachmentSourceConnId: sourceConnId,
+            attachmentKeySalt: String(salts?.stableSalt || sourceConnId || ''),
+            isVideoRecording: isVideo
+          });
         };
         return row;
       };
@@ -743,7 +757,20 @@
         tile.onclick = async ()=>{
           panel.remove();
           backdrop.remove();
-          await this.saveMessage({ text: '[file]', fileUrl: a.fileUrl, fileName: a.fileName || 'file' });
+          const targetConnId = this.activeConnection;
+          if (!targetConnId) return;
+          const sourceConnId = this.extractConnIdFromAttachmentUrl(a.fileUrl) || targetConnId;
+          const salts = await this.getConnSaltForConn(sourceConnId);
+          const isVideo = type === 'video';
+          const text = isVideo ? '[video message]' : (type === 'audio' ? '[voice message]' : '[file]');
+          await this.saveMessage({
+            text,
+            fileUrl: a.fileUrl,
+            fileName: a.fileName || 'file',
+            attachmentSourceConnId: sourceConnId,
+            attachmentKeySalt: String(salts?.stableSalt || sourceConnId || ''),
+            isVideoRecording: isVideo
+          });
         };
         return tile;
       };
@@ -3859,6 +3886,7 @@
       })();
       const originalAuthorUid = String(src.sharedOriginalAuthorUid || src.sender || '').trim() || null;
       const originalAuthorName = String(src.sharedOriginalAuthorName || sourceSenderName || '').trim() || null;
+      const isVideoRecording = !!(sourceMessage?.isVideoRecording === true || (fileUrl && this.isVideoFilename(inferredName)));
       return {
         text: nextText,
         fileUrl: fileUrl || null,
@@ -3866,6 +3894,7 @@
         sharedAsset: derivedSharedAsset,
         attachmentSourceConnId: sourceConnId || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
+        isVideoRecording,
         isShared: true,
         sharedFromConnId: String(sourceConnId || '').trim() || null,
         sharedFromMessageId: String(src.id || '').trim() || null,
@@ -3918,7 +3947,7 @@
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, attachmentSourceConnId, attachmentKeySalt, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
@@ -3933,6 +3962,7 @@
         sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
         attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
+        isVideoRecording: isVideoRecording === true,
         isShared: !!isShared,
         sharedFromConnId: String(sharedFromConnId || '').trim() || null,
         sharedFromMessageId: String(sharedFromMessageId || '').trim() || null,
@@ -4283,13 +4313,16 @@
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
           console.log('File upload completed');
+          const isVideo = this.isVideoFilename(f.name);
+          const text = isVideo ? '[video message]' : (this.isAudioFilename(f.name) ? '[voice message]' : `[file] ${f.name}`);
           await this.saveMessage({
-            text:`[file] ${f.name}`,
+            text,
             fileUrl:url,
             fileName:f.name,
             connId: targetConnId,
             attachmentSourceConnId: targetConnId,
-            attachmentKeySalt: String(salts?.stableSalt || targetConnId || '')
+            attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
+            isVideoRecording: isVideo
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
           result.sentCount += 1;
