@@ -304,20 +304,20 @@
     getDeliveryLabel(msg){
       try{
         if (!msg || msg.sender !== this.currentUser?.uid) return '';
+        const msgTs = this.getMessageTimestampMs(msg);
+        if (!msgTs) return 'Sent';
+        // "Read" only when recipient actually saw the message – use peer's readBy, not ours.
         const readBy = (this._activeConnReadBy && typeof this._activeConnReadBy === 'object')
           ? this._activeConnReadBy
           : (msg.readBy && typeof msg.readBy === 'object' ? msg.readBy : null);
         if (readBy){
           const peers = Object.entries(readBy).filter(([uid])=> uid && uid !== this.currentUser.uid);
-          const hasPeerRead = peers.some(([,ts])=> this.toTimestampMs(ts) > 0);
-          if (hasPeerRead) return 'Read';
+          const peerReadPast = peers.some(([,ts])=> this.toTimestampMs(ts) >= msgTs);
+          if (peerReadPast) return 'Read';
         }
-        // If the peer already sent a later message, they obviously saw earlier ones.
-        const msgTs = this.getMessageTimestampMs(msg);
-        const connReadMs = this.getEffectiveReadMarkerForConn(String(this.activeConnection || ''));
-        if (connReadMs > 0 && msgTs > 0 && connReadMs >= msgTs) return 'Read';
+        // If peer sent a later message, they had the chat open – treat as seen.
         const latestPeerMs = Number(this._latestPeerMessageMsByConn.get(String(this.activeConnection || '')) || 0) || 0;
-        if (latestPeerMs > 0 && msgTs > 0 && latestPeerMs >= msgTs) return 'Read';
+        if (latestPeerMs >= msgTs) return 'Read';
         return 'Sent';
       }catch(_){ return ''; }
     }
@@ -2354,7 +2354,9 @@
       // Drop stale heavy preview tasks from previous chat to keep switching stable.
       this._attachmentPreviewQueue = [];
       this._lastLoadedConnId = this.activeConnection || '';
-      this._msgVisibleLimitByConn.set(this.activeConnection, 50);
+      if (!this._msgVisibleLimitByConn.has(this.activeConnection)){
+        this._msgVisibleLimitByConn.set(this.activeConnection, 50);
+      }
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Never block switching on metadata fetch; render immediately from cached connection data.
       let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
@@ -2496,7 +2498,9 @@
       }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
-        this._msgVisibleLimitByConn.set(activeConnId, pageSize);
+        if (!this._msgVisibleLimitByConn.has(activeConnId)){
+          this._msgVisibleLimitByConn.set(activeConnId, pageSize);
+        }
       }
       const visibleLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize);
       const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
@@ -3470,14 +3474,15 @@
           const postId = String(a.postId || p.id || '').trim();
           const author = this.renderText(String(p.authorName || a.by || 'User'));
           const created = this.renderText(String(this.formatMessageTime(p.createdAt || Date.now(), p) || ''));
-          let text = String(p.text || '').trim();
+          let text = String(p.text || a.title || '').trim();
           try{
             if (window.dashboardManager && typeof window.dashboardManager.getPostDisplayText === 'function'){
               const t = String(window.dashboardManager.getPostDisplayText(p) || '').trim();
               if (t) text = t;
             }
           }catch(_){ }
-          const textHtml = text ? `<div class="shared-post-text post-text" style="margin-top:8px">${this.renderText(text)}</div>` : `<div class="shared-post-text post-text" style="display:none"></div>`;
+          if (!text) text = 'Shared post';
+          const textHtml = `<div class="shared-post-text post-text" style="margin-top:8px">${this.renderText(text)}</div>`;
           const mediaHtml = this.renderSharedPostMediaHtml(p);
           return `<div class="shared-asset-card post-item" data-shared-kind="post" data-shared-post-id="${this.renderText(postId)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520"><div class="byline post-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0"><span style="font-size:12px;color:#aaa">${author}</span><span style="font-size:11px;opacity:.74">${created}</span></div><div class="shared-post-media post-media-block">${mediaHtml}</div>${textHtml}<div class="post-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
         }
@@ -3552,13 +3557,9 @@
         if (mediaHost) mediaHost.innerHTML = mediaHtml;
         const textHost = card.querySelector('.shared-post-text');
         if (textHost){
-          if (text){
-            textHost.style.display = '';
-            textHost.innerHTML = this.renderText(text);
-          }else{
-            textHost.style.display = 'none';
-            textHost.innerHTML = '';
-          }
+          const nextText = String(text || 'Shared post').trim() || 'Shared post';
+          textHost.style.display = '';
+          textHost.innerHTML = this.renderText(nextText);
         }
       }catch(_){ }
     }
@@ -3598,9 +3599,9 @@
             try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'comments'), ()=> refreshPostCounters()); }catch(_){ }
             try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'reposts'), ()=> refreshPostCounters()); }catch(_){ }
           }
-          if (likeBtn) likeBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'likes', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')); if (likeCnt) likeCnt.textContent = String(n.size||0); }catch(_){ } };
-          if (repBtn) repBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'reposts', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')); if (repCnt) repCnt.textContent = String(n.size||0); }catch(_){ } };
-          if (comBtn) comBtn.onclick = async ()=>{ try{ const text = prompt('Comment'); if (text === null) return; const t = String(text || '').trim(); if (!t) return; const ref = firebase.doc(firebase.collection(this.db,'posts',postId,'comments')); await firebase.setDoc(ref,{id:ref.id,uid:this.currentUser.uid,text:t,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')); if (comCnt) comCnt.textContent = String(n.size||0); }catch(_){ } };
+          if (likeBtn) likeBtn.onclick = async ()=>{ try{ const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim(); if (!uid) return; const ref = firebase.doc(this.db,'posts',postId,'likes', uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')); if (likeCnt) likeCnt.textContent = String(n.size||0); }catch(_){ } };
+          if (repBtn) repBtn.onclick = async ()=>{ try{ const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim(); if (!uid) return; const ref = firebase.doc(this.db,'posts',postId,'reposts', uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')); if (repCnt) repCnt.textContent = String(n.size||0); }catch(_){ } };
+          if (comBtn) comBtn.onclick = async ()=>{ try{ const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim(); if (!uid) return; const text = prompt('Comment'); if (text === null) return; const t = String(text || '').trim(); if (!t) return; const ref = firebase.doc(firebase.collection(this.db,'posts',postId,'comments')); await firebase.setDoc(ref,{id:ref.id,uid,text:t,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')); if (comCnt) comCnt.textContent = String(n.size||0); }catch(_){ } };
           return;
         }
         const url = String(a.url || '').trim();
@@ -3643,16 +3644,18 @@
         if (likeBtn){
           likeBtn.onclick = async ()=>{
             try{
+              const uid = String(this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim();
+              if (!uid) return;
               const refs = [];
               for (const key of keys){
                 try{
                   if (!key || String(key).length > 1200) continue;
-                  refs.push(firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid));
+                  refs.push(firebase.doc(this.db,'assetLikes',key,'likes', uid));
                 }catch(_){ }
               }
               if (!refs.length){
                 if (primaryKey){
-                  try{ refs.push(firebase.doc(this.db,'assetLikes',primaryKey,'likes', this.currentUser.uid)); }catch(_){ }
+                  try{ refs.push(firebase.doc(this.db,'assetLikes',primaryKey,'likes', uid)); }catch(_){ }
                 }
               }
               let hasLike = false;
@@ -3667,8 +3670,8 @@
                 const writeKeys = Array.from(new Set([primaryKey, ...keys].filter(Boolean)));
                 for (const key of writeKeys){
                   try{
-                    const ref = firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid);
-                    await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
+                    const ref = firebase.doc(this.db,'assetLikes',key,'likes', uid);
+                    await firebase.setDoc(ref,{uid,kind,url,createdAt:new Date().toISOString()});
                     wrote = true;
                     break;
                   }catch(_){ }
@@ -6105,6 +6108,17 @@
 
     normalizeBinaryPayloadString(value){
       try{
+        if (value instanceof Uint8Array){
+          let bin = '';
+          for (let i = 0; i < value.length; i++) bin += String.fromCharCode(value[i]);
+          return btoa(bin);
+        }
+        if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer){
+          const u8 = new Uint8Array(value);
+          let bin = '';
+          for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+          return btoa(bin);
+        }
         if (typeof value === 'string'){
           const raw = String(value || '').trim();
           if (!raw) return '';

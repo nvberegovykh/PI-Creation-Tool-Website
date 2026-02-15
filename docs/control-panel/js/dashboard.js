@@ -1470,9 +1470,9 @@ class DashboardManager {
 
     inferMediaKindFromUrl(url){
         const href = String(url || '');
-        let pathOnly = href;
-        try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
-        const lower = pathOnly.toLowerCase();
+            let pathOnly = href;
+            try{ pathOnly = new URL(href).pathname; }catch(_){ pathOnly = href.split('?')[0].split('#')[0]; }
+            const lower = pathOnly.toLowerCase();
         if (['.png','.jpg','.jpeg','.gif','.webp','.avif'].some((ext)=> lower.endsWith(ext))) return 'image';
         if (['.mp4','.webm','.mov','.mkv'].some((ext)=> lower.endsWith(ext))) return 'video';
         if (['.mp3','.wav','.m4a','.aac','.ogg','.oga','.weba'].some((ext)=> lower.endsWith(ext))) return 'audio';
@@ -2777,38 +2777,38 @@ class DashboardManager {
                 };
             });
             if (canEditItems){
-                list.querySelectorAll('[data-remove]').forEach((btn)=>{
-                    btn.onclick = ()=>{
-                        const tid = btn.getAttribute('data-remove');
+            list.querySelectorAll('[data-remove]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-remove');
                         plRaw.items = (plRaw.items || []).filter((x)=> x.id !== tid);
                         this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
-                        this.renderPlaylists();
-                    };
-                });
-                list.querySelectorAll('[data-up]').forEach((btn)=>{
-                    btn.onclick = ()=>{
-                        const tid = btn.getAttribute('data-up');
+                    this.renderPlaylists();
+                };
+            });
+            list.querySelectorAll('[data-up]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-up');
                         const arr = plRaw.items || [];
-                        const i = arr.findIndex((x)=> x.id === tid);
-                        if (i <= 0) return;
-                        [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
+                    const i = arr.findIndex((x)=> x.id === tid);
+                    if (i <= 0) return;
+                    [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
                         plRaw.items = arr;
                         this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
-                        this.renderPlaylists();
-                    };
-                });
-                list.querySelectorAll('[data-down]').forEach((btn)=>{
-                    btn.onclick = ()=>{
-                        const tid = btn.getAttribute('data-down');
+                    this.renderPlaylists();
+                };
+            });
+            list.querySelectorAll('[data-down]').forEach((btn)=>{
+                btn.onclick = ()=>{
+                    const tid = btn.getAttribute('data-down');
                         const arr = plRaw.items || [];
-                        const i = arr.findIndex((x)=> x.id === tid);
-                        if (i < 0 || i >= arr.length - 1) return;
-                        [arr[i+1], arr[i]] = [arr[i], arr[i+1]];
+                    const i = arr.findIndex((x)=> x.id === tid);
+                    if (i < 0 || i >= arr.length - 1) return;
+                    [arr[i+1], arr[i]] = [arr[i], arr[i+1]];
                         plRaw.items = arr;
                         this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
-                        this.renderPlaylists();
-                    };
-                });
+                    this.renderPlaylists();
+                };
+            });
             }
             const privacyBtn = wrap.querySelector('[data-privacy]');
             if (privacyBtn){
@@ -2848,23 +2848,23 @@ class DashboardManager {
             }
 
             if (canEditItems){
-                let dragSrc = -1;
-                list.querySelectorAll('.playlist-row').forEach((row)=>{
-                    row.addEventListener('dragstart', ()=>{ dragSrc = Number(row.dataset.idx); row.style.opacity = '0.5'; });
-                    row.addEventListener('dragend', ()=>{ row.style.opacity = '1'; });
-                    row.addEventListener('dragover', (e)=>{ e.preventDefault(); });
-                    row.addEventListener('drop', (e)=>{
-                        e.preventDefault();
-                        const target = Number(row.dataset.idx);
-                        if (!Number.isFinite(dragSrc) || !Number.isFinite(target) || dragSrc === target) return;
+            let dragSrc = -1;
+            list.querySelectorAll('.playlist-row').forEach((row)=>{
+                row.addEventListener('dragstart', ()=>{ dragSrc = Number(row.dataset.idx); row.style.opacity = '0.5'; });
+                row.addEventListener('dragend', ()=>{ row.style.opacity = '1'; });
+                row.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+                row.addEventListener('drop', (e)=>{
+                    e.preventDefault();
+                    const target = Number(row.dataset.idx);
+                    if (!Number.isFinite(dragSrc) || !Number.isFinite(target) || dragSrc === target) return;
                         const arr = plRaw.items || [];
-                        const [moved] = arr.splice(dragSrc, 1);
-                        arr.splice(target, 0, moved);
+                    const [moved] = arr.splice(dragSrc, 1);
+                    arr.splice(target, 0, moved);
                         plRaw.items = arr;
                         this.savePlaylists(playlists.map((x)=> x.id === plRaw.id ? { ...x, items: plRaw.items, updatedAt: new Date().toISOString() } : x));
-                        this.renderPlaylists();
-                    });
+                    this.renderPlaylists();
                 });
+            });
             }
             this.bindUserPreviewTriggers(wrap);
         }
@@ -3802,10 +3802,10 @@ class DashboardManager {
                                 if (item.file instanceof File){
                                     const file = item.file;
                                     const ext = (file.name.split('.').pop()||'bin').toLowerCase();
-                                    const path = `posts/${user.uid}/${postIdRef.id}/media_${i}.${ext}`;
-                                    const r = firebase.ref(s, path);
-                                    await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
-                                    const url = await firebase.getDownloadURL(r);
+                                const path = `posts/${user.uid}/${postIdRef.id}/media_${i}.${ext}`;
+                                const r = firebase.ref(s, path);
+                                await firebase.uploadBytes(r, file, { contentType: file.type||'application/octet-stream' });
+                                const url = await firebase.getDownloadURL(r);
                                     media.push({
                                         kind: String(item.kind || this.inferMediaKindFromUrl(file.name || 'file')),
                                         url,
