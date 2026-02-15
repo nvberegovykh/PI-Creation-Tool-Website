@@ -5879,12 +5879,14 @@
           } catch (_) {}
         }
         if (!payload) {
+          if (isRec) (window.top?.console||console).log('[VIDEO] fetch url len='+fileUrl?.length, fileUrl?.startsWith('http') ? 'OK' : 'NOT_HTTP', (fileUrl||'').slice(0,60)+'...');
           const res = await fetch(fileUrl, { mode: 'cors', cache: 'default' });
           if (!res.ok) throw new Error('attachment-fetch-failed');
           const raw = await res.text();
+          if (isRec) (window.top?.console||console).log('[VIDEO] fetch result', 'len='+raw?.length, 'ct='+(res.headers.get('content-type')||'').slice(0,50), 'starts='+JSON.stringify(String(raw).slice(0,60)));
           try{ payload = raw ? JSON.parse(raw) : null; }
           catch(e){
-            if (raw?.length > 100) (window.top?.console||console).warn('[VIDEO] fetch JSON parse fail', e?.message, 'len='+raw?.length, 'preview='+String(raw).slice(0,80));
+          if (raw?.length > 100) (window.top?.console||console).warn('[VIDEO] fetch JSON parse fail', e?.message, 'len='+raw?.length, 'preview='+String(raw).slice(0,80));
           }
         }
         const payloadCands = this.extractEncryptedPayloadCandidates(payload || {});
@@ -5931,7 +5933,7 @@
         if (!b64 && aesKey && payload?.iv && payload?.data) {
           const dLen = payload.data?.length || 0;
           if ((isVideoRecording || isVoiceRecording) && dLen < 1000) {
-            (window.top?.console||console).warn('[VIDEO] payload truncated?', fileName, 'dataLen='+dLen, 'expected large for recording');
+            (window.top?.console||console).warn('[VIDEO] payload truncated?', fileName, 'dataLen='+dLen, 'payloadKeys='+Object.keys(payload||{}).join(','), 'dataPreview='+JSON.stringify((payload?.data||'').slice(0,80)));
           }
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (e) {
             if ((isVideoRecording || isVoiceRecording)) (window.top?.console||console).warn('[VIDEO] decrypt fail', fileName, e?.name, e?.message, 'dataLen='+dLen);
