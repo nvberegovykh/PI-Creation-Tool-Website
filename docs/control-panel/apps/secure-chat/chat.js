@@ -5797,6 +5797,17 @@
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
         if (!containerEl?.isConnected) return;
+        const cid = message?.connId || sourceConnId || this.activeConnection;
+        const msgId = message?.id;
+        if (msgId && cid && this.db) {
+          try {
+            const snap = await firebase.getDoc(firebase.doc(this.db,'chatMessages',cid,'messages',msgId));
+            if (snap.exists()) {
+              const fresh = snap.data() || {};
+              message = { ...message, ...fresh };
+            }
+          }catch(_){}
+        }
         const res = await fetch(fileUrl, { mode: 'cors', cache: 'default' });
         if (!res.ok) throw new Error('attachment-fetch-failed');
         const ct = res.headers.get('content-type')||'';
@@ -5808,6 +5819,17 @@
           try{ payload = raw ? JSON.parse(raw) : null; }
           catch(_){ payload = raw; }
         }
+        const payloadCands = this.extractEncryptedPayloadCandidates(payload || {});
+        let found = payload && typeof payload.iv === 'string' && typeof payload.data === 'string' ? payload : null;
+        if (!found && payloadCands.length){
+          for (const c of payloadCands){
+            if (c && typeof c === 'object' && typeof c.iv === 'string' && typeof c.data === 'string'){ found = c; break; }
+          }
+        }
+        if (!found){
+          const inline = this.extractInlineBase64Payload(payload || {});
+          if (inline){ payload = { _inlineBase64: inline }; }
+        }
         let cipher = this.normalizeEncryptedPayload(payload);
         let b64 = null;
         if (cipher?._inlineBase64){
@@ -5816,7 +5838,9 @@
         if (!b64){
           if (cipher && !cipher._inlineBase64){
             payload = cipher;
-          } else if (payload){
+          } else if (found){
+            payload = found;
+          } else if (payload && typeof payload === 'object'){
             const candidates = this.extractEncryptedPayloadCandidates(payload);
             for (const c of candidates){
               if (c && typeof c === 'object' && typeof c.iv === 'string' && typeof c.data === 'string'){
@@ -5835,14 +5859,15 @@
         const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
-        if (!b64) {
-          try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
-        }
-        if (!b64 && hintSalt) {
+        const cryptoMod = window.chatCrypto || (typeof chatCrypto !== 'undefined' ? chatCrypto : null);
+        if (!b64 && hintSalt && cryptoMod) {
           try {
-            const hintedKey = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
+            const hintedKey = await cryptoMod.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
             b64 = await chatCrypto.decryptWithKey(payload, hintedKey);
           } catch (_) {}
+        }
+        if (!b64) {
+          try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
         if (!b64) {
           let decrypted = false;
