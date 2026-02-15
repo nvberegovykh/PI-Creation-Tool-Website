@@ -24,6 +24,8 @@ class DashboardManager {
         this._videoMetaByUrl = new Map();
         this._videoMetaPendingByUrl = new Map();
         this._postLibrarySyncState = new Map();
+        this._realtimeFeedUnsubs = new Map();
+        this._realtimeFeedTimers = new Map();
         this._resumeBySrc = new Map();
         this._isAdminSession = false;
         try{
@@ -75,6 +77,247 @@ class DashboardManager {
             if (closeBtn) closeBtn.addEventListener('click', close);
             document.body.appendChild(overlay);
         }catch(_){ }
+    }
+
+    clearRealtimeFeedSubscription(key){
+        try{
+            const k = String(key || '').trim();
+            if (!k) return;
+            const unsub = this._realtimeFeedUnsubs.get(k);
+            if (typeof unsub === 'function'){
+                try{ unsub(); }catch(_){ }
+            }
+            this._realtimeFeedUnsubs.delete(k);
+            const t = this._realtimeFeedTimers.get(k);
+            if (t) clearTimeout(t);
+            this._realtimeFeedTimers.delete(k);
+        }catch(_){ }
+    }
+
+    subscribeRealtimeFeed(key, queryFactory, onChange){
+        try{
+            if (!firebase || typeof firebase.onSnapshot !== 'function') return;
+            const k = String(key || '').trim();
+            if (!k || typeof queryFactory !== 'function' || typeof onChange !== 'function') return;
+            const q = queryFactory();
+            if (!q) return;
+            this.clearRealtimeFeedSubscription(k);
+            const trigger = ()=>{
+                const prev = this._realtimeFeedTimers.get(k);
+                if (prev) clearTimeout(prev);
+                const t = setTimeout(()=>{ Promise.resolve(onChange()).catch(()=>{}); }, 240);
+                this._realtimeFeedTimers.set(k, t);
+            };
+            let initialDelivered = false;
+            const unsub = firebase.onSnapshot(
+                q,
+                ()=>{
+                    if (!initialDelivered){ initialDelivered = true; return; }
+                    trigger();
+                },
+                ()=> trigger()
+            );
+            this._realtimeFeedUnsubs.set(k, unsub);
+        }catch(_){ }
+    }
+
+    ensurePreviewAddButtonStyles(){
+        if (document.getElementById('preview-add-my-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'preview-add-my-styles';
+        style.textContent = `
+        .preview-visual-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+        .preview-visual-card{border:1px solid var(--border-color);border-radius:12px;padding:10px;background:var(--secondary-bg)}
+        .preview-visual-media{position:relative;border-radius:10px;overflow:hidden;background:#000}
+        .preview-add-my-btn{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(1);border:1px solid rgba(255,255,255,.35);background:rgba(8,12,18,.72);color:#fff;border-radius:999px;min-width:44px;height:44px;padding:0 12px;font-weight:700;font-size:18px;line-height:1;cursor:pointer;backdrop-filter:blur(2px);transition:all .24s ease}
+        .preview-add-my-btn:hover{transform:translate(-50%,-50%) scale(1.05)}
+        .preview-add-my-btn.saved{font-size:12px;letter-spacing:.2px;min-width:72px;background:rgba(24,120,62,.86);border-color:rgba(110,255,162,.55)}
+        `;
+        document.head.appendChild(style);
+    }
+
+    makeAssetLikeKey(kind, url){
+        const base = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
+        try{
+            const enc = btoa(unescape(encodeURIComponent(base))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
+            return `ak_${enc}`;
+        }catch(_){
+            return `ak_${base.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0, 220)}`;
+        }
+    }
+
+    async getAssetAggregatedLikeCount(kind, url){
+        try{
+            const href = String(url || '').trim();
+            if (!href) return 0;
+            let total = 0;
+            const key = this.makeAssetLikeKey(kind, href);
+            try{
+                const likesSnap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'assetLikes', key, 'likes'));
+                total += Number(likesSnap.size || 0);
+            }catch(_){ }
+            try{
+                const postRows = [];
+                try{
+                    const q = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('mediaUrl','==', href), firebase.limit(120));
+                    const s = await firebase.getDocs(q);
+                    s.forEach((d)=> postRows.push({ id: d.id, ...(d.data() || {}) }));
+                }catch(_){ }
+                try{
+                    const qAll = firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.limit(220));
+                    const sAll = await firebase.getDocs(qAll);
+                    sAll.forEach((d)=>{
+                        const p = d.data() || {};
+                        if (postRows.some((x)=> x.id === d.id)) return;
+                        const media = Array.isArray(p.media) ? p.media : [];
+                        const hasUrl = media.some((m)=> String((m && (m.url || m.mediaUrl)) || '').trim() === href);
+                        if (hasUrl) postRows.push({ id: d.id, ...p });
+                    });
+                }catch(_){ }
+                for (const p of postRows.slice(0, 120)){
+                    try{
+                        const likes = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'posts', String(p.id || ''), 'likes'));
+                        total += Number(likes.size || 0);
+                    }catch(_){ }
+                }
+            }catch(_){ }
+            return total;
+        }catch(_){ return 0; }
+    }
+
+    async openShareToChatSheet(payload){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid) return;
+            let rows = [];
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'chatConnections'), firebase.where('participants','array-contains', me.uid), firebase.limit(120));
+                const s = await firebase.getDocs(q);
+                s.forEach((d)=> rows.push({ id: d.id, ...(d.data() || {}) }));
+            }catch(_){
+                const s2 = await firebase.getDocs(firebase.collection(window.firebaseService.db,'chatConnections'));
+                s2.forEach((d)=>{
+                    const c = d.data() || {};
+                    const parts = Array.isArray(c.participants) ? c.participants : (Array.isArray(c.users) ? c.users : []);
+                    if (parts.includes(me.uid)) rows.push({ id: d.id, ...c });
+                });
+            }
+            if (!rows.length){ this.showError('No existing chats found'); return; }
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `<div style="width:min(96vw,520px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Share to chat</div><div id="share-chat-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="share-chat-close" class="btn btn-secondary">Close</button></div></div>`;
+            const list = overlay.querySelector('#share-chat-list');
+            rows.slice(0, 120).forEach((c)=>{
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary';
+                btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                btn.textContent = this.getConnectionDisplayName(c);
+                btn.onclick = ()=>{
+                    try{
+                        const key = 'liber_chat_pending_shares_v1';
+                        const raw = localStorage.getItem(key);
+                        const arr = raw ? JSON.parse(raw) : [];
+                        const next = Array.isArray(arr) ? arr : [];
+                        next.push({ connId: String(c.id || ''), payload: payload || {}, queuedAt: new Date().toISOString() });
+                        localStorage.setItem(key, JSON.stringify(next.slice(-80)));
+                    }catch(_){ }
+                    overlay.remove();
+                    const qs = new URLSearchParams({ connId: String(c.id || '') });
+                    const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
+                    const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
+                    if (window.appsManager && typeof window.appsManager.openAppInShell === 'function'){
+                        window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+                    } else {
+                        window.location.href = localPath;
+                    }
+                };
+                list.appendChild(btn);
+            });
+            overlay.querySelector('#share-chat-close').onclick = ()=> overlay.remove();
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+        }catch(_){ this.showError('Unable to share to chat'); }
+    }
+
+    getConnectionDisplayName(conn){
+        try{
+            const meName = String(this.currentUser?.displayName || this.currentUser?.email || '').toLowerCase();
+            const parts = Array.isArray(conn?.participants) ? conn.participants : (Array.isArray(conn?.users) ? conn.users : []);
+            const names = Array.isArray(conn?.participantUsernames) ? conn.participantUsernames : [];
+            const resolved = parts.map((uid, i)=> names[i] || uid).filter(Boolean);
+            const others = resolved.filter((n)=> String(n || '').toLowerCase() !== meName);
+            if (!others.length) return 'Chat';
+            if (others.length === 1) return String(others[0]);
+            return `${others[0]}, ${others[1]}${others.length > 2 ? ` +${others.length - 2}` : ''}`;
+        }catch(_){ return 'Chat'; }
+    }
+
+    bindAssetCardInteractions(cardEl, asset){
+        try{
+            if (!cardEl || !asset || !asset.url) return;
+            const kind = String(asset.kind || this.inferMediaKindFromUrl(asset.url) || 'file');
+            const url = String(asset.url || '').trim();
+            if (!url) return;
+            const likeBtn = cardEl.querySelector('.asset-like-btn');
+            const likeCount = cardEl.querySelector('.asset-like-count');
+            const shareChatBtn = cardEl.querySelector('.asset-share-chat-btn');
+            const key = this.makeAssetLikeKey(kind, url);
+            this.getAssetAggregatedLikeCount(kind, url).then((n)=>{ if (likeCount) likeCount.textContent = `${n}`; }).catch(()=>{});
+            if (likeBtn){
+                this.resolveCurrentUser().then(async (me)=>{
+                    if (!me || !me.uid) return;
+                    const myRef = firebase.doc(window.firebaseService.db, 'assetLikes', key, 'likes', me.uid);
+                    const cur = await firebase.getDoc(myRef).catch(()=> null);
+                    if (cur && cur.exists()) likeBtn.classList.add('active');
+                    likeBtn.onclick = async ()=>{
+                        try{
+                            const snap = await firebase.getDoc(myRef);
+                            if (snap.exists()){ await firebase.deleteDoc(myRef); likeBtn.classList.remove('active'); }
+                            else { await firebase.setDoc(myRef, { uid: me.uid, createdAt: new Date().toISOString(), kind, url }); likeBtn.classList.add('active'); }
+                            const n = await this.getAssetAggregatedLikeCount(kind, url);
+                            if (likeCount) likeCount.textContent = `${n}`;
+                        }catch(_){ }
+                    };
+                }).catch(()=>{});
+            }
+            if (shareChatBtn){
+                shareChatBtn.onclick = ()=> this.openShareToChatSheet({
+                    type: 'asset',
+                    asset: {
+                        kind,
+                        url,
+                        title: String(asset.title || asset.name || ''),
+                        by: String(asset.by || asset.authorName || ''),
+                        cover: String(asset.cover || asset.coverUrl || asset.thumbnailUrl || '')
+                    }
+                });
+            }
+        }catch(_){ }
+    }
+
+    async getMyVisualLibraryIndex(uid){
+        const out = { videos: new Set(), pictures: new Set() };
+        try{
+            const meUid = String(uid || '').trim();
+            if (!meUid) return out;
+            let snap;
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', meUid), firebase.limit(1500));
+                snap = await firebase.getDocs(q);
+            }catch(_){
+                snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+            }
+            (snap?.docs || []).forEach((d)=>{
+                const v = d.data() || {};
+                if (String(v.owner || '').trim() !== meUid) return;
+                const url = String(v.url || '').trim();
+                if (!url) return;
+                if (this.resolveVisualKind(v) === 'image') out.pictures.add(url);
+                else out.videos.add(url);
+            });
+        }catch(_){ }
+        return out;
     }
 
     setupFullscreenImagePreview(){
@@ -239,6 +482,30 @@ class DashboardManager {
         }catch(_){ }
         if (!rows.length){
             try{
+                const qA = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('ownerId', '==', targetUid),
+                    firebase.where('isPublic', '==', true),
+                    firebase.limit(Math.max(20, limit))
+                );
+                const sA = await firebase.getDocs(qA);
+                sA.forEach((d)=> pushUnique(d.id, d.data() || {}));
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const qB = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('ownerId', '==', targetUid),
+                    firebase.where('public', '==', true),
+                    firebase.limit(Math.max(20, limit))
+                );
+                const sB = await firebase.getDocs(qB);
+                sB.forEach((d)=> pushUnique(d.id, d.data() || {}));
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
                 const q2 = firebase.query(
                     firebase.collection(window.firebaseService.db, 'playlists'),
                     firebase.where('owner', '==', targetUid),
@@ -251,6 +518,30 @@ class DashboardManager {
         }
         if (!rows.length){
             try{
+                const q2a = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('owner', '==', targetUid),
+                    firebase.where('isPublic', '==', true),
+                    firebase.limit(Math.max(20, limit))
+                );
+                const s2a = await firebase.getDocs(q2a);
+                s2a.forEach((d)=> pushUnique(d.id, d.data() || {}));
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q2b = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('owner', '==', targetUid),
+                    firebase.where('public', '==', true),
+                    firebase.limit(Math.max(20, limit))
+                );
+                const s2b = await firebase.getDocs(q2b);
+                s2b.forEach((d)=> pushUnique(d.id, d.data() || {}));
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
                 const q3 = firebase.query(
                     firebase.collection(window.firebaseService.db, 'playlists'),
                     firebase.where('visibility', '==', 'public'),
@@ -258,6 +549,28 @@ class DashboardManager {
                 );
                 const s3 = await firebase.getDocs(q3);
                 s3.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q3a = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('isPublic', '==', true),
+                    firebase.limit(300)
+                );
+                const s3a = await firebase.getDocs(q3a);
+                s3a.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
+            }catch(_){ }
+        }
+        if (!rows.length){
+            try{
+                const q3b = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'playlists'),
+                    firebase.where('public', '==', true),
+                    firebase.limit(300)
+                );
+                const s3b = await firebase.getDocs(q3b);
+                s3b.forEach((d)=>{ const p = d.data() || {}; if (matchesOwner(p)) pushUnique(d.id, p); });
             }catch(_){ }
         }
         if (!rows.length){
@@ -819,6 +1132,48 @@ class DashboardManager {
     isPostLibraryItem(item){
         const sourceType = String(item?.sourceType || item?.source || item?.sourceLabel || '').toLowerCase();
         return sourceType === 'post' || sourceType === 'posts' || !!item?.sourcePostId;
+    }
+
+    async filterRowsBySourcePostPrivacy(rows, opts = {}){
+        try{
+            const list = Array.isArray(rows) ? rows : [];
+            if (!list.length) return [];
+            const isOwnerView = opts?.isOwnerView === true;
+            if (isOwnerView) return list;
+            const cache = new Map();
+            const isPublicPost = async (postId)=>{
+                const pid = String(postId || '').trim();
+                if (!pid) return false;
+                if (cache.has(pid)) return cache.get(pid) === true;
+                let ok = false;
+                try{
+                    const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'posts', pid));
+                    if (snap.exists()){
+                        const p = snap.data() || {};
+                        const vis = String(p.visibility || '').trim().toLowerCase();
+                        ok = vis === 'public' || vis === 'pub' || p.isPublic === true || p.public === true;
+                    }
+                }catch(_){ ok = false; }
+                cache.set(pid, !!ok);
+                return !!ok;
+            };
+            const out = [];
+            for (const row of list){
+                const fromPost = this.isPostLibraryItem(row);
+                if (!fromPost){
+                    out.push(row);
+                    continue;
+                }
+                const sourcePostId = String(row?.sourcePostId || '').trim();
+                if (!sourcePostId){
+                    continue; // cannot prove visibility for post-origin asset
+                }
+                if (await isPublicPost(sourcePostId)){
+                    out.push(row);
+                }
+            }
+            return out;
+        }catch(_){ return Array.isArray(rows) ? rows : []; }
     }
 
     extractSyncableMediaFromPost(post){
@@ -1534,13 +1889,23 @@ class DashboardManager {
 
     savePlaylists(playlists){
         try{ localStorage.setItem(this.getPlaylistStorageKey(), JSON.stringify(playlists || [])); }catch(_){ }
-        this.syncPlaylistsToCloud(playlists || []).catch(()=>{});
+        this._pendingPlaylistSyncRows = Array.isArray(playlists) ? playlists.slice() : [];
+        if (this._playlistSyncTimer) clearTimeout(this._playlistSyncTimer);
+        this._playlistSyncTimer = setTimeout(()=>{
+            const rows = Array.isArray(this._pendingPlaylistSyncRows) ? this._pendingPlaylistSyncRows.slice() : [];
+            this._pendingPlaylistSyncRows = [];
+            this.syncPlaylistsToCloud(rows).catch(()=>{});
+        }, 80);
     }
 
     async hydratePlaylistsFromCloud(){
         try{
             const me = await this.resolveCurrentUser();
             if (!me || !me.uid || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return this.getPlaylists();
+            const local = this.getPlaylists();
+            if (local.length){
+                try{ await this.syncPlaylistsToCloud(local); }catch(_){ }
+            }
             let cloudRows = [];
             try{
                 const q = firebase.query(
@@ -1561,7 +1926,6 @@ class DashboardManager {
                 const s3 = await firebase.getDocs(q3);
                 s3.forEach((d)=> cloudRows.push({ id: d.id, ...d.data() }));
             }catch(_){ }
-            const local = this.getPlaylists();
             const map = new Map();
             (local || []).forEach((p)=>{
                 if (!p || !p.id) return;
@@ -1725,11 +2089,17 @@ class DashboardManager {
         this._playQueueIndex = idx;
         const restart = !!opts.restart;
         const resumeAt = restart ? 0 : this.getPlaybackResumeTime(item.src || '');
+        try{
+            if (this._currentPlayer && this._currentPlayer !== this.getBgPlayer()){
+                this._currentPlayer._waveAttachProxy && this._currentPlayer._waveAttachProxy(null);
+            }
+        }catch(_){ }
         const nodes = Array.from(document.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video'));
         const inlineNode = nodes.find((n)=> (n.currentSrc || n.src || '') === (item.src || ''));
         if (inlineNode && String(inlineNode.tagName || '').toUpperCase() === 'VIDEO'){
             try{
                 this.pauseAllMediaExcept(inlineNode);
+                this._currentPlayer = inlineNode;
                 inlineNode.currentTime = Math.max(0, Number(resumeAt || 0));
                 inlineNode.play().catch(()=>{});
                 this.showMiniPlayer(inlineNode, { title: item.title, by: item.by, cover: item.cover });
@@ -1738,6 +2108,7 @@ class DashboardManager {
             }catch(_){ }
         }
         const bg = this.getBgPlayer();
+        this._currentPlayer = bg;
         this.pauseAllMediaExcept(bg);
         bg.src = item.src;
         bg.currentTime = 0;
@@ -3374,6 +3745,12 @@ class DashboardManager {
                 }
             });
             if (feedTitle) feedTitle.textContent = 'My Wall';
+            this.activatePostActions(feed);
+            this.subscribeRealtimeFeed(`space-my-posts:${uid}`, ()=>{
+                return firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('authorId','==', uid));
+            }, async ()=>{
+                if (this.currentSection === 'space') await this.loadMyPosts(uid);
+            });
         }catch(_){ }
     }
 
@@ -3729,6 +4106,11 @@ class DashboardManager {
                 });
             }catch(_){ }
             this.activatePlayers(feedEl);
+            this.subscribeRealtimeFeed('feed-global-public', ()=>{
+                return firebase.query(firebase.collection(window.firebaseService.db,'posts'), firebase.where('visibility','==','public'));
+            }, async ()=>{
+                if (this.currentSection === 'feed') await this.loadGlobalFeed(this._wallSearchTerm || term || '');
+            });
         }catch(_){ }
     }
 
@@ -3971,6 +4353,16 @@ class DashboardManager {
                 }catch(_){ sugg.innerHTML = ''; }
             }
             if (feedTitle) feedTitle.textContent = titleName ? `${titleName}'s Wall` : 'My Wall';
+            this.activatePostActions(feed);
+            this.subscribeRealtimeFeed(`space-user-public:${uid}`, ()=>{
+                return firebase.query(
+                    firebase.collection(window.firebaseService.db,'posts'),
+                    firebase.where('authorId','==', uid),
+                    firebase.where('visibility','==','public')
+                );
+            }, async ()=>{
+                if (this.currentSection === 'space') await this.loadFeed(uid, titleName);
+            });
             this.renderSpacePlaylists(uid, true);
         }catch(e){ /* ignore */ }
     }
@@ -4050,6 +4442,16 @@ class DashboardManager {
                 });
                 this.bindUserPreviewTriggers(feed);
                 this.applyHorizontalMasonryOrder(feed);
+                this.activatePostActions(feed);
+                this.subscribeRealtimeFeed(`space-open-user:${uid}`, ()=>{
+                    return firebase.query(
+                        firebase.collection(window.firebaseService.db,'posts'),
+                        firebase.where('authorId','==', uid),
+                        firebase.where('visibility','==','public')
+                    );
+                }, async ()=>{
+                    if (this.currentSection === 'space') await this.openUserSpace(uid, displayName);
+                });
                 this.renderSpacePlaylists(uid, true);
             }catch(_){ }
         }catch(_){ }
@@ -4269,11 +4671,11 @@ class DashboardManager {
             }
             if (newPlaylistBtn && !newPlaylistBtn._bound){
                 newPlaylistBtn._bound = true;
-                newPlaylistBtn.onclick = ()=>{
+                newPlaylistBtn.onclick = async ()=>{
                     const name = String(prompt('Playlist name:') || '').trim();
                     if (!name) return;
                     const makePublic = confirm('Make this playlist public?');
-                    const playlists = this.getPlaylists();
+                    const playlists = await this.hydratePlaylistsFromCloud();
                     playlists.push({
                         id: `pl_${Date.now()}`,
                         name,
@@ -4284,6 +4686,7 @@ class DashboardManager {
                         items: []
                     });
                     this.savePlaylists(playlists);
+                    await this.syncPlaylistsToCloud(playlists);
                     this.renderPlaylists();
                 };
             }
@@ -4582,7 +4985,7 @@ class DashboardManager {
           ? `<button type="button" class="audio-byline" data-user-preview="${String(w.authorId || '').replace(/"/g,'&quot;')}" style="font-size:12px;color:#aaa;background:none;border:none;padding:0;text-align:left;cursor:pointer">by ${(w.authorName||'').replace(/</g,'&lt;')}</button>`
           : '';
         const removeBtnHtml = allowRemove ? `<button class="btn btn-secondary remove-btn" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px"><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-secondary asset-like-btn" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="btn btn-secondary asset-share-chat-btn" title="Share to chat"><i class="fas fa-comments"></i></button><button class="btn btn-secondary share-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-btn" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4632,6 +5035,7 @@ class DashboardManager {
             this.attachWaveAudioUI(a, host, { hideNative: true });
             a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
         }
+        this.bindAssetCardInteractions(div, { kind:'audio', url: w.url, title: w.title, by: w.authorName, cover: w.coverUrl });
         this.bindUserPreviewTriggers(div);
         return div;
     }
@@ -4779,10 +5183,10 @@ class DashboardManager {
         const mediaHtml = isImageSource
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
             : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4802,6 +5206,7 @@ class DashboardManager {
         }; }
         const vEl = div.querySelector('.liber-lib-video');
         if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
+        this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl });
         return div;
     }
 
@@ -4933,9 +5338,9 @@ class DashboardManager {
         const mediaHtml = isVideoSource
             ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
             : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-picture-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-picture-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button></div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4953,6 +5358,7 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
+        this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url });
         return div;
     }
 
@@ -6181,6 +6587,9 @@ Do you want to proceed?`);
       const data = (u && u.username) ? u : ((await window.firebaseService.getUserData(uid)) || {});
       const me = await this.resolveCurrentUser();
       if (!me || !me.uid) return;
+      this.ensurePreviewAddButtonStyles();
+      const myVisualIndex = await this.getMyVisualLibraryIndex(me.uid);
+      const popupUnsubs = [];
       const readConnState = async ()=>{
         try{
           const c = await firebase.getDoc(firebase.doc(window.firebaseService.db,'connections',me.uid,'peers',uid));
@@ -6236,8 +6645,13 @@ Do you want to proceed?`);
           </div>
         </div>`;
       document.body.appendChild(overlay);
-      overlay.querySelector('.modal-close').onclick = () => overlay.remove();
-      overlay.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) overlay.remove(); });
+      const closeOverlay = ()=>{
+        popupUnsubs.forEach((u)=>{ try{ u(); }catch(_){ } });
+        popupUnsubs.length = 0;
+        overlay.remove();
+      };
+      overlay.querySelector('.modal-close').onclick = closeOverlay;
+      overlay.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) closeOverlay(); });
 
       const toggle = overlay.querySelector('#follow-toggle');
       const connectBtn = overlay.querySelector('#connect-toggle');
@@ -6355,7 +6769,7 @@ Do you want to proceed?`);
         chatBtn.onclick = async () => {
           try {
             const key = [me.uid, uid].sort().join('|');
-            overlay.remove();
+            closeOverlay();
             const qs = new URLSearchParams({ connId: key });
             const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
             const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
@@ -6480,6 +6894,7 @@ Do you want to proceed?`);
           rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
           rows = rows.slice(0,8);
         }
+        rows = await this.filterRowsBySourcePostPrivacy(rows, { isOwnerView: isSelfPreview });
         if (!rows.length){
           audioEl.innerHTML = '<h4 style="margin:4px 0 8px">Audio</h4><div style="opacity:.8">No audio uploaded.</div>';
         } else {
@@ -6516,16 +6931,76 @@ Do you want to proceed?`);
           rows.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0)-(a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0)-new Date(a.createdAt||0));
           rows = rows.slice(0,8);
         }
+        rows = await this.filterRowsBySourcePostPrivacy(rows, { isOwnerView: isSelfPreview });
         const videoRows = rows.filter((v)=> this.resolveVisualKind(v) === 'video');
         const pictureRows = rows.filter((v)=> this.resolveVisualKind(v) === 'image');
+        const mkAddBtn = (kind, v)=>{
+          const targetSet = kind === 'image' ? myVisualIndex.pictures : myVisualIndex.videos;
+          const src = String(v?.url || '').trim();
+          const isSaved = !!src && targetSet.has(src);
+          const btn = document.createElement('button');
+          btn.className = `preview-add-my-btn${isSaved ? ' saved' : ''}`;
+          btn.textContent = isSaved ? 'Saved' : '+';
+          btn.title = isSaved ? 'Already saved' : 'Add to my library';
+          btn.onclick = async (e)=>{
+            e.preventDefault();
+            e.stopPropagation();
+            const url = String(v?.url || '').trim();
+            if (!url) return;
+            if (targetSet.has(url)) return;
+            const ok = await this.saveVisualToLibrary({
+              kind,
+              url,
+              title: String(v?.title || (kind === 'image' ? 'Picture' : 'Video')),
+              by: String(v?.authorName || data?.username || ''),
+              cover: String(v?.thumbnailUrl || v?.coverUrl || url),
+              authorId: String(v?.originalAuthorId || v?.authorId || uid || '')
+            }, kind === 'image' ? 'pictures' : 'videos');
+            if (!ok) return;
+            targetSet.add(url);
+            btn.classList.add('saved');
+            btn.textContent = 'Saved';
+            btn.animate(
+              [{ transform:'translate(-50%,-50%) scale(0.9)', opacity:0.7 }, { transform:'translate(-50%,-50%) scale(1.08)', opacity:1 }, { transform:'translate(-50%,-50%) scale(1)', opacity:1 }],
+              { duration: 320, easing: 'ease-out' }
+            );
+          };
+          return btn;
+        };
+        const renderVisualGrid = (rowsList, kind)=>{
+          if (!rowsList.length){
+            const empty = document.createElement('div');
+            empty.style.cssText = 'opacity:.8';
+            empty.textContent = `No ${kind === 'image' ? 'pictures' : 'videos'} uploaded.`;
+            return empty;
+          }
+          const wrap = document.createElement('div');
+          wrap.className = 'preview-visual-grid';
+          rowsList.forEach((v)=>{
+            const card = document.createElement('div');
+            card.className = 'preview-visual-card';
+            const title = String(v?.title || (kind === 'image' ? 'Picture' : 'Video')).replace(/</g,'&lt;');
+            const mediaWrap = document.createElement('div');
+            mediaWrap.className = 'preview-visual-media';
+            mediaWrap.style.cssText = 'max-height:260px';
+            if (kind === 'image'){
+              mediaWrap.innerHTML = `<img loading="lazy" data-fullscreen-image="1" style="width:100%;max-height:260px;object-fit:contain;border-radius:8px;background:#000" src="${String(v?.url || '').replace(/"/g,'&quot;')}" alt="${String(v?.title || 'Picture').replace(/"/g,'&quot;')}">`;
+            } else {
+              mediaWrap.innerHTML = `<video controls playsinline style="width:100%;max-height:260px" src="${String(v?.url || '').replace(/"/g,'&quot;')}"></video>`;
+            }
+            mediaWrap.appendChild(mkAddBtn(kind, v));
+            card.innerHTML = `<div style="margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>`;
+            card.appendChild(mediaWrap);
+            wrap.appendChild(card);
+          });
+          return wrap;
+        };
         if (picturesEl){
-          picturesEl.innerHTML = `<h4 style="margin:4px 0 8px">Pictures</h4>` + (pictureRows.length
-            ? pictureRows.map((v)=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Picture').replace(/</g,'&lt;')}</div><img loading="lazy" data-fullscreen-image="1" style="width:100%;max-height:260px;object-fit:contain;border-radius:8px;background:#000" src="${v.url||''}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}"></div>`).join('')
-            : '<div style="opacity:.8">No pictures uploaded.</div>');
+          picturesEl.innerHTML = '<h4 style="margin:4px 0 8px">Pictures</h4>';
+          picturesEl.appendChild(renderVisualGrid(pictureRows, 'image'));
         }
-        videoEl.innerHTML = `<h4 style="margin:4px 0 8px">Videos</h4>` + (videoRows.length
-          ? videoRows.map((v)=> `<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)"><div style="margin-bottom:6px">${(v.title||'Video').replace(/</g,'&lt;')}</div><video controls playsinline style="width:100%;max-height:260px" src="${v.url||''}"></video></div>`).join('')
-          : '<div style="opacity:.8">No videos uploaded.</div>');
+        videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4>';
+        videoEl.appendChild(renderVisualGrid(videoRows, 'video'));
       }catch(_){
         if (picturesEl) picturesEl.innerHTML = '<h4 style="margin:4px 0 8px">Pictures</h4><div style="opacity:.8">Unable to load pictures.</div>';
         videoEl.innerHTML = '<h4 style="margin:4px 0 8px">Videos</h4><div style="opacity:.8">Unable to load videos.</div>';
@@ -6663,7 +7138,8 @@ Do you want to proceed?`);
           const likeEl = e.target.closest('.like-btn');
           const commentEl = e.target.closest('.comment-btn');
           const repostEl = e.target.closest('.repost-btn');
-          const actionEl = likeEl || commentEl || repostEl;
+          const shareChatEl = e.target.closest('.share-chat-post-btn');
+          const actionEl = likeEl || commentEl || repostEl || shareChatEl;
           if (!actionEl || !container.contains(actionEl)) return;
 
           const actionsWrap = actionEl.closest('.post-actions');
@@ -6676,6 +7152,26 @@ Do you want to proceed?`);
             try { me = await this.resolveCurrentUser(); this.currentUser = me; } catch(_) { return; }
           }
           if (!me || !me.uid) return;
+
+          if (shareChatEl){
+            try{
+              const postRef = firebase.doc(window.firebaseService.db, 'posts', pid);
+              const snap = await firebase.getDoc(postRef);
+              const p = snap.exists() ? (snap.data() || {}) : {};
+              await this.openShareToChatSheet({
+                type: 'post',
+                post: {
+                  id: pid,
+                  authorId: String(p.authorId || actionsWrap?.dataset?.author || ''),
+                  authorName: String(p.authorName || ''),
+                  text: String(p.text || ''),
+                  media: Array.isArray(p.media) ? p.media : [],
+                  mediaUrl: String(p.mediaUrl || '')
+                }
+              });
+            }catch(_){ this.showError('Failed to share post to chat'); }
+            return;
+          }
 
           if (likeEl) {
             try {
@@ -6717,6 +7213,14 @@ Do you want to proceed?`);
       container.querySelectorAll('.post-item').forEach(item => {
         const pid = item.dataset.postId || item.querySelector('.post-actions')?.dataset.postId;
         if (!pid) return;
+        const actionsWrap = item.querySelector('.post-actions');
+        if (actionsWrap && !actionsWrap.querySelector('.share-chat-post-btn')){
+          const shareChat = document.createElement('i');
+          shareChat.className = 'fas fa-comments share-chat-post-btn';
+          shareChat.title = 'Share to chat';
+          shareChat.style.cursor = 'pointer';
+          actionsWrap.appendChild(shareChat);
+        }
         
         // Like
         const likeBtn = item.querySelector('.like-btn');

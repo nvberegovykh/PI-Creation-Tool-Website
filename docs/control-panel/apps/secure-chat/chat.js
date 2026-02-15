@@ -76,6 +76,7 @@
       this._suppressActionClickUntil = 0;
       this._recordingSendInFlight = false;
       this._pendingAttachments = [];
+      this._pendingRemoteShares = [];
       this._readMarkTimer = null;
       this._activeConnOpenedAt = 0;
       this._latestPeerMessageMsByConn = new Map();
@@ -1724,7 +1725,7 @@
       const review = document.getElementById('recording-review');
       const actionBtn = document.getElementById('action-btn');
       const inReview = review && !review.classList.contains('hidden');
-      const hasQueuedAttachments = Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0;
+      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0);
       const hasContent = !!(input && input.value.trim().length) || hasQueuedAttachments;
       if (hasContent){
         actionBtn.title = 'Send';
@@ -1770,6 +1771,7 @@
         });
       }catch(_){ }
       this._pendingAttachments = [];
+      this._pendingRemoteShares = [];
       this.renderComposerAttachmentQueue();
     }
 
@@ -1778,7 +1780,9 @@
         const host = this.ensureComposerAttachmentHost();
         if (!host) return;
         const queue = Array.isArray(this._pendingAttachments) ? this._pendingAttachments : [];
-        if (!queue.length){
+        const remote = Array.isArray(this._pendingRemoteShares) ? this._pendingRemoteShares : [];
+        const allQueue = queue.concat(remote);
+        if (!allQueue.length){
           host.classList.add('hidden');
           host.innerHTML = '';
           this.refreshActionButton();
@@ -1788,26 +1792,37 @@
         host.innerHTML = '';
         const slider = document.createElement('div');
         slider.className = 'composer-attachments-slider';
-        queue.forEach((item, idx)=>{
-          if (!item || !(item.file instanceof File)) return;
-          const file = item.file;
+        allQueue.forEach((item, idx)=>{
           const card = document.createElement('div');
           card.className = 'composer-attachment-card';
-          const objectUrl = String(item.previewUrl || '').trim();
-          const isImage = !!objectUrl;
-          const icon = isImage
-            ? `<img src="${objectUrl}" alt="${this.renderText(file.name)}" class="composer-attachment-thumb">`
-            : `<span class="composer-attachment-icon"><i class="fas ${String(file.type || '').startsWith('video/') ? 'fa-video' : (String(file.type || '').startsWith('audio/') ? 'fa-music' : 'fa-file')}"></i></span>`;
-          card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(file.name || 'file')}</div><div class="composer-attachment-size">${this.formatBytes(file.size || 0)}</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
+          if (item && item.file instanceof File){
+            const file = item.file;
+            const objectUrl = String(item.previewUrl || '').trim();
+            const isImage = !!objectUrl;
+            const icon = isImage
+              ? `<img src="${objectUrl}" alt="${this.renderText(file.name)}" class="composer-attachment-thumb">`
+              : `<span class="composer-attachment-icon"><i class="fas ${String(file.type || '').startsWith('video/') ? 'fa-video' : (String(file.type || '').startsWith('audio/') ? 'fa-music' : 'fa-file')}"></i></span>`;
+            card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(file.name || 'file')}</div><div class="composer-attachment-size">${this.formatBytes(file.size || 0)}</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
+          } else if (item && item.sharedAsset){
+            const a = item.sharedAsset;
+            const kind = String(a.kind || '').toLowerCase();
+            const icon = (kind === 'image' || kind === 'video') && a.cover
+              ? `<img src="${this.renderText(String(a.cover || a.url || ''))}" alt="${this.renderText(String(a.title || 'shared'))}" class="composer-attachment-thumb">`
+              : `<span class="composer-attachment-icon"><i class="fas ${kind === 'video' ? 'fa-video' : (kind === 'audio' ? 'fa-music' : (kind === 'image' ? 'fa-image' : 'fa-file'))}"></i></span>`;
+            card.innerHTML = `${icon}<div class="composer-attachment-meta"><div class="composer-attachment-name">${this.renderText(String(a.title || `Shared ${kind || 'asset'}`))}</div><div class="composer-attachment-size">Shared card</div></div><button class="composer-attachment-remove" type="button" title="Remove"><i class="fas fa-xmark"></i></button>`;
+          } else {
+            return;
+          }
           const rm = card.querySelector('.composer-attachment-remove');
           if (rm){
             rm.addEventListener('click', ()=>{
-              const removed = this._pendingAttachments[idx];
+              const removed = allQueue[idx];
               const removedUrl = String(removed?.previewUrl || '').trim();
               if (removedUrl){
                 try{ URL.revokeObjectURL(removedUrl); }catch(_){ }
               }
-              this._pendingAttachments.splice(idx, 1);
+              if (idx < queue.length) this._pendingAttachments.splice(idx, 1);
+              else this._pendingRemoteShares.splice(idx - queue.length, 1);
               this.renderComposerAttachmentQueue();
             });
           }
@@ -1844,11 +1859,48 @@
       }catch(_){ }
     }
 
+    queueRemoteSharedAssets(items){
+      try{
+        const rows = Array.isArray(items) ? items : [];
+        if (!rows.length) return;
+        const existing = new Set((this._pendingRemoteShares || []).map((x)=> `${x?.sharedAsset?.kind || ''}|${x?.sharedAsset?.url || ''}|${x?.sharedAsset?.postId || ''}`));
+        rows.forEach((it)=>{
+          if (!it || typeof it !== 'object') return;
+          const a = it.sharedAsset || it.asset || it;
+          const sig = `${String(a.kind || '')}|${String(a.url || '')}|${String(a.postId || '')}`;
+          const canQueue = String(a.url || '').trim() || (String(a.kind || '').toLowerCase() === 'post' && String(a.postId || a?.post?.id || '').trim());
+          if (!canQueue || existing.has(sig)) return;
+          existing.add(sig);
+          this._pendingRemoteShares.push({ sharedAsset: a });
+        });
+        this.renderComposerAttachmentQueue();
+      }catch(_){ }
+    }
+
+    takePendingSharedAssetsForConn(connId){
+      try{
+        const cid = String(connId || '').trim();
+        if (!cid) return [];
+        const key = 'liber_chat_pending_shares_v1';
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        const list = Array.isArray(arr) ? arr : [];
+        const keep = [];
+        const picked = [];
+        list.forEach((row)=>{
+          if (String(row?.connId || '').trim() === cid) picked.push(row);
+          else keep.push(row);
+        });
+        localStorage.setItem(key, JSON.stringify(keep.slice(-80)));
+        return picked.map((x)=> ({ sharedAsset: x?.payload?.asset || (x?.payload?.post ? { kind:'post', postId: x.payload.post.id, title: x.payload.post.text || 'Post', by: x.payload.post.authorName || '', post: x.payload.post } : null) })).filter((x)=> x.sharedAsset);
+      }catch(_){ return []; }
+    }
+
     handleActionButton(){
       if (Date.now() < (this._suppressActionClickUntil || 0)) return;
       const input = document.getElementById('message-input');
       const review = document.getElementById('recording-review');
-      const hasQueuedAttachments = Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0;
+      const hasQueuedAttachments = (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length > 0) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length > 0);
       if (this._activeRecorder && this._recStop){
         try{ this._recStop(); }catch(_){ }
         return;
@@ -1868,7 +1920,7 @@
 
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
-      if ((input && input.value.trim().length) || (Array.isArray(this._pendingAttachments) && this._pendingAttachments.length)) return; // only record when empty
+      if ((input && input.value.trim().length) || ((Array.isArray(this._pendingAttachments) && this._pendingAttachments.length) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length))) return; // only record when empty
       if (this._activeRecorder) return;
       this._actionPressArmed = true;
       if (e && e.type === 'touchstart'){
@@ -2272,6 +2324,10 @@
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
       this.clearPendingAttachments();
+      try{
+        const pendingShared = this.takePendingSharedAssetsForConn(this.activeConnection);
+        if (pendingShared && pendingShared.length) this.queueRemoteSharedAssets(pendingShared);
+      }catch(_){ }
       // Drop stale heavy preview tasks from previous chat to keep switching stable.
       this._attachmentPreviewQueue = [];
       this._lastLoadedConnId = this.activeConnection || '';
@@ -2594,6 +2650,7 @@
                 const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
                 if (isMediaOnlyMessage) el.classList.add('message-media-only');
                 let bodyHtml = this.renderText(cleanedText);
+                if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
                 const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
                 if (callMatch) bodyHtml = `<button class="btn secondary" data-call-id="${callMatch[2]}" data-kind="${callMatch[1]}">${callMatch[1]==='voice'?'Join voice call':'Join video call'}</button>`;
                 const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
@@ -2617,6 +2674,7 @@
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
                 if (hasFile && el.querySelector('.file-preview')) this.enqueueAttachmentPreview(()=> this.renderEncryptedAttachment(el.querySelector('.file-preview'), m.fileUrl, inferredFileName, aesKey, this.resolveAttachmentSourceConnId(m, sourceConnId), senderName, { ...m, text }), loadSeq, activeConnId);
+                if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
                 if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
                 const shareBtn = el.querySelector('.msg-share'); if (shareBtn) shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
               };
@@ -2766,6 +2824,7 @@
               const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
               if (isMediaOnlyMessage) el.classList.add('message-media-only');
               let bodyHtml = this.renderText(cleanedText);
+              if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
               const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
               if (callMatch){
                 const kind = callMatch[1]; const callId = callMatch[2];
@@ -2822,6 +2881,7 @@
                   );
                 }
               }
+              if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
             // Bind edit/delete/replace for own messages
               if (canModify){
               const actions = el.querySelector('.msg-actions');
@@ -3125,6 +3185,7 @@
             const isMediaOnlyMessage = hasFile && previewOnlyFile && !cleanedText;
             if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
+            if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
             const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
               const kind = callMatch[1]; const callId = callMatch[2];
@@ -3171,6 +3232,7 @@
                 );
               }
             }
+            if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
             const shareBtn = el.querySelector('.msg-share');
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
@@ -3219,6 +3281,88 @@
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
 
+    makeAssetLikeKey(kind, url){
+      const base = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
+      try{
+        const enc = btoa(unescape(encodeURIComponent(base))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
+        return `ak_${enc}`;
+      }catch(_){
+        return `ak_${base.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,220)}`;
+      }
+    }
+
+    renderSharedAssetCardHtml(asset, msgId = ''){
+      try{
+        const a = (asset && typeof asset === 'object') ? asset : {};
+        const kind = String(a.kind || '').toLowerCase();
+        if (kind === 'post'){
+          const p = (a.post && typeof a.post === 'object') ? a.post : {};
+          const text = this.renderText(String(p.text || a.title || 'Shared post'));
+          const media = Array.isArray(p.media) ? p.media : [];
+          const first = media[0] || {};
+          const firstUrl = String(first.url || first.mediaUrl || p.mediaUrl || '').trim();
+          const preview = firstUrl
+            ? (/(?:\.mp4|\.webm|video)/i.test(firstUrl) ? `<video src="${this.renderText(firstUrl)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>` : `<img src="${this.renderText(firstUrl)}" alt="shared post media" style="width:100%;max-height:220px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`)
+            : '';
+          return `<div class="shared-asset-card" data-shared-kind="post" data-shared-post-id="${this.renderText(String(a.postId || p.id || ''))}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520">${preview}<div style="margin-top:6px;white-space:pre-wrap">${text}</div><div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
+        }
+        const url = String(a.url || '').trim();
+        const title = this.renderText(String(a.title || `Shared ${kind || 'asset'}`));
+        const by = this.renderText(String(a.by || ''));
+        const cover = String(a.cover || '').trim();
+        const visual = kind === 'video'
+          ? `<video src="${this.renderText(url)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>`
+          : (kind === 'image'
+              ? `<img src="${this.renderText(url)}" alt="${title}" style="width:100%;max-height:240px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`
+              : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`);
+        return `<div class="shared-asset-card" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520">${visual}<div style="margin-top:6px;font-weight:600">${title}</div>${by ? `<div style="opacity:.8;font-size:12px">${by}</div>` : ''}<div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div></div>`;
+      }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
+    }
+
+    bindSharedAssetCardInteractions(el, asset){
+      try{
+        if (!el || !asset) return;
+        const root = el.querySelector('.shared-asset-card');
+        if (!root) return;
+        const a = (asset && typeof asset === 'object') ? asset : {};
+        const kind = String(a.kind || '').toLowerCase();
+        if (kind === 'post'){
+          const postId = String(a.postId || a?.post?.id || '').trim();
+          if (!postId) return;
+          const likeBtn = root.querySelector('.shared-like-btn');
+          const comBtn = root.querySelector('.shared-comment-btn');
+          const repBtn = root.querySelector('.shared-repost-btn');
+          const likeCnt = root.querySelector('.shared-like-count');
+          const comCnt = root.querySelector('.shared-comment-count');
+          const repCnt = root.querySelector('.shared-repost-count');
+          firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')).then((s)=>{ if (likeCnt) likeCnt.textContent = String(s.size || 0); }).catch(()=>{});
+          firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')).then((s)=>{ if (comCnt) comCnt.textContent = String(s.size || 0); }).catch(()=>{});
+          firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')).then((s)=>{ if (repCnt) repCnt.textContent = String(s.size || 0); }).catch(()=>{});
+          if (likeBtn) likeBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'likes', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')); if (likeCnt) likeCnt.textContent = String(n.size||0); }catch(_){ } };
+          if (repBtn) repBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'reposts', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')); if (repCnt) repCnt.textContent = String(n.size||0); }catch(_){ } };
+          if (comBtn) comBtn.onclick = async ()=>{ try{ const text = prompt('Comment'); if (text === null) return; const t = String(text || '').trim(); if (!t) return; const ref = firebase.doc(firebase.collection(this.db,'posts',postId,'comments')); await firebase.setDoc(ref,{id:ref.id,uid:this.currentUser.uid,text:t,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')); if (comCnt) comCnt.textContent = String(n.size||0); }catch(_){ } };
+          return;
+        }
+        const url = String(a.url || '').trim();
+        if (!url) return;
+        const likeBtn = root.querySelector('.shared-like-btn');
+        const likeCnt = root.querySelector('.shared-like-count');
+        const key = this.makeAssetLikeKey(kind || 'asset', url);
+        firebase.getDocs(firebase.collection(this.db,'assetLikes',key,'likes')).then((s)=>{ if (likeCnt) likeCnt.textContent = String(s.size || 0); }).catch(()=>{});
+        if (likeBtn){
+          likeBtn.onclick = async ()=>{
+            try{
+              const ref = firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid);
+              const s = await firebase.getDoc(ref);
+              if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
+              const n = await firebase.getDocs(firebase.collection(this.db,'assetLikes',key,'likes'));
+              if (likeCnt) likeCnt.textContent = String(n.size || 0);
+            }catch(_){ }
+          };
+        }
+      }catch(_){ }
+    }
+
     async getConnectionStateWithPeer(peerUid){
       if (!peerUid) return { status: 'none' };
       try{
@@ -3261,7 +3405,8 @@
       const input = document.getElementById('message-input');
       const text = input.value.trim();
       const queuedFiles = (this._pendingAttachments || []).map((x)=> x && x.file).filter((f)=> f instanceof File);
-      if ((!text && !queuedFiles.length) || !this.activeConnection) return;
+      const queuedShared = (this._pendingRemoteShares || []).map((x)=> x && x.sharedAsset).filter((x)=> x && typeof x === 'object');
+      if ((!text && !queuedFiles.length && !queuedShared.length) || !this.activeConnection) return;
       const can = await this.canSendToActiveConnection();
       if (!can.ok){
         alert(can.reason || 'Cannot send message');
@@ -3279,9 +3424,13 @@
             alert(`Sent ${result.sentCount || 0} attachments, ${result.failedFiles.length} failed. Failed files are still in queue.`);
           }
         }
+        for (const sharedAsset of queuedShared){
+          await this.saveMessage({ text: '[shared]', sharedAsset });
+        }
       }catch(e){
         input.value = text;
         if (queuedFiles.length) this.queueAttachments(queuedFiles);
+        if (queuedShared.length) this.queueRemoteSharedAssets(queuedShared.map((a)=> ({ sharedAsset: a })));
         this.publishTypingState(!!text, { force: true }).catch(()=>{});
         throw e;
       }
@@ -3303,6 +3452,7 @@
         text: nextText,
         fileUrl: fileUrl || null,
         fileName: inferredName || null,
+        sharedAsset: (src && typeof src.sharedAsset === 'object') ? src.sharedAsset : null,
         attachmentSourceConnId: sourceConnId || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isShared: true,
@@ -3346,7 +3496,7 @@
       }catch(_){ return 'Chat'; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, attachmentSourceConnId, attachmentKeySalt, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, attachmentSourceConnId, attachmentKeySalt, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const previewText = this.stripPlaceholderText(text) || (fileName ? `[Attachment] ${fileName}` : '');
@@ -3358,6 +3508,7 @@
         cipher,
         fileUrl: fileUrl || null,
         fileName: fileName || null,
+        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
         attachmentSourceConnId: String(attachmentSourceConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isShared: !!isShared,
@@ -3939,7 +4090,7 @@
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording}){
+    async saveMessage({text,fileUrl,fileName, sharedAsset, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
@@ -3953,6 +4104,7 @@
         cipher,
         fileUrl: fileUrl||null,
         fileName: fileName||null,
+        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isVideoRecording: isVideoRecording === true,
