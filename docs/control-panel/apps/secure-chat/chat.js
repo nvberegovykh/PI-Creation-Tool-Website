@@ -3005,7 +3005,9 @@
           const isLoadMore = this._loadMoreConnId === activeConnId;
           this._loadMoreConnId = '';
           if (isLoadMore && !appendOnly){
-            box.scrollTop = prevTop;
+            const nextHeight = box.scrollHeight;
+            const delta = Math.max(0, nextHeight - prevHeight);
+            box.scrollTop = prevTop + delta;
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -3281,14 +3283,91 @@
 
     renderText(t){ return t.replace(/</g,'&lt;'); }
 
+    normalizeMediaUrl(url){
+      try{
+        const raw = String(url || '').trim();
+        if (!raw) return '';
+        let decoded = raw;
+        try{ decoded = decodeURIComponent(raw); }catch(_){ decoded = raw; }
+        let out = decoded.toLowerCase();
+        out = out.replace(/^https?:\/\//, '');
+        out = out.replace(/^www\./, '');
+        out = out.split('?')[0].split('#')[0];
+        return out.replace(/\/+$/, '');
+      }catch(_){ return String(url || '').trim().toLowerCase(); }
+    }
+
+    urlsLikelySame(a, b){
+      const x = this.normalizeMediaUrl(a);
+      const y = this.normalizeMediaUrl(b);
+      if (!x || !y) return false;
+      if (x === y) return true;
+      return x.endsWith(y) || y.endsWith(x);
+    }
+
     makeAssetLikeKey(kind, url){
-      const base = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
+      const normalizedUrl = this.normalizeMediaUrl(url);
+      const base = `${String(kind || 'asset').toLowerCase()}|${normalizedUrl || String(url || '').trim()}`;
       try{
         const enc = btoa(unescape(encodeURIComponent(base))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
         return `ak_${enc}`;
       }catch(_){
         return `ak_${base.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,220)}`;
       }
+    }
+
+    getAssetLikeKeys(kind, url){
+      const keys = [];
+      const k1 = this.makeAssetLikeKey(kind, url);
+      if (k1) keys.push(k1);
+      try{
+        const legacyBase = `${String(kind || 'asset').toLowerCase()}|${String(url || '').trim()}`;
+        const legacy = `ak_${btoa(unescape(encodeURIComponent(legacyBase))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')}`;
+        if (legacy && !keys.includes(legacy)) keys.push(legacy);
+      }catch(_){ }
+      return keys;
+    }
+
+    async getAssetAggregatedLikeCount(kind, url){
+      try{
+        const href = String(url || '').trim();
+        if (!href) return 0;
+        let total = 0;
+        const assetUsers = new Set();
+        const countedPostIds = new Set();
+        const keys = this.getAssetLikeKeys(kind, href);
+        for (const key of keys){
+          try{
+            const s = await firebase.getDocs(firebase.collection(this.db,'assetLikes',key,'likes'));
+            (s.docs || []).forEach((d)=>{
+              const row = d.data() || {};
+              const uid = String(row.uid || d.id || '').trim();
+              if (uid) assetUsers.add(uid);
+            });
+          }catch(_){ }
+        }
+        total += assetUsers.size;
+        try{
+          const q = firebase.query(firebase.collection(this.db,'posts'), firebase.limit(500));
+          const s = await firebase.getDocs(q);
+          for (const d of (s.docs || [])){
+            const p = d.data() || {};
+            const pid = String(d.id || '').trim();
+            if (!pid || countedPostIds.has(pid)) continue;
+            const media = Array.isArray(p.media) ? p.media : [];
+            const mediaUrl = String(p.mediaUrl || '').trim();
+            const hasMediaUrl = mediaUrl && this.urlsLikelySame(mediaUrl, href);
+            const hasUrl = media.some((m)=> this.urlsLikelySame(String((m && (m.url || m.mediaUrl)) || '').trim(), href));
+            if (!hasMediaUrl && !hasUrl) continue;
+            try{
+              const likes = await firebase.getDocs(firebase.collection(this.db,'posts',pid,'likes'));
+              total += Number(likes.size || 0);
+              countedPostIds.add(pid);
+            }catch(_){ }
+          }
+        }catch(_){ }
+        return total;
+      }catch(_){ return 0; }
     }
 
     renderSharedAssetCardHtml(asset, msgId = ''){
@@ -3304,7 +3383,7 @@
           const preview = firstUrl
             ? (/(?:\.mp4|\.webm|video)/i.test(firstUrl) ? `<video src="${this.renderText(firstUrl)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>` : `<img src="${this.renderText(firstUrl)}" alt="shared post media" style="width:100%;max-height:220px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`)
             : '';
-          return `<div class="shared-asset-card" data-shared-kind="post" data-shared-post-id="${this.renderText(String(a.postId || p.id || ''))}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520">${preview}<div style="margin-top:6px;white-space:pre-wrap">${text}</div><div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
+          return `<div class="shared-asset-card" data-shared-kind="post" data-shared-post-id="${this.renderText(String(a.postId || p.id || ''))}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:10px;padding:8px;background:#0f1520"><div class="shared-post-media">${preview}</div><div class="shared-post-text" style="margin-top:6px;white-space:pre-wrap">${text}</div><div style="margin-top:6px;display:flex;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 8px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-comment-btn btn secondary" style="padding:4px 8px"><i class="fas fa-comment"></i></button><span class="shared-comment-count">0</span><button class="shared-repost-btn btn secondary" style="padding:4px 8px"><i class="fas fa-retweet"></i></button><span class="shared-repost-count">0</span></div></div>`;
         }
         const url = String(a.url || '').trim();
         const title = this.renderText(String(a.title || `Shared ${kind || 'asset'}`));
@@ -3319,6 +3398,31 @@
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
+    async hydrateSharedPostCard(root, postId){
+      try{
+        const card = root && root.classList?.contains('shared-asset-card') ? root : (root?.querySelector?.('.shared-asset-card') || null);
+        const pid = String(postId || card?.dataset?.sharedPostId || '').trim();
+        if (!card || !pid) return;
+        const snap = await firebase.getDoc(firebase.doc(this.db, 'posts', pid));
+        if (!snap.exists()) return;
+        const p = snap.data() || {};
+        const text = String(p.text || '').trim();
+        const media = Array.isArray(p.media) ? p.media : [];
+        const first = media[0] || {};
+        const firstUrl = String(first.url || first.mediaUrl || p.mediaUrl || '').trim();
+        let mediaHtml = '';
+        if (firstUrl){
+          mediaHtml = (/(?:\.mp4|\.webm|video)/i.test(firstUrl))
+            ? `<video src="${this.renderText(firstUrl)}" controls style="width:100%;max-height:220px;border-radius:8px;object-fit:cover"></video>`
+            : `<img src="${this.renderText(firstUrl)}" alt="shared post media" style="width:100%;max-height:220px;border-radius:8px;object-fit:cover" data-fullscreen-image="1">`;
+        }
+        const mediaHost = card.querySelector('.shared-post-media');
+        if (mediaHost) mediaHost.innerHTML = mediaHtml;
+        const textHost = card.querySelector('.shared-post-text');
+        if (textHost) textHost.textContent = text || 'Post';
+      }catch(_){ }
+    }
+
     bindSharedAssetCardInteractions(el, asset){
       try{
         if (!el || !asset) return;
@@ -3329,15 +3433,31 @@
         if (kind === 'post'){
           const postId = String(a.postId || a?.post?.id || '').trim();
           if (!postId) return;
+          this.hydrateSharedPostCard(root, postId).catch(()=>{});
           const likeBtn = root.querySelector('.shared-like-btn');
           const comBtn = root.querySelector('.shared-comment-btn');
           const repBtn = root.querySelector('.shared-repost-btn');
           const likeCnt = root.querySelector('.shared-like-count');
           const comCnt = root.querySelector('.shared-comment-count');
           const repCnt = root.querySelector('.shared-repost-count');
-          firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')).then((s)=>{ if (likeCnt) likeCnt.textContent = String(s.size || 0); }).catch(()=>{});
-          firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')).then((s)=>{ if (comCnt) comCnt.textContent = String(s.size || 0); }).catch(()=>{});
-          firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')).then((s)=>{ if (repCnt) repCnt.textContent = String(s.size || 0); }).catch(()=>{});
+          const refreshPostCounters = async ()=>{
+            try{
+              const [likes, comments, reposts] = await Promise.all([
+                firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')).catch(()=>({ size: 0 })),
+                firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')).catch(()=>({ size: 0 })),
+                firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')).catch(()=>({ size: 0 }))
+              ]);
+              if (likeCnt) likeCnt.textContent = String(likes.size || 0);
+              if (comCnt) comCnt.textContent = String(comments.size || 0);
+              if (repCnt) repCnt.textContent = String(reposts.size || 0);
+            }catch(_){ }
+          };
+          refreshPostCounters();
+          if (firebase && typeof firebase.onSnapshot === 'function'){
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'likes'), ()=> refreshPostCounters()); }catch(_){ }
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'comments'), ()=> refreshPostCounters()); }catch(_){ }
+            try{ firebase.onSnapshot(firebase.collection(this.db,'posts',postId,'reposts'), ()=> refreshPostCounters()); }catch(_){ }
+          }
           if (likeBtn) likeBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'likes', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'likes')); if (likeCnt) likeCnt.textContent = String(n.size||0); }catch(_){ } };
           if (repBtn) repBtn.onclick = async ()=>{ try{ const ref = firebase.doc(this.db,'posts',postId,'reposts', this.currentUser.uid); const s = await firebase.getDoc(ref); if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'reposts')); if (repCnt) repCnt.textContent = String(n.size||0); }catch(_){ } };
           if (comBtn) comBtn.onclick = async ()=>{ try{ const text = prompt('Comment'); if (text === null) return; const t = String(text || '').trim(); if (!t) return; const ref = firebase.doc(firebase.collection(this.db,'posts',postId,'comments')); await firebase.setDoc(ref,{id:ref.id,uid:this.currentUser.uid,text:t,createdAt:new Date().toISOString()}); const n = await firebase.getDocs(firebase.collection(this.db,'posts',postId,'comments')); if (comCnt) comCnt.textContent = String(n.size||0); }catch(_){ } };
@@ -3347,16 +3467,38 @@
         if (!url) return;
         const likeBtn = root.querySelector('.shared-like-btn');
         const likeCnt = root.querySelector('.shared-like-count');
-        const key = this.makeAssetLikeKey(kind || 'asset', url);
-        firebase.getDocs(firebase.collection(this.db,'assetLikes',key,'likes')).then((s)=>{ if (likeCnt) likeCnt.textContent = String(s.size || 0); }).catch(()=>{});
+        const keys = this.getAssetLikeKeys(kind || 'asset', url);
+        const primaryKey = keys[0];
+        const refreshAssetLikeCount = async ()=>{
+          try{
+            const n = await this.getAssetAggregatedLikeCount(kind || 'asset', url);
+            if (likeCnt) likeCnt.textContent = String(n);
+          }catch(_){ }
+        };
+        refreshAssetLikeCount();
+        if (firebase && typeof firebase.onSnapshot === 'function'){
+          keys.forEach((key)=>{
+            try{ firebase.onSnapshot(firebase.collection(this.db,'assetLikes',key,'likes'), ()=> refreshAssetLikeCount()); }catch(_){ }
+          });
+        }
         if (likeBtn){
           likeBtn.onclick = async ()=>{
             try{
-              const ref = firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid);
-              const s = await firebase.getDoc(ref);
-              if (s.exists()) await firebase.deleteDoc(ref); else await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
-              const n = await firebase.getDocs(firebase.collection(this.db,'assetLikes',key,'likes'));
-              if (likeCnt) likeCnt.textContent = String(n.size || 0);
+              const refs = keys.map((key)=> firebase.doc(this.db,'assetLikes',key,'likes', this.currentUser.uid));
+              let hasLike = false;
+              for (const ref of refs){
+                const s = await firebase.getDoc(ref);
+                if (s.exists()){ hasLike = true; break; }
+              }
+              if (hasLike){
+                await Promise.all(refs.map(async (ref)=>{ try{ await firebase.deleteDoc(ref); }catch(_){ } }));
+              } else {
+                if (primaryKey){
+                  const ref = firebase.doc(this.db,'assetLikes',primaryKey,'likes', this.currentUser.uid);
+                  await firebase.setDoc(ref,{uid:this.currentUser.uid,kind,url,createdAt:new Date().toISOString()});
+                }
+              }
+              await refreshAssetLikeCount();
             }catch(_){ }
           };
         }
@@ -3550,14 +3692,35 @@
       const existing = document.getElementById('msg-share-sheet');
       const existingBackdrop = document.getElementById('msg-share-backdrop');
       if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); }
-      const rawTargets = (this.connections || []).filter((c)=> c && c.id && c.id !== this.activeConnection);
+      const rawTargets = [];
+      const seenTargetIds = new Set();
+      const pushTarget = (c)=>{
+        const id = String(c?.id || '').trim();
+        if (!id || id === String(this.activeConnection || '').trim() || seenTargetIds.has(id)) return;
+        seenTargetIds.add(id);
+        rawTargets.push(c);
+      };
+      (this.connections || []).forEach(pushTarget);
+      try{
+        const meUid = String(this.currentUser?.uid || '').trim();
+        if (meUid){
+          const pull = async (q)=>{
+            const s = await firebase.getDocs(q);
+            s.forEach((d)=> pushTarget({ id: d.id, ...(d.data() || {}) }));
+          };
+          await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('participants','array-contains', meUid), firebase.limit(220)));
+          try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('users','array-contains', meUid), firebase.limit(220))); }catch(_){ }
+          try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('memberIds','array-contains', meUid), firebase.limit(220))); }catch(_){ }
+        }
+      }catch(_){ }
       const targetMap = new Map();
       rawTargets.forEach((c)=>{
         if (!c || !c.id) return;
         if (c.archived === true || String(c.mergedInto || '').trim()) return;
         const parts = this.getConnParticipants(c).filter(Boolean);
         const isGroup = parts.length > 2 || !!String(c.groupName || '').trim() || !!String(c.groupCoverUrl || '').trim();
-        const key = isGroup ? `group:${c.id}` : `dm:${parts.slice().sort().join('|') || c.id}`;
+        const dmKey = parts.length ? parts.slice().sort().join('|') : String(c.id || '');
+        const key = isGroup ? `group:${c.id}` : `dm:${dmKey}`;
         const prev = targetMap.get(key);
         if (!prev){
           targetMap.set(key, c);
@@ -5438,8 +5601,19 @@
           }
           if (!decrypted){
             // Legacy recordings could be encrypted with non-connection key.
-            const legacy = await this.getFallbackKey();
-            b64 = await chatCrypto.decryptWithKey(payload, legacy);
+            try{
+              const legacy = await this.getFallbackKey();
+              b64 = await chatCrypto.decryptWithKey(payload, legacy);
+              decrypted = true;
+            }catch(_legacy){
+              const inline = this.extractInlineBase64Payload(payload);
+              if (inline){
+                b64 = inline;
+                decrypted = true;
+              }else{
+                throw _legacy;
+              }
+            }
           }
         }
         if (this.isImageFilename(fileName)){
@@ -5453,10 +5627,6 @@
           const img = document.createElement('img');
           img.src = url; img.style.maxWidth = '100%'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt = fileName;
           img.setAttribute('data-fullscreen-image', '1');
-          img.addEventListener('load', ()=>{
-            const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
-          });
           containerEl.appendChild(img);
         } else if (this.isVideoFilename(fileName)){
           const mime = this.detectMimeFromBase64(b64, this.inferVideoMime(fileName));
@@ -5474,10 +5644,6 @@
             this.applyRandomTriangleMask(video);
             this.bindInlineVideoPlayback(video, fileName || 'Video message');
           }
-          video.addEventListener('loadedmetadata', ()=>{
-            const box = document.getElementById('messages');
-            if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
-          });
           containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(b64, this.inferAudioMime(fileName));
@@ -5491,8 +5657,6 @@
           }else{
             this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
-          const box = document.getElementById('messages');
-          if (box && box.dataset.pinnedBottom === '1') box.scrollTop = 0;
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
           const blob = this.base64ToBlob(b64, 'application/pdf');
           const cacheKey = `pdf|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}`;
@@ -5600,6 +5764,30 @@
         a.textContent = name || 'Open attachment';
         containerEl.appendChild(a);
       }catch(_){ }
+    }
+
+    extractInlineBase64Payload(payload){
+      try{
+        const isLikelyB64 = (s)=> /^[A-Za-z0-9+/_=-]{120,}$/.test(String(s || '').trim());
+        if (typeof payload === 'string'){
+          const raw = String(payload || '').trim();
+          if (/^data:[^,]+,/.test(raw)) return raw.split(',')[1] || '';
+          return isLikelyB64(raw) ? raw : '';
+        }
+        const obj = (payload && typeof payload === 'object') ? payload : null;
+        if (!obj) return '';
+        const candidates = [
+          obj.b64, obj.base64, obj.data, obj.payload, obj.content,
+          obj.file, obj.bytes, obj.blob, obj.ciphertext
+        ];
+        for (const c of candidates){
+          const raw = String(c || '').trim();
+          if (!raw) continue;
+          if (/^data:[^,]+,/.test(raw)) return raw.split(',')[1] || '';
+          if (isLikelyB64(raw)) return raw;
+        }
+      }catch(_){ }
+      return '';
     }
 
     base64ToBlob(b64, mime){
