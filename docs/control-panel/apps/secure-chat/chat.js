@@ -8008,7 +8008,21 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         try{ window._videoDebug.send = { t: Date.now(), filename, isVideo }; }catch(_){}
         const aesKey = await self.getFallbackKeyForConn(targetConnId);
         const salts = await self.getConnSaltForConn(targetConnId);
-        const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
+        let base64;
+        if (isVideo) {
+          const buf = await blob.arrayBuffer();
+          (window.top?.console||console).log('[VIDEO-DEBUG] SEND blobSize=', blob.size, 'arrayBufSize=', buf.byteLength);
+          const bytes = new Uint8Array(buf);
+          const chunkSize = 0x8000;
+          let binary = '';
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+          }
+          base64 = btoa(binary);
+          if (!base64 || base64.length < 1000) (window.top?.console||console).warn('[VIDEO] base64 too small', 'blobSize='+blob.size, 'base64Len='+(base64?.length||0));
+        } else {
+          base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
+        }
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = `chat/${targetConnId}/${Date.now()}_${filename}`;
         const sref = firebase.ref(self.storage, `${safe}.enc.json`);
