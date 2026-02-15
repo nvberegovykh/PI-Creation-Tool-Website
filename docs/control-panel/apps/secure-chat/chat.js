@@ -586,7 +586,7 @@
               if (item.loadSeq !== this._msgLoadSeq) return;
               if (item.connId && item.connId !== this.activeConnection) return;
               await item.task();
-            }catch(_){ }
+            }catch(e){ console.warn('[attachment-preview] Task error:', e?.message || e); }
             finally{
               this._attachmentPreviewRunning = Math.max(0, (this._attachmentPreviewRunning || 1) - 1);
               this.pumpAttachmentPreviewQueue();
@@ -2756,11 +2756,16 @@
                 if (hasFile && el.querySelector('.file-preview')){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
-                  const msgId = String(d.id || m.id || '');
-                  this.enqueueAttachmentPreview(()=>{
-                    const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
-                    if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                  }, loadSeq, activeConnId);
+                  const preview = el.querySelector('.file-preview');
+                  const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                  if (isRecording && preview){
+                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                  }else{
+                    this.enqueueAttachmentPreview(()=>{
+                      const container = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .file-preview`);
+                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                    }, loadSeq, activeConnId);
+                  }
                 }
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
                 if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
@@ -2974,15 +2979,19 @@
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
-                  const msgId = String(d.id || m.id || '');
-                  this.enqueueAttachmentPreview(
-                    ()=>{
-                      const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
-                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                    },
-                    loadSeq,
-                    activeConnId
-                  );
+                  const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                  if (isRecording){
+                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                  }else{
+                    this.enqueueAttachmentPreview(
+                      ()=>{
+                        const container = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .file-preview`);
+                        if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                      },
+                      loadSeq,
+                      activeConnId
+                    );
+                  }
                 }
               }
               if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
@@ -3370,15 +3379,20 @@
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
                 const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
-                const msgId = String(d.id || m.id || '');
-                this.enqueueAttachmentPreview(
-                  ()=>{
-                    const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
-                    if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                  },
-                  loadSeq,
-                  activeConnId
-                );
+                const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                if (isRecording){
+                  try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                }else{
+                  const msgId = String(d.id || m.id || '');
+                  this.enqueueAttachmentPreview(
+                    ()=>{
+                      const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
+                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                    },
+                    loadSeq,
+                    activeConnId
+                  );
+                }
               }
             }
             if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
@@ -5810,7 +5824,7 @@
 
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
-        if (!containerEl?.isConnected){ if (window._debugVideoDecrypt && this.isVideoFilename(fileName||'')) console.warn('[video-decrypt] Skipped: container disconnected before decrypt'); return; }
+        if (!containerEl?.isConnected) return;
         const cid = message?.connId || sourceConnId || this.activeConnection;
         const msgId = message?.id;
         if (msgId && cid && this.db) {
