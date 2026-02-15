@@ -353,6 +353,7 @@
                     <div class="tabs" style="display:flex;gap:8px;align-items:center">
                         <button id="wave-tab-audio" class="btn btn-secondary active"><i class="fas fa-music"></i> Audio</button>
                         <button id="wave-tab-video" class="btn btn-secondary"><i class="fas fa-video"></i> Video</button>
+                        <button id="wave-tab-pictures" class="btn btn-secondary"><i class="fas fa-image"></i> Pictures</button>
                     </div>
                 </div>
 
@@ -386,7 +387,16 @@
                     </div>
                     <div class="settings-card" style="margin-top:16px">
                         <h3>My Library</h3>
-                        <div id="wave-library"></div>
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                            <button id="wave-lib-tab-default" class="btn btn-secondary active">Library</button>
+                            <button id="wave-lib-tab-posts" class="btn btn-secondary">From posts</button>
+                        </div>
+                        <div id="wave-library-pane">
+                            <div id="wave-library"></div>
+                        </div>
+                        <div id="wave-library-posts-pane" style="display:none">
+                            <div id="wave-library-posts"></div>
+                        </div>
                     </div>
                     <div class="settings-card" style="margin-top:16px">
                         <h3>Playlists</h3>
@@ -442,6 +452,46 @@
                                 <i class="fas fa-search"></i>
                             </div>
                             <div id="video-search-results"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pictures Pane -->
+                <div id="wave-pictures-pane" style="display:none">
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <h3>Upload Picture</h3>
+                            <div class="setting-item">
+                                <label>Title</label>
+                                <input type="text" id="picture-title" placeholder="Picture title">
+                            </div>
+                            <div class="setting-item">
+                                <label>File</label>
+                                <input type="file" id="picture-file" accept="image/*,video/*">
+                            </div>
+                            <div class="setting-item">
+                                <button id="picture-upload-btn" class="btn btn-primary">Upload</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-card" style="margin-top:16px">
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                            <button id="picture-tab-library" class="btn btn-secondary active">My Pictures</button>
+                            <button id="picture-tab-suggestions" class="btn btn-secondary">Suggestions</button>
+                            <button id="picture-tab-search" class="btn btn-secondary">Search</button>
+                        </div>
+                        <div id="picture-library-pane">
+                            <div id="picture-library"></div>
+                        </div>
+                        <div id="picture-suggestions-pane" style="display:none">
+                            <div id="picture-suggestions"></div>
+                        </div>
+                        <div id="picture-search-pane" style="display:none">
+                            <div class="search-container" style="margin-bottom:10px">
+                                <input type="text" id="picture-search" placeholder="Search pictures...">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <div id="picture-search-results"></div>
                         </div>
                     </div>
                 </div>
@@ -720,7 +770,7 @@
     
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_APP_VERSION = '20260214r38';
+      window.LIBER_APP_VERSION = '20260214r45';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
         const scripts = [

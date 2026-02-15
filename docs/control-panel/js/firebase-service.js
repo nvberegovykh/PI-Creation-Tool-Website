@@ -710,7 +710,15 @@ class FirebaseService {
     async updatePost(postId, updates){
         await this.waitForInit();
         const ref = firebase.doc(this.db, 'posts', postId);
-        const payload = { ...updates, updatedAt: new Date().toISOString() };
+        const now = new Date().toISOString();
+        const payload = { ...updates, updatedAt: now };
+        if (
+            Object.prototype.hasOwnProperty.call(updates || {}, 'text')
+            || Object.prototype.hasOwnProperty.call(updates || {}, 'media')
+            || Object.prototype.hasOwnProperty.call(updates || {}, 'mediaUrl')
+        ){
+            payload.editedAt = now;
+        }
         await firebase.updateDoc(ref, payload);
     }
 
@@ -723,7 +731,8 @@ class FirebaseService {
     async updateComment(postId, commentId, newText){
         await this.waitForInit();
         const ref = firebase.doc(this.db, 'posts', postId, 'comments', commentId);
-        await firebase.updateDoc(ref, { text: newText, updatedAt: new Date().toISOString() });
+        const now = new Date().toISOString();
+        await firebase.updateDoc(ref, { text: newText, updatedAt: now, editedAt: now });
     }
 
     async deleteComment(postId, commentId){

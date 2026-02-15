@@ -21,7 +21,11 @@ class DashboardManager {
         this._spacePostAttachments = [];
         this._waveMetaByUrl = new Map();
         this._waveMetaPendingByUrl = new Map();
+        this._videoMetaByUrl = new Map();
+        this._videoMetaPendingByUrl = new Map();
+        this._postLibrarySyncState = new Map();
         this._resumeBySrc = new Map();
+        this._isAdminSession = false;
         try{
             const savedRepeat = localStorage.getItem('liber_mini_repeat_mode');
             if (savedRepeat === 'all' || savedRepeat === 'one' || savedRepeat === 'off') this._repeatMode = savedRepeat;
@@ -66,6 +70,11 @@ class DashboardManager {
     isEdited(entity){
         try{
             const createdMs = Number(entity?.createdAtTS?.toMillis?.() || 0) || Number(new Date(entity?.createdAt || 0).getTime() || 0) || 0;
+            const editedMs = Number(new Date(entity?.editedAt || 0).getTime() || 0) || 0;
+            if (editedMs > 0 && createdMs > 0) return editedMs > (createdMs + 500);
+            // Posts often update "updatedAt" for non-content actions (e.g., visibility),
+            // so only use updatedAt fallback for non-post entities.
+            if (Object.prototype.hasOwnProperty.call(entity || {}, 'visibility')) return false;
             const updatedMs = Number(new Date(entity?.updatedAt || 0).getTime() || 0) || 0;
             return updatedMs > 0 && createdMs > 0 && updatedMs > (createdMs + 1000);
         }catch(_){ return false; }
@@ -268,6 +277,12 @@ class DashboardManager {
         return this._waveMetaByUrl.get(key) || null;
     }
 
+    getCachedVideoMetaByUrl(url){
+        const key = String(url || '').trim();
+        if (!key) return null;
+        return this._videoMetaByUrl.get(key) || null;
+    }
+
     async fetchWaveMetaByUrl(url){
         const key = String(url || '').trim();
         if (!key || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return null;
@@ -300,18 +315,62 @@ class DashboardManager {
         return task;
     }
 
+    async fetchVideoMetaByUrl(url){
+        const key = String(url || '').trim();
+        if (!key || !(window.firebaseService && window.firebaseService.isFirebaseAvailable())) return null;
+        if (this._videoMetaByUrl.has(key)) return this._videoMetaByUrl.get(key) || null;
+        if (this._videoMetaPendingByUrl.has(key)) return this._videoMetaPendingByUrl.get(key);
+        const task = (async ()=>{
+            let meta = null;
+            try{
+                const q = firebase.query(
+                    firebase.collection(window.firebaseService.db, 'videos'),
+                    firebase.where('url', '==', key),
+                    firebase.limit(1)
+                );
+                const s = await firebase.getDocs(q);
+                const d = s?.docs?.[0];
+                if (d){
+                    const v = d.data() || {};
+                    meta = {
+                        title: String(v.title || '').trim(),
+                        coverUrl: String(v.thumbnailUrl || v.coverUrl || '').trim(),
+                        authorName: String(v.authorName || '').trim()
+                    };
+                }
+            }catch(_){ }
+            this._videoMetaByUrl.set(key, meta);
+            this._videoMetaPendingByUrl.delete(key);
+            return meta;
+        })();
+        this._videoMetaPendingByUrl.set(key, task);
+        return task;
+    }
+
     async primeWaveMetaForMedia(media){
         try{
             const items = this.normalizePostMediaItems(media);
-            const urls = [];
+            const audioUrls = [];
+            const videoUrls = [];
             items.forEach((it)=>{
                 if (it.kind === 'audio' && it.url && !this._waveMetaByUrl.has(String(it.url).trim())){
-                    urls.push(String(it.url).trim());
+                    audioUrls.push(String(it.url).trim());
+                }
+                if (it.kind === 'video' && it.url && !this._videoMetaByUrl.has(String(it.url).trim())){
+                    videoUrls.push(String(it.url).trim());
                 }
             });
-            if (!urls.length) return;
-            const unique = Array.from(new Set(urls));
-            await Promise.all(unique.slice(0, 20).map((u)=> this.fetchWaveMetaByUrl(u)));
+            const tasks = [];
+            if (audioUrls.length){
+                const uniqueAudio = Array.from(new Set(audioUrls));
+                tasks.push(...uniqueAudio.slice(0, 20).map((u)=> this.fetchWaveMetaByUrl(u)));
+            }
+            if (videoUrls.length){
+                const uniqueVideo = Array.from(new Set(videoUrls));
+                tasks.push(...uniqueVideo.slice(0, 20).map((u)=> this.fetchVideoMetaByUrl(u)));
+            }
+            if (!tasks.length) return;
+            await Promise.all(tasks);
         }catch(_){ }
     }
 
@@ -390,18 +449,31 @@ class DashboardManager {
         try{
             const me = await this.resolveCurrentUser();
             if (!me || !me.uid) return;
-            const rows = [];
+            const audioRows = [];
+            const videoRows = [];
             try{
                 const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid), firebase.orderBy('createdAt','desc'), firebase.limit(60));
                 const s = await firebase.getDocs(q);
-                s.forEach((d)=> rows.push(d.data() || {}));
+                s.forEach((d)=> audioRows.push(d.data() || {}));
             }catch(_){
                 const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', me.uid));
                 const s2 = await firebase.getDocs(q2);
-                s2.forEach((d)=> rows.push(d.data() || {}));
-                rows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
+                s2.forEach((d)=> audioRows.push(d.data() || {}));
+                audioRows.sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0));
             }
-            rows.forEach((w)=>{
+            try{
+                const qv = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', me.uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(60));
+                const sv = await firebase.getDocs(qv);
+                sv.forEach((d)=> videoRows.push(d.data() || {}));
+            }catch(_){
+                try{
+                    const qv2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', me.uid));
+                    const sv2 = await firebase.getDocs(qv2);
+                    sv2.forEach((d)=> videoRows.push(d.data() || {}));
+                    videoRows.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+                }catch(__){ }
+            }
+            audioRows.forEach((w)=>{
                 const key = String(w?.url || '').trim();
                 if (!key) return;
                 this._waveMetaByUrl.set(key, {
@@ -410,29 +482,70 @@ class DashboardManager {
                     authorName: String(w?.authorName || '').trim()
                 });
             });
-            if (!rows.length){ this.showError('No WaveConnect audio found'); return; }
+            videoRows.forEach((v)=>{
+                const key = String(v?.url || '').trim();
+                if (!key) return;
+                this._videoMetaByUrl.set(key, {
+                    title: String(v?.title || '').trim(),
+                    coverUrl: String(v?.thumbnailUrl || v?.coverUrl || '').trim(),
+                    authorName: String(v?.authorName || '').trim()
+                });
+            });
+            const rows = [
+                ...audioRows.map((w)=> ({ type:'audio', data:w })),
+                ...videoRows.map((v)=> {
+                    const mediaType = String(v?.mediaType || 'video');
+                    const sourceType = String(v?.sourceMediaType || '').toLowerCase();
+                    const inferred = sourceType === 'image' ? 'image' : (sourceType === 'video' ? 'video' : mediaType);
+                    return ({ type: inferred === 'image' ? 'image' : 'video', data: v });
+                })
+            ];
+            rows.sort((a,b)=> new Date(b.data?.createdAt||0) - new Date(a.data?.createdAt||0));
+            if (!rows.length){ this.showError('No WaveConnect media found'); return; }
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
             overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
             overlay.innerHTML = `<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add from WaveConnect</div><div id="space-wave-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="space-wave-picker-close" class="btn btn-secondary">Close</button></div></div>`;
             const list = overlay.querySelector('#space-wave-picker-list');
-            rows.slice(0,60).forEach((w)=>{
+            rows.slice(0,80).forEach((entry)=>{
+                const w = entry.data || {};
+                const isVideo = entry.type === 'video';
+                const isImage = entry.type === 'image';
                 const btn = document.createElement('button');
                 btn.className = 'btn btn-secondary';
                 btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-                btn.innerHTML = `<i class="fas fa-music"></i> ${(w.title || 'Audio').replace(/</g,'&lt;')}`;
+                btn.innerHTML = `<i class="fas ${isVideo ? 'fa-video' : (isImage ? 'fa-image' : 'fa-music')}"></i> ${(w.title || (isVideo ? 'Video' : (isImage ? 'Picture' : 'Audio'))).replace(/</g,'&lt;')}`;
                 btn.onclick = ()=>{
                     const cur = this.getSpacePostAttachments();
                     if (cur.length >= this.getMaxPostAttachments()){ this.showError(`Max ${this.getMaxPostAttachments()} attachments`); return; }
                     const next = cur.slice();
-                    const added = this.addUniqueSpaceAttachment(next, {
-                        kind:'audio',
-                        url: String(w.url || ''),
-                        name: String(w.title || 'Audio'),
-                        by: String(w.authorName || ''),
-                        cover: String(w.coverUrl || ''),
-                        sourceId: String(w.id || '')
-                    });
+                    const payload = isVideo
+                        ? {
+                            kind:'video',
+                            url: String(w.url || ''),
+                            name: String(w.title || 'Video'),
+                            by: String(w.authorName || ''),
+                            cover: String(w.thumbnailUrl || w.coverUrl || ''),
+                            sourceId: String(w.id || '')
+                        }
+                        : (isImage
+                        ? {
+                            kind:'image',
+                            url: String(w.url || ''),
+                            name: String(w.title || 'Picture'),
+                            by: String(w.authorName || ''),
+                            cover: String(w.thumbnailUrl || w.coverUrl || w.url || ''),
+                            sourceId: String(w.id || '')
+                        }
+                        : {
+                            kind:'audio',
+                            url: String(w.url || ''),
+                            name: String(w.title || 'Audio'),
+                            by: String(w.authorName || ''),
+                            cover: String(w.coverUrl || ''),
+                            sourceId: String(w.id || '')
+                        });
+                    const added = this.addUniqueSpaceAttachment(next, payload);
                     if (!added){ this.showError('Already added'); return; }
                     this._spacePostAttachments = next;
                     this.renderSpacePostComposerQueue();
@@ -660,6 +773,193 @@ class DashboardManager {
         }catch(_){ return String(fallback || '').trim(); }
     }
 
+    isPostLibraryItem(item){
+        const sourceType = String(item?.sourceType || item?.source || item?.sourceLabel || '').toLowerCase();
+        return sourceType === 'post' || sourceType === 'posts' || !!item?.sourcePostId;
+    }
+
+    extractSyncableMediaFromPost(post){
+        const p = post || {};
+        const raw = Array.isArray(p.media) ? p.media : (p.mediaUrl ? [p.mediaUrl] : []);
+        const out = [];
+        raw.forEach((entry)=>{
+            if (!entry) return;
+            const isObj = entry && typeof entry === 'object' && !Array.isArray(entry);
+            const url = String(isObj ? (entry.url || entry.mediaUrl || '') : (entry || '')).trim();
+            if (!url) return;
+            const kindRaw = String(isObj ? (entry.kind || entry.mediaType || entry.type || '') : '').toLowerCase().trim();
+            const kind = ['audio','video','image'].includes(kindRaw) ? kindRaw : this.inferMediaKindFromUrl(url);
+            if (!['audio','video','image'].includes(kind)) return;
+            const title = String(isObj ? (entry.name || entry.title || '') : '').trim()
+                || this.inferMediaNameFromUrl(url, kind === 'audio' ? 'Audio' : (kind === 'video' ? 'Video' : 'Picture'));
+            const by = String(isObj ? (entry.by || entry.authorName || '') : '').trim() || String(p.authorName || '').trim();
+            const cover = String(isObj ? (entry.cover || entry.coverUrl || entry.thumbnailUrl || '') : '').trim()
+                || String(p.coverUrl || p.thumbnailUrl || '').trim();
+            out.push({
+                kind,
+                url,
+                title,
+                by,
+                cover,
+                postId: String(p.id || '').trim()
+            });
+        });
+        const seen = new Set();
+        return out.filter((m)=>{
+            const sig = `${m.kind}|${m.url}`;
+            if (seen.has(sig)) return false;
+            seen.add(sig);
+            return true;
+        });
+    }
+
+    async syncPostMediaToLibraries(uid, opts = {}){
+        const userId = String(uid || '').trim();
+        if (!userId) return { addedAudio: 0, addedVideo: 0, addedPictures: 0 };
+        const force = !!opts.force;
+        const state = this._postLibrarySyncState.get(userId) || {};
+        const now = Date.now();
+        if (!force && state.running) return state.running;
+        if (!force && state.lastAt && (now - state.lastAt) < 120000){
+            return { addedAudio: 0, addedVideo: 0, addedPictures: 0 };
+        }
+        const run = (async ()=>{
+            let addedAudio = 0;
+            let addedVideo = 0;
+            let addedPictures = 0;
+            try{
+                let posts = Array.isArray(opts.posts) ? opts.posts.filter(Boolean) : [];
+                if (!posts.length){
+                    try{
+                        const q = firebase.query(
+                            firebase.collection(window.firebaseService.db, 'posts'),
+                            firebase.where('authorId','==', userId),
+                            firebase.orderBy('createdAtTS','desc'),
+                            firebase.limit(250)
+                        );
+                        const s = await firebase.getDocs(q);
+                        posts = (s.docs || []).map((d)=> d.data() || {});
+                    }catch(_){
+                        const q2 = firebase.query(firebase.collection(window.firebaseService.db, 'posts'), firebase.where('authorId','==', userId));
+                        const s2 = await firebase.getDocs(q2);
+                        posts = (s2.docs || []).map((d)=> d.data() || {});
+                    }
+                }
+                const allMedia = [];
+                posts.forEach((p)=> allMedia.push(...this.extractSyncableMediaFromPost(p)));
+                if (!allMedia.length) return { addedAudio, addedVideo, addedPictures };
+                const audioUrls = new Set();
+                const videoUrls = new Set();
+                const pictureUrls = new Set();
+                try{
+                    const qWave = firebase.query(firebase.collection(window.firebaseService.db, 'wave'), firebase.where('ownerId','==', userId), firebase.limit(800));
+                    const sWave = await firebase.getDocs(qWave);
+                    sWave.forEach((d)=>{ const w = d.data() || {}; if (w.url) audioUrls.add(String(w.url)); });
+                }catch(_){ }
+                try{
+                    const qVid = firebase.query(firebase.collection(window.firebaseService.db, 'videos'), firebase.where('owner','==', userId), firebase.limit(1200));
+                    const sVid = await firebase.getDocs(qVid);
+                    sVid.forEach((d)=>{
+                        const v = d.data() || {};
+                        const url = String(v.url || '').trim();
+                        if (!url) return;
+                        if (String(v.mediaType || '') === 'image') pictureUrls.add(url);
+                        else videoUrls.add(url);
+                    });
+                }catch(_){ }
+                const meData = await window.firebaseService.getUserData(userId).catch(()=> null);
+                const myName = String(meData?.username || meData?.email || '').trim();
+                for (const m of allMedia){
+                    if (m.kind === 'audio'){
+                        if (audioUrls.has(m.url)) continue;
+                        const ref = firebase.doc(firebase.collection(window.firebaseService.db, 'wave'));
+                        await firebase.setDoc(ref, {
+                            id: ref.id,
+                            owner: userId,
+                            ownerId: userId,
+                            title: String(m.title || 'Audio'),
+                            url: m.url,
+                            createdAt: new Date().toISOString(),
+                            createdAtTS: firebase.serverTimestamp(),
+                            authorId: userId,
+                            authorName: myName || String(m.by || ''),
+                            coverUrl: String(m.cover || ''),
+                            sourceType: 'post',
+                            sourceLabel: 'posts',
+                            sourcePostId: String(m.postId || '')
+                        });
+                        audioUrls.add(m.url);
+                        addedAudio += 1;
+                        continue;
+                    }
+                    if (m.kind === 'video'){
+                        if (videoUrls.has(m.url)) continue;
+                        const ref = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
+                        await firebase.setDoc(ref, {
+                            id: ref.id,
+                            owner: userId,
+                            title: String(m.title || 'Video'),
+                            url: m.url,
+                            createdAt: new Date().toISOString(),
+                            createdAtTS: firebase.serverTimestamp(),
+                            visibility: 'public',
+                            mediaType: 'video',
+                            sourceMediaType: 'video',
+                            authorId: userId,
+                            authorName: myName || String(m.by || ''),
+                            thumbnailUrl: String(m.cover || ''),
+                            originalAuthorId: userId,
+                            originalAuthorName: String(m.by || myName || ''),
+                            sourceType: 'post',
+                            sourceLabel: 'posts',
+                            sourcePostId: String(m.postId || '')
+                        });
+                        videoUrls.add(m.url);
+                        addedVideo += 1;
+                        continue;
+                    }
+                    if (m.kind === 'image'){
+                        if (pictureUrls.has(m.url)) continue;
+                        const ref = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
+                        await firebase.setDoc(ref, {
+                            id: ref.id,
+                            owner: userId,
+                            title: String(m.title || 'Picture'),
+                            url: m.url,
+                            createdAt: new Date().toISOString(),
+                            createdAtTS: firebase.serverTimestamp(),
+                            visibility: 'public',
+                            mediaType: 'image',
+                            sourceMediaType: 'image',
+                            authorId: userId,
+                            authorName: myName || String(m.by || ''),
+                            thumbnailUrl: String(m.cover || m.url || ''),
+                            originalAuthorId: userId,
+                            originalAuthorName: String(m.by || myName || ''),
+                            sourceType: 'post',
+                            sourceLabel: 'posts',
+                            sourcePostId: String(m.postId || '')
+                        });
+                        pictureUrls.add(m.url);
+                        addedPictures += 1;
+                    }
+                }
+            }catch(_){ }
+            return { addedAudio, addedVideo, addedPictures };
+        })();
+        this._postLibrarySyncState.set(userId, { ...state, running: run, lastAt: now });
+        try{
+            const result = await run;
+            const cur = this._postLibrarySyncState.get(userId) || {};
+            this._postLibrarySyncState.set(userId, { ...cur, running: null, lastAt: Date.now() });
+            return result;
+        }catch(_){
+            const cur = this._postLibrarySyncState.get(userId) || {};
+            this._postLibrarySyncState.set(userId, { ...cur, running: null, lastAt: Date.now() });
+            return { addedAudio: 0, addedVideo: 0, addedPictures: 0 };
+        }
+    }
+
     normalizePostMediaItems(media){
         const raw = Array.isArray(media) ? media : (media ? [media] : []);
         const out = [];
@@ -668,14 +968,17 @@ class DashboardManager {
             if (typeof entry === 'string'){
                 const url = String(entry || '').trim();
                 if (!url) return;
+                const kind = this.inferMediaKindFromUrl(url);
                 const waveMeta = this.getCachedWaveMetaByUrl(url);
+                const videoMeta = this.getCachedVideoMetaByUrl(url);
+                const sourceMeta = kind === 'video' ? videoMeta : waveMeta;
                 const inferredName = this.inferMediaNameFromUrl(url, '');
                 out.push({
-                    kind: this.inferMediaKindFromUrl(url),
+                    kind,
                     url,
-                    name: (waveMeta?.title && this.looksLikeGeneratedMediaName(inferredName)) ? waveMeta.title : inferredName,
-                    by: String(waveMeta?.authorName || '').trim(),
-                    cover: String(waveMeta?.coverUrl || '').trim()
+                    name: (sourceMeta?.title && this.looksLikeGeneratedMediaName(inferredName)) ? sourceMeta.title : inferredName,
+                    by: String(sourceMeta?.authorName || '').trim(),
+                    cover: String(sourceMeta?.coverUrl || '').trim()
                 });
                 return;
             }
@@ -694,16 +997,19 @@ class DashboardManager {
                     return;
                 }
                 if (url){
+                    const resolvedKind = ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url);
                     const waveMeta = this.getCachedWaveMetaByUrl(url);
+                    const videoMeta = this.getCachedVideoMetaByUrl(url);
+                    const sourceMeta = resolvedKind === 'video' ? videoMeta : waveMeta;
                     const inferredName = this.inferMediaNameFromUrl(url, '');
                     const resolvedNameBase = name || inferredName;
-                    const resolvedName = (waveMeta?.title && this.looksLikeGeneratedMediaName(resolvedNameBase)) ? waveMeta.title : resolvedNameBase;
+                    const resolvedName = (sourceMeta?.title && this.looksLikeGeneratedMediaName(resolvedNameBase)) ? sourceMeta.title : resolvedNameBase;
                     out.push({
-                        kind: ['image','video','audio','file'].includes(kind) ? kind : this.inferMediaKindFromUrl(url),
+                        kind: resolvedKind,
                         url,
                         name: resolvedName,
-                        by: String(entry.by || entry.authorName || waveMeta?.authorName || '').trim(),
-                        cover: String(entry.cover || entry.coverUrl || waveMeta?.coverUrl || '').trim()
+                        by: String(entry.by || entry.authorName || sourceMeta?.authorName || '').trim(),
+                        cover: String(entry.cover || entry.coverUrl || sourceMeta?.coverUrl || '').trim()
                     });
                 }
             }
@@ -737,14 +1043,16 @@ class DashboardManager {
 
         const visualHtml = visual.length
             ? `<div class="post-media-visual-shell"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${visual.map((it)=>{
-                if (it.kind === 'image'){
-                    return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image"></div>`;
-                }
-                const t = String(it.name || 'Video').replace(/"/g,'&quot;');
-                const tHtml = String(it.name || 'Video').replace(/</g,'&lt;');
+                const t = String(it.name || (it.kind === 'image' ? 'Picture' : 'Video')).replace(/"/g,'&quot;');
                 const b = String(it.by || defaultBy || '').replace(/"/g,'&quot;');
                 const c = String(it.cover || defaultCover || '').replace(/"/g,'&quot;');
-                return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${tHtml}</div><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div></div>`;
+                const aid = String(authorId || '').replace(/"/g,'&quot;');
+                const actions = `<div class="post-media-files-item" style="padding:8px 0 0"><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="pictures" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}" style="margin-right:6px"><i class="fas fa-image"></i> To My Pictures</button><button type="button" class="btn btn-secondary post-save-visual-btn" data-save-target="videos" data-kind="${it.kind}" data-url="${String(it.url || '').replace(/"/g,'&quot;')}" data-title="${t}" data-by="${b}" data-cover="${c}" data-author-id="${aid}"><i class="fas fa-video"></i> To My Videos</button></div>`;
+                if (it.kind === 'image'){
+                    return `<div class="post-media-visual-item"><img src="${it.url}" alt="media" class="post-media-image">${actions}</div>`;
+                }
+                const tHtml = String(it.name || 'Video').replace(/</g,'&lt;');
+                return `<div class="post-media-visual-item"><div class="player-card"><div class="post-media-video-head">${tHtml}</div><video src="${it.url}" class="player-media post-media-video" data-title="${t}" data-by="${b}" data-cover="${c}" controls playsinline></video><div class="player-bar"><button class="btn-icon" data-action="play"><i class="fas fa-play"></i></button><div class="progress"><div class="fill"></div></div><div class="time"></div></div></div>${actions}</div>`;
             }).join('')}</div></div>${visual.length > 1 ? `<div class="post-media-dots">${visual.map((_,i)=> `<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}" aria-label="Slide ${i+1}"></button>`).join('')}</div>` : ''}</div>`
             : '';
 
@@ -1842,6 +2150,22 @@ class DashboardManager {
                 wrap.addEventListener('scroll', ()=> syncDots(), { passive: true });
                 syncDots();
             });
+            root.querySelectorAll('.post-save-visual-btn').forEach((btn)=>{
+                if (btn.dataset.boundSaveVisual === '1') return;
+                btn.dataset.boundSaveVisual = '1';
+                btn.addEventListener('click', async ()=>{
+                    const media = {
+                        kind: String(btn.dataset.kind || ''),
+                        url: String(btn.dataset.url || ''),
+                        title: String(btn.dataset.title || ''),
+                        by: String(btn.dataset.by || ''),
+                        cover: String(btn.dataset.cover || ''),
+                        authorId: String(btn.dataset.authorId || '')
+                    };
+                    const target = String(btn.dataset.saveTarget || 'videos');
+                    await this.saveVisualToLibrary(media, target === 'pictures' ? 'pictures' : 'videos');
+                });
+            });
             root.querySelectorAll('.player-card').forEach(card=>{
                 if (card.dataset.playerBound === '1') return;
                 card.dataset.playerBound = '1';
@@ -2341,7 +2665,16 @@ class DashboardManager {
             // Horizontal swipe only: fast and clearly stronger than vertical movement.
             if (dt > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
 
-            const navBtns = Array.from(document.querySelectorAll('.mobile-nav-btn[data-section]'));
+            const navBtns = Array.from(document.querySelectorAll('.mobile-nav-btn[data-section]'))
+                .filter((btn)=>{
+                    try{
+                        if (!btn) return false;
+                        const style = window.getComputedStyle(btn);
+                        if (style.display === 'none' || style.visibility === 'hidden') return false;
+                        const sec = String(btn.dataset.section || '');
+                        return this.canAccessSection(sec);
+                    }catch(_){ return false; }
+                });
             const sections = navBtns
                 .map(btn => btn.dataset.section)
                 .filter(Boolean)
@@ -2355,6 +2688,20 @@ class DashboardManager {
             if (dx < 0 && idx < sections.length - 1) this.switchSection(sections[idx + 1]);
             if (dx > 0 && idx > 0) this.switchSection(sections[idx - 1]);
         }, { passive: true });
+    }
+
+    canAccessSection(section){
+        const sec = String(section || '').trim();
+        if (!sec) return false;
+        const adminOnly = sec === 'users' || sec === 'settings';
+        if (!adminOnly) return true;
+        if (this._isAdminSession) return true;
+        try{
+            const btn = document.querySelector(`.nav-btn[data-section="${sec}"]`) || document.querySelector(`.mobile-nav-btn[data-section="${sec}"]`);
+            if (!btn) return false;
+            const style = window.getComputedStyle(btn);
+            return style.display !== 'none' && style.visibility !== 'hidden';
+        }catch(_){ return false; }
     }
     /**
      * Load Personal Space
@@ -2498,6 +2845,18 @@ class DashboardManager {
                         visibility,
                         createdAt: new Date().toISOString(),
                         createdAtTS: firebase.serverTimestamp()
+                    });
+                    await this.syncPostMediaToLibraries(user.uid, {
+                        force: true,
+                        posts: [{
+                            id: postIdRef.id,
+                            authorId: user.uid,
+                            authorName: String(user?.displayName || user?.email || ''),
+                            text,
+                            media: uniqueMedia,
+                            mediaUrl,
+                            createdAt: new Date().toISOString()
+                        }]
                     });
                     document.getElementById('space-post-text').value = '';
                     if (mediaInput) mediaInput.value = '';
@@ -3655,6 +4014,9 @@ class DashboardManager {
      */
     switchSection(section) {
         if (this._dashboardSuspended) return;
+        if (!this.canAccessSection(section)){
+            section = 'apps';
+        }
         this.updateVerificationBanner();
         // Update desktop navigation
         const navBtns = document.querySelectorAll('.nav-btn');
@@ -3704,16 +4066,26 @@ class DashboardManager {
                 // Setup tabs
                 const tA = document.getElementById('wave-tab-audio');
                 const tV = document.getElementById('wave-tab-video');
+                const tP = document.getElementById('wave-tab-pictures');
                 const pA = document.getElementById('wave-audio-pane');
                 const pV = document.getElementById('wave-video-pane');
-                if (tA && tV && pA && pV && !tA._bound){
-                    tA._bound = tV._bound = true;
-                    const activate = (isVideo)=>{
-                        if (isVideo){ tV.classList.add('active'); tA.classList.remove('active'); pV.style.display='block'; pA.style.display='none'; this.loadVideoHost(); }
-                        else { tA.classList.add('active'); tV.classList.remove('active'); pA.style.display='block'; pV.style.display='none'; this.loadWaveConnect(); }
+                const pP = document.getElementById('wave-pictures-pane');
+                if (tA && tV && tP && pA && pV && pP && !tA._bound){
+                    tA._bound = tV._bound = tP._bound = true;
+                    const activate = (name)=>{
+                        tA.classList.toggle('active', name === 'audio');
+                        tV.classList.toggle('active', name === 'video');
+                        tP.classList.toggle('active', name === 'pictures');
+                        pA.style.display = name === 'audio' ? 'block' : 'none';
+                        pV.style.display = name === 'video' ? 'block' : 'none';
+                        pP.style.display = name === 'pictures' ? 'block' : 'none';
+                        if (name === 'audio') this.loadWaveConnect();
+                        if (name === 'video') this.loadVideoHost();
+                        if (name === 'pictures') this.loadPictureHost();
                     };
-                    tA.onclick = ()=> activate(false);
-                    tV.onclick = ()=> activate(true);
+                    tA.onclick = ()=> activate('audio');
+                    tV.onclick = ()=> activate('video');
+                    tP.onclick = ()=> activate('pictures');
                 }
                 break;
             case 'profile':
@@ -3733,6 +4105,7 @@ class DashboardManager {
     async loadWaveConnect(){
         try{
             const me = await window.firebaseService.getCurrentUser();
+            await this.syncPostMediaToLibraries(me?.uid, { force: false });
             const lib = document.getElementById('wave-library');
             const res = document.getElementById('wave-results');
             const upBtn = document.getElementById('wave-upload-btn');
@@ -3868,8 +4241,28 @@ class DashboardManager {
                 };
             }
             await this.renderWaveLibrary(me.uid);
+            await this.renderWavePostsLibrary(me.uid);
+            this.setupWaveLibraryTabs();
             await this.renderPlaylists();
         }catch(_){ }
+    }
+
+    setupWaveLibraryTabs(){
+        const tabDefault = document.getElementById('wave-lib-tab-default');
+        const tabPosts = document.getElementById('wave-lib-tab-posts');
+        const paneDefault = document.getElementById('wave-library-pane');
+        const panePosts = document.getElementById('wave-library-posts-pane');
+        if (!tabDefault || !tabPosts || !paneDefault || !panePosts || tabDefault._boundTabs) return;
+        tabDefault._boundTabs = true;
+        const open = (name)=>{
+            tabDefault.classList.toggle('active', name === 'default');
+            tabPosts.classList.toggle('active', name === 'posts');
+            paneDefault.style.display = name === 'default' ? 'block' : 'none';
+            panePosts.style.display = name === 'posts' ? 'block' : 'none';
+        };
+        tabDefault.onclick = ()=> open('default');
+        tabPosts.onclick = ()=> open('posts');
+        open('default');
     }
 
     setupFeedTabs(){
@@ -3952,6 +4345,62 @@ class DashboardManager {
         open('library');
     }
 
+    setupPictureHostTabs(){
+        const tabLibrary = document.getElementById('picture-tab-library');
+        const tabSuggestions = document.getElementById('picture-tab-suggestions');
+        const tabSearch = document.getElementById('picture-tab-search');
+        const paneLibrary = document.getElementById('picture-library-pane');
+        const paneSuggestions = document.getElementById('picture-suggestions-pane');
+        const paneSearch = document.getElementById('picture-search-pane');
+        if (!tabLibrary || !tabSuggestions || !tabSearch || !paneLibrary || !paneSuggestions || !paneSearch || tabLibrary._boundTabs) return;
+        tabLibrary._boundTabs = true;
+        const open = (name)=>{
+            tabLibrary.classList.toggle('active', name === 'library');
+            tabSuggestions.classList.toggle('active', name === 'suggestions');
+            tabSearch.classList.toggle('active', name === 'search');
+            paneLibrary.style.display = name === 'library' ? 'block' : 'none';
+            paneSuggestions.style.display = name === 'suggestions' ? 'block' : 'none';
+            paneSearch.style.display = name === 'search' ? 'block' : 'none';
+        };
+        tabLibrary.onclick = ()=> open('library');
+        tabSuggestions.onclick = ()=> open('suggestions');
+        tabSearch.onclick = ()=> open('search');
+        open('library');
+    }
+
+    async saveVisualToLibrary(media, targetBucket = 'videos'){
+        try{
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid || !media || !media.url) return false;
+            const asPicture = targetBucket === 'pictures';
+            const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
+            const title = String(media.title || media.name || (asPicture ? 'Picture' : 'Video')).trim() || (asPicture ? 'Picture' : 'Video');
+            const ownerName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
+            const originalAuthorId = String(media.originalAuthorId || media.authorId || '').trim() || null;
+            const originalAuthorName = String(media.originalAuthorName || media.authorName || media.by || '').trim() || null;
+            const sourceMediaType = String(media.kind || '').toLowerCase() === 'image' ? 'image' : 'video';
+            await firebase.setDoc(docRef, {
+                id: docRef.id,
+                owner: me.uid,
+                title,
+                url: String(media.url || ''),
+                createdAt: new Date().toISOString(),
+                createdAtTS: firebase.serverTimestamp(),
+                visibility: 'public',
+                mediaType: asPicture ? 'image' : 'video',
+                sourceMediaType,
+                authorId: me.uid,
+                authorName: ownerName,
+                thumbnailUrl: String(media.cover || media.thumbnailUrl || ''),
+                originalAuthorId,
+                originalAuthorName
+            });
+            this.showSuccess(asPicture ? 'Added to My Pictures' : 'Added to My Videos');
+            if (asPicture) this.loadPictureHost(); else this.loadVideoHost();
+            return true;
+        }catch(_){ this.showError('Failed to add to library'); return false; }
+    }
+
     async renderWaveLibrary(uid){
         const lib = document.getElementById('wave-library'); if (!lib) return;
         lib.innerHTML = '';
@@ -3973,12 +4422,25 @@ class DashboardManager {
                 authorName: String(w?.authorName || '').trim()
             });
         });
+        const nonPost = items.filter((w)=> !this.isPostLibraryItem(w));
+        const fromPosts = items.filter((w)=> this.isPostLibraryItem(w));
+        const ordered = nonPost.concat(fromPosts);
         const visible = Math.max(5, Number(this._waveLibraryVisible || 5));
-        items.slice(0, visible).forEach((w)=> lib.appendChild(this.renderWaveItem(w, {
+        let postSeparatorShown = false;
+        ordered.slice(0, visible).forEach((w)=>{
+            if (!postSeparatorShown && this.isPostLibraryItem(w)){
+                const sep = document.createElement('div');
+                sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
+                sep.textContent = 'Posts';
+                lib.appendChild(sep);
+                postSeparatorShown = true;
+            }
+            lib.appendChild(this.renderWaveItem(w, {
             allowRemove: true,
             onRemoved: ()=> this.renderWaveLibrary(uid)
-        })));
-        if (items.length > visible){
+        }));
+        });
+        if (ordered.length > visible){
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
             more.textContent = 'Show 5 more';
@@ -3987,6 +4449,64 @@ class DashboardManager {
                 this.renderWaveLibrary(uid);
             };
             lib.appendChild(more);
+        }
+    }
+
+    async renderWavePostsLibrary(uid){
+        const host = document.getElementById('wave-library-posts'); if (!host) return;
+        host.innerHTML = '';
+        const all = [];
+        try{
+            const qWave = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.limit(200));
+            const sWave = await firebase.getDocs(qWave);
+            sWave.forEach((d)=>{
+                const w = d.data() || {};
+                if (!this.isPostLibraryItem(w)) return;
+                all.push({ kind: 'audio', item: w, ts: Number(w?.createdAtTS?.toMillis?.() || 0) || Number(new Date(w?.createdAt || 0).getTime() || 0) || 0 });
+            });
+        }catch(_){ }
+        try{
+            const qVid = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.limit(300));
+            const sVid = await firebase.getDocs(qVid);
+            sVid.forEach((d)=>{
+                const v = d.data() || {};
+                if (!this.isPostLibraryItem(v)) return;
+                const k = String(v?.mediaType || '').toLowerCase() === 'image' ? 'image' : 'video';
+                all.push({ kind: k, item: v, ts: Number(v?.createdAtTS?.toMillis?.() || 0) || Number(new Date(v?.createdAt || 0).getTime() || 0) || 0 });
+            });
+        }catch(_){ }
+        all.sort((a,b)=> b.ts - a.ts);
+        if (!all.length){
+            const empty = document.createElement('div');
+            empty.style.cssText = 'opacity:.75;padding:8px';
+            empty.textContent = 'No media saved from posts yet.';
+            host.appendChild(empty);
+            return;
+        }
+        const visible = Math.max(8, Number(this._waveLibraryVisible || 8));
+        all.slice(0, visible).forEach((entry)=>{
+            if (entry.kind === 'audio'){
+                host.appendChild(this.renderWaveItem(entry.item, {
+                    allowRemove: true,
+                    onRemoved: ()=> this.renderWavePostsLibrary(uid)
+                }));
+                return;
+            }
+            if (entry.kind === 'image'){
+                host.appendChild(this.renderPictureItem(entry.item));
+                return;
+            }
+            host.appendChild(this.renderVideoItem(entry.item));
+        });
+        if (all.length > visible){
+            const more = document.createElement('button');
+            more.className = 'btn btn-secondary';
+            more.textContent = 'Show 5 more';
+            more.onclick = ()=>{
+                this._waveLibraryVisible = visible + 5;
+                this.renderWavePostsLibrary(uid);
+            };
+            host.appendChild(more);
         }
     }
 
@@ -4057,6 +4577,7 @@ class DashboardManager {
     async loadVideoHost(){
         try{
             const me = await window.firebaseService.getCurrentUser();
+            await this.syncPostMediaToLibraries(me?.uid, { force: false });
             const lib = document.getElementById('video-library');
             const sug = document.getElementById('video-suggestions');
             const upBtn = document.getElementById('video-upload-btn');
@@ -4086,7 +4607,7 @@ class DashboardManager {
                             thumbnailUrl = await firebase.getDownloadURL(cRef);
                         }
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
-                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: 'public', authorId: me.uid, authorName, thumbnailUrl });
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: 'public', mediaType: 'video', authorId: me.uid, authorName, thumbnailUrl, originalAuthorId: me.uid, originalAuthorName: authorName });
                         this.showSuccess('Video uploaded');
                         this.renderVideoLibrary(me.uid);
                     }catch(e){ this.showError('Upload failed'); }
@@ -4102,7 +4623,7 @@ class DashboardManager {
                     res.innerHTML='';
                     if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-                    snap.forEach(d=>{ const v=d.data(); if ((v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
+                    snap.forEach(d=>{ const v=d.data(); if ((v.mediaType||'video') !== 'image' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
                 };
             }
 
@@ -4129,9 +4650,23 @@ class DashboardManager {
             const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
+        const filtered = items.filter((v)=> (v.mediaType || 'video') !== 'image');
+        const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
+        const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
+        const ordered = nonPost.concat(fromPosts);
         const visible = Math.max(5, Number(this._videoLibraryVisible || 5));
-        items.slice(0, visible).forEach((v)=> lib.appendChild(this.renderVideoItem(v)));
-        if (items.length > visible){
+        let postSeparatorShown = false;
+        ordered.slice(0, visible).forEach((v)=>{
+            if (!postSeparatorShown && this.isPostLibraryItem(v)){
+                const sep = document.createElement('div');
+                sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
+                sep.textContent = 'Posts';
+                lib.appendChild(sep);
+                postSeparatorShown = true;
+            }
+            lib.appendChild(this.renderVideoItem(v));
+        });
+        if (ordered.length > visible){
             const more = document.createElement('button');
             more.className = 'btn btn-secondary';
             more.textContent = 'Show 5 more';
@@ -4148,7 +4683,7 @@ class DashboardManager {
         sug.innerHTML = '';
         try{
             const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid) list.push(v); });
+            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && (v.mediaType || 'video') !== 'image') list.push(v); });
             const visible = Math.max(5, Number(this._videoSuggestionsVisible || 5));
             list.slice(0, visible).forEach(v=> sug.appendChild(this.renderVideoItem(v)));
             if (list.length > visible){
@@ -4169,10 +4704,17 @@ class DashboardManager {
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
         const thumb = v.thumbnailUrl || 'images/default-bird.png';
+        const sourceType = String(v.sourceMediaType || '').toLowerCase();
+        const isImageSource = sourceType === 'image' || this.inferMediaKindFromUrl(String(v.url || '')) === 'image';
         const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
+        const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
+        const mediaHtml = isImageSource
+            ? `<img src="${v.url}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
+            : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
-                         <video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>
-                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button></div>`;
+                         ${originalMark}
+                         ${mediaHtml}
+                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-video-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-video-btn" title="Repost"><i class="fas fa-retweet"></i></button><button class="btn btn-secondary save-video-as-picture-btn" title="Add to My Pictures"><i class="fas fa-image"></i></button></div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -4190,8 +4732,177 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
+        const saveAsPicture = div.querySelector('.save-video-as-picture-btn');
+        if (saveAsPicture){
+            saveAsPicture.onclick = ()=> this.saveVisualToLibrary({
+                kind: 'video',
+                url: String(v.url || ''),
+                title: String(v.title || 'Video'),
+                by: String(v.authorName || ''),
+                cover: String(v.thumbnailUrl || ''),
+                authorId: String(v.originalAuthorId || v.authorId || '')
+            }, 'pictures');
+        }
         const vEl = div.querySelector('.liber-lib-video');
         if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
+        return div;
+    }
+
+    async loadPictureHost(){
+        try{
+            const me = await window.firebaseService.getCurrentUser();
+            await this.syncPostMediaToLibraries(me?.uid, { force: false });
+            const upBtn = document.getElementById('picture-upload-btn');
+            if (upBtn && !upBtn._bound){
+                upBtn._bound = true;
+                upBtn.onclick = async ()=>{
+                    try{
+                        const f = document.getElementById('picture-file').files[0];
+                        if (!f){ return this.showError('Select a picture or video'); }
+                        const title = (document.getElementById('picture-title').value||f.name).trim();
+                        const s = firebase.getStorage();
+                        const path = `pictures/${me.uid}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+                        const r = firebase.ref(s, path);
+                        await firebase.uploadBytesResumable(r, f, { contentType: f.type||'application/octet-stream' });
+                        const url = await firebase.getDownloadURL(r);
+                        const meProfile = await window.firebaseService.getUserData(me.uid);
+                        const authorName = (meProfile && meProfile.username) || me.email || 'Unknown';
+                        const mediaType = String(f.type || '').startsWith('video/') ? 'video' : 'image';
+                        const thumb = mediaType === 'image' ? url : ((meProfile && meProfile.avatarUrl) || '');
+                        const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
+                        await firebase.setDoc(docRef, {
+                            id: docRef.id,
+                            owner: me.uid,
+                            title,
+                            url,
+                            createdAt: new Date().toISOString(),
+                            createdAtTS: firebase.serverTimestamp(),
+                            visibility: 'public',
+                            mediaType: 'image',
+                            sourceMediaType: mediaType,
+                            authorId: me.uid,
+                            authorName,
+                            thumbnailUrl: thumb,
+                            originalAuthorId: me.uid,
+                            originalAuthorName: authorName
+                        });
+                        this.showSuccess('Added to My Pictures');
+                        this.renderPictureLibrary(me.uid);
+                    }catch(_){ this.showError('Upload failed'); }
+                };
+            }
+            const search = document.getElementById('picture-search');
+            if (search && !search._bound){
+                search._bound = true;
+                search.oninput = async (e)=>{
+                    const qStr = (e.target.value||'').toLowerCase();
+                    const res = document.getElementById('picture-search-results'); if (!res) return;
+                    res.innerHTML='';
+                    if (!qStr) return;
+                    const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+                    snap.forEach(d=>{ const v=d.data(); if ((v.mediaType||'') === 'image' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderPictureItem(v)); } });
+                };
+            }
+            await this.renderPictureLibrary(me.uid);
+            await this.renderPictureSuggestions(me.uid);
+            this.setupPictureHostTabs();
+        }catch(_){ }
+    }
+
+    async renderPictureLibrary(uid){
+        const lib = document.getElementById('picture-library'); if (!lib) return;
+        lib.innerHTML = '';
+        const items = [];
+        try{
+            const q = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid), firebase.orderBy('createdAtTS','desc'), firebase.limit(60));
+            const snap = await firebase.getDocs(q);
+            snap.forEach(d=> items.push(d.data()));
+        }catch{
+            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'videos'), firebase.where('owner','==', uid));
+            const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
+        }
+        const filtered = items.filter((v)=> (v.mediaType||'') === 'image');
+        const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
+        const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
+        const ordered = nonPost.concat(fromPosts);
+        const visible = Math.max(5, Number(this._videoLibraryVisible || 5));
+        let postSeparatorShown = false;
+        ordered.slice(0, visible).forEach((v)=>{
+            if (!postSeparatorShown && this.isPostLibraryItem(v)){
+                const sep = document.createElement('div');
+                sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
+                sep.textContent = 'Posts';
+                lib.appendChild(sep);
+                postSeparatorShown = true;
+            }
+            lib.appendChild(this.renderPictureItem(v));
+        });
+        if (ordered.length > visible){
+            const more = document.createElement('button');
+            more.className = 'btn btn-secondary';
+            more.textContent = 'Show 5 more';
+            more.onclick = ()=>{
+                this._videoLibraryVisible = visible + 5;
+                this.renderPictureLibrary(uid);
+            };
+            lib.appendChild(more);
+        }
+    }
+
+    async renderPictureSuggestions(uid){
+        const sug = document.getElementById('picture-suggestions'); if (!sug) return;
+        sug.innerHTML = '';
+        try{
+            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+            const list = [];
+            snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && (v.mediaType||'') === 'image') list.push(v); });
+            list.slice(0, Math.max(5, Number(this._videoSuggestionsVisible || 5))).forEach(v=> sug.appendChild(this.renderPictureItem(v)));
+        }catch(_){ }
+    }
+
+    renderPictureItem(v){
+        const div = document.createElement('div');
+        div.className = 'video-item';
+        div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;position:relative';
+        const thumb = v.thumbnailUrl || v.url || 'images/default-bird.png';
+        const sourceType = String(v.sourceMediaType || '').toLowerCase();
+        const isVideoSource = sourceType === 'video' || this.inferMediaKindFromUrl(String(v.url || '')) === 'video';
+        const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
+        const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
+        const mediaHtml = isVideoSource
+            ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
+            : `<img src="${v.url}" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${thumb}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div style=\"font-weight:600\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
+                         ${mediaHtml}
+                         <div style="position:absolute;top:10px;right:10px;display:flex;gap:8px"><button class="btn btn-secondary share-picture-btn"><i class="fas fa-share"></i></button><button class="btn btn-secondary repost-picture-btn" title="Repost"><i class="fas fa-retweet"></i></button><button class="btn btn-secondary save-picture-as-video-btn" title="Add to My Videos"><i class="fas fa-video"></i></button></div>`;
+        div.querySelector('.share-picture-btn').onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (v.title||'Picture'), media: [{ kind:'image', url: v.url, name: v.title||'Picture', by: v.authorName||'', cover: v.thumbnailUrl||v.url||'' }], visibility:'private', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (v.authorName||'') });
+                this.showSuccess('Shared to your feed (private)');
+            }catch(_){ this.showError('Share failed'); }
+        };
+        const rp = div.querySelector('.repost-picture-btn');
+        if (rp){ rp.onclick = async ()=>{
+            try{
+                const me = await window.firebaseService.getCurrentUser();
+                const newRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+                await firebase.setDoc(newRef, { id: newRef.id, authorId: me.uid, text: (v.title||'Picture'), media: [{ kind:'image', url: v.url, name: v.title||'Picture', by: v.authorName||'', cover: v.thumbnailUrl||v.url||'' }], visibility:'public', createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), authorName: (v.authorName||'') });
+                this.showSuccess('Reposted to your feed');
+            }catch(_){ this.showError('Repost failed'); }
+        }; }
+        const saveAsVideo = div.querySelector('.save-picture-as-video-btn');
+        if (saveAsVideo){
+            saveAsVideo.onclick = ()=> this.saveVisualToLibrary({
+                kind: 'image',
+                url: String(v.url || ''),
+                title: String(v.title || 'Picture'),
+                by: String(v.authorName || ''),
+                cover: String(v.thumbnailUrl || v.url || ''),
+                authorId: String(v.originalAuthorId || v.authorId || '')
+            }, 'videos');
+        }
         return div;
     }
 
@@ -4216,6 +4927,10 @@ class DashboardManager {
         document.querySelectorAll('.admin-only').forEach((el) => {
             el.style.display = isAdmin ? '' : 'none';
         });
+        this._isAdminSession = !!isAdmin;
+        if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){
+            this.switchSection('apps');
+        }
     }
 
     /**

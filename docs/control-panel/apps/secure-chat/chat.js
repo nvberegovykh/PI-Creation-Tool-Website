@@ -700,10 +700,19 @@
       };
       this.loadMyMediaQuickChoices().then((items)=>{
         const rows = (items || []).slice(0, 60);
+        const kindOfQuickItem = (a)=>{
+          const explicit = String(a?.mediaKind || '').toLowerCase();
+          if (explicit === 'image' || explicit === 'video' || explicit === 'audio') return explicit;
+          const n = String(a?.fileName || '');
+          if (this.isImageFilename(n)) return 'image';
+          if (this.isVideoFilename(n)) return 'video';
+          if (this.isAudioFilename(n)) return 'audio';
+          return 'file';
+        };
         const byKind = {
-          video: rows.filter((a)=> this.isVideoFilename(a.fileName || '')),
-          audio: rows.filter((a)=> this.isAudioFilename(a.fileName || '')),
-          pics: rows.filter((a)=> this.isImageFilename(a.fileName || ''))
+          video: rows.filter((a)=> kindOfQuickItem(a) === 'video'),
+          audio: rows.filter((a)=> kindOfQuickItem(a) === 'audio'),
+          pics: rows.filter((a)=> kindOfQuickItem(a) === 'image')
         };
         const activate = (kind)=>{
           [tabVideo, tabAudio, tabPics].forEach((b)=>{ b.style.opacity = '.75'; });
@@ -754,7 +763,7 @@
           const sWave = await firebase.getDocs(qWave);
           sWave.forEach((d)=>{
             const w = d.data() || {};
-            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, sentAt: w.createdAt || new Date().toISOString() });
+            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, sentAt: w.createdAt || new Date().toISOString(), mediaKind: 'audio' });
           });
         }catch(_){ }
         try{
@@ -762,7 +771,19 @@
           const sVid = await firebase.getDocs(qVid);
           sVid.forEach((d)=>{
             const v = d.data() || {};
-            if (v.url) out.push({ fileUrl: v.url, fileName: `${v.title || 'Video'}.mp4`, sentAt: v.createdAt || new Date().toISOString() });
+            if (!v.url) return;
+            const mediaType = String(v.mediaType || '').toLowerCase();
+            const sourceType = String(v.sourceMediaType || '').toLowerCase();
+            const inferredKind = mediaType === 'image'
+              ? 'image'
+              : (sourceType === 'image' ? 'image' : 'video');
+            const ext = inferredKind === 'image' ? '.jpg' : '.mp4';
+            out.push({
+              fileUrl: v.url,
+              fileName: `${v.title || (inferredKind === 'image' ? 'Picture' : 'Video')}${ext}`,
+              sentAt: v.createdAt || new Date().toISOString(),
+              mediaKind: inferredKind
+            });
           });
         }catch(_){ }
         try{
@@ -771,10 +792,23 @@
           sPost.forEach((d)=>{
             const p = d.data() || {};
             const media = Array.isArray(p.media) ? p.media : (p.mediaUrl ? [p.mediaUrl] : []);
-            media.forEach((u, idx)=>{
-              if (!u) return;
-              const ext = (String(u).match(/\.(png|jpe?g|gif|webp|mp4|webm|mov|mkv|mp3|wav|m4a|aac|ogg)(\?|$)/i) || [,'bin'])[1];
-              out.push({ fileUrl: u, fileName: `${p.text || 'Media'}_${idx + 1}.${ext}`, sentAt: p.createdAt || new Date().toISOString() });
+            media.forEach((entry, idx)=>{
+              const isObject = entry && typeof entry === 'object' && !Array.isArray(entry);
+              const url = String(isObject ? (entry.url || '') : (entry || '')).trim();
+              if (!url) return;
+              const kindRaw = String(isObject ? (entry.kind || entry.type || '') : '').toLowerCase();
+              const inferredKind = kindRaw === 'image' || kindRaw === 'video' || kindRaw === 'audio'
+                ? kindRaw
+                : (this.isImageFilename(url) ? 'image' : (this.isVideoFilename(url) ? 'video' : (this.isAudioFilename(url) ? 'audio' : 'file')));
+              const extMatch = String(url).match(/\.(png|jpe?g|gif|webp|mp4|webm|mov|mkv|mp3|wav|m4a|aac|ogg)(\?|$)/i);
+              const ext = extMatch ? extMatch[1].toLowerCase() : (inferredKind === 'image' ? 'jpg' : (inferredKind === 'video' ? 'mp4' : (inferredKind === 'audio' ? 'mp3' : 'bin')));
+              const baseName = String(isObject ? (entry.name || entry.title || '') : '').trim() || String(p.text || 'Media').trim() || 'Media';
+              out.push({
+                fileUrl: url,
+                fileName: `${baseName}_${idx + 1}.${ext}`,
+                sentAt: p.createdAt || new Date().toISOString(),
+                mediaKind: inferredKind
+              });
             });
           });
         }catch(_){ }
