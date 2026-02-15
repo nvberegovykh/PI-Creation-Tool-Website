@@ -2496,7 +2496,7 @@
       const pageSize = 50;
       const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
       if (loadMoreRequestedAtStart){
-        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 10000);
+        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 18000);
       }
       if (this._lastLoadedConnId !== activeConnId){
         this._lastLoadedConnId = activeConnId;
@@ -2993,13 +2993,14 @@
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
           const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
           const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
+          const suppressUntilVal = Number(this._suppressLivePatchUntilByConn.get(activeConnId) || 0);
           const useDocChanges = fromLive
             && renderedConnId === activeConnId
             && extraIdsInit.length === 0
             && changes.length > 0
             && !alreadyHaveAll
             && this._loadMoreConnId !== activeConnId
-            && Date.now() >= Number(this._suppressLivePatchUntilByConn.get(activeConnId) || 0);
+            && Date.now() >= suppressUntilVal;
           if (useDocChanges){
             let didMutate = false;
             for (const c of changes){
@@ -3068,6 +3069,7 @@
               box.appendChild(renderTarget.firstChild);
             }
           }
+          ensureLoadMoreAnchor();
           // Keep DOM size bounded to avoid jitter on long chats. column-reverse: oldest at top. Preserve Load more button.
           while (box.childElementCount > 220){
             const last = box.lastElementChild;
@@ -3082,20 +3084,18 @@
           if (isLoadMore && !appendOnly){
             const nextHeight = box.scrollHeight;
             const delta = Math.max(0, nextHeight - prevHeight);
-            const targetScroll = prevTop + delta;
+            box.scrollTop = prevTop + delta;
             requestAnimationFrame(()=>{
-              requestAnimationFrame(()=>{
-                if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId && box.isConnected){
-                  box.scrollTop = targetScroll;
-                }
-              });
+              if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId && box.isConnected){
+                const d2 = Math.max(0, box.scrollHeight - prevHeight);
+                box.scrollTop = prevTop + d2;
+              }
             });
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
             box.scrollTop = prevTop;
           }
-          ensureLoadMoreAnchor();
           updateBottomUi();
           this.applyNewMessagesSeparator(box);
           loadFinished = true;
@@ -3120,13 +3120,16 @@
           }
         };
         const scheduleLiveSnap = (snap)=>{
+          if (this._loadMoreInProgressByConn?.has(activeConnId)) return;
+          if (Date.now() < Number(this._suppressLivePatchUntilByConn?.get(activeConnId) || 0)) return;
           pendingLiveSnaps.length = 0;
           pendingLiveSnaps.push(snap);
           if (this._scheduleLiveSnapTimer) clearTimeout(this._scheduleLiveSnapTimer);
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
+            if (this._loadMoreInProgressByConn?.has(activeConnId)) return;
             processLiveSnap().catch(()=>{});
-          }, 150);
+          }, 200);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
@@ -3142,6 +3145,7 @@
             q,
             (snap)=>{
               if (!loadFinished) return;
+              if (this._loadMoreInProgressByConn?.has(activeConnId) || this._loadMoreConnId === activeConnId) return;
               const primed = this._liveSnapshotPrimedByConn.get(activeConnId) === true;
               if (!primed){
                 this._liveSnapshotPrimedByConn.set(activeConnId, true);
@@ -5727,26 +5731,45 @@
         let b64;
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
-        // For video/voice recordings: try attachmentKeySalt-derived keys first (saved on send; most reliable)
-        if (!b64 && (isVideoRecording || isVoiceRecording) && hintSalt) {
-          try {
-            const key = await window.chatCrypto.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
-            b64 = await chatCrypto.decryptWithKey(payload, key);
-          } catch (_) {}
+        const attachSourceConn = String(message?.attachmentSourceConnId || message?.connId || '').trim();
+        // For video/voice recordings: attachmentKeySalt (saved at encrypt) is most reliable – try it first. Then urlConnId, then all candidates.
+        if (!b64 && (isVideoRecording || isVoiceRecording)) {
+          const saltsToTry = [hintSalt, urlConnId, attachSourceConn, sourceConnId].filter(Boolean);
+          const seen = new Set();
+          for (const salt of saltsToTry) {
+            if (!salt || seen.has(salt)) continue;
+            seen.add(salt);
+            try {
+              const key = await window.chatCrypto.deriveChatKey(`${salt}|liber_secure_chat_conn_stable_v1`);
+              b64 = await chatCrypto.decryptWithKey(payload, key);
+              if (b64) break;
+            } catch (_) {}
+          }
           if (!b64 && window.chatCrypto?.deriveFallbackSharedAesKey) {
-            const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(sourceConnId);
+            const peerUid = String(message?.sender || '').trim() || await this.getPeerUidForConn(urlConnId || sourceConnId);
             if (peerUid) {
-              try {
-                const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, hintSalt);
-                b64 = await chatCrypto.decryptWithKey(payload, key);
-              } catch (_) {}
+              for (const salt of [hintSalt, urlConnId, attachSourceConn]) {
+                if (!salt) continue;
+                try {
+                  const key = await window.chatCrypto.deriveFallbackSharedAesKey(this.currentUser.uid, peerUid, salt);
+                  b64 = await chatCrypto.decryptWithKey(payload, key);
+                  if (b64) break;
+                } catch (_) {}
+              }
             }
           }
-          if (!b64 && urlConnId && urlConnId !== hintSalt) {
-            try {
-              const key = await window.chatCrypto.deriveChatKey(`${urlConnId}|liber_secure_chat_conn_stable_v1`);
-              b64 = await chatCrypto.decryptWithKey(payload, key);
-            } catch (_) {}
+          if (!b64) {
+            for (const cid of [urlConnId, attachSourceConn, sourceConnId, this.activeConnection].filter(Boolean)) {
+              if (!cid) continue;
+              const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+              for (const k of (candidates || [])) {
+                try {
+                  b64 = await chatCrypto.decryptWithKey(payload, k);
+                  if (b64) break;
+                } catch (_) {}
+              }
+              if (b64) break;
+            }
           }
         }
         if (!b64) {
@@ -6046,43 +6069,11 @@
             video.controls = false;
             video.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(video);
-            const wrap = document.createElement('div');
-            wrap.className = 'video-recording-wrap';
-            wrap.style.cssText = 'position:relative;display:inline-block;cursor:pointer';
-            const playOverlay = document.createElement('div');
-            playOverlay.className = 'video-recording-play-overlay';
-            playOverlay.innerHTML = '<i class="fas fa-play"></i>';
-            playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.9);font-size:48px;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none';
-            wrap.appendChild(video);
-            wrap.appendChild(playOverlay);
-            const updateIcon = ()=>{
-              playOverlay.innerHTML = video.paused ? '<i class="fas fa-play"></i>' : '<i class="fas fa-pause"></i>';
-              playOverlay.style.opacity = video.paused ? '1' : '0.6';
-            };
-            wrap.addEventListener('click', (e)=>{
-              e.preventDefault();
-              e.stopPropagation();
-              if (video.paused){
-                try{ const p = this.ensureChatBgPlayer(); if (p && !p.paused) p.pause(); }catch(_){ }
-                try{ const hostBg = this.getGlobalBgPlayer(); if (hostBg && !hostBg.paused) hostBg.pause(); }catch(_){ }
-                this.pauseOtherInlineMedia(video);
-                video.play().catch(()=>{});
-                this.bindTopStripToMedia(video, fileName || 'Video message');
-              } else {
-                video.pause();
-              }
-              updateIcon();
-              this.updateVoiceWidgets?.();
-            });
-            video.addEventListener('play', ()=>{ this.bindTopStripToMedia(video, fileName || 'Video message'); updateIcon(); });
-            video.addEventListener('pause', updateIcon);
-            video.addEventListener('loadedmetadata', updateIcon);
-            updateIcon();
-            containerEl.appendChild(wrap);
+            this.bindInlineVideoPlayback(video, fileName || 'Video message');
           } else {
             video.controls = true;
-            containerEl.appendChild(video);
           }
+          containerEl.appendChild(video);
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(resolvedB64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(resolvedB64, mime);
@@ -6181,38 +6172,11 @@
             v.controls = false;
             v.classList.add('video-recording-mask');
             this.applyRandomTriangleMask(v);
-            const wrap = document.createElement('div');
-            wrap.className = 'video-recording-wrap';
-            wrap.style.cssText = 'position:relative;display:inline-block;cursor:pointer';
-            const playOverlay = document.createElement('div');
-            playOverlay.className = 'video-recording-play-overlay';
-            playOverlay.innerHTML = '<i class="fas fa-play"></i>';
-            playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.9);font-size:48px;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none';
-            wrap.appendChild(v);
-            wrap.appendChild(playOverlay);
-            const updateIcon = ()=>{ playOverlay.innerHTML = v.paused ? '<i class="fas fa-play"></i>' : '<i class="fas fa-pause"></i>'; playOverlay.style.opacity = v.paused ? '1' : '0.6'; };
-            wrap.addEventListener('click', (e)=>{
-              e.preventDefault();
-              e.stopPropagation();
-              if (v.paused){
-                try{ const p = this.ensureChatBgPlayer(); if (p && !p.paused) p.pause(); }catch(_){ }
-                try{ const hostBg = this.getGlobalBgPlayer(); if (hostBg && !hostBg.paused) hostBg.pause(); }catch(_){ }
-                this.pauseOtherInlineMedia(v);
-                v.play().catch(()=>{});
-                this.bindTopStripToMedia(v, name || 'Video message');
-              } else { v.pause(); }
-              updateIcon();
-              this.updateVoiceWidgets?.();
-            });
-            v.addEventListener('play', ()=>{ this.bindTopStripToMedia(v, name || 'Video message'); updateIcon(); });
-            v.addEventListener('pause', updateIcon);
-            v.addEventListener('loadedmetadata', updateIcon);
-            updateIcon();
-            containerEl.appendChild(wrap);
+            this.bindInlineVideoPlayback(v, name || 'Video message');
           } else {
             v.controls = true;
-            containerEl.appendChild(v);
           }
+          containerEl.appendChild(v);
           return;
         }
         if (this.isAudioFilename(name)){
