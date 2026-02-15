@@ -390,12 +390,34 @@ class DashboardManager {
                     const s3 = await firebase.getDocs(q3);
                     s3.forEach(push);
                 }catch(_){ }
+                // Legacy docs fallback: key-only rows without participant arrays.
+                try{
+                    let allSnap;
+                    try{
+                        const qAll = firebase.query(
+                            firebase.collection(window.firebaseService.db,'chatConnections'),
+                            firebase.orderBy('updatedAt','desc'),
+                            firebase.limit(700)
+                        );
+                        allSnap = await firebase.getDocs(qAll);
+                    }catch(_){
+                        allSnap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'chatConnections'));
+                    }
+                    allSnap.forEach((d)=>{
+                        const c = d.data() || {};
+                        const key = String(c.key || '');
+                        if (!key) return;
+                        const keyParts = key.split('|').filter(Boolean);
+                        if (keyParts.includes(me.uid)) push(d);
+                    });
+                }catch(_){ }
             }catch(_){
                 const s2 = await firebase.getDocs(firebase.collection(window.firebaseService.db,'chatConnections'));
                 s2.forEach((d)=>{
                     const c = d.data() || {};
-                    const parts = Array.isArray(c.participants) ? c.participants : (Array.isArray(c.users) ? c.users : []);
-                    if (parts.includes(me.uid)) rows.push({ id: d.id, ...c });
+                    const parts = Array.isArray(c.participants) ? c.participants : (Array.isArray(c.users) ? c.users : (Array.isArray(c.memberIds) ? c.memberIds : []));
+                    const keyParts = String(c.key || '').split('|').filter(Boolean);
+                    if (parts.includes(me.uid) || keyParts.includes(me.uid)) rows.push({ id: d.id, ...c });
                 });
             }
             if (!rows.length){ this.showError('No existing chats found'); return; }
@@ -446,8 +468,8 @@ class DashboardManager {
                 }
                 return { title, subtitle: 'Direct chat', cover };
             };
-            await Promise.all(rows.slice(0, 120).map(async (c)=> metaMap.set(c.id, await resolveMeta(c))));
-            rows.slice(0, 120).forEach((c)=>{
+            await Promise.all(rows.map(async (c)=> metaMap.set(c.id, await resolveMeta(c))));
+            rows.forEach((c)=>{
                 const meta = metaMap.get(c.id) || { title: this.getConnectionDisplayName(c), subtitle: '', cover: 'images/default-bird.png' };
                 const btn = document.createElement('button');
                 btn.className = 'btn btn-secondary';

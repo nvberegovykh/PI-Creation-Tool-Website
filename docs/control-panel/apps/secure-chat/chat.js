@@ -3776,6 +3776,36 @@
           await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('participants','array-contains', meUid), firebase.limit(220)));
           try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('users','array-contains', meUid), firebase.limit(220))); }catch(_){ }
           try{ await pull(firebase.query(firebase.collection(this.db,'chatConnections'), firebase.where('memberIds','array-contains', meUid), firebase.limit(220))); }catch(_){ }
+          // Legacy/key-only docs fallback for chats missing participant arrays.
+          try{
+            let allSnap;
+            try{
+              allSnap = await firebase.getDocs(firebase.query(
+                firebase.collection(this.db,'chatConnections'),
+                firebase.orderBy('updatedAt','desc'),
+                firebase.limit(700)
+              ));
+            }catch(_){
+              allSnap = await firebase.getDocs(firebase.collection(this.db,'chatConnections'));
+            }
+            allSnap.forEach((d)=>{
+              const row = { id: d.id, ...(d.data() || {}) };
+              const keyParts = String(row.key || '').split('|').filter(Boolean);
+              if (keyParts.includes(meUid)) pushTarget(row);
+            });
+          }catch(_){ }
+          // Last resort scan to catch transient query/index misses.
+          if (!rawTargets.length){
+            try{
+              const any = await firebase.getDocs(firebase.collection(this.db,'chatConnections'));
+              any.forEach((d)=>{
+                const row = { id: d.id, ...(d.data() || {}) };
+                const parts = this.getConnParticipants(row || {});
+                const keyParts = String(row.key || '').split('|').filter(Boolean);
+                if (parts.includes(meUid) || keyParts.includes(meUid)) pushTarget(row);
+              });
+            }catch(_){ }
+          }
         }
       }catch(_){ }
       const targetMap = new Map();
