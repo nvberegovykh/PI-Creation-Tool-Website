@@ -5918,25 +5918,14 @@
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
         const cryptoMod = window.chatCrypto || (typeof chatCrypto !== 'undefined' ? chatCrypto : null);
-        if (!b64 && (isVideoRecording || isVoiceRecording) && cryptoMod) {
-          const connIdR = urlConnId || sourceConnId || message?.attachmentSourceConnId || message?.connId || this.activeConnection;
-          const senderUid = String(message?.sender || this.currentUser?.uid || '').trim();
-          if (connIdR && senderUid) {
-            try {
-              const recSecret = `recording|${connIdR}|${senderUid}|liber_recording_v1`;
-              const recKey = await cryptoMod.deriveChatKey(recSecret);
-              b64 = await chatCrypto.decryptWithKey(payload, recKey);
-            } catch (_) {}
-          }
+        if (!b64 && aesKey) {
+          try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
         if (!b64 && hintSalt && cryptoMod) {
           try {
             const hintedKey = await cryptoMod.deriveChatKey(`${hintSalt}|liber_secure_chat_conn_stable_v1`);
             b64 = await chatCrypto.decryptWithKey(payload, hintedKey);
           } catch (_) {}
-        }
-        if (!b64) {
-          try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
         if (!b64 && (isVideoRecording || isVoiceRecording) && cryptoMod) {
           const connIdR = urlConnId || sourceConnId || message?.attachmentSourceConnId || message?.connId || this.activeConnection;
@@ -7999,10 +7988,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         window._vidLog?.('SEND: ' + filename + ' isVideo=' + isVideo);
         (window.top?.console||console).log('[VIDEO-DEBUG] SEND:', filename, 'isVideo=', isVideo);
         try{ window._videoDebug.send = { t: Date.now(), filename, isVideo }; }catch(_){}
-        const uid = String(self.currentUser?.uid || '').trim();
-        const connId = String(targetConnId || '').trim();
-        const secret = `recording|${connId}|${uid}|liber_recording_v1`;
-        const aesKey = await window.chatCrypto.deriveChatKey(secret);
+        const aesKey = await self.getFallbackKeyForConn(targetConnId);
+        const salts = await self.getConnSaltForConn(targetConnId);
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
         const cipher = await chatCrypto.encryptWithKey(base64, aesKey);
         const safe = `chat/${targetConnId}/${Date.now()}_${filename}`;
@@ -8018,7 +8005,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
           fileName: filename,
           connId: targetConnId,
           attachmentSourceConnId: targetConnId,
-          attachmentKeySalt: targetConnId,
+          attachmentKeySalt: String(salts?.stableSalt ?? targetConnId ?? ''),
           isVideoRecording: isVideo === true,
           isVoiceRecording: !isVideo
         });
