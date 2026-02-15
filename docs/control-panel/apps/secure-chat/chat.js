@@ -735,24 +735,12 @@
         row.className = 'btn secondary';
         row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
         row.textContent = `${a.fileName || 'Media'} • ${this.formatMessageTime(a.sentAt)}`;
-        row.onclick = async ()=>{
+        row.onclick = ()=>{
           panel.remove();
           backdrop.remove();
-          const targetConnId = this.activeConnection;
-          if (!targetConnId) return;
-          const sourceConnId = this.extractConnIdFromAttachmentUrl(a.fileUrl) || targetConnId;
-          const salts = await this.getConnSaltForConn(sourceConnId);
-          const isVideo = this.isVideoFilename(a.fileName || '');
-          const isVoice = this.isAudioFilename(a.fileName || '');
-          const text = isVideo ? '[video message]' : isVoice ? '[voice message]' : '[file]';
-          await this.saveMessage({
-            text,
-            fileUrl: a.fileUrl,
-            fileName: a.fileName || 'file',
-            attachmentSourceConnId: sourceConnId,
-            attachmentKeySalt: String(salts?.stableSalt || sourceConnId || ''),
-            isVideoRecording: isVideo
-          });
+          if (!this.activeConnection) return;
+          this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
+          this.refreshActionButton();
         };
         return row;
       };
@@ -782,23 +770,12 @@
         label.textContent = a.fileName || 'Media';
         tile.appendChild(mediaWrap);
         tile.appendChild(label);
-        tile.onclick = async ()=>{
+        tile.onclick = ()=>{
           panel.remove();
           backdrop.remove();
-          const targetConnId = this.activeConnection;
-          if (!targetConnId) return;
-          const sourceConnId = this.extractConnIdFromAttachmentUrl(a.fileUrl) || targetConnId;
-          const salts = await this.getConnSaltForConn(sourceConnId);
-          const isVideo = type === 'video';
-          const text = isVideo ? '[video message]' : (type === 'audio' ? '[voice message]' : '[file]');
-          await this.saveMessage({
-            text,
-            fileUrl: a.fileUrl,
-            fileName: a.fileName || 'file',
-            attachmentSourceConnId: sourceConnId,
-            attachmentKeySalt: String(salts?.stableSalt || sourceConnId || ''),
-            isVideoRecording: isVideo
-          });
+          if (!this.activeConnection) return;
+          this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
+          this.refreshActionButton();
         };
         return tile;
       };
@@ -2925,6 +2902,7 @@
               if (hasMore){
                 moreWrap = document.createElement('div');
                 moreWrap.className = 'msg-load-more-wrap';
+                moreWrap.style.visibility = 'hidden';
                 const moreBtn = document.createElement('button');
                 moreBtn.className = 'btn secondary msg-load-more-btn';
                 moreBtn.textContent = `Load ${pageSize} more`;
@@ -3234,6 +3212,7 @@
             }
           }
           ensureLoadMoreAnchor();
+          if (moreWrap) moreWrap.style.visibility = '';
           // Keep DOM size bounded to avoid jitter on long chats. column-reverse: oldest at top. Preserve Load more button.
           while (box.childElementCount > 220){
             const last = box.lastElementChild;
@@ -3688,8 +3667,8 @@
       const rest = m.media.filter((it)=> !this.isImageFilename(it.fileName) && !this.isVideoFilename(it.fileName));
       let html = '<div class="msg-media-block" style="margin-bottom:8px">';
       if (visual.length){
-        const slideItems = visual.map((_,i)=> `<div class="msg-media-item" data-media-index="${i}" style="min-width:0;scroll-snap-align:start"><div class="file-preview" style="min-height:60px"></div></div>`).join('');
-        html += `<div class="post-media-visual-shell"><div class="post-media-visual-wrap"><div class="post-media-visual-slider" style="display:flex;gap:8px;overflow-x:auto;scroll-snap-type: x mandatory;-webkit-overflow-scrolling:touch">${slideItems}</div></div>${visual.length>1?`<div class="post-media-dots">${visual.map((_,i)=>`<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>`:''}</div>`;
+        const slideItems = visual.map((_,i)=> `<div class="msg-media-item post-media-visual-item" data-media-index="${i}" style="flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start;scroll-snap-stop:always"><div class="file-preview" style="min-height:60px"></div></div>`).join('');
+        html += `<div class="post-media-visual-shell msg-media-slider"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${slideItems}</div></div>${visual.length>1?`<div class="post-media-dots">${visual.map((_,i)=>`<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>`:''}</div>`;
       }
       if (rest.length) html += `<div class="msg-media-files" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${rest.map((_,i)=> `<div class="msg-media-item" data-media-index="${visual.length+i}" style="min-width:0"><div class="file-preview" style="min-height:40px"></div></div>`).join('')}</div>`;
       html += '</div>';
@@ -3854,6 +3833,24 @@
     activateChatPlayers(root){
       try{
         if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('.post-media-visual-shell, .msg-media-slider').forEach((shell)=>{
+          if (shell.dataset.sliderBound === '1') return;
+          shell.dataset.sliderBound = '1';
+          const wrap = shell.querySelector('.post-media-visual-wrap');
+          const slider = shell.querySelector('.post-media-visual-slider');
+          const dots = shell.querySelectorAll('.post-media-dot');
+          if (!wrap || !slider || !dots.length) return;
+          dots.forEach((dot, i)=>{
+            dot.onclick = ()=>{ const item = slider.children[i]; if (item) item.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }); dots.forEach(d=> d.classList.remove('active')); dot.classList.add('active'); };
+          });
+          wrap.addEventListener('scroll', ()=>{
+            const items = slider.querySelectorAll('.post-media-visual-item, .msg-media-item');
+            if (!items.length) return;
+            const w = wrap.offsetWidth;
+            const idx = Math.round(wrap.scrollLeft / (w || 1));
+            dots.forEach((d, j)=> d.classList.toggle('active', j === Math.min(idx, dots.length - 1)));
+          });
+        });
         const setPlayIcon = (btn, isPlaying)=>{ if (btn) btn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`; };
         root.querySelectorAll('.player-card').forEach((card)=>{
           if (card.dataset.chatPlayerBound === '1') return;
@@ -4163,7 +4160,7 @@
       })();
       const originalAuthorUid = String(src.sharedOriginalAuthorUid || src.sender || '').trim() || null;
       const originalAuthorName = String(src.sharedOriginalAuthorName || sourceSenderName || '').trim() || null;
-      const isVideoRecording = !!(sourceMessage?.isVideoRecording === true || (fileUrl && this.isVideoFilename(inferredName)));
+      const isVideoRecording = !!(sourceMessage?.isVideoRecording === true);
       return {
         text: nextText,
         fileUrl: fileUrl || null,
@@ -4561,7 +4558,7 @@
               fileName: f.name,
               attachmentKeySalt: salt,
               attachmentSourceConnId: targetConnId,
-              isVideoRecording: this.isVideoFilename(f.name)
+              isVideoRecording: false
             });
           }catch(_){ result.failedFiles.push(f); }
         }
@@ -4644,7 +4641,7 @@
             connId: targetConnId,
             attachmentSourceConnId: targetConnId,
             attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
-            isVideoRecording: isVideo
+            isVideoRecording: false
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
           result.sentCount += 1;
@@ -7151,9 +7148,13 @@
     console.log('Attempting to start room call');
     if (this._startingCall || this._joiningCall) { console.warn('Call start suppressed (busy)'); return; }
     if (!this._roomState) {
-      console.warn('Room state not loaded yet, retrying...');
-      await new Promise(r => setTimeout(r, 500)); // Short delay
-      if (!this._roomState) return; // Bail if still null
+      try {
+        const snap = await firebase.getDoc(firebase.doc(this.db, 'callRooms', this.activeConnection));
+        this._roomState = snap.exists() ? (snap.data() || { status: 'idle', activeCallId: null }) : { status: 'idle', activeCallId: null };
+      } catch (_) {
+        this._roomState = { status: 'idle', activeCallId: null };
+      }
+      if (!this._roomState) return;
     }
     // If room already active, join instead of trying to set active
     if (this._roomState.activeCallId) {
@@ -7175,14 +7176,16 @@
       console.log('Transaction success, starting multi call');
       try { await this.startMultiCall(cid, video); }
       finally { this._startingCall = false; }
-      await this.saveMessage({ text: `[call:voice:${cid}]` });
+      await this.saveMessage({ text: `[call:${video?'video':'voice'}:${cid}]` });
       this._monitoring = false;
     } else {
       console.log('Room already active, joining');
       if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
-        console.log('Joining call ID:', this._roomState.activeCallId);
+        const joinCid = this._roomState.activeCallId;
+        await this.saveMessage({ text: `[call:${video?'video':'voice'}:${joinCid}]` });
+        console.log('Joining call ID:', joinCid);
         this._joiningCall = true;
-        try { await this.joinMultiCall(this._roomState.activeCallId, video); }
+        try { await this.joinMultiCall(joinCid, video); }
         finally { this._joiningCall = false; }
       } else {
         console.warn('No valid active call to join');

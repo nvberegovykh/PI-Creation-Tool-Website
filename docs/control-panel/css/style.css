@@ -410,6 +410,22 @@ img, video, canvas, svg, iframe {
   max-width:100% !important;
   width:100% !important;
   box-sizing:border-box;
+  object-fit:contain;
+}
+#waveconnect-section .video-item,
+#waveconnect-section [id$="-library"] .video-item{
+  max-width:100%;
+}
+#waveconnect-section .video-item img,
+#waveconnect-section .video-item video,
+#waveconnect-section .video-item .liber-lib-video,
+#video-library img,
+#video-library video,
+#picture-library img,
+#picture-library video{
+  max-width:100% !important;
+  box-sizing:border-box;
+  object-fit:contain;
 }
 .video-item-header{ position:relative; z-index:1 }
 .video-item-actions{ pointer-events:auto }
@@ -440,10 +456,19 @@ img, video, canvas, svg, iframe {
     flex-wrap:wrap !important;
     gap:6px !important;
   }
-  #waveconnect-section .video-item{
+  #waveconnect-section .video-item,
+  #video-library .video-item,
+  #picture-library .video-item,
+  #video-library > div,
+  #picture-library > div{
     padding:8px;
     width:100%;
-    max-width:min(92vw, 280px);
+    max-width:100%;
+    min-width:0;
+    box-sizing:border-box;
+  }
+  #waveconnect-section .video-item{
+    max-width:min(calc(100vw - 24px), 360px);
     margin-left:auto;
     margin-right:auto;
   }
@@ -451,6 +476,7 @@ img, video, canvas, svg, iframe {
     padding:8px;
     width:100%;
     max-width:100%;
+    min-width:0;
   }
   .video-item-header{
     flex-direction:column;
@@ -471,17 +497,32 @@ img, video, canvas, svg, iframe {
   }
   #waveconnect-section .video-item img[data-fullscreen-image="1"],
   #waveconnect-section .video-item video,
-  #waveconnect-section .video-item .liber-lib-video{
+  #waveconnect-section .video-item .liber-lib-video,
+  #video-library img,
+  #video-library video,
+  #picture-library img,
+  #picture-library video{
+    max-width:100% !important;
     max-height:min(50vh,240px) !important;
+    width:auto !important;
+    height:auto !important;
+    object-fit:contain;
   }
   .video-item img[data-fullscreen-image="1"],
   .video-item video{
+    max-width:100% !important;
     max-height:min(50vh,280px) !important;
+    width:auto !important;
+    height:auto !important;
+    object-fit:contain;
   }
   #video-library,
-  #picture-library{
+  #picture-library,
+  #wave-video-pane,
+  #wave-pictures-pane{
     max-width:100%;
     min-width:0;
+    overflow:hidden;
   }
   #wave-library .player-card,
   #wave-playlists .player-card,
