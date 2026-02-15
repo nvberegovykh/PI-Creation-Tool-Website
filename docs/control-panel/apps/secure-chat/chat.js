@@ -71,6 +71,7 @@
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
       this._attachmentBlobUrlByKey = new Map();
+      this._liveSnapshotPrimedByConn = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
       this._suppressActionClickUntil = 0;
@@ -2732,7 +2733,8 @@
             this._lastRenderSigByConn.set(activeConnId, sig);
             const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
-            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch);
+            const forceFullRender = this._loadMoreConnId === activeConnId;
+            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch) && !forceFullRender;
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
             let moreWrap = null;
@@ -2936,25 +2938,34 @@
           const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
           const useDocChanges = fromLive && renderedConnId === activeConnId && extraIdsInit.length === 0 && changes.length > 0 && !alreadyHaveAll;
           if (useDocChanges){
+            let didMutate = false;
             for (const c of changes){
               const type = String(c.type||'').toLowerCase();
               const doc = c.doc || c;
               const id = doc.id;
               const existing = box.querySelector('[data-msg-id="' + id + '"]');
               if (type === 'removed'){
-                if (existing) existing.remove();
+                if (existing){ existing.remove(); didMutate = true; }
               } else if (type === 'added'){
                 if (existing) continue;
                 const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
                 try{
                   await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
+                  didMutate = true;
                 }catch(_){ }
               } else if (type === 'modified' && existing){
                 const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
                 try{
                   await renderOne(d, d.sourceConnId || activeConnId, { replaceEl: existing });
+                  didMutate = true;
                 }catch(_){ }
               }
+            }
+            if (!didMutate){
+              loadFinished = true;
+              if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
+              if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
+              return;
             }
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
             if (pinnedBefore) box.scrollTop = 0;
@@ -3054,9 +3065,17 @@
           await handleSnap(sInit, false);
         }catch(_){ }
         if (firebase.onSnapshot){
+          this._liveSnapshotPrimedByConn.set(activeConnId, false);
           this._unsubMessages = firebase.onSnapshot(
             q,
-            (snap)=>{ scheduleLiveSnap(snap); },
+            (snap)=>{
+              const primed = this._liveSnapshotPrimedByConn.get(activeConnId) === true;
+              if (!primed){
+                this._liveSnapshotPrimedByConn.set(activeConnId, true);
+                return;
+              }
+              scheduleLiveSnap(snap);
+            },
             async ()=>{
               // If snapshot fails for any reason, keep UI live via polling fallback.
               try{
@@ -3373,7 +3392,7 @@
     renderSharedAssetCardHtml(asset, msgId = ''){
       try{
         const a = (asset && typeof asset === 'object') ? asset : {};
-        const kind = String(a.kind || '').toLowerCase();
+        const kind = String(a.kind || a.type || (a.post ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
           const p = (a.post && typeof a.post === 'object') ? a.post : {};
           const text = this.renderText(String(p.text || a.title || 'Shared post'));
@@ -3429,7 +3448,7 @@
         const root = el.querySelector('.shared-asset-card');
         if (!root) return;
         const a = (asset && typeof asset === 'object') ? asset : {};
-        const kind = String(a.kind || '').toLowerCase();
+        const kind = String(a.kind || a.type || (a.post ? 'post' : '')).toLowerCase();
         if (kind === 'post'){
           const postId = String(a.postId || a?.post?.id || '').trim();
           if (!postId) return;
@@ -3476,6 +3495,14 @@
           }catch(_){ }
         };
         refreshAssetLikeCount();
+        try{
+          const poll = setInterval(()=>{
+            try{
+              if (!root || !document.body.contains(root)){ clearInterval(poll); return; }
+              refreshAssetLikeCount();
+            }catch(_){ clearInterval(poll); }
+          }, 6000);
+        }catch(_){ }
         if (firebase && typeof firebase.onSnapshot === 'function'){
           keys.forEach((key)=>{
             try{ firebase.onSnapshot(firebase.collection(this.db,'assetLikes',key,'likes'), ()=> refreshAssetLikeCount()); }catch(_){ }
@@ -5405,7 +5432,14 @@
       try {
         const res = await fetch(fileUrl, { mode: 'cors' });
         const ct = res.headers.get('content-type')||'';
-        const payload = ct.includes('application/json') ? await res.json() : JSON.parse(await res.text());
+        let payload;
+        if (ct.includes('application/json')){
+          payload = await res.json();
+        } else {
+          const raw = await res.text();
+          try{ payload = JSON.parse(raw); }
+          catch(_){ payload = raw; }
+        }
         const isVideoRecording = this.isVideoRecordingMessage(message, fileName);
         const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
         let b64;

@@ -499,6 +499,14 @@ class DashboardManager {
                 }catch(_){ }
             };
             refreshCount();
+            try{
+                const poll = setInterval(()=>{
+                    try{
+                        if (!cardEl || !document.body.contains(cardEl)){ clearInterval(poll); return; }
+                        refreshCount();
+                    }catch(_){ clearInterval(poll); }
+                }, 6000);
+            }catch(_){ }
             if (likeBtn){
                 const setActive = (on)=>{
                     if (on){ likeBtn.classList.add('active'); likeBtn.style.color = '#ff6b81'; }
@@ -2384,6 +2392,49 @@ class DashboardManager {
                 updatedAt: src.updatedAt || pl.updatedAt
             };
         }catch(_){ return pl; }
+    }
+
+    async openPlaylistForPlayback(pl){
+        try{
+            let resolved = pl || null;
+            const resolveById = async (pid)=>{
+                const id = String(pid || '').trim();
+                if (!id) return null;
+                try{
+                    const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'playlists', id));
+                    if (snap.exists()) return { id, ...(snap.data() || {}) };
+                }catch(_){ }
+                return null;
+            };
+            if (!resolved){
+                this.showError('Playlist not found');
+                return false;
+            }
+            if (!Array.isArray(resolved.items) || !resolved.items.length){
+                const source = await resolveById(resolved.sourcePlaylistId || resolved.id);
+                if (source) resolved = { ...resolved, ...source, id: source.id || resolved.id };
+            }
+            const items = Array.isArray(resolved.items) ? resolved.items : [];
+            const queue = items
+                .filter((x)=> String(x?.src || '').trim())
+                .map((x)=> ({
+                    src: String(x.src || ''),
+                    title: String(x.title || 'Track'),
+                    by: String(x.by || ''),
+                    cover: String(x.cover || '')
+                }));
+            if (!queue.length){
+                this.showError('Playlist is empty');
+                return false;
+            }
+            this._playQueue = queue;
+            this._playQueueIndex = 0;
+            this.playQueueIndex(0, { restart: true });
+            return true;
+        }catch(_){
+            this.showError('Failed to open playlist');
+            return false;
+        }
     }
 
     async openAddToPlaylistPopup(track){
@@ -5377,6 +5428,7 @@ class DashboardManager {
                 }
             }catch(_){ }
             this.showSuccess(asPicture ? 'Added to My Pictures' : 'Added to My Videos');
+            this.refreshVisualSaveButtonsState().catch(()=>{});
             if (asPicture) this.loadPictureHost(); else this.loadVideoHost();
             return true;
         }catch(_){ this.showError('Failed to add to library'); return false; }
@@ -5418,8 +5470,38 @@ class DashboardManager {
                     removed += 1;
                 }catch(_){ }
             }
+            if (removed > 0) this.refreshVisualSaveButtonsState().catch(()=>{});
             return removed > 0;
         }catch(_){ return false; }
+    }
+
+    async refreshVisualSaveButtonsState(root = document){
+        try{
+            const host = root || document;
+            const buttons = Array.from(host.querySelectorAll('.post-save-visual-btn'));
+            if (!buttons.length) return;
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid) return;
+            const idx = await this.getMyVisualLibraryIndex(me.uid);
+            buttons.forEach((btn)=>{
+                const target = String(btn.dataset.saveTarget || 'videos');
+                const url = String(btn.dataset.url || '').trim();
+                if (!url) return;
+                const set = target === 'pictures' ? idx.pictures : idx.videos;
+                const saved = !!set && set.has(url);
+                if (saved){
+                    btn.dataset.saved = '1';
+                    btn.innerHTML = `<i class="fas fa-check"></i><span>Saved</span>`;
+                    btn.style.backgroundColor = 'rgba(24,120,62,.86)';
+                    btn.style.borderColor = 'rgba(110,255,162,.55)';
+                } else {
+                    btn.dataset.saved = '0';
+                    btn.innerHTML = `<i class="fas fa-plus"></i><span>${target === 'pictures' ? 'To My Pictures' : 'To My Videos'}</span>`;
+                    btn.style.backgroundColor = '';
+                    btn.style.borderColor = '';
+                }
+            });
+        }catch(_){ }
     }
 
     resolveVisualKind(item){
@@ -5712,7 +5794,10 @@ class DashboardManager {
                 lib.appendChild(sep);
                 postSeparatorShown = true;
             }
-            lib.appendChild(this.renderVideoItem(v));
+            lib.appendChild(this.renderVideoItem(v, {
+                allowRemove: true,
+                onRemoved: ()=> this.renderVideoLibrary(uid)
+            }));
         });
         if (ordered.length > visible){
             const more = document.createElement('button');
@@ -5750,7 +5835,7 @@ class DashboardManager {
         }catch(_){ }
     }
 
-    renderVideoItem(v){
+    renderVideoItem(v, opts = {}){
         const div = document.createElement('div');
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
@@ -5762,10 +5847,11 @@ class DashboardManager {
         const mediaHtml = isImageSource
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
             : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
+        const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img src="${thumb}" alt="cover" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -5785,6 +5871,17 @@ class DashboardManager {
         }; }
         const vEl = div.querySelector('.liber-lib-video');
         if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
+        const removeBtn = div.querySelector('.remove-visual-btn');
+        if (removeBtn){
+            removeBtn.onclick = async ()=>{
+                try{
+                    const removed = await this.removeVisualFromLibrary('video', String(v.url || ''));
+                    if (!removed){ this.showError('Failed to remove from library'); return; }
+                    if (typeof opts.onRemoved === 'function') opts.onRemoved();
+                    this.showSuccess('Removed from My Videos');
+                }catch(_){ this.showError('Failed to remove from library'); }
+            };
+        }
         this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl });
         return div;
     }
@@ -5887,7 +5984,10 @@ class DashboardManager {
                 lib.appendChild(sep);
                 postSeparatorShown = true;
             }
-            lib.appendChild(this.renderPictureItem(v));
+            lib.appendChild(this.renderPictureItem(v, {
+                allowRemove: true,
+                onRemoved: ()=> this.renderPictureLibrary(uid)
+            }));
         });
         if (ordered.length > visible){
             const more = document.createElement('button');
@@ -5914,7 +6014,7 @@ class DashboardManager {
         }catch(_){ }
     }
 
-    renderPictureItem(v){
+    renderPictureItem(v, opts = {}){
         const div = document.createElement('div');
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
@@ -5927,9 +6027,10 @@ class DashboardManager {
         const mediaHtml = isVideoSource
             ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
             : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
+        const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:118px"><img class="picture-author-avatar" src="${thumb}" alt="author" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button></div>`;
+                         <div style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -5950,6 +6051,17 @@ class DashboardManager {
         const avatarEl = div.querySelector('.picture-author-avatar');
         if (avatarEl && authorId){
             this.hydrateAuthorAvatarImage(avatarEl, authorId);
+        }
+        const removeBtn = div.querySelector('.remove-visual-btn');
+        if (removeBtn){
+            removeBtn.onclick = async ()=>{
+                try{
+                    const removed = await this.removeVisualFromLibrary('image', String(v.url || ''));
+                    if (!removed){ this.showError('Failed to remove from library'); return; }
+                    if (typeof opts.onRemoved === 'function') opts.onRemoved();
+                    this.showSuccess('Removed from My Pictures');
+                }catch(_){ this.showError('Failed to remove from library'); }
+            };
         }
         this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url });
         return div;
@@ -7453,8 +7565,9 @@ Do you want to proceed?`);
               if (!plId) return;
               try{
                 if (isSelfPreview){
-                  await this.renderPlaylists();
-                  this.showSuccess('Playlists refreshed in WaveConnect');
+                  const sourcePl = rows.find((x)=> String(x.id || '') === plId) || null;
+                  const ok = await this.openPlaylistForPlayback(sourcePl || { id: plId });
+                  if (ok) this.showSuccess('Playlist opened');
                   return;
                 }
                 const mine = await this.hydratePlaylistsFromCloud();
