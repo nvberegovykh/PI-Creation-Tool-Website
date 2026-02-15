@@ -5714,21 +5714,65 @@
       }catch(_){ }
     }
 
+    normalizeEncryptedPayload(payload){
+      try{
+        if (!payload) return null;
+        if (typeof payload === 'string'){
+          const trimmed = String(payload).trim();
+          if (!trimmed) return null;
+          if (/^data:[^,]+,/.test(trimmed)) return { _inlineBase64: trimmed.split(',')[1] || '' };
+          try{ payload = JSON.parse(trimmed); }catch(_){ return null; }
+        }
+        if (payload && typeof payload === 'object'){
+          if (typeof payload.iv === 'string' && typeof payload.data === 'string') return payload;
+          const inner = payload.cipher || payload.encrypted || payload.enc || payload.ciphertext;
+          if (inner && typeof inner.iv === 'string' && typeof inner.data === 'string') return inner;
+          const inline = this.extractInlineBase64Payload(payload);
+          if (inline) return { _inlineBase64: inline };
+        }
+      }catch(_){ }
+      return null;
+    }
+
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
-        const res = await fetch(fileUrl, { mode: 'cors' });
+        if (!containerEl?.isConnected) return;
+        const res = await fetch(fileUrl, { mode: 'cors', cache: 'default' });
+        if (!res.ok) throw new Error('attachment-fetch-failed');
         const ct = res.headers.get('content-type')||'';
         let payload;
         if (ct.includes('application/json')){
           payload = await res.json();
         } else {
           const raw = await res.text();
-          try{ payload = JSON.parse(raw); }
+          try{ payload = raw ? JSON.parse(raw) : null; }
           catch(_){ payload = raw; }
+        }
+        let cipher = this.normalizeEncryptedPayload(payload);
+        let b64 = null;
+        if (cipher?._inlineBase64){
+          b64 = this.normalizeBinaryPayloadString(cipher._inlineBase64);
+        }
+        if (!b64){
+          if (cipher && !cipher._inlineBase64){
+            payload = cipher;
+          } else if (payload){
+            const candidates = this.extractEncryptedPayloadCandidates(payload);
+            for (const c of candidates){
+              if (c && typeof c === 'object' && typeof c.iv === 'string' && typeof c.data === 'string'){
+                payload = c;
+                break;
+              }
+            }
+          }
+          if (!payload || typeof payload.iv !== 'string' || typeof payload.data !== 'string'){
+            const inline = this.extractInlineBase64Payload(payload || {});
+            if (inline) b64 = this.normalizeBinaryPayloadString(inline);
+            if (!b64) throw new Error('invalid-payload-structure');
+          }
         }
         const isVideoRecording = this.isVideoRecordingMessage(message, fileName);
         const isVoiceRecording = this.isVoiceRecordingMessage(message, fileName);
-        let b64;
         const hintSalt = String(message?.attachmentKeySalt || '').trim();
         const urlConnId = this.extractConnIdFromAttachmentUrl(fileUrl);
         const attachSourceConn = String(message?.attachmentSourceConnId || message?.connId || '').trim();
@@ -6128,11 +6172,21 @@
           containerEl.appendChild(row);
         }
       } catch (e) {
+        if (!containerEl?.isConnected) return;
         const looksEncrypted = /\.enc\.json(?:$|\?)/i.test(String(fileUrl || ''));
-        if (looksEncrypted){
+        const isFetchFail = String(e?.message || '').includes('fetch-failed') || String(e?.message || '').includes('attachment-fetch');
+        const isInvalidPayload = String(e?.message || '').includes('invalid-payload');
+        if (looksEncrypted && !isFetchFail){
           const err = document.createElement('div');
           err.className = 'file-link';
-          err.textContent = 'Unable to decrypt attachment';
+          err.textContent = isInvalidPayload ? 'Invalid attachment format' : 'Unable to decrypt attachment';
+          containerEl.appendChild(err);
+          return;
+        }
+        if (looksEncrypted && isFetchFail){
+          const err = document.createElement('div');
+          err.className = 'file-link';
+          err.textContent = 'Could not load attachment';
           containerEl.appendChild(err);
           return;
         }
