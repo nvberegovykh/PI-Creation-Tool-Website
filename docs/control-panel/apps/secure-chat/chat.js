@@ -2756,7 +2756,11 @@
                 if (hasFile && el.querySelector('.file-preview')){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
-                  this.enqueueAttachmentPreview(()=> this.renderEncryptedAttachment(el.querySelector('.file-preview'), m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }), loadSeq, activeConnId);
+                  const msgId = String(d.id || m.id || '');
+                  this.enqueueAttachmentPreview(()=>{
+                    const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
+                    if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                  }, loadSeq, activeConnId);
                 }
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
                 if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
@@ -2970,8 +2974,12 @@
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
+                  const msgId = String(d.id || m.id || '');
                   this.enqueueAttachmentPreview(
-                    ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                    ()=>{
+                      const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
+                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                    },
                     loadSeq,
                     activeConnId
                   );
@@ -3290,6 +3298,7 @@
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            el.dataset.msgId = String(d.id || m.id || '');
             const msgTs = this.getMessageTimestampMs(m);
             el.dataset.msgTs = String(msgTs || 0);
             if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
@@ -3361,8 +3370,12 @@
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
                 const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
+                const msgId = String(d.id || m.id || '');
                 this.enqueueAttachmentPreview(
-                  ()=> this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text }),
+                  ()=>{
+                    const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
+                    if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                  },
                   loadSeq,
                   activeConnId
                 );
@@ -4667,7 +4680,7 @@
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, sharedAsset, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording}){
+    async saveMessage({text,fileUrl,fileName, sharedAsset, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
@@ -4685,6 +4698,7 @@
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isVideoRecording: isVideoRecording === true,
+        isVoiceRecording: isVoiceRecording === true,
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -5532,14 +5546,14 @@
 
     isVideoRecordingMessage(message, fileName = ''){
       try{
-        if (!this.isVideoFilename(fileName)) return false;
         if (message && message.isVideoRecording === true) return true;
+        if (!this.isVideoFilename(fileName)) return false;
         const n = String(fileName || '').toLowerCase().trim();
         if (n.startsWith('video.')) return true;
+        const text = String(message?.text || '').trim();
+        if (/^\[video message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
         if (/^\[video message\]/i.test(preview)) return true;
-        const text = String(message?.text || '').trim();
-        if (/^\[video message\]/i.test(text) && n.startsWith('video.')) return true;
         return false;
       }catch(_){ return false; }
     }
@@ -5547,9 +5561,9 @@
     isVoiceRecordingMessage(message, fileName = ''){
       try{
         if (!this.isAudioFilename(fileName)) return false;
+        if (message && message.isVoiceRecording === true) return true;
         const n = String(fileName || '').toLowerCase().trim();
         if (n.startsWith('voice.') || n.startsWith('audio.')) return true;
-        if (message && message.isVoiceRecording === true) return true;
         const text = String(message?.text || '').trim();
         if (/^\[voice message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
@@ -5796,7 +5810,7 @@
 
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
-        if (!containerEl?.isConnected) return;
+        if (!containerEl?.isConnected){ if (window._debugVideoDecrypt && this.isVideoFilename(fileName||'')) console.warn('[video-decrypt] Skipped: container disconnected before decrypt'); return; }
         const cid = message?.connId || sourceConnId || this.activeConnection;
         const msgId = message?.id;
         if (msgId && cid && this.db) {
@@ -5870,56 +5884,33 @@
           try { b64 = await chatCrypto.decryptWithKey(payload, aesKey); } catch (_) {}
         }
         if (!b64 && (isVideoRecording || isVoiceRecording) && cryptoMod) {
-          const senderUid = String(message?.sender || '').trim() || String(await this.getPeerUidForConn(urlConnId || sourceConnId) || '').trim();
-          const connIdsRec = [...new Set([urlConnId, sourceConnId, message?.attachmentSourceConnId, message?.connId, this.activeConnection].filter(Boolean))];
-          const saltsRec = [hintSalt, urlConnId];
+          const connIdR = urlConnId || sourceConnId || message?.attachmentSourceConnId || message?.connId || this.activeConnection;
+          const saltsR = [hintSalt, urlConnId];
           try {
-            const s = await this.getConnSaltForConn(urlConnId || sourceConnId || this.activeConnection);
+            const s = await this.getConnSaltForConn(connIdR);
             const st = String(s?.stableSalt || '').trim();
-            if (st && !saltsRec.includes(st)) saltsRec.push(st);
+            if (st && !saltsR.includes(st)) saltsR.push(st);
           } catch (_) {}
-          for (const s of saltsRec) {
-            if (b64 || !s) break;
+          for (const s of saltsR) {
+            if (b64 || !s) continue;
             try {
               const k = await cryptoMod.deriveChatKey(`${s}|liber_secure_chat_conn_stable_v1`);
               b64 = await chatCrypto.decryptWithKey(payload, k);
             } catch (_) {}
           }
-          for (const cid of connIdsRec) {
-            if (b64 || !cid) continue;
+          if (!b64 && connIdR) {
             try {
-              const keys = await this.getFallbackKeyCandidatesForConn(cid);
+              const keys = await this.getFallbackKeyCandidatesForConn(connIdR);
               for (const k of (keys || [])) {
                 if (b64) break;
-                try {
-                  b64 = await chatCrypto.decryptWithKey(payload, k);
-                } catch (_) {}
+                try { b64 = await chatCrypto.decryptWithKey(payload, k); } catch (_) {}
               }
             } catch (_) {}
             if (!b64) {
               try {
-                const k = await this.getFallbackKeyForConn(cid);
+                const k = await this.getFallbackKeyForConn(connIdR);
                 b64 = await chatCrypto.decryptWithKey(payload, k);
               } catch (_) {}
-            }
-          }
-          if (!b64 && senderUid) {
-            for (const cid of connIdsRec) {
-              if (b64 || !cid) continue;
-              try {
-                const k = await cryptoMod.deriveChatKey(`${[this.currentUser.uid, senderUid].sort().join('|')}|${cid}|liber_secure_chat_fallback_v1`);
-                b64 = await chatCrypto.decryptWithKey(payload, k);
-              } catch (_) {}
-              if (b64) break;
-            }
-            if (!b64 && cryptoMod.deriveFallbackSharedAesKey) {
-              for (const s of [urlConnId, ...connIdsRec, hintSalt].filter(Boolean)) {
-                if (b64) break;
-                try {
-                  const k = await cryptoMod.deriveFallbackSharedAesKey(this.currentUser.uid, senderUid, s);
-                  b64 = await chatCrypto.decryptWithKey(payload, k);
-                } catch (_) {}
-              }
             }
           }
         }
@@ -6365,6 +6356,8 @@
         const looksEncrypted = /\.enc\.json(?:$|\?)/i.test(String(fileUrl || ''));
         const isFetchFail = String(e?.message || '').includes('fetch-failed') || String(e?.message || '').includes('attachment-fetch');
         const isInvalidPayload = String(e?.message || '').includes('invalid-payload');
+        const isVideo = this.isVideoRecordingMessage(message, fileName) || this.isVideoFilename(fileName || '');
+        if (window._debugVideoDecrypt && isVideo) console.warn('[video-decrypt] Failed:', e?.message, { fileUrl: (fileUrl||'').slice(-80), fileName, hasHint: !!(message?.attachmentKeySalt), connId: sourceConnId });
         if (looksEncrypted && !isFetchFail){
           const err = document.createElement('div');
           err.className = 'file-link';
@@ -7966,7 +7959,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
           connId: targetConnId,
           attachmentSourceConnId: targetConnId,
           attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
-          isVideoRecording: isVideo === true
+          isVideoRecording: isVideo === true,
+          isVoiceRecording: !isVideo
         });
       } catch (err) {
         console.error('Recording upload error:', err.code, err.message, err);
