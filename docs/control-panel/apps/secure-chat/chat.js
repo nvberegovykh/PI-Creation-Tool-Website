@@ -586,7 +586,7 @@
               if (item.loadSeq !== this._msgLoadSeq) return;
               if (item.connId && item.connId !== this.activeConnection) return;
               await item.task();
-            }catch(e){ console.warn('[attachment-preview] Task error:', e?.message || e); }
+            }catch(e){}
             finally{
               this._attachmentPreviewRunning = Math.max(0, (this._attachmentPreviewRunning || 1) - 1);
               this.pumpAttachmentPreviewQueue();
@@ -1284,7 +1284,6 @@
                     const dedup = Array.from(new Set([ ...urls, ...tcpUrls ]));
                     expanded.push({ ...s, urls: dedup });
                   });
-                  console.log('TURN from', url);
                   return expanded;
                 }
               }
@@ -1358,9 +1357,6 @@
           try{ await this.setActive(firstConn); }catch(_){ }
         }
       }
-
-      // Add debug method to check Firebase config
-      await this.debugFirebaseConfig();
 
       // Ensure self is cached
       this.usernameCache.set(this.currentUser.uid, { username: this.me?.username || 'You', avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png' });
@@ -6380,7 +6376,6 @@
         const isFetchFail = String(e?.message || '').includes('fetch-failed') || String(e?.message || '').includes('attachment-fetch');
         const isInvalidPayload = String(e?.message || '').includes('invalid-payload');
         const isVideo = this.isVideoRecordingMessage(message, fileName) || this.isVideoFilename(fileName || '');
-        if (window._debugVideoDecrypt && isVideo) console.warn('[video-decrypt] Failed:', e?.message, { fileUrl: (fileUrl||'').slice(-80), fileName, hasHint: !!(message?.attachmentKeySalt), connId: sourceConnId });
         if (looksEncrypted && !isFetchFail){
           const err = document.createElement('div');
           err.className = 'file-link';
@@ -7706,59 +7701,15 @@
       }catch(_){ }
     }
 
-    // Add debug method to check Firebase config
-    async debugFirebaseConfig() {
-      console.log('=== Firebase Configuration Debug ===');
-      console.log('Firebase Service initialized:', !!window.firebaseService);
-      console.log('Firebase Service isInitialized:', window.firebaseService?.isInitialized);
-      
-      if (window.firebaseService) {
-        console.log('Firebase App:', window.firebaseService.app?.name);
-        console.log('Firebase Auth:', !!window.firebaseService.auth);
-        console.log('Firebase Firestore:', !!window.firebaseService.db);
-        console.log('Firebase Storage:', !!window.firebaseService.storage);
-        
-        if (window.firebaseService.storage) {
-          console.log('Storage Bucket:', window.firebaseService.storage._bucket);
-          console.log('Storage App:', window.firebaseService.storage.app?.name);
-        }
-        
-        console.log('Current User:', !!window.firebaseService.auth?.currentUser);
-        if (window.firebaseService.auth?.currentUser) {
-          console.log('User authenticated');
-                      console.log('User email verified');
-        }
-      }
-      
-      // Check secure keys
-      try {
-        const keys = await window.secureKeyManager?.getKeys();
-        console.log('Firebase Config in Keys:', !!keys?.firebase);
-        if (keys?.firebase) {
-          console.log('Firebase config loaded');
-          console.log('Has storageBucket:', !!keys.firebase.storageBucket);
-          if (keys.firebase.storageBucket) {
-            console.log('Storage bucket configured');
-          }
-        }
-      } catch (err) {
-        console.error('Failed to check secure keys:', err);
-      }
-      
-      console.log('=== End Debug ===');
-    }
-
     async cleanupActiveCall(endRoom = false, reason = 'unknown'){
-      console.log('Cleaning up active call', reason);
     this._startingCall = false;
     this._joiningCall = false;
     this._lastJoinedCallId = null;
       this._activePCs.forEach((p, uid) => {
-        console.log('Stopping stream for ' + uid);
         try{ const key = (this._activeCid||'')+':'+uid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); } }catch(_){ }
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
         try{ p.pc.close(); }catch(_){ }
-        try{ p.stream.getTracks().forEach(t => { t.stop(); console.log('Stopped track ' + t.kind); }); }catch(_){ }
+        try{ p.stream.getTracks().forEach(t => { t.stop(); }); }catch(_){ }
         if (p.videoEl) p.videoEl.remove();
       });
       this._activePCs.clear();
@@ -7769,8 +7720,7 @@
       }
       await this.updatePresence('idle', false);
       if (this._monitorStream) {
-        console.log('Stopping monitor stream');
-        this._monitorStream.getTracks().forEach(t => { t.stop(); console.log('Stopped monitor track ' + t.kind); });
+        this._monitorStream.getTracks().forEach(t => { t.stop(); });
         this._monitorStream = null;
         this._monitoring = false;
       }
