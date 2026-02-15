@@ -1,5 +1,17 @@
 /* eslint-disable import/no-unresolved */
 (() => {
+  window._videoDebug = window._videoDebug || { ver: '20260214v1', load: Date.now(), send: null, append: null, render: null, fallback: null, decrypt: null };
+  window._vidLog = (msg) => {
+    try {
+      (window.top?.console||console).log('[VIDEO]', msg);
+      let el = document.getElementById('_video-debug-toast');
+      if (!el) { el = document.createElement('div'); el.id = '_video-debug-toast'; el.style.cssText = 'position:fixed;bottom:160px;left:10px;right:10px;z-index:9999;background:#000;color:#0f0;padding:8px;font-size:11px;border-radius:6px;max-height:80px;overflow:auto;'; document.body.appendChild(el); }
+      el.textContent = (el.textContent ? el.textContent + '\n' : '') + `[${new Date().toISOString().slice(11,19)}] ${msg}`;
+      el.style.display = 'block';
+      clearTimeout(el._vidLogT);
+      el._vidLogT = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    } catch (_) {}
+  };
 
   class SecureChatApp {
     constructor() {
@@ -2685,9 +2697,10 @@
             const renderedConnId = String(box.dataset.renderedConnId || '');
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
-            if (false && renderedConnId === activeConnId && extraIds.length === 0){
+            if (renderedConnId === activeConnId && extraIds.length === 0){
               const haveIds = new Set([...box.querySelectorAll('[data-msg-id]')].map(el=> el.getAttribute('data-msg-id')));
               const newDocs = docsPrimary.filter(d=> !haveIds.has(String(d.id)));
+              if (newDocs.length > 0) window._vidLog?.('incremental append ' + newDocs.length + ' new');
               if (newDocs.length === 0){
                 loadFinished = true;
                 if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -2754,12 +2767,16 @@
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
                 if (hasFile && el.querySelector('.file-preview')){
+                  window._vidLog?.('APPEND hasFile ' + inferredFileName);
+                  (window.top?.console||console).log('[VIDEO-DEBUG] APPEND hasFile', { inferredFileName });
+                  try{ window._videoDebug.append = { t: Date.now(), id: d.id, inferredFileName, hasFileUrl: !!m.fileUrl }; }catch(_){}
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   const preview = el.querySelector('.file-preview');
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                  (window.top?.console||console).log('[VIDEO-DEBUG] APPEND isRecording=', isRecording);
                   if (isRecording && preview){
-                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ (window.top?.console||console).warn('[VIDEO-DEBUG] Recording render failed:', e?.message); }
                   }else{
                     this.enqueueAttachmentPreview(()=>{
                       const container = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .file-preview`);
@@ -2975,13 +2992,17 @@
               const joinBtn = el.querySelector('button[data-call-id]');
               if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
               if (hasFile){
+                window._vidLog?.('RENDER hasFile ' + inferredFileName);
+                (window.top?.console||console).log('[VIDEO-DEBUG] RENDER hasFile', { inferredFileName, fileUrl: (m.fileUrl||'').slice(-60) });
+                try{ window._videoDebug.render = { t: Date.now(), id: d.id, inferredFileName, hasFileUrl: !!m.fileUrl }; }catch(_){}
                 const preview = el.querySelector('.file-preview');
                 if (preview){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                  (window.top?.console||console).log('[VIDEO-DEBUG] RENDER isRecording=', isRecording, { isVideo: this.isVideoRecordingMessage(m,inferredFileName), isVoice: this.isVoiceRecordingMessage(m,inferredFileName) });
                   if (isRecording){
-                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ (window.top?.console||console).warn('[VIDEO-DEBUG] Recording render failed:', e?.message); }
                   }else{
                     this.enqueueAttachmentPreview(
                       ()=>{
@@ -3056,6 +3077,7 @@
             && this._loadMoreConnId !== activeConnId
             && Date.now() >= suppressUntilVal;
           if (useDocChanges){
+            window._vidLog?.('useDocChanges ' + changes.length + ' changes');
             let didMutate = false;
             for (const c of changes){
               const type = String(c.type||'').toLowerCase();
@@ -3067,6 +3089,8 @@
               } else if (type === 'added'){
                 if (existing) continue;
                 const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
+                const dm = d.data;
+                if (dm?.fileUrl) window._vidLog?.('added msg with fileUrl');
                 try{
                   await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
                   didMutate = true;
@@ -3375,13 +3399,16 @@
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
             if (hasFile){
+              (window.top?.console||console).log('[VIDEO-DEBUG] FALLBACK hasFile', { inferredFileName });
+              try{ window._videoDebug.fallback = { t: Date.now(), id: d.id, inferredFileName, hasFileUrl: !!m.fileUrl }; }catch(_){}
               const preview = el.querySelector('.file-preview');
               if (preview){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
                 const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
                 const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
+                (window.top?.console||console).log('[VIDEO-DEBUG] FALLBACK isRecording=', isRecording);
                 if (isRecording){
-                  try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ console.warn('Recording render failed:', e?.message); }
+                  try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){ (window.top?.console||console).warn('[VIDEO-DEBUG] Recording render failed:', e?.message); }
                 }else{
                   const msgId = String(d.id || m.id || '');
                   this.enqueueAttachmentPreview(
@@ -5824,6 +5851,9 @@
 
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
+        window._vidLog?.('DECRYPT-ENTER ' + fileName);
+        (window.top?.console||console).log('[VIDEO-DEBUG] DECRYPT-ENTER', { fileName, hasContainer: !!containerEl, connected: !!containerEl?.isConnected });
+        try{ window._videoDebug.decrypt = { t: Date.now(), fileName, hasContainer: !!containerEl, connected: !!containerEl?.isConnected }; }catch(_){}
         if (!containerEl?.isConnected) return;
         const cid = message?.connId || sourceConnId || this.activeConnection;
         const msgId = message?.id;
@@ -7955,7 +7985,9 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         return;
       }
       try {
-        console.log('Sending recording:', filename);
+        window._vidLog?.('SEND: ' + filename + ' isVideo=' + isVideo);
+        (window.top?.console||console).log('[VIDEO-DEBUG] SEND:', filename, 'isVideo=', isVideo);
+        try{ window._videoDebug.send = { t: Date.now(), filename, isVideo }; }catch(_){}
         const salts = await self.getConnSaltForConn(targetConnId);
         const aesKey = await self.getFallbackKeyForConn(targetConnId);
         const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(blob); });
@@ -7966,6 +7998,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         await firebase.uploadBytes(sref, new Blob([JSON.stringify(cipher)], {type:'application/json'}), { contentType: 'application/json' });
         const url2 = await firebase.getDownloadURL(sref);
         console.log('Recording upload completed');
+        window._vidLog?.('saveMessage OK');
         await self.saveMessage({
           text: isVideo? '[video message]': '[voice message]',
           fileUrl: url2,
