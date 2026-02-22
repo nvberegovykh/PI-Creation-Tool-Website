@@ -16,15 +16,15 @@
 .home-container,
 .gallery-container,
 .contact-container {
-  padding-top: 110px !important;
+  padding-top: 95px !important;
   box-sizing: border-box !important;
 }
 
-/* Desktop: bigger navbar items */
+/* Desktop: bigger navbar items, no bottom padding */
 @media (min-width: 768px) {
   .navbar-interactive-navbar-interactive {
     padding-top: var(--dl-space-space-threeunits) !important;
-    padding-bottom: var(--dl-space-space-threeunits) !important;
+    padding-bottom: 0 !important;
   }
 
   .navbar-interactive-navlink1,
