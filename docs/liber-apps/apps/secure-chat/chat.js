@@ -1444,26 +1444,21 @@
         return out;
       };
       try{
-        // 1) Try static TURN from keys
+        // 1) Optional static TURN from secure keys (fallback only)
         let regionPref = 'europe-west1';
+        let staticTurn = null;
         if (window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function'){
           const keys = await window.secureKeyManager.getKeys();
           regionPref = (keys && keys.firebase && (keys.firebase.functionsRegion || keys.firebase.region)) || regionPref;
           const turn = keys && keys.turn;
           if (turn && Array.isArray(turn.uris) && turn.username && turn.credential){
-            const staticTurn = { urls: turn.uris, username: turn.username, credential: turn.credential };
-            if (this._forceRelay){
-              const relayOnly = keepTurnOnly([staticTurn, emergencyRelay]);
-              if (relayOnly.length) return relayOnly;
-            } else {
-              return [ { urls: baseStun }, staticTurn, emergencyRelay ];
-            }
+            staticTurn = { urls: turn.uris, username: turn.username, credential: turn.credential };
           }
         }
-        // 2) Else fetch ephemeral TURN via Cloud Function
+        // 2) Fetch Twilio ephemeral ice_servers from our backend.
+        //    Keep as close as possible to Twilio docs: use returned list as-is.
         if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
           const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
-          // Prefer explicit run.app URL if provided in keys or known
           let runAppUrl = null;
           try{ const keys = await window.secureKeyManager.getKeys(); runAppUrl = keys && (keys.turnFunctionUrl || keys.turn?.functionUrl) || null; }catch(_){ runAppUrl = null; }
           const knownRunHost = 'https://getturnconfig-hkhtxasofa-ew.a.run.app';
@@ -1478,45 +1473,33 @@
               if (resp.ok){
                 const json = await resp.json();
                 if (Array.isArray(json.iceServers) && json.iceServers.length){
-                  // Prefer TCP/TLS relays first for restrictive networks
-                  const expanded = [];
-                  const normalizeTcp = (u)=>{
-                    if (typeof u !== 'string') return u;
-                    if (!u.startsWith('turn')) return u;
-                    // Replace any existing transport parameter with tcp
-                    const hasQ = u.includes('?');
-                    const base = hasQ ? u.replace(/([?&])transport=(udp|tcp)/i, '$1transport=tcp') : u + '?transport=tcp';
-                    // Ensure only one transport param exists
-                    const parts = base.split('?');
-                    if (parts.length>1){
-                      const q = parts[1]
-                        .split('&')
-                        .filter(kv => !/^transport=(udp|tcp)$/i.test(kv))
-                        .concat(['transport=tcp'])
-                        .join('&');
-                      return parts[0] + '?' + q;
-                    }
-                    return base;
-                  };
-                  json.iceServers.forEach(s => {
-                    const urls = Array.isArray(s.urls) ? s.urls : (s.urls ? [s.urls] : []);
-                    const tcpUrls = urls.map(normalizeTcp);
-                    const dedup = Array.from(new Set([ ...urls, ...tcpUrls ]));
-                    expanded.push({ ...s, urls: dedup });
-                  });
-                  const filtered = this._forceRelay ? keepTurnOnly(expanded) : expanded;
+                  const list = json.iceServers;
+                  const filtered = this._forceRelay ? keepTurnOnly(list) : list;
                   const hasTurn = filtered.some((s)=>{
                     const urls = Array.isArray(s?.urls) ? s.urls : (s?.urls ? [s.urls] : []);
                     return urls.some((u)=> String(u || '').startsWith('turn'));
                   });
-                  if (!hasTurn) continue;
-                  if (!this._forceRelay) filtered.unshift({ urls: baseStun });
-                  if (!this._forceRelay) filtered.push(emergencyRelay);
-                  return filtered;
+                  if (!hasTurn){
+                    console.warn('[call] TURN fetch returned no TURN urls from', url);
+                    continue;
+                  }
+                  if (this._forceRelay){
+                    return filtered;
+                  } else {
+                    return filtered;
+                  }
                 }
+                console.warn('[call] TURN fetch response had no iceServers from', url);
+              } else {
+                const body = await resp.text().catch(()=> '');
+                console.warn('[call] TURN fetch failed', url, resp.status, body.slice(0, 120));
               }
-            }catch(_){ /* try next region */ }
+            }catch(e){ console.warn('[call] TURN fetch error', url, e?.message || e); }
           }
+        }
+        // 3) Static TURN fallback (if present)
+        if (typeof staticTurn === 'object' && staticTurn){
+          return this._forceRelay ? keepTurnOnly([staticTurn, emergencyRelay]) : [ { urls: baseStun }, staticTurn, emergencyRelay ];
         }
       }catch(_){ /* ignore */ }
       return this._forceRelay ? keepTurnOnly([ emergencyRelay ]) : [ { urls: baseStun }, emergencyRelay ];
@@ -1591,11 +1574,12 @@
       }
 
       // Ensure self is cached
+      const meAvatar = this.me?.avatarUrl || this.me?.photoURL || this.me?.photoUrl || this.me?.profileImage || this.me?.profilePhoto || this.me?.avatar || '../../images/default-bird.png';
       this.usernameCache.set(this.currentUser.uid, {
         username: this._displayName(this.me || { email: this.currentUser?.email }, this.currentUser.uid) || 'You',
-        avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png'
+        avatarUrl: meAvatar
       });
-      this._avatarCache.set(this.currentUser.uid, this.me?.avatarUrl || '../../images/default-bird.png');
+      this._avatarCache.set(this.currentUser.uid, meAvatar);
       this.startPendingRequestListener();
     }
 
@@ -8303,7 +8287,7 @@
     }
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
     const conn = connSnap.data() || {};
-    const participants = (conn.participants||[]).filter(Boolean).filter(uid => uid !== this.currentUser.uid);
+    const participants = this.getConnParticipants(conn).filter(uid => uid !== this.currentUser.uid);
     console.log('[call] startMultiCall', { callId, callConnId, participantCount: participants.length, participants });
     if (!participants.length){
       if (statusEl) statusEl.textContent = 'Waiting for others to join...';
@@ -9385,6 +9369,7 @@
                 avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
               };
               this.usernameCache.set(uid, cached);
+              this._avatarCache.set(uid, cached.avatarUrl || '../../images/default-bird.png');
             } catch (_) { cached = { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' }; }
           }
           return { uid, p, cached };
@@ -9413,6 +9398,7 @@
               avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
             };
             this.usernameCache.set(this.currentUser.uid, selfCached);
+            this._avatarCache.set(this.currentUser.uid, selfCached.avatarUrl || '../../images/default-bird.png');
           } catch (_) { selfCached = { username: 'You', avatarUrl: '../../images/default-bird.png' }; }
         }
         const meState = (this._peersPresence[this.currentUser.uid] && this._peersPresence[this.currentUser.uid].state) || 'idle';

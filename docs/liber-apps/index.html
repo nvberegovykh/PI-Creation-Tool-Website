@@ -732,7 +732,11 @@
     <!-- Firebase SDK Loader (latest-first with fallback) -->
     <script type="module" src="js/firebase-loader.js"></script>
     <script>
-        if ('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+        if ('serviceWorker' in navigator){
+            const path = location.pathname || '';
+            const swPath = path.includes('/liber-apps/') ? '/liber-apps/sw.js' : '/sw.js';
+            navigator.serviceWorker.register(swPath).catch(()=>{});
+        }
     </script>
     
     <!-- Firebase SDK Error Handling -->
