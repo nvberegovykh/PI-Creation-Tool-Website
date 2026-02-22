@@ -77,6 +77,7 @@
     <link rel="stylesheet" href="./style.css" />
     <div>
       <link href="./index.css" rel="stylesheet" />
+      <link href="./components/gallery-runtime.css" rel="stylesheet" />
 
       <div class="home-container">
         <navbar-interactive-wrapper
@@ -200,40 +201,8 @@
             </header>
           </div>
         </navbar-interactive-wrapper>
-        <div
-          data-thq="slider"
-          data-loop="true"
-          data-autoplay="true"
-          data-navigation="true"
-          data-pagination="false"
-          data-pause-autoplay-on-mouse-enter="true"
-          data-disable-autoplay-on-interaction="true"
-          class="home-slider swiper"
-        >
-          <div data-thq="slider-wrapper" class="swiper-wrapper">
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide1 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide2 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide3 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide4 swiper-slide"
-            ></div>
-            <div
-              data-thq="slider-slide"
-              class="home-slider-slide5 swiper-slide"
-            ></div>
-          </div>
-          
-        </div>
+        <section data-gallery-template="single-slider" data-card-count="9"></section>
+        <section data-gallery-template="full-width-slider" data-card-count="10"></section>
         <footer15-wrapper
           class="footer15-wrapper"
           rootclassname="footer15undefined"
@@ -349,8 +318,8 @@
         </footer15-wrapper>
       </div>
     </div>
-    <script
-      src="./index.umd.js"
-    ></script>
+    <script src="./liber-apps/js/secure-keys.js"></script>
+    <script src="./components/gallery-runtime.js"></script>
+    <script src="./index.umd.js"></script>
   </body>
 </html>

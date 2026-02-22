@@ -77,6 +77,7 @@
     <link rel="stylesheet" href="./style.css" />
     <div>
       <link href="./contact.css" rel="stylesheet" />
+      <link href="./components/gallery-runtime.css" rel="stylesheet" />
 
       <div class="contact-container">
         <navbar-interactive-wrapper
@@ -553,12 +554,7 @@
                 </div>
               </div>
               <div class="contact6-content6 thq-flex-row">
-                <img
-                  alt="image"
-                  src="imglib/contactsimg.jpg"
-                  style="background-size: cover;"
-                  class="thq-img-ratio-16-9"
-                />
+                <section data-gallery-template="tile" data-card-count="4"></section>
               </div>
             </div>
           </div>
@@ -668,9 +664,8 @@
         </footer15-wrapper>
       </div>
     </div>
-    <script
-      defer=""
-      src="https://unpkg.com/@teleporthq/teleport-custom-scripts"
-    ></script>
+    <script src="./liber-apps/js/secure-keys.js"></script>
+    <script src="./components/gallery-runtime.js"></script>
+    <script defer="" src="https://unpkg.com/@teleporthq/teleport-custom-scripts"></script>
   </body>
 </html>

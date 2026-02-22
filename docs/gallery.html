@@ -77,6 +77,7 @@
     <link rel="stylesheet" href="./style.css" />
     <div>
       <link href="./gallery.css" rel="stylesheet" />
+      <link href="./components/gallery-runtime.css" rel="stylesheet" />
 
       <div class="gallery-container">
         <navbar-interactive-wrapper
@@ -200,118 +201,8 @@
             </header>
           </div>
         </navbar-interactive-wrapper>
-        <gallery7-wrapper class="gallery7-wrapper">
-          <!--Gallery7 component-->
-          <div class="gallery7-gallery3 thq-section-padding">
-            <div class="gallery7-max-width">
-              <div class="gallery7-container1">
-                <div class="gallery7-content">
-                  <div class="gallery7-container2">
-                    <img
-                      alt="PlaceholderImage1302"
-                      src="imglib/clean cad.png"
-                      style="background-size: cover;"
-                      class="gallery7-image1 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image6"
-                      src="imglib/view006.jpg"
-                      class="gallery7-image2 thq-img-ratio-1-1"
-                    />
-                  </div>
-                  <div class="gallery7-container3">
-                    <img
-                      alt="image"
-                      src="imglib/Ореховка3.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image3 thq-img-ratio-4-3"
-                    />
-                    <img
-                      alt="image"
-                      src="imglib/photo_2023-12-18_18-49-36.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image4 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image5"
-                      src="imglib/IMG_6346.JPG"
-                      style="background-size: cover;"
-                      class="gallery7-image5 thq-img-ratio-4-3"
-                    />
-                  </div>
-                  <div class="gallery7-container4">
-                    <img
-                      alt="image"
-                      src="imglib/render1 (2).jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image6 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image"
-                      src="imglib/gc.png"
-                      style="background-size: cover;"
-                      class="gallery7-image7 thq-img-ratio-1-1"
-                    />
-                  </div>
-                  <div class="gallery7-container3">
-                    <img
-                      alt="image"
-                      src="imglib/IMG_6344.JPG"
-                      style="background-size: cover;"
-                      class="gallery7-image3 thq-img-ratio-4-3"
-                    />
-                    <img
-                      alt="image"
-                      src="imglib/photo_2023-12-18_18-42-14.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image4 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image5"
-                      src="imglib/render1.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image5 thq-img-ratio-4-3"
-                    />
-                  </div>
-                  <div class="gallery7-container4">
-                    <img
-                      alt="image"
-                      src="imglib/IMG_8060.PNG"
-                      style="background-size: cover;"
-                      class="gallery7-image6 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image"
-                      src="imglib/Frame 4.png"
-                      style="background-size: cover;"
-                      class="gallery7-image7 thq-img-ratio-1-1"
-                    />
-                  </div>
-                  <div class="gallery7-container3">
-                    <img
-                      alt="image"
-                      src="imglib/photo_2023-12-18_18-42-18.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image3 thq-img-ratio-4-3"
-                    />
-                    <img
-                      alt="image"
-                      src="imglib/render_View03_Interactive LightMix.jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image4 thq-img-ratio-1-1"
-                    />
-                    <img
-                      alt="image5"
-                      src="imglib/render_View01 (3).jpg"
-                      style="background-size: cover;"
-                      class="gallery7-image5 thq-img-ratio-4-3"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </gallery7-wrapper>
+        <section data-gallery-template="tile" data-card-count="12"></section>
+        <section data-gallery-template="full-width-slider" data-card-count="8"></section>
         <footer15-wrapper
           class="footer15-wrapper"
           rootclassname="footer15undefined"
@@ -417,9 +308,8 @@
         </footer15-wrapper>
       </div>
     </div>
-    <script
-      defer=""
-      src="https://unpkg.com/@teleporthq/teleport-custom-scripts"
-    ></script>
+    <script src="./liber-apps/js/secure-keys.js"></script>
+    <script src="./components/gallery-runtime.js"></script>
+    <script defer="" src="https://unpkg.com/@teleporthq/teleport-custom-scripts"></script>
   </body>
 </html>
