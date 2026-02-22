@@ -21,7 +21,9 @@
     selectedItemId: '',
     editingProject: false,
     editingItem: false,
-    projectMediaFiles: []
+    projectMediaFiles: [],
+    editingProjectItems: [],
+    projectItemsToRemove: []
   };
 
   const byId = (id) => document.getElementById(id);
@@ -66,7 +68,7 @@
     saveBtn.textContent = state.editingProject ? 'Update Project' : 'Save Project';
     cancelBtn.style.display = state.editingProject ? '' : 'none';
     deleteBtn.style.display = state.editingProject ? '' : 'none';
-    if (mediaWrap) mediaWrap.style.display = state.editingProject ? 'none' : '';
+    if (mediaWrap) mediaWrap.style.display = '';
   }
 
   function hideProjectForm() {
@@ -98,6 +100,8 @@
     byId('project-published').checked = false;
     state.selectedProjectId = '';
     state.projectMediaFiles = [];
+    state.editingProjectItems = [];
+    state.projectItemsToRemove = [];
     renderProjectMediaPreviews();
   }
 
@@ -121,6 +125,10 @@
     byId('project-cover-policy').value = project.coverPolicy || 'first';
     byId('project-published').checked = !!project.isPublished;
     state.selectedProjectId = project.id || '';
+    state.editingProjectItems = Array.from(project.items || []);
+    state.projectMediaFiles = [];
+    state.projectItemsToRemove = [];
+    renderProjectMediaPreviews();
   }
 
   function fillItemForm(item) {
@@ -144,8 +152,41 @@
 
   function renderProjectMediaPreviews() {
     const previews = byId('project-media-previews');
+    if (!previews) return;
     previews.innerHTML = '';
-    state.projectMediaFiles.forEach((f) => {
+    const toRemove = state.projectItemsToRemove || [];
+    (state.editingProjectItems || []).filter((it) => !toRemove.includes(it.id)).forEach((item) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'media-preview-item';
+      const url = item.thumbUrl || item.url || '';
+      if (item.type === 'video' || /\.(mp4|webm|ogg)$/i.test(url)) {
+        const vid = document.createElement('video');
+        vid.src = url;
+        vid.muted = true;
+        vid.playsInline = true;
+        wrap.appendChild(vid);
+      } else if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = item.caption || 'media';
+        wrap.appendChild(img);
+      } else {
+        wrap.innerHTML = '<i class="fas fa-align-left"></i><span>' + (item.type || 'item') + '</span>';
+      }
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'media-remove-btn';
+      rm.innerHTML = '&times;';
+      rm.title = 'Remove';
+      rm.onclick = () => {
+        state.projectItemsToRemove = state.projectItemsToRemove || [];
+        if (!state.projectItemsToRemove.includes(item.id)) state.projectItemsToRemove.push(item.id);
+        renderProjectMediaPreviews();
+      };
+      wrap.appendChild(rm);
+      previews.appendChild(wrap);
+    });
+    (state.projectMediaFiles || []).forEach((f) => {
       const wrap = document.createElement('div');
       wrap.className = 'media-preview-item';
       if (f.type.startsWith('image/')) {
@@ -376,6 +417,19 @@
     const mediaFiles = Array.from(state.projectMediaFiles || []);
     try {
       if (current) {
+        for (const itemId of (state.projectItemsToRemove || [])) {
+          try { await svc.deleteGalleryItem(current.id, itemId); } catch (_) {}
+        }
+        const orders = (state.editingProjectItems || []).map((i) => Number(i.sortOrder) + 1);
+        const baseOrder = orders.length ? Math.max(0, ...orders) : 0;
+        for (let i = 0; i < mediaFiles.length; i++) {
+          const file = mediaFiles[i];
+          const isVideo = file.type.startsWith('video/');
+          const itemPayload = { type: isVideo ? 'video' : 'image', sortOrder: baseOrder + i, isPublished: payload.isPublished, ownerId: uid };
+          const item = await svc.createGalleryItem(current.id, itemPayload);
+          const url = await uploadMediaFile(file, current.id, item.id);
+          await svc.updateGalleryItem(current.id, item.id, { url, thumbUrl: url });
+        }
         await svc.updateGalleryProject(current.id, payload);
         notify('Project updated');
       } else {
