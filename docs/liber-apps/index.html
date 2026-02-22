@@ -196,11 +196,12 @@
             <button class="nav-btn admin-only" data-section="settings" title="Settings">
                 <i class="fas fa-cog"></i><span class="nav-label">Settings</span>
             </button>
-            <button id="dashboard-chat-btn" class="nav-btn" data-action="open-chat" title="Chat" aria-label="Open chat">
-                <i class="fas fa-comments"></i><span class="nav-label">Chat</span>
-                <span id="dashboard-chat-unread-badge" class="nav-badge hidden" aria-hidden="true">0</span>
-            </button>
         </nav>
+
+        <button id="dashboard-chat-btn" class="dashboard-chat-btn has-badge" data-action="open-chat" title="Chat" aria-label="Open chat">
+            <i class="fas fa-comments"></i>
+            <span id="dashboard-chat-unread-badge" class="nav-badge hidden" aria-hidden="true">0</span>
+        </button>
 
         <!-- Mobile Bottom Navigation -->
         <nav class="mobile-bottom-nav">
@@ -220,10 +221,6 @@
             <button class="mobile-nav-btn" data-section="profile">
                 <i class="fas fa-user"></i>
                 <span id="mobile-profile-request-badge" class="nav-badge hidden" aria-hidden="true">0</span>
-            </button>
-            <button class="mobile-nav-btn" id="dashboard-chat-btn-mobile" data-action="open-chat" title="Chat" aria-label="Open chat">
-                <i class="fas fa-comments"></i>
-                <span id="dashboard-chat-unread-badge-mobile" class="nav-badge hidden" aria-hidden="true">0</span>
             </button>
             <button class="mobile-nav-btn admin-only" data-section="users">
                 <i class="fas fa-users"></i>
