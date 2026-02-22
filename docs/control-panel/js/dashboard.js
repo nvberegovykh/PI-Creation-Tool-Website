@@ -3482,44 +3482,39 @@ class DashboardManager {
      */
     setupEventListeners() {
         // Desktop navigation buttons
+        const openChatApp = () => {
+            const basePath = window.location.pathname.includes('/control-panel') ? '/control-panel' : '';
+            const full = `${window.location.origin}${basePath}/apps/secure-chat/index.html`;
+            if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
+                window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+            } else {
+                window.location.href = full;
+            }
+        };
         const navBtns = document.querySelectorAll('.nav-btn');
         navBtns.forEach(btn => {
-            // Remove any existing event listeners by cloning
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
-            
-            newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
+            if (newBtn.dataset.action === 'open-chat') {
+                newBtn.addEventListener('click', openChatApp);
+            } else {
+                newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
+            }
         });
 
         // Mobile navigation buttons
         const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
         mobileNavBtns.forEach(btn => {
-            // Remove any existing event listeners by cloning
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
-            
             if (newBtn.id === 'mobile-wall-e-btn') {
-                // WALL-E button - toggle the WALL-E widget
                 newBtn.addEventListener('click', () => this.toggleWallEWidget());
+            } else if (newBtn.dataset.action === 'open-chat' || newBtn.id === 'mobile-chat-btn') {
+                newBtn.addEventListener('click', openChatApp);
             } else {
-                // Regular navigation buttons
                 newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
             }
         });
-
-        // Chat button - open secure-chat app
-        const chatBtn = document.getElementById('dashboard-chat-btn');
-        if (chatBtn) {
-            chatBtn.addEventListener('click', () => {
-                const basePath = window.location.pathname.includes('/control-panel') ? '/control-panel' : '';
-                const full = `${window.location.origin}${basePath}/apps/secure-chat/index.html`;
-                if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
-                    window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
-                } else {
-                    window.location.href = full;
-                }
-            });
-        }
 
         // Logout button
         const logoutBtn = document.getElementById('logout-btn');

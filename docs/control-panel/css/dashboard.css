@@ -6,6 +6,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    overflow-x: hidden;
 }
 
 /* Ensure internal sections scroll while the page remains locked */
@@ -178,53 +179,11 @@
     }
 }
 
-/* Fixed Chat Icon - same z-index or 1 higher than nav */
-.dashboard-chat-btn {
-    display: none;
-    position: fixed;
-    z-index: 1001;
-    border: none;
-    cursor: pointer;
-    transition: var(--transition);
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
-}
-
-.dashboard-chat-btn:hover {
-    transform: scale(1.08);
-}
-
-.dashboard-chat-btn i {
-    font-size: 1.25rem;
-}
-
-/* Desktop: chat icon bottom-left */
+/* Chat button in nav - on desktop vertical nav, push to bottom */
 @media (min-width: 768px) {
-    .dashboard-chat-btn {
-        display: flex;
-        bottom: 24px;
-        left: 24px;
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        background: var(--accent-color, #00d4ff);
-        color: var(--primary-bg, #000);
-    }
-}
-
-/* Mobile: chat icon top-right */
-@media (max-width: 767px) {
-    .dashboard-chat-btn {
-        display: flex;
-        top: calc(env(safe-area-inset-top, 0) + 12px);
-        right: 12px;
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background: var(--accent-color, #00d4ff);
-        color: var(--primary-bg, #000);
-    }
+  .nav-chat-btn {
+    margin-top: auto;
+  }
 }
 
 /* Dashboard Content */
@@ -1182,6 +1141,11 @@
   .dashboard-content {
     margin-left: 72px;
     padding-top: 24px;
+    max-width: min(1400px, calc(100vw - 72px - 48px));
+    width: 100%;
+    padding-left: 24px;
+    padding-right: 24px;
+    box-sizing: border-box;
   }
 }
 

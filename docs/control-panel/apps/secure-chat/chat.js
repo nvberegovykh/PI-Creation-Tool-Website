@@ -182,8 +182,10 @@
               if (!dot){
                 dot = document.createElement('span');
                 dot.className = 'chat-unread-dot';
-                dot.style.cssText = 'margin-left:auto;min-width:8px;height:8px;border-radius:50%;background:#4da3ff;display:inline-block;box-shadow:0 0 0 2px rgba(77,163,255,.2)';
-                li.appendChild(dot);
+                dot.style.cssText = 'margin-left:auto;min-width:8px;height:8px;border-radius:50%;background:#4da3ff;display:inline-block;box-shadow:0 0 0 2px rgba(77,163,255,.2);flex-shrink:0';
+                const row = li.querySelector('.chat-conn-row');
+                if (row) row.appendChild(dot);
+                else li.appendChild(dot);
               }
             } else if (dot){
               dot.remove();
@@ -1407,6 +1409,15 @@
         if (this._pendingRequestUnsub) this._pendingRequestUnsub();
         if (!this.db || !this.currentUser?.uid) return;
         const peersRef = firebase.collection(this.db, 'connections', this.currentUser.uid, 'peers');
+        firebase.getDocs(peersRef).then((snap)=>{
+          let count = 0;
+          snap.forEach(d=>{
+            const data = d.data() || {};
+            if (data.status === 'pending' && String(data.requestedTo || '') === this.currentUser?.uid) count++;
+          });
+          this._pendingRequestCount = count;
+          this.updatePendingRequestBadge();
+        }).catch(()=>{});
         this._pendingRequestUnsub = firebase.onSnapshot(peersRef, (snap)=>{
           let count = 0;
           snap.forEach(d=>{
@@ -1471,10 +1482,7 @@
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         this.showAttachmentQuickActions();
       });
-      const addWaveBtn = document.getElementById('add-waveconnect-btn');
-      if (addWaveBtn){
-        addWaveBtn.addEventListener('click', ()=> this.openWaveConnectPickerForComposer());
-      }
+      /* Add from WaveConnect removed from composer - available only via attach popup or share button */
       document.getElementById('file-input').addEventListener('change', (e)=>{
         this.queueAttachments(e.target.files);
         try{ e.target.value = ''; }catch(_){ }
@@ -2283,6 +2291,7 @@
       if (!listEl) return;
       const connSeq = (this._connLoadSeq || 0) + 1;
       this._connLoadSeq = connSeq;
+      listEl.classList.add('loading');
       listEl.innerHTML = '';
       let permissionDenied = false;
       try{
@@ -2369,14 +2378,16 @@
       }
       if (connSeq !== this._connLoadSeq) return;
       if (permissionDenied && this.connections.length === 0){
+        listEl.classList.remove('loading');
         listEl.innerHTML = '<li style="opacity:.8">No access to chat connections. Please redeploy Firestore rules and reload.</li>';
       }
       if (!permissionDenied && this.connections.length === 0){
-        listEl.innerHTML = '<li style="opacity:.8">Loading chats…</li>';
+        listEl.classList.remove('loading');
+        listEl.innerHTML = '<li class="conn-loading-item" style="opacity:.8">Loading chats…</li>';
         if (this._connRetryTimer) clearTimeout(this._connRetryTimer);
         this._connRetryTimer = setTimeout(()=>{
           if (connSeq === this._connLoadSeq) this.loadConnections().catch(()=>{});
-        }, 1500);
+        }, 800);
       } else if (this._connRetryTimer){
         clearTimeout(this._connRetryTimer);
         this._connRetryTimer = null;
@@ -2409,7 +2420,7 @@
           }
         }catch(_){ }
       }
-      // Clear list before re-rendering
+      listEl.classList.remove('loading');
       listEl.innerHTML = '';
       this.connections.forEach(c=>{
         if (connSeq !== this._connLoadSeq) return;
@@ -2435,10 +2446,16 @@
         } else {
           label = 'Chat';
         }
-        li.innerHTML = `<span class="chat-conn-row" style="display:flex;align-items:center;gap:8px;min-width:0">
+        const updatedMs = Number(new Date(c.updatedAt || 0).getTime() || 0);
+        const readMs = this.getEffectiveReadMarkerForConn(c.id, c);
+        const fromPeer = String(c.lastMessageSender || '').trim() && String(c.lastMessageSender || '').trim() !== this.currentUser?.uid;
+        const isUnread = !!c.id && fromPeer && updatedMs > readMs;
+        const unreadDotHtml = isUnread ? '<span class="chat-unread-dot" style="margin-left:auto;min-width:8px;height:8px;border-radius:50%;background:#4da3ff;display:inline-block;box-shadow:0 0 0 2px rgba(77,163,255,.2);flex-shrink:0"></span>' : '';
+        li.innerHTML = `<span class="chat-conn-row" style="display:flex;align-items:center;gap:8px;min-width:0;width:100%">
           <img class="chat-conn-avatar" src="../../images/default-bird.png" alt="" style="width:18px;height:18px;object-fit:cover;clip-path:polygon(50% 0, 0 100%, 100% 100%);border:1px solid rgba(255,255,255,.24);flex:0 0 auto">
-          <span class="chat-label" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${String(label || 'Chat').replace(/</g,'&lt;')}</span>
-        </span>`; // Initial set, async will update
+          <span class="chat-label" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${String(label || 'Chat').replace(/</g,'&lt;')}</span>
+          ${unreadDotHtml}
+        </span>`;
         const partsNow = Array.isArray(c.participants) ? c.participants : [];
         const peerUidNow = partsNow.length === 2 ? partsNow.find((u)=> u && u !== this.currentUser.uid) : '';
         const avatarEl = li.querySelector('.chat-conn-avatar');
@@ -2461,25 +2478,6 @@
           }
           await this.setActive(targetId || c.id);
           this.setMobileMenuOpen(false);
-          setTimeout(async()=>{
-            try{
-              if (connSeq !== this._connLoadSeq) return;
-              const snap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', targetId || c.id));
-              const data = snap.exists()? snap.data():null;
-              const admins = Array.isArray(data?.admins)? data.admins: [];
-              const hdr = document.querySelector('.chat-header h3');
-              const titleBar = document.getElementById('active-connection-name');
-              if (titleBar){
-                const badgeId = 'admin-badge';
-                let badge = document.getElementById(badgeId);
-                if (!badge){
-                  badge = document.createElement('span'); badge.id = badgeId; badge.style.marginLeft='8px'; badge.style.fontSize='12px'; badge.style.opacity='.8';
-                  titleBar.parentElement && titleBar.parentElement.appendChild(badge);
-                }
-                badge.textContent = admins.includes(this.currentUser.uid) ? '(Admin)' : '';
-              }
-            }catch(_){ }
-          }, 50);
         });
         listEl.appendChild(li);
       });
@@ -2617,7 +2615,7 @@
         }
       }catch(_){ }
       this.loadMessages().catch(()=>{});
-      // Hydrate exact metadata in background to keep switch fast and avoid spinner lockups.
+      this.applyAdminBadgeForConn(this.activeConnection);
       Promise.resolve().then(async ()=>{
         try{
           if (setSeq !== this._setActiveSeq || this.activeConnection !== (resolvedConnId || connId)) return;
@@ -2627,6 +2625,7 @@
           const data = snapMeta.data() || {};
           this._activeConnReadBy = (data && typeof data.readBy === 'object') ? data.readBy : {};
           this.updateChatScopeUI(data);
+          this.applyAdminBadgeForConn(this.activeConnection, data);
           if (!displayName || displayName === 'Chat'){
             const parts = this.getConnParticipants(data);
             const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
@@ -2687,6 +2686,36 @@
       });
       // refresh group panel if open
       const gp = document.getElementById('group-panel'); if (gp){ await this.renderGroupPanel(); }
+    }
+
+    applyAdminBadgeForConn(connId, connData = null){
+      try{
+        const titleBar = document.getElementById('active-connection-name');
+        if (!titleBar) return;
+        const badgeId = 'admin-badge';
+        let badge = document.getElementById(badgeId);
+        const apply = (admins)=>{
+          if (!badge){
+            badge = document.createElement('span');
+            badge.id = badgeId;
+            badge.style.cssText = 'margin-left:8px;font-size:12px;opacity:.8';
+            if (titleBar.parentElement) titleBar.parentElement.appendChild(badge);
+          }
+          const isAdmin = Array.isArray(admins) && admins.includes(this.currentUser?.uid);
+          badge.textContent = isAdmin ? '(Admin)' : '';
+        };
+        if (connData && typeof connData === 'object'){
+          apply(Array.isArray(connData.admins) ? connData.admins : []);
+          return;
+        }
+        if (!connId || !this.db) return;
+        firebase.getDoc(firebase.doc(this.db, 'chatConnections', connId)).then((snap)=>{
+          if (snap.exists()){
+            const data = snap.data() || {};
+            apply(Array.isArray(data.admins) ? data.admins : []);
+          }
+        }).catch(()=>{});
+      }catch(_){ }
     }
 
     updateChatScopeUI(connData){
@@ -2760,6 +2789,8 @@
           }else{
             if (box.firstElementChild !== wrap) box.insertBefore(wrap, box.firstElementChild);
           }
+          wrap.style.visibility = '';
+          wrap.classList.add('msg-load-more-visible');
         }catch(_){ }
       };
       if (!box._bottomUiBound){
@@ -3036,7 +3067,7 @@
               if (hasMore){
                 moreWrap = document.createElement('div');
                 moreWrap.className = 'msg-load-more-wrap';
-                moreWrap.style.visibility = 'hidden';
+                moreWrap.style.opacity = '0';
                 const moreBtn = document.createElement('button');
                 moreBtn.className = 'btn secondary msg-load-more-btn';
                 moreBtn.textContent = `Load ${pageSize} more`;
@@ -3346,7 +3377,6 @@
             }
           }
           ensureLoadMoreAnchor();
-          if (moreWrap) moreWrap.style.visibility = '';
           // Keep DOM size bounded to avoid jitter on long chats. column-reverse: oldest at top. Preserve Load more button.
           while (box.childElementCount > 220){
             const last = box.lastElementChild;
@@ -3848,7 +3878,7 @@
           : (kind === 'image' || kind === 'picture'
               ? `<img src="${this.renderText(url)}" alt="${title}" style="width:100%;max-height:320px;object-fit:contain;border-radius:10px" data-fullscreen-image="1">`
               : (kind === 'audio'
-                  ? `<div class="post-media-files-item"><div class="post-media-audio-head">${cover ? `<img src="${this.renderText(cover)}" alt="cover" class="post-media-audio-cover" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${title}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div></div><audio src="${this.renderText(url)}" controls style="width:100%;margin-top:6px"></audio></div>`
+                  ? `<div class="post-media-files-item shared-audio-waveconnect"><div class="post-media-audio-head">${cover ? `<img src="${this.renderText(cover)}" alt="cover" class="post-media-audio-cover" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${title}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div></div><audio class="liber-lib-audio" src="${this.renderText(url)}" style="display:none" data-title="${this.renderText(title)}" data-by="${this.renderText(by)}" data-cover="${this.renderText(cover)}"></audio><div class="wave-item-audio-host" style="margin-top:6px"></div></div>`
                   : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`));
         const titleBy = (kind === 'video' || kind === 'image' || kind === 'picture') ? header : '';
         const actions = `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div>`;
@@ -4081,6 +4111,22 @@
         }
         const url = String(a.url || '').trim();
         if (!url) return;
+        if (kind === 'audio'){
+          const audioEl = root.querySelector('.liber-lib-audio');
+          const hostEl = root.querySelector('.wave-item-audio-host');
+          if (audioEl && hostEl){
+            const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+            if (dm && typeof dm.attachWaveAudioUI === 'function'){
+              dm.attachWaveAudioUI(audioEl, hostEl, { hideNative: true });
+            } else {
+              audioEl.controls = true;
+              audioEl.style.display = 'block';
+              audioEl.style.width = '100%';
+              audioEl.style.marginTop = '6px';
+              hostEl.style.display = 'none';
+            }
+          }
+        }
         root.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
         root.dataset.assetLikeUrl = this.normalizeMediaUrl(url);
         const likeBtn = root.querySelector('.shared-like-btn');
