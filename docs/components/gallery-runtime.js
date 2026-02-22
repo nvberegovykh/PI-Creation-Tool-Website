@@ -30,11 +30,15 @@
     const { getFirestore, collection, getDocs, query, where, orderBy } = firestoreMod;
     let cfg = window.LIBER_FIREBASE_CONFIG || null;
     if (!cfg && window.secureKeyManager && typeof window.secureKeyManager.getKeys === 'function') {
-      try {
-        const keys = await window.secureKeyManager.getKeys();
-        cfg = keys && keys.firebase ? keys.firebase : null;
-      } catch (_) {
-        cfg = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const keys = await window.secureKeyManager.getKeys();
+          cfg = keys && keys.firebase ? keys.firebase : null;
+          if (cfg) break;
+        } catch (_) {
+          if (attempt === 2) cfg = null;
+          else await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
       }
     }
     if (!cfg || !cfg.apiKey || !cfg.projectId) {
@@ -52,8 +56,12 @@
     let projectSnap;
     try {
       projectSnap = await getDocs(query(projectsCol, where('isPublished', '==', true), orderBy('updatedAtTS', 'desc')));
-    } catch (_) {
-      projectSnap = await getDocs(query(projectsCol, where('isPublished', '==', true)));
+    } catch (e) {
+      try {
+        projectSnap = await getDocs(query(projectsCol, where('isPublished', '==', true)));
+      } catch (_) {
+        throw e;
+      }
     }
 
     const projects = [];
@@ -68,6 +76,11 @@
       project.items = itemSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
       projects.push(project);
     }
+    projects.sort((a, b) => {
+      const at = (a.updatedAtTS && a.updatedAtTS.toMillis) ? a.updatedAtTS.toMillis() : new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bt = (b.updatedAtTS && b.updatedAtTS.toMillis) ? b.updatedAtTS.toMillis() : new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bt - at;
+    });
     return projects.filter((p) => p.items && p.items.length);
   }
 
@@ -134,33 +147,40 @@
     const visuals = visualItems(project.items);
     const texts = textItems(project.items);
     let idx = 0;
+    const dotsHtml = visuals.length > 1
+      ? `<div class="gc-popup-dots" role="tablist">${visuals.map((_, i) => `<button type="button" class="gc-dot" data-gc-idx="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}</div>`
+      : '';
     const render = () => {
       const item = visuals[idx] || visuals[0];
       popup.innerHTML =
         `<div class="gc-popup-card" role="dialog" aria-modal="true">` +
         `<div class="gc-popup-media">` +
         `<button class="gc-slider-btn gc-popup-close" data-gc-close="1">Close</button>` +
-        `<div class="gc-popup-nav"><button class="gc-slider-btn" data-gc-prev="1">Prev</button><button class="gc-slider-btn" data-gc-next="1">Next</button></div>` +
         `${item ? createMediaElement(item, false) : ''}` +
+        dotsHtml +
         `</div>` +
         `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${texts.map((t) => `<p>${t.text}</p>`).join('')}</div></div>` +
         `</div>`;
+      const dots = popup.querySelectorAll('.gc-popup-dots .gc-dot');
+      dots.forEach((dot, i) => {
+        dot.classList.toggle('active', i === idx);
+        dot.setAttribute('aria-selected', i === idx);
+      });
     };
     render();
     popup.classList.add('open');
-    popup.addEventListener('click', (ev) => {
+    const handler = (ev) => {
       const target = ev.target;
       if (!(target instanceof HTMLElement)) return;
       if (target.dataset.gcClose || target === popup) {
         popup.classList.remove('open');
-      } else if (target.dataset.gcPrev) {
-        idx = (idx - 1 + visuals.length) % visuals.length;
-        render();
-      } else if (target.dataset.gcNext) {
-        idx = (idx + 1) % visuals.length;
+        popup.removeEventListener('click', handler);
+      } else if (target.classList.contains('gc-dot') && target.dataset.gcIdx != null) {
+        idx = Number(target.dataset.gcIdx) || 0;
         render();
       }
-    }, { once: true });
+    };
+    popup.addEventListener('click', handler);
   }
 
   function wirePopupOpener(container, projectById) {
@@ -199,24 +219,34 @@
   function mountSingleSlider(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 9);
     const selected = pickProjects(projects, count);
-    host.innerHTML =
-      `<div class="gc-template">` +
-      `<div class="gc-slider-actions"><button class="gc-slider-btn" data-gc-step="-1">Prev</button><button class="gc-slider-btn" data-gc-step="1">Next</button></div>` +
-      `<div class="gc-slider-shell"><div class="gc-slider-track">${selected.map((p) => buildCard(p, 'gc-card--slider')).join('')}</div></div>` +
-      `</div>`;
-    let page = 0;
     const perPage = window.innerWidth <= 900 ? (window.innerWidth <= 640 ? 1 : 2) : 3;
     const pages = Math.max(1, Math.ceil(selected.length / perPage));
+    const slides = [];
+    for (let i = 0; i < pages; i++) {
+      const chunk = selected.slice(i * perPage, (i + 1) * perPage);
+      slides.push(`<div class="gc-slide">${chunk.map((p) => buildCard(p, 'gc-card--slider')).join('')}</div>`);
+    }
+    const dotsHtml = Array.from({ length: pages }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1}"></button>`).join('');
+    host.innerHTML =
+      `<div class="gc-template">` +
+      `<div class="gc-slider-shell"><div class="gc-slider-track">${slides.join('')}</div></div>` +
+      `<div class="gc-slider-dots" role="tablist">${dotsHtml}</div>` +
+      `</div>`;
+    let page = 0;
     const track = host.querySelector('.gc-slider-track');
-    const step = () => {
+    const dots = host.querySelectorAll('.gc-dot');
+    const update = () => {
       track.style.transform = `translateX(-${page * 100}%)`;
+      dots.forEach((d, i) => { d.classList.toggle('active', i === page); d.setAttribute('aria-selected', i === page); });
     };
-    Array.from(host.querySelectorAll('[data-gc-step]')).forEach((btn) => {
-      btn.addEventListener('click', () => {
-        page = (page + Number(btn.getAttribute('data-gc-step')) + pages) % pages;
-        step();
+    dots.forEach((dot) => {
+      dot.addEventListener('click', (e) => {
+        e.preventDefault();
+        page = Number(dot.getAttribute('data-gc-page')) || 0;
+        update();
       });
     });
+    update();
     wireRotations(host, projectById);
     wirePopupOpener(host, projectById);
   }
@@ -224,11 +254,94 @@
   function mountFullWidth(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 10);
     const selected = pickProjects(projects, count);
-    const duplicated = selected.concat(selected);
+    const cardWidth = 300 + 14;
+    const perPage = Math.max(1, Math.floor((host.offsetWidth || 800) / cardWidth));
+    const pages = Math.max(1, Math.ceil(selected.length / perPage));
+    const dotsHtml = pages > 1 ? Array.from({ length: pages }, (_, i) => `<button type="button" class="gc-dot" data-gc-full-page="${i}" aria-label="Page ${i + 1}"></button>`).join('') : '';
     host.innerHTML =
-      `<div class="gc-template gc-track-wrap"><div class="gc-track-full">${duplicated.map((p) => buildCard(p, 'gc-card--full')).join('')}</div></div>`;
+      `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${selected.map((p) => buildCard(p, 'gc-card--full')).join('')}</div></div>` +
+      (dotsHtml ? `<div class="gc-slider-dots gc-full-dots" role="tablist">${dotsHtml}</div>` : '');
+    const wrap = host.querySelector('.gc-fullwrap');
+    const track = host.querySelector('.gc-full-track');
+    const gap = 14;
+    const cardWidth = 300 + gap;
+    let offset = 0;
+    let dragged = false;
+    let startX = 0;
+    let startOffset = 0;
+    const update = () => {
+      const maxO = Math.max(0, (selected.length * cardWidth) - (wrap.offsetWidth || 0));
+      offset = Math.max(0, Math.min(offset, maxO));
+      track.style.transform = `translateX(-${offset}px)`;
+      const dots = host.querySelectorAll('.gc-full-dots .gc-dot');
+      if (dots.length) {
+        const pageIdx = Math.min(pages - 1, Math.round(offset / (perPage * cardWidth)));
+        dots.forEach((d, i) => { d.classList.toggle('active', i === pageIdx); d.setAttribute('aria-selected', i === pageIdx); });
+      }
+    };
+    const onStart = (x) => {
+      dragged = false;
+      startX = x;
+      startOffset = offset;
+    };
+    const onMove = (x) => {
+      if (Math.abs(x - startX) > 5) dragged = true;
+      offset = startOffset + (startX - x);
+      update();
+    };
+    const onTap = (x) => {
+      if (dragged) return;
+      const rect = wrap.getBoundingClientRect();
+      if (x - rect.left > rect.width / 2) offset += cardWidth;
+      else offset -= cardWidth;
+      update();
+    };
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.gc-card')) return;
+      e.preventDefault();
+      onStart(e.clientX);
+      const move = (ev) => onMove(ev.clientX);
+      const up = (ev) => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        if (!dragged) onTap(ev.clientX);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+    let touching = false;
+    wrap.addEventListener('touchstart', (e) => {
+      if (e.target.closest('.gc-card')) return;
+      touching = true;
+      onStart(e.touches[0].clientX);
+    }, { passive: true });
+    wrap.addEventListener('touchmove', (e) => {
+      if (!touching) return;
+      onMove(e.touches[0].clientX);
+      e.preventDefault();
+    }, { passive: false });
+    wrap.addEventListener('touchend', (e) => {
+      if (!touching) return;
+      touching = false;
+      if (e.changedTouches[0] && !dragged) onTap(e.changedTouches[0].clientX);
+    }, { passive: true });
+    wrap.addEventListener('click', (e) => {
+      if (e.target.closest('.gc-card')) return;
+      e.preventDefault();
+    });
+    host.querySelectorAll('.gc-full-dots .gc-dot').forEach((dot) => {
+      dot.addEventListener('click', (e) => {
+        e.preventDefault();
+        const p = Number(dot.getAttribute('data-gc-full-page')) || 0;
+        offset = Math.min(p * perPage * cardWidth, Math.max(0, (selected.length * cardWidth) - (wrap.offsetWidth || 0)));
+        update();
+      });
+    });
     wireRotations(host, projectById);
     wirePopupOpener(host, projectById);
+    requestAnimationFrame(update);
+    const ro = new ResizeObserver(update);
+    ro.observe(wrap);
   }
 
   async function boot() {
