@@ -21,19 +21,17 @@
     selectedItemId: '',
     editingProject: false,
     editingItem: false,
-    projectMediaQueue: []
+    projectMediaFiles: []
   };
 
   const byId = (id) => document.getElementById(id);
 
   function getFirebaseService() {
-    for (const w of [window.parent, window.top].filter(Boolean)) {
-      try {
-        if (w !== window && w.firebaseService && w.firebaseService.isInitialized) {
-          return w.firebaseService;
-        }
-      } catch (_) { /* cross-origin */ }
-    }
+    try {
+      for (const w of [window.parent, window.top].filter(Boolean)) {
+        if (w !== window && w.firebaseService && w.firebaseService.isInitialized) return w.firebaseService;
+      }
+    } catch (_) {}
     return window.firebaseService;
   }
 
@@ -99,6 +97,8 @@
     byId('project-cover-policy').value = 'first';
     byId('project-published').checked = false;
     state.selectedProjectId = '';
+    state.projectMediaFiles = [];
+    renderProjectMediaPreviews();
   }
 
   function resetItemForm() {
@@ -132,6 +132,49 @@
     byId('item-published').checked = !!item.isPublished;
     byId('item-file').value = '';
     syncItemTypeFields();
+  }
+
+  function addProjectMediaFiles(files) {
+    const acceptable = ['image/', 'video/'];
+    for (const f of Array.from(files || [])) {
+      if (acceptable.some((t) => f.type.startsWith(t))) state.projectMediaFiles.push(f);
+    }
+    renderProjectMediaPreviews();
+  }
+
+  function renderProjectMediaPreviews() {
+    const previews = byId('project-media-previews');
+    previews.innerHTML = '';
+    state.projectMediaFiles.forEach((f) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'media-preview-item';
+      if (f.type.startsWith('image/')) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.alt = f.name;
+        wrap.appendChild(img);
+      } else if (f.type.startsWith('video/')) {
+        const vid = document.createElement('video');
+        vid.src = URL.createObjectURL(f);
+        vid.muted = true;
+        vid.playsInline = true;
+        wrap.appendChild(vid);
+      } else {
+        wrap.textContent = f.name;
+        wrap.style.fontSize = '11px';
+      }
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'media-remove-btn';
+      rm.innerHTML = '&times;';
+      rm.title = 'Remove';
+      rm.onclick = () => {
+        state.projectMediaFiles = state.projectMediaFiles.filter((x) => x !== f);
+        renderProjectMediaPreviews();
+      };
+      wrap.appendChild(rm);
+      previews.appendChild(wrap);
+    });
   }
 
   function syncItemTypeFields() {
@@ -306,9 +349,16 @@
     e.preventDefault();
     const current = getSelectedProject();
     const svc = getFirebaseService();
-    const uid = svc.auth.currentUser?.uid || '';
+    let uid = svc.auth.currentUser?.uid || '';
     if (!uid) {
-      notify('You must be signed in', 'error');
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        uid = svc.auth.currentUser?.uid || '';
+        if (uid) break;
+      }
+    }
+    if (!uid) {
+      notify('You must be signed in. Please log in on the main page first, then open Gallery Control again.', 'error');
       return;
     }
     const payload = {
@@ -323,8 +373,7 @@
       notify('Project title is required', 'warning');
       return;
     }
-    const mediaInput = byId('project-media');
-    const mediaFiles = mediaInput ? Array.from(mediaInput.files || []) : [];
+    const mediaFiles = Array.from(state.projectMediaFiles || []);
     try {
       if (current) {
         await svc.updateGalleryProject(current.id, payload);
@@ -341,8 +390,8 @@
           const url = await uploadMediaFile(file, created.id, item.id);
           await svc.updateGalleryItem(created.id, item.id, { url, thumbUrl: url });
         }
-        if (mediaInput) mediaInput.value = '';
-        byId('project-media-previews').innerHTML = '';
+        state.projectMediaFiles = [];
+        renderProjectMediaPreviews();
         notify(mediaFiles.length ? `Project created with ${mediaFiles.length} media` : 'Project created');
       }
       resetProjectForm();
@@ -459,31 +508,24 @@
     });
     byId('project-delete').addEventListener('click', () => onDeleteProject());
     byId('project-form').addEventListener('submit', (e) => onSaveProject(e));
+
     const projectMedia = byId('project-media');
-    if (projectMedia) {
-      projectMedia.addEventListener('change', () => {
-        const previews = byId('project-media-previews');
-        previews.innerHTML = '';
-        const files = Array.from(projectMedia.files || []);
-        files.forEach((f) => {
-          const wrap = document.createElement('div');
-          if (f.type.startsWith('image/')) {
-            const img = document.createElement('img');
-            img.src = URL.createObjectURL(f);
-            img.alt = f.name;
-            wrap.appendChild(img);
-          } else if (f.type.startsWith('video/')) {
-            const vid = document.createElement('video');
-            vid.src = URL.createObjectURL(f);
-            vid.muted = true;
-            vid.playsInline = true;
-            wrap.appendChild(vid);
-          } else {
-            wrap.textContent = f.name;
-            wrap.style.fontSize = '11px';
-          }
-          previews.appendChild(wrap);
-        });
+    const uploadZone = byId('project-upload-zone');
+    if (projectMedia && uploadZone) {
+      uploadZone.addEventListener('click', (e) => { if (!e.target.closest('.media-remove-btn')) projectMedia.click(); });
+      projectMedia.addEventListener('change', () => { addProjectMediaFiles(projectMedia.files); projectMedia.value = ''; });
+      uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); uploadZone.classList.add('drag-over'); });
+      uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+      uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadZone.classList.remove('drag-over');
+        addProjectMediaFiles(e.dataTransfer?.files);
+      });
+      document.addEventListener('paste', (e) => {
+        const panel = byId('project-upload-panel');
+        if (!panel || panel.style.display === 'none' || state.editingProject) return;
+        if (e.clipboardData?.files?.length) addProjectMediaFiles(e.clipboardData.files);
       });
     }
 

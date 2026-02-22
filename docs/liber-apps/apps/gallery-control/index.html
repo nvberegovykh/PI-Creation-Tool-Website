@@ -30,7 +30,14 @@
         </label>
         <label class="inline"><input id="project-published" type="checkbox" /> Published</label>
         <div class="project-upload-media" id="project-upload-media">
-          <label>Add media (pictures/videos) <input id="project-media" type="file" accept="image/*,video/*" multiple /></label>
+          <div class="upload-zone" id="project-upload-zone" tabindex="0">
+            <input id="project-media" type="file" accept="image/*,video/*" multiple />
+            <div class="upload-zone-inner">
+              <i class="fas fa-cloud-upload-alt upload-icon"></i>
+              <p class="upload-text">Drag &amp; drop images or videos here</p>
+              <p class="upload-sub">or click to browse · paste (Ctrl/Cmd+V) to add</p>
+            </div>
+          </div>
           <div id="project-media-previews" class="media-previews"></div>
         </div>
         <div class="actions">

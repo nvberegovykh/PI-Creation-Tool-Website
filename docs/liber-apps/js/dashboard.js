@@ -3617,8 +3617,11 @@ class DashboardManager {
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         // Mobile Chrome/PWA can hydrate auth state slightly later; retry nav role gate.
-        setTimeout(()=> this.updateNavigation().catch(()=>{}), 900);
-        setTimeout(()=> this.updateNavigation().catch(()=>{}), 2200);
+        [900, 2200, 4000, 5500, 7000].forEach((ms)=> setTimeout(()=> this.updateNavigation().catch(()=>{}), ms));
+        if (!document._liberNavVisibilityBound) {
+            document._liberNavVisibilityBound = true;
+            document.addEventListener('visibilitychange', ()=> { if (document.visibilityState === 'visible') this.updateNavigation().catch(()=>{}); });
+        }
         this.restoreChatUnreadBadgeFromStorage();
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)

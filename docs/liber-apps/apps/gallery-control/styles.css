@@ -43,15 +43,70 @@
 }
 
 .project-upload-media {
-  padding: 10px;
+  padding: 12px;
   border: 1px dashed #2b3854;
-  border-radius: 8px;
+  border-radius: 12px;
   background: #0a0e14;
+  margin-top: 8px;
 }
 
-.project-upload-media input[type="file"] {
-  margin-top: 4px;
+.upload-zone {
+  position: relative;
+  min-height: 120px;
+  border: 2px dashed #3a4a6a;
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
 }
+
+.upload-zone:hover,
+.upload-zone.drag-over {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.upload-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.upload-zone-inner {
+  pointer-events: none;
+  text-align: center;
+  padding: 16px;
+}
+
+.upload-icon {
+  font-size: 32px;
+  color: #4a5568;
+  margin-bottom: 8px;
+}
+
+.upload-zone:hover .upload-icon,
+.upload-zone.drag-over .upload-icon {
+  color: #3b82f6;
+}
+
+.upload-text {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #e8edff;
+}
+
+.upload-sub {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 
 .media-previews {
   display: flex;
@@ -60,13 +115,38 @@
   margin-top: 10px;
 }
 
-.media-previews img,
-.media-previews video {
+.media-preview-item {
+  position: relative;
+  display: inline-block;
+}
+
+.media-previews .media-preview-item img,
+.media-previews .media-preview-item video {
   max-width: 80px;
   max-height: 80px;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #2b3854;
+  display: block;
+}
+
+.media-remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 label {
