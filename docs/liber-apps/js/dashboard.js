@@ -136,7 +136,12 @@ class DashboardManager {
         div.dataset.postCreatedTs = String(this.getPostCreatedTs(p));
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
         const authorProfile = await this.getUserPreviewData(p.authorId || '');
-        const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || opts.displayName || 'User');
+        const profileName = String(authorProfile?.username || '').trim();
+        const postName = String(p.authorName || '').trim();
+        const optName = String(opts.displayName || '').trim();
+        const authorName = (profileName && !profileName.includes('@'))
+            ? profileName
+            : ((postName && !postName.includes('@')) ? postName : ((optName && !optName.includes('@')) ? optName : 'User'));
         const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
         const postTime = this.formatDateTime(p.createdAt);
         const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -1726,7 +1731,7 @@ class DashboardManager {
                     });
                 }catch(_){ }
                 const meData = await window.firebaseService.getUserData(userId).catch(()=> null);
-                const myName = String(meData?.username || meData?.email || '').trim();
+                const myName = String(meData?.username || '').trim() || 'User';
                 for (const m of allMedia){
                     if (m.kind === 'audio'){
                         const norm = this.normalizeMediaUrl(m.url);
@@ -3950,7 +3955,7 @@ class DashboardManager {
             const feedTitle = document.getElementById('space-feed-title');
             const cachedName = localStorage.getItem(`liber_profile_username_${user.uid}`) || '';
             const cachedAvatar = localStorage.getItem(`liber_profile_avatar_${user.uid}`) || '';
-            const stableName = String(data.username || '').trim() || String(cachedName || '').trim() || String(user.email || '').split('@')[0] || '';
+            const stableName = String(data.username || '').trim() || String(cachedName || '').trim() || '';
             const stableAvatar = String(data.avatarUrl || '').trim() || String(cachedAvatar || '').trim() || String(user.photoURL || '').trim() || 'images/default-bird.png';
             if (String(data.username || '').trim()){
                 try{ localStorage.setItem(`liber_profile_username_${user.uid}`, String(data.username || '').trim()); }catch(_){ }
@@ -4082,7 +4087,7 @@ class DashboardManager {
                         posts: [{
                             id: postIdRef.id,
                             authorId: user.uid,
-                            authorName: String(user?.displayName || user?.email || ''),
+                            authorName: String(data?.username || '').trim() || 'User',
                             text,
                             media: uniqueMedia,
                             mediaUrl,

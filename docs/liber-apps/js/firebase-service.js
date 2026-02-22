@@ -65,10 +65,13 @@ class FirebaseService {
             }
             const token = await window.firebaseModular.getToken(messaging, { vapidKey: vapid, serviceWorkerRegistration: swReg || undefined });
             if (!token) return;
-            // Store token under user doc for later server-side delivery if needed
+            // Avoid direct Firestore writes from client here: many deployments lock
+            // users/{uid} updates by rules and this causes noisy write-stream failures.
+            // Keep token locally; backend push can still be wired via callable later.
             try{
-                const userDocRef = firebase.doc(this.db, 'users', user.uid);
-                await firebase.updateDoc(userDocRef, { fcmToken: token, fcmUpdatedAt: new Date().toISOString() });
+                const k = `liber_fcm_token_${user.uid}`;
+                localStorage.setItem(k, token);
+                localStorage.setItem(`${k}_updatedAt`, new Date().toISOString());
             }catch(_){/* ignore */}
         }catch(_){/* ignore */}
     }

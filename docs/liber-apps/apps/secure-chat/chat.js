@@ -243,7 +243,7 @@
       const u = userLike || {};
       const raw = String(u.username || '').trim();
       if (raw) return raw;
-      return String(fallbackUid || '').slice(0, 8) || 'User';
+      return 'User';
     }
 
     setMobileMenuOpen(open){
@@ -1290,7 +1290,7 @@
             }
             try{ panel.remove(); backdrop.remove(); }catch(_){ }
           };
-          const senderName = this.usernameCache.get(a.sender) || String(a.sender || '').slice(0,8) || 'Unknown';
+          const senderName = this.usernameCache.get(a.sender) || 'Unknown';
           preview.dataset.pickerMode = '1';
           card.appendChild(preview);
           card.appendChild(addBtn);
@@ -2696,7 +2696,7 @@
               if (uid === this.currentUser.uid){ enriched.push(String(this.me?.username || 'You')); continue; }
               const candidate = getCachedName(uid, '');
               if (candidate) enriched.push(candidate);
-              else enriched.push(String(names[i] || '').trim() || uid.slice(0,8));
+              else enriched.push(String(names[i] || '').trim() || 'User');
             }
             c.participantUsernames = enriched;
           }
@@ -2724,7 +2724,7 @@
           }
         } else if (Array.isArray(c.participants) && c.participants.length) {
           const others = c.participants.filter(u => u !== this.currentUser.uid);
-          label = String(c.groupName || '').trim() || (others.length === 1 ? `Chat with ${others[0].slice(0,8)}` : `Group Chat (${others.length})`);
+          label = String(c.groupName || '').trim() || (others.length === 1 ? `Chat with ${others[0]}` : `Group Chat (${others.length})`);
         } else {
           label = 'Chat';
         }
@@ -2780,7 +2780,7 @@
               const existing = this.usernameCache.get(uid);
               const existingName = (existing && typeof existing === 'object') ? String(existing.username || '').trim() : String(existing || '').trim();
               const nextName = String(d.username || '').trim();
-              const name = nextName || existingName || uid.slice(0,8);
+              const name = nextName || existingName || 'User';
               const avatar = String(d.avatarUrl || '../../images/default-bird.png');
               const prevObj = this.usernameCache.get(uid);
               const prevName = (prevObj && typeof prevObj === 'object') ? prevObj.username : prevObj;
@@ -3272,7 +3272,7 @@
                 el.dataset.msgTs = String(msgTs || 0);
                 if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
                 if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
-                let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+                let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
                 if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                   this._senderLookupInFlight.add(m.sender);
                   Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, this._displayName(user, m.sender)); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
@@ -3458,7 +3458,7 @@
                 el.classList.add('message-system', 'message-connection-request');
               }
               // Resolve sender name async
-              let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+              let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
               if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                 this._senderLookupInFlight.add(m.sender);
                 Promise.resolve().then(async ()=>{
@@ -3897,7 +3897,7 @@
               el.classList.add('message-system', 'message-connection-request');
             }
             // Resolve sender name async
-            let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
+            let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
             if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
               this._senderLookupInFlight.add(m.sender);
               Promise.resolve().then(async ()=>{
@@ -9396,12 +9396,12 @@
             try {
               const u = await window.firebaseService.getUserData(uid);
               cached = {
-                username: u?.username || uid.slice(0,8),
+                username: u?.username || 'User',
                 avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
               };
               this.usernameCache.set(uid, cached);
               this._avatarCache.set(uid, cached.avatarUrl || '../../images/default-bird.png');
-            } catch (_) { cached = { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' }; }
+            } catch (_) { cached = { username: 'User', avatarUrl: '../../images/default-bird.png' }; }
           }
           return { uid, p, cached };
         });
