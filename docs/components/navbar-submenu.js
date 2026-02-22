@@ -121,7 +121,8 @@
       overlay.classList.add('gc-open');
       document.body.classList.add('gc-pricing-open');
     };
-    fetch('contact.html')
+    const contactUrl = new URL('contact.html', window.location.href).href;
+    fetch(contactUrl)
       .then((r) => r.text())
       .then((html) => {
         const parser = new DOMParser();

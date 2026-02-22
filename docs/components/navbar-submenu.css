@@ -183,14 +183,14 @@
   border-radius: 999px;
 }
 
-/* Pricing popup overlay - fullscreen */
+/* Pricing popup overlay - above navbar (300) and gallery popup (1200) */
 .gc-pricing-overlay {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   background: rgba(0, 0, 0, 0.85);
-  z-index: 1000;
+  z-index: 1500;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -222,12 +222,24 @@
   box-sizing: border-box;
 }
 
+.gc-pricing-popup #gc-pricing-content,
+.gc-pricing-popup #gc-pricing-content * {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
 .gc-pricing-popup .pricing10-wrapper,
 .gc-pricing-popup .pricing10-pricing23,
 .gc-pricing-popup #gc-pricing-content {
   display: block !important;
-  background: transparent;
+  background: transparent !important;
   min-height: 1px;
+  overflow: visible !important;
+  color: inherit;
+}
+
+.gc-pricing-popup .pricing10-pricing23 {
+  overflow: visible !important;
 }
 
 /* Hide pricing section on contact page - shown in popup via Services */
@@ -245,7 +257,7 @@ body.gc-pricing-open {
   right: 16px;
   width: 36px;
   height: 36px;
-  z-index: 10;
+  z-index: 1;
   border: 1px solid rgba(255, 255, 255, 0.4);
   background: transparent;
   color: #fff;
