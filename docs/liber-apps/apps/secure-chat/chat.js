@@ -1828,14 +1828,12 @@
           else{
             this._voiceUserIntendedPlay = false;
             p.pause();
-            try{ p.currentTime = 0; }catch(_){ }
           }
         } else if (m && m.isConnected){
           if (m.paused){ this._voiceUserIntendedPlay = true; m.play().catch(()=>{}); }
           else{
             this._voiceUserIntendedPlay = false;
             m.pause();
-            try{ m.currentTime = 0; }catch(_){ }
           }
         }
         this.updateVoiceWidgets();
@@ -6285,35 +6283,7 @@
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
         this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
-        const isThisPlaying = !!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) || (!!widget.srcKey && this._voiceCurrentAttachmentKey === widget.srcKey)) && !p.paused;
-        if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && !(!!widget.srcKey && this._voiceCurrentAttachmentKey === widget.srcKey)){
-          this._topMediaEl = null;
-          this._voiceCurrentSrc = url;
-          this._voiceCurrentAttachmentKey = widget.srcKey || '';
-          this._voiceCurrentTitle = widget.title;
-          this.setupMediaSessionForVoice(widget.title);
-          this.pauseOtherInlineMedia(null);
-          p.src = url;
-          try{ p.load(); }catch(_){ }
-          this._voiceUserIntendedPlay = true;
-          p.play().catch(()=>{});
-          this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
-          this.updateVoiceWidgets();
-          return;
-        }
-        if (Number.isFinite(p.duration) && p.duration > 0){
-          widget.durationGuess = p.duration;
-        }
-        if (p.paused) {
-          this._voiceUserIntendedPlay = true;
-          p.play().catch(()=>{});
-          this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
-        } else {
-          this._voiceUserIntendedPlay = false;
-          p.pause();
-          try{ p.currentTime = 0; }catch(_){ }
-        }
-        this.updateVoiceWidgets();
+        this.toggleChatAudioPlayback({ src: url, title: widget.title, by: '', cover: '', sourceKey: widget.srcKey });
       });
 
       let dragging = false;
@@ -6455,6 +6425,42 @@
     }
 
     /** Central playback: all 3 audio types use the same bg player. */
+    isActiveChatTrack(src = '', sourceKey = ''){
+      try{
+        const p = this.ensureChatBgPlayer();
+        const playerSrc = this.getChatPlayerSrc(p);
+        const key = String(sourceKey || '').trim();
+        if (!playerSrc) return false;
+        return (!!key && this._voiceCurrentAttachmentKey === key) || this.isSameMediaSrc(playerSrc, src);
+      }catch(_){ return false; }
+    }
+
+    toggleChatAudioPlayback(opts = {}){
+      try{
+        const src = String(opts.src || opts.url || '').trim();
+        if (!src) return { state: 'idle', sameTrack: false };
+        const sourceKey = String(opts.sourceKey || '').trim();
+        const p = this.ensureChatBgPlayer();
+        const sameTrack = this.isActiveChatTrack(src, sourceKey);
+        if (sameTrack){
+          if (p.paused){
+            this._voiceUserIntendedPlay = true;
+            p.play().catch(()=>{});
+            this.updateVoiceWidgets();
+            return { state: 'playing', sameTrack: true };
+          }
+          this._voiceUserIntendedPlay = false;
+          p.pause();
+          this.updateVoiceWidgets();
+          return { state: 'paused', sameTrack: true };
+        }
+        this.playChatAudioInBgPlayer(opts);
+        return { state: 'playing', sameTrack: false };
+      }catch(_){
+        return { state: 'idle', sameTrack: false };
+      }
+    }
+
     playChatAudioInBgPlayer(opts = {}){
       try{
         const src = String(opts.src || opts.url || '').trim();
@@ -6651,23 +6657,14 @@
         bars.forEach((b, i)=> b.classList.toggle('played', active && i < played));
         const paused = active ? !!p.paused : !!audio.paused;
         playBtn.innerHTML = `<i class="fas ${paused ? 'fa-play' : 'fa-pause'}"></i>`;
-        playBtn.title = paused ? 'Play' : 'Stop';
+        playBtn.title = paused ? 'Play' : 'Pause';
         time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
       };
       ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
       audio.addEventListener('error', ()=>{ try{ time.textContent = 'Error loading'; }catch(_){ } });
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
-        const p = this.ensureChatBgPlayer();
-        const isThisPlaying = (!!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey))) && !p.paused;
-        if (isThisPlaying){
-          this._voiceUserIntendedPlay = false;
-          p.pause();
-          try{ p.currentTime = 0; }catch(_){ }
-          this.updateVoiceWidgets();
-          return;
-        }
-        this.playChatAudioInBgPlayer({ src, title: safeName, by: safeAuthor, cover: '', sourceKey });
+        this.toggleChatAudioPlayback({ src, title: safeName, by: safeAuthor, cover: '', sourceKey });
         sync();
       });
       const seekTo = (clientX)=>{
@@ -6744,10 +6741,7 @@
         ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
         playBtn.addEventListener('click', (e)=>{
           try{ e.stopPropagation(); }catch(_){ }
-          const p = this.ensureChatBgPlayer();
-          const isThisPlaying = (!!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey))) && !p.paused;
-          if (isThisPlaying){ this._voiceUserIntendedPlay = false; p.pause(); try{ p.currentTime = 0; }catch(_){ } this.updateVoiceWidgets(); return; }
-          this.playChatAudioInBgPlayer({ src: url, title, by: '', cover: '', sourceKey });
+          this.toggleChatAudioPlayback({ src: url, title, by: '', cover: '', sourceKey });
           sync();
         });
         const seekTo = (clientX)=>{
