@@ -102,7 +102,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-participants .avatar img{ width:100%; height:100%; object-fit:cover; border-radius:50%; display:block }
 /* Hide labels below avatars */
 .call-participants .avatar .name, .call-participants .avatar .state{ display:none !important }
-.messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:smooth}
+.messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
 .messages::-webkit-scrollbar{width:0;height:0}
 .message{max-width:72%;padding:12px 14px;border-radius:14px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .28s ease-out}
 @keyframes msg-fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}

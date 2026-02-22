@@ -701,8 +701,8 @@
       const previewNameMatch = /\[(?:Attachment|File)\]\s+(.+)$/i.exec(preview);
       const previewName = previewNameMatch ? String(previewNameMatch[1] || '').trim() : '';
       if (previewName && /\.[a-z0-9]{2,6}$/i.test(previewName)) return previewName;
-      if (/^\[voice message\]/i.test(plain)) return 'voice.webm';
-      if (/^\[video message\]/i.test(plain) || /\bvideo\b/i.test(preview) || /\bvideo\b/i.test(url)) return 'video.webm';
+      if (/^\[voice message\]/i.test(plain) || /^\[voice message\]/i.test(preview)) return 'voice.webm';
+      if (/^\[video message\]/i.test(plain) || /^\[video message\]/i.test(preview)) return 'video.webm';
       if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video.mp4';
       const audioExt = /\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.exec(url);
       if (audioExt) return `audio.${audioExt[1].toLowerCase()}`;
@@ -2959,7 +2959,6 @@
                 updateBottomUi();
                 return;
               }
-              const pinnedBefore = box.dataset.pinnedBottom !== '0';
               let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
               const renderOneAppend = async (d, sourceConnId = activeConnId, opts = {})=>{
                 if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -3045,7 +3044,8 @@
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   const preview = el.querySelector('.file-preview');
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
-                  if (isRecording && preview){
+                  const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
+                  if (isPriorityMedia && preview){
                     try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
                   }else{
                     this.enqueueAttachmentPreview(()=>{
@@ -3219,7 +3219,7 @@
                   if (forceAppend) box.insertBefore(sep, box.firstElementChild);
                   else box.insertBefore(sep, box.firstElementChild);
                 }
-                if (forceAppend && opts.appendContext) opts.appendContext.lastRenderedDay = dayLabel;
+                if ((forceAppend || forceInsertBefore) && opts.appendContext) opts.appendContext.lastRenderedDay = dayLabel;
                 else lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
@@ -3270,7 +3270,8 @@
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
-                  if (isRecording){
+                  const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
+                  if (isPriorityMedia){
                     try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
                   }else{
                     this.enqueueAttachmentPreview(
@@ -3681,7 +3682,8 @@
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
                 const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
                 const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
-                if (isRecording){
+                const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
+                if (isPriorityMedia){
                   try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
                 }else{
                   const msgId = String(d.id || m.id || '');
@@ -6193,7 +6195,7 @@
       try{
         if (message && message.isVideoRecording === true) return true;
         const n = String(fileName || '').toLowerCase().trim();
-        if (n.startsWith('video.') || /^video\.(webm|mp4|mov)/i.test(n)) return true;
+        if (/^video\.webm$/i.test(n)) return true;
         const text = String(message?.text || '').trim();
         if (/^\[video message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
@@ -6207,7 +6209,7 @@
         if (!this.isAudioFilename(fileName)) return false;
         if (message && message.isVoiceRecording === true) return true;
         const n = String(fileName || '').toLowerCase().trim();
-        if (n.startsWith('voice.')) return true;
+        if (/^voice\.webm$/i.test(n)) return true;
         const text = String(message?.text || '').trim();
         if (/^\[voice message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
@@ -7136,6 +7138,7 @@
         }
       } catch (e) {
         if (!containerEl?.isConnected) return;
+        try{ containerEl.innerHTML = ''; }catch(_){ }
         const looksEncrypted = /\.enc\.json(?:$|\?)/i.test(String(fileUrl || ''));
         const isFetchFail = String(e?.message || '').includes('fetch-failed') || String(e?.message || '').includes('attachment-fetch');
         const isInvalidPayload = String(e?.message || '').includes('invalid-payload');
