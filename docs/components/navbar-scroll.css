@@ -1,0 +1,55 @@
+/* Navbar: fixed, hide on scroll down, reappear with slide on scroll up */
+.navbar-interactive-container {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  transition: transform 0.45s ease-out;
+}
+
+.navbar-interactive-container.gc-navbar-hidden {
+  transform: translateY(-100%);
+}
+
+/* Reserve space so content isn't hidden under fixed navbar */
+.home-container,
+.gallery-container,
+.contact-container {
+  padding-top: 92px;
+}
+
+/* Desktop: bigger navbar items */
+@media (min-width: 768px) {
+  .navbar-interactive-navbar-interactive {
+    padding-top: var(--dl-space-space-threeunits);
+    padding-bottom: var(--dl-space-space-threeunits);
+  }
+
+  .navbar-interactive-navlink1,
+  .navbar-interactive-navlink3 {
+    font-size: 1.1rem;
+    letter-spacing: 0.04em;
+  }
+
+  .navbar-interactive-image1,
+  .navbar-interactive-image2 {
+    height: 2.5rem;
+  }
+
+  .navbar-interactive-navlink1 {
+    margin-left: var(--dl-space-space-threeunits);
+  }
+
+  .navbar-interactive-image1 {
+    margin-left: var(--dl-space-space-threeunits);
+  }
+
+  .navbar-interactive-navlink3 {
+    margin-left: var(--dl-space-space-threeunits);
+  }
+
+  .navbar-interactive-image2 {
+    margin-left: var(--dl-space-space-threeunits);
+  }
+}

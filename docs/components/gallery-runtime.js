@@ -322,8 +322,8 @@
     const update = () => {
       page = Math.max(0, Math.min(page, selected.length - 1));
       const slideWidth = shell ? shell.offsetWidth : 400;
-      track.style.width = `${selected.length * 100}%`;
-      track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${100 / selected.length}%`; });
+      track.style.width = `${selected.length * slideWidth}px`;
+      track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${slideWidth}px`; s.style.minWidth = `${slideWidth}px`; });
       track.style.transform = `translateX(-${page * slideWidth}px)`;
       dots.forEach((d, i) => { d.classList.toggle('active', i === page); d.setAttribute('aria-selected', i === page); });
     };

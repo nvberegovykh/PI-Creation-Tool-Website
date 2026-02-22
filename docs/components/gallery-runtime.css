@@ -57,13 +57,14 @@
 
 @media (min-width: 769px) {
   .gc-single-shell {
-    width: 90%;
-    min-width: 720px;
+    width: 95%;
+    min-width: 900px;
   }
 }
 
 .gc-single-track {
   display: flex;
+  flex-wrap: nowrap;
   transition: transform 320ms ease;
 }
 
@@ -268,7 +269,7 @@ body.gc-popup-open {
   background: #0b1220;
   border: 1px solid rgba(255, 255, 255, 0.18);
   display: grid;
-  grid-template-rows: minmax(260px, 50vh) auto;
+  grid-template-rows: minmax(260px, 45vh) minmax(0, 1fr);
 }
 
 .gc-popup-media {
@@ -314,9 +315,10 @@ body.gc-popup-open {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  max-height: 45vh;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
 }
 
 .gc-popup-dots {
