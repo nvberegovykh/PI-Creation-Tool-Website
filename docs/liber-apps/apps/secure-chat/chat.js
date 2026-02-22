@@ -247,10 +247,8 @@
 
     _displayName(userLike, fallbackUid = ''){
       const u = userLike || {};
-      const raw = String(u.username || u.displayName || u.name || '').trim();
+      const raw = String(u.username || '').trim();
       if (raw) return raw;
-      const fromEmail = this._nameFromEmail(u.email || '');
-      if (fromEmail) return fromEmail;
       return String(fallbackUid || '').slice(0, 8) || 'User';
     }
 
@@ -1706,7 +1704,7 @@
             const opts = (users||[])
               .sort((a,b)=> rank(b)-rank(a))
               .slice(0,10)
-              .map(u=> `<option value="${u.username||u.email}"></option>`)
+              .map(u=> `<option value="${this._displayName(u, u.uid||u.id||'')}"></option>`)
               .join('');
             suggest.innerHTML = opts;
           }catch(_){ /* ignore */ }
@@ -2534,10 +2532,10 @@
           let baseUids = Array.isArray(this.groupBaseParticipants)? this.groupBaseParticipants.slice() : [this.currentUser.uid];
           const addUids = members.map(m=> m.uid||m.id);
           const participantUids = Array.from(new Set([...baseUids, ...addUids]));
-          const myName = (this.me&&this.me.username) || (this.currentUser.email||'me');
+          const myName = this._displayName(this.me || {}, this.currentUser.uid);
           const nameMap = new Map();
           nameMap.set(this.currentUser.uid, myName);
-          members.forEach(m=> nameMap.set(m.uid||m.id, m.username||m.email));
+          members.forEach(m=> nameMap.set(m.uid||m.id, this._displayName(m, m.uid||m.id||'')));
           const participantNames = participantUids.map(uid=> nameMap.get(uid) || uid);
           const key = this.computeConnKey(participantUids);
           let connId = await this.findConnectionByKey(key);
@@ -2564,7 +2562,7 @@
           this.isGroupMode = false;
           if (panel) panel.style.display='none';
           await this.loadConnections();
-          this.setActive(connId, participantNames.filter(n=> n !== ((this.me&&this.me.username)||this.currentUser.email)).join(', '));
+          this.setActive(connId, participantNames.filter(n=> n !== this._displayName(this.me || {}, this.currentUser.uid)).join(', '));
         };
       }
       // Ensure panel is open on mobile
@@ -2697,11 +2695,14 @@
         try{
           const parts = Array.isArray(c.participants)? c.participants:[];
           const names = Array.isArray(c.participantUsernames)? c.participantUsernames:[];
-          if (parts.length && names.length !== parts.length){
+          const hasEmailLike = names.some((n)=> String(n || '').includes('@'));
+          if (parts.length && (names.length !== parts.length || hasEmailLike)){
             const enriched = [];
             for (const uid of parts){
-              if (uid === this.currentUser.uid){ enriched.push((this.me&&this.me.username)||this.currentUser.email||'me'); continue; }
-              enriched.push(getCachedName(uid, names[parts.indexOf(uid)] || ('User ' + String(uid).slice(0,6))));
+              if (uid === this.currentUser.uid){ enriched.push(this._displayName(this.me || {}, this.currentUser.uid)); continue; }
+              const candidate = getCachedName(uid, '');
+              if (candidate) enriched.push(candidate);
+              else enriched.push(this._displayName({ username: names[parts.indexOf(uid)] || '' }, uid));
             }
             c.participantUsernames = enriched;
           }
@@ -4648,7 +4649,7 @@
       let peerName = 'This user';
       try{
         const peerData = await window.firebaseService.getUserData(peerUid);
-        peerName = (peerData && (peerData.username || peerData.email)) || peerName;
+        peerName = (peerData && this._displayName(peerData, peerUid)) || peerName;
         if (!peerData || peerData.allowMessagesFromUnconnected !== false) return { ok: true };
       }catch(_){ return { ok: true }; }
       return { ok: false, reason: `${peerName} disallowed messages with unconnected users` };
@@ -4998,7 +4999,7 @@
             try{
               const u = await window.firebaseService.getUserData(peerUid);
               if (u){
-                const uname = String(u.username || u.email || title || 'Chat').trim();
+                const uname = String(this._displayName(u, peerUid) || title || 'Chat').trim();
                 const avatar = String(u.avatarUrl || cover || '../../images/default-bird.png').trim() || '../../images/default-bird.png';
                 title = uname;
                 cover = avatar;
@@ -5099,7 +5100,7 @@
         if (!options.force && this._typingLastSent === next && (now - this._typingLastSentAt) < 700){
           return;
         }
-        const uname = this.me?.username || this.currentUser.email || this.currentUser.uid;
+        const uname = this._displayName(this.me || {}, this.currentUser.uid);
         const payload = { active: next, username: uname, updatedAt: new Date().toISOString() };
         await firebase.updateDoc(firebase.doc(this.db,'chatConnections', connId), {
           [`typing.${this.currentUser.uid}`]: payload
@@ -7691,7 +7692,7 @@
             if (userGroup) userGroup.style.display='block';
             filtered.slice(0,20).forEach(u=>{
               const li=document.createElement('li');
-              li.textContent = `${u.username||u.email}`;
+              li.textContent = this._displayName(u, u.uid||u.id||'');
               li.addEventListener('click', async ()=>{
                 const search = document.getElementById('user-search');
                 if (this.isGroupMode){
@@ -7701,7 +7702,7 @@
                     this.groupSelection.set(u.uid||u.id, u);
                     const chip = document.createElement('span');
                     chip.className = 'chip';
-                    chip.textContent = u.username||u.email;
+                    chip.textContent = this._displayName(u, u.uid||u.id||'');
                     chip.addEventListener('click', ()=>{
                       this.groupSelection.delete(u.uid||u.id);
                       chip.remove();
@@ -7714,7 +7715,7 @@
                 }
                 wrapper.style.display='none';
                 if (search) search.value = '';
-                const myName = (this.me && this.me.username) || (this.currentUser.email||'me');
+                const myName = this._displayName(this.me || {}, this.currentUser.uid);
                 const uids = [this.currentUser.uid, u.uid||u.id];
                 const key = this.computeConnKey(uids);
                 try{
@@ -7726,7 +7727,7 @@
                         id: key,
                         key,
                         participants: uids,
-                        participantUsernames:[myName, u.username||u.email],
+                        participantUsernames:[myName, this._displayName(u, u.uid||u.id||'')],
                         admins: [this.currentUser.uid],
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
@@ -7739,7 +7740,7 @@
                     }
                   }
                   await this.loadConnections();
-                  this.setActive(connId, u.username||u.email);
+                  this.setActive(connId, this._displayName(u, u.uid||u.id||''));
                 }catch(err){
                   console.error('Chat creation failed:', err);
                   const wrapper = document.getElementById('search-results');

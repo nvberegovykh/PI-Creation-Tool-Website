@@ -219,7 +219,7 @@ class FirebaseService {
                             lastUsedAt: new Date().toISOString()
                         };
                         (async ()=>{
-                            try{ const d = await this.getUserData(user.uid); acct.username = (d&&d.username)||acct.email; }catch(_){}
+                            try{ const d = await this.getUserData(user.uid); acct.username = (d&&d.username) || ''; }catch(_){}
                             const raw = localStorage.getItem('liber_accounts');
                             const list = raw ? JSON.parse(raw) : [];
                             const dedup = list.filter(a => a.uid !== acct.uid);
@@ -245,7 +245,6 @@ class FirebaseService {
                                 await firebase.setDoc(userDocRef, {
                                     uid: user.uid,
                                     email: user.email || '',
-                                    username: '',
                                     isVerified: !!user.emailVerified,
                                     status: 'approved',
                                     lastLogin: new Date().toISOString(),
