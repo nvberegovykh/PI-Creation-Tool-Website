@@ -751,7 +751,6 @@ class FirebaseService {
             year: String(data.year || '').trim(),
             description: String(data.description || '').trim(),
             coverPolicy: String(data.coverPolicy || 'first'),
-            layoutTags: Array.isArray(data.layoutTags) ? data.layoutTags : [],
             isPublished: !!data.isPublished,
             ownerId: String(data.ownerId || this.auth?.currentUser?.uid || ''),
             createdAt: now,

@@ -13,6 +13,15 @@
   margin-bottom: 16px;
 }
 
+.panel h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 0;
+}
+
 .panel {
   border: 1px solid var(--border-color, #283246);
   border-radius: 12px;
@@ -70,30 +79,107 @@ textarea {
   gap: 8px;
 }
 
-.list {
+.project-cards,
+.item-cards {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  max-height: 360px;
-  overflow: auto;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
 }
 
-.list-item {
+.gc-project-card,
+.gc-item-card {
   border: 1px solid #2a3550;
   border-radius: 10px;
-  padding: 10px;
+  overflow: hidden;
   background: #0f1725;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s;
+}
+
+.gc-project-card {
   cursor: pointer;
 }
 
-.list-item.active {
-  border-color: #4a80ff;
-  box-shadow: 0 0 0 1px #4a80ff inset;
+.gc-project-card:hover,
+.gc-item-card:hover {
+  border-color: #3a4a6a;
 }
 
-.list-item__meta {
+.gc-card-preview {
+  aspect-ratio: 4/3;
+  background: #0a0e14;
+  position: relative;
+  overflow: hidden;
+}
+
+.gc-card-preview img,
+.gc-card-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gc-card-placeholder,
+.gc-item-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4a5568;
+  font-size: 28px;
+}
+
+.gc-card-info {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gc-card-info strong {
+  font-size: 14px;
+}
+
+.gc-card-info span {
   font-size: 12px;
-  opacity: 0.8;
+  opacity: 0.85;
+}
+
+.gc-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid #1a2235;
+}
+
+.gc-btn-edit,
+.gc-btn-delete {
+  padding: 6px 10px;
+  border: 1px solid #2b3854;
+  background: #161a22;
+  color: #e8edff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.gc-btn-edit:hover {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+}
+
+.gc-btn-delete:hover {
+  background: #3d1a1a;
+  border-color: #dc2626;
+}
+
+.actions .danger:hover {
+  background: #3d1a1a;
+  border-color: #dc2626;
 }
 
 @media (max-width: 960px) {

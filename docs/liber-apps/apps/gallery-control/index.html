@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Gallery Control</title>
   <link rel="stylesheet" href="../../css/style.css" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -14,14 +15,13 @@
       <button id="back-btn" class="btn secondary">Back</button>
     </header>
 
-    <section class="panel">
-      <h2>Project</h2>
+    <section class="panel project-upload" id="project-upload-panel" style="display:none">
+      <h2 id="project-form-heading">New Project</h2>
       <form id="project-form" class="project-form">
         <input type="hidden" id="project-id" />
-        <label>Title <input id="project-title" required /></label>
-        <label>Year <input id="project-year" maxlength="8" /></label>
-        <label>Description <textarea id="project-description" rows="4"></textarea></label>
-        <label>Layout tags (comma separated) <input id="project-layout-tags" placeholder="tile, slider, full-width" /></label>
+        <label>Title <input id="project-title" required placeholder="Project name" /></label>
+        <label>Year <input id="project-year" maxlength="8" placeholder="e.g. 2024" /></label>
+        <label>Description <textarea id="project-description" rows="4" placeholder="Project description / text"></textarea></label>
         <label>Cover policy
           <select id="project-cover-policy">
             <option value="first">First item</option>
@@ -30,20 +30,21 @@
         </label>
         <label class="inline"><input id="project-published" type="checkbox" /> Published</label>
         <div class="actions">
-          <button class="btn" type="submit">Save Project</button>
-          <button id="project-new" class="btn secondary" type="button">New Project</button>
-          <button id="project-delete" class="btn secondary" type="button">Delete Project</button>
+          <button class="btn" type="submit" id="project-save-btn">Save Project</button>
+          <button id="project-cancel" class="btn secondary" type="button">Cancel</button>
+          <button id="project-delete" class="btn secondary danger" type="button">Delete</button>
         </div>
       </form>
     </section>
 
-    <section class="panel split">
-      <div>
-        <h2>Projects</h2>
-        <div id="projects-list" class="list"></div>
-      </div>
-      <div>
-        <h2>Items</h2>
+    <section class="panel">
+      <h2>Projects <button id="project-add-btn" class="btn">+ Add Project</button></h2>
+      <div id="projects-cards" class="project-cards"></div>
+    </section>
+
+    <section class="panel item-section" id="item-section" style="display:none">
+      <h2>Items for <span id="current-project-title"></span> <button id="item-add-btn" class="btn">+ Add Item</button></h2>
+      <div class="item-upload" id="item-upload-panel" style="display:none">
         <form id="item-form" class="item-form">
           <input type="hidden" id="item-id" />
           <label>Type
@@ -53,19 +54,19 @@
               <option value="text">Text</option>
             </select>
           </label>
-          <label>Caption <input id="item-caption" /></label>
-          <label>Text <textarea id="item-text" rows="3"></textarea></label>
+          <label>Caption <input id="item-caption" placeholder="Caption" /></label>
+          <label>Text <textarea id="item-text" rows="3" placeholder="Text content (for text items)"></textarea></label>
           <label>Sort order <input id="item-sort-order" type="number" min="0" step="1" value="0" /></label>
           <label class="inline"><input id="item-published" type="checkbox" /> Published</label>
           <label id="item-file-wrap">Media file <input id="item-file" type="file" accept="image/*,video/*" /></label>
           <div class="actions">
             <button class="btn" type="submit">Save Item</button>
-            <button id="item-new" class="btn secondary" type="button">New Item</button>
-            <button id="item-delete" class="btn secondary" type="button">Delete Item</button>
+            <button id="item-cancel" class="btn secondary" type="button">Cancel</button>
+            <button id="item-delete" class="btn secondary danger" type="button">Delete</button>
           </div>
         </form>
-        <div id="items-list" class="list"></div>
       </div>
+      <div id="items-cards" class="item-cards"></div>
     </section>
   </div>
 
