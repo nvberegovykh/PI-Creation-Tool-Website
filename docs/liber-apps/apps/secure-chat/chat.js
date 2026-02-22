@@ -113,6 +113,10 @@
       this._sfuCallMarkerByConn = new Set();
       this._lastCallMarkerAtByConn = new Map();
       this._lastCallEndedMarkerAtByConn = new Map();
+      this._callBadgeJoinInFlight = false;
+      this._drawSyncUnsub = null;
+      this._lastDrawClearAtMs = 0;
+      this._iosNativeCallsEnabled = this._readIosNativeCallsFlag();
       this._disableCallFab = false;
       this._callOverlayLayoutBound = false;
       this._tileFullscreenState = null;
@@ -126,6 +130,45 @@
 
     computeConnKey(uids){
       try{ return (uids||[]).slice().sort().join('|'); }catch(_){ return ''; }
+    }
+
+    _isIOSDevice(){
+      try{
+        const ua = String(navigator.userAgent || '');
+        return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+      }catch(_){ return false; }
+    }
+
+    _readIosNativeCallsFlag(){
+      try{
+        if (typeof window.LIBER_IOS_NATIVE_CALLS !== 'undefined'){
+          return String(window.LIBER_IOS_NATIVE_CALLS) === 'true' || window.LIBER_IOS_NATIVE_CALLS === true;
+        }
+        const raw = String(localStorage.getItem('liber_ios_native_calls') || '').trim().toLowerCase();
+        return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+      }catch(_){ return false; }
+    }
+
+    _shouldUseIosNativeCalls(){
+      return !!(this._iosNativeCallsEnabled && this._isIOSDevice());
+    }
+
+    _emitIosCallIntent(action, extra = {}){
+      try{
+        if (!this._shouldUseIosNativeCalls()) return false;
+        if (window.self === window.top) return false;
+        const payload = {
+          type: 'liber:ios-call-intent',
+          action: String(action || '').trim(),
+          connId: String(this.getCallConnId() || this.activeConnection || '').trim(),
+          callId: String(extra.callId || '').trim(),
+          video: !!extra.video,
+          source: 'secure-chat'
+        };
+        if (!payload.action || !payload.connId) return false;
+        window.parent.postMessage(payload, '*');
+        return true;
+      }catch(_){ return false; }
     }
 
     getReadMap(){
@@ -1660,7 +1703,7 @@
         const prev = Number(this._lastCallMarkerAtByConn.get(key) || 0);
         if ((now - prev) < 2500) return;
         this._lastCallMarkerAtByConn.set(key, now);
-        await this.saveMessage({ text: `[call:room:${key}_latest]` });
+        await this.saveMessage({ text: `[call:room:${key}_latest]`, connId: key });
       }catch(e){
         console.warn('Join-call marker send failed', e?.message || e);
       }
@@ -1674,7 +1717,7 @@
         const prev = Number(this._lastCallEndedMarkerAtByConn.get(key) || 0);
         if ((now - prev) < 2500) return;
         this._lastCallEndedMarkerAtByConn.set(key, now);
-        await this.saveMessage({ text: `[call:ended:${key}]` });
+        await this.saveMessage({ text: `[call:ended:${key}]`, connId: key });
       }catch(e){
         console.warn('End-call marker send failed', e?.message || e);
       }
@@ -1703,6 +1746,96 @@
         }
       }catch(_){ }
       return '';
+    }
+
+    async _joinCallFromBadge(callId = '', btn = null){
+      if (this._callBadgeJoinInFlight || this._startingCall || this._joiningCall) return;
+      this._callBadgeJoinInFlight = true;
+      try{
+        if (btn){
+          btn.disabled = true;
+          btn.classList.add('muted');
+          btn.title = 'Joining...';
+        }
+        const raw = String(callId || '').trim();
+        let targetConnId = raw ? (raw.endsWith('_latest') ? raw.slice(0, -7) : raw) : '';
+        if (targetConnId && targetConnId !== this.activeConnection){
+          let resolved = targetConnId;
+          if (targetConnId.includes('|')){
+            try{
+              const byKey = await this.findConnectionByKey(targetConnId);
+              if (byKey) resolved = byKey;
+            }catch(_){ }
+          }
+          try{ await this.setActive(resolved); }catch(_){ }
+        }
+        const currentConnId = String(this.getCallConnId() || '').trim();
+        const nextConnId = String(this.activeConnection || '').trim();
+        const mustEnterRoom = !this._inRoom || !currentConnId || (nextConnId && currentConnId !== nextConnId);
+        if (mustEnterRoom){
+          await this.enterRoom(false);
+        } else {
+          try{ this.initCallControls(false); }catch(_){ }
+        }
+        const ov = document.getElementById('call-overlay');
+        if (ov) ov.classList.remove('hidden');
+        if (this._emitIosCallIntent('join', { callId, video: this._videoEnabled })){
+          const cs = document.getElementById('call-status');
+          if (cs) cs.textContent = 'Connecting (iOS native)...';
+          this._inRoom = true;
+          this._syncCallFab();
+          return;
+        }
+        let ok = false;
+        if (this._useSfuCalls){
+          ok = await this._startOrJoinSfuCall(this._videoEnabled);
+          if (!ok){
+            await new Promise((r)=> setTimeout(r, 450));
+            ok = await this._startOrJoinSfuCall(this._videoEnabled);
+          }
+        } else {
+          const activeCid = this._roomState && this._roomState.activeCallId;
+          if (activeCid) await this.joinMultiCall(activeCid, false);
+          else await this.attemptStartRoomCall(false);
+          ok = true;
+        }
+        const cs = document.getElementById('call-status');
+        if (!ok && cs) cs.textContent = 'Join call failed. Tap badge again.';
+      }catch(e){
+        console.warn('Join-call badge action failed', e?.message || e);
+      }finally{
+        this._callBadgeJoinInFlight = false;
+        if (btn){
+          btn.disabled = false;
+          btn.classList.remove('muted');
+          btn.title = 'Join call';
+        }
+      }
+    }
+
+    _bindDrawSyncForRoom(connId){
+      try{
+        const id = String(connId || '').trim();
+        if (!id || !this.db) return;
+        if (this._drawSyncUnsub){
+          try{ this._drawSyncUnsub(); }catch(_){ }
+          this._drawSyncUnsub = null;
+        }
+        const roomRef = firebase.doc(this.db,'callRooms', id);
+        this._drawSyncUnsub = firebase.onSnapshot(roomRef, (snap)=>{
+          try{
+            const data = snap?.data?.() || {};
+            const clearAt = Number(new Date(data.drawClearAt || 0).getTime() || 0);
+            if (!clearAt || clearAt <= this._lastDrawClearAtMs) return;
+            this._lastDrawClearAtMs = clearAt;
+            const canvas = document.getElementById('call-draw-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }catch(_){ }
+        }, ()=>{});
+      }catch(_){ }
     }
 
     _bindCallDrawTools(){
@@ -1778,7 +1911,17 @@
         });
       }
       if (clearBtn && ctx){
-        clearBtn.addEventListener('click', ()=> ctx.clearRect(0, 0, canvas.width, canvas.height));
+        clearBtn.addEventListener('click', async ()=>{
+          try{ ctx.clearRect(0, 0, canvas.width, canvas.height); }catch(_){ }
+          try{
+            const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
+            if (!connId) return;
+            await firebase.updateDoc(firebase.doc(this.db,'callRooms', connId), {
+              drawClearAt: new Date().toISOString(),
+              drawClearedBy: this.currentUser?.uid || ''
+            });
+          }catch(_){ }
+        });
       }
       if (closeBtn){
         closeBtn.addEventListener('click', ()=> this._closeCallTileFullscreen());
@@ -1794,6 +1937,7 @@
         if (!fs || !host) return;
         if (this._tileFullscreenState && this._tileFullscreenState.tile === tile) return;
         this._bindCallDrawTools();
+        this._bindDrawSyncForRoom(this.getCallConnId() || this.activeConnection || '');
         if (this._tileFullscreenState) this._closeCallTileFullscreen();
         const parent = tile.parentElement;
         const next = tile.nextSibling;
@@ -1932,6 +2076,11 @@
       room.on('disconnected', async ()=>{
         try{
           const cs = document.getElementById('call-status');
+          const shouldKeep = !!(this._inRoom && this._isIOSDevice());
+          if (shouldKeep){
+            if (cs) cs.textContent = 'Reconnecting call...';
+            return;
+          }
           if (cs) cs.textContent = 'Room open. Ready for call.';
           await this.updatePresence('idle', false);
           this._updateMediaSessionState('idle', null);
@@ -2113,13 +2262,16 @@
       }
       if (!this._callVisibilityBound){
         this._callVisibilityBound = true;
-        document.addEventListener('visibilitychange', ()=>{
+        document.addEventListener('visibilitychange', async ()=>{
           const inCall = ((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
-          if (!inCall) return;
           if (document.visibilityState === 'visible'){
+            if (!inCall && this._inRoom) await this._attemptSfuRejoinOnResume();
+            this._restoreSfuAfterVisibility();
             this._syncCallFab();
-            this._updateMediaSessionState('active', this.currentUser?.uid || null);
+            const stillInCall = ((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
+            if (stillInCall) this._updateMediaSessionState('active', this.currentUser?.uid || null);
           } else {
+            if (!inCall) return;
             this._notifyCallStateToSw({
               state: 'active',
               connId: this.getCallConnId() || '',
@@ -2129,6 +2281,26 @@
               speakerName: ''
             });
           }
+        });
+        window.addEventListener('pageshow', ()=>{ this._attemptSfuRejoinOnResume(); });
+      }
+      if (!this._iosCallStateBound){
+        this._iosCallStateBound = true;
+        window.addEventListener('message', (ev)=>{
+          try{
+            const data = ev?.data || {};
+            if (!data || data.type !== 'liber:ios-call-state') return;
+            const active = !!data.active;
+            const inRoom = !!data.inRoom;
+            if (typeof data.connId === 'string' && data.connId.trim()) this._callConnectionId = data.connId.trim();
+            this._inRoom = inRoom;
+            const status = document.getElementById('call-status');
+            if (status){
+              if (String(data.error || '').trim()) status.textContent = String(data.error).trim();
+              else status.textContent = active ? 'In call (iOS native)' : (inRoom ? 'Room open (iOS native)' : 'Ready for call.');
+            }
+            this._syncCallFab();
+          }catch(_){ }
         });
       }
       // If a connId is provided via query param, set active after connections load
@@ -3908,7 +4080,7 @@
                 el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${metaSepAppend}${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
-                if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall());
+                if (joinBtn) joinBtn.addEventListener('click', ()=> this._joinCallFromBadge(joinBtn.getAttribute('data-call-id') || '', joinBtn));
                 if (hasMedia){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
@@ -4137,7 +4309,7 @@
                 renderTarget.appendChild(el);
               }
               const joinBtn = el.querySelector('button[data-call-id]');
-              if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall()); }
+              if (joinBtn){ joinBtn.addEventListener('click', ()=> this._joinCallFromBadge(joinBtn.getAttribute('data-call-id') || '', joinBtn)); }
               if (hasMedia){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                 const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
@@ -4556,7 +4728,7 @@
             el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
-            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall()); }
+            if (joinBtn){ joinBtn.addEventListener('click', ()=> this._joinCallFromBadge(joinBtn.getAttribute('data-call-id') || '', joinBtn)); }
             if (hasMedia){
               const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
               const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
@@ -8439,11 +8611,11 @@
   _screenShareSupport(){
     try{
       const hasApi = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-      const ua = String(navigator.userAgent || '');
-      const isiPhone = /iPhone/i.test(ua);
-      const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS/i.test(ua);
-      if (isiPhone && isSafari){
-        return { supported: false, reason: 'Screen sharing is not supported on Safari iPhone.' };
+      if (this._shouldUseIosNativeCalls()){
+        return { supported: true, reason: '' };
+      }
+      if (this._isIOSDevice()){
+        return { supported: false, reason: 'Screen sharing is not supported on iOS browsers yet.' };
       }
       if (!hasApi){
         return { supported: false, reason: 'Screen sharing is not supported on this browser.' };
@@ -8464,6 +8636,32 @@
           inRoom: !!this._inRoom,
           connId: this.getCallConnId() || ''
         }, '*');
+      }catch(_){ }
+    }
+
+    _restoreSfuAfterVisibility(){
+      try{
+        if (!this._isSfuConnected() || !this._sfuRoom) return;
+        this._sfuTrackEls.forEach((el)=>{
+          try{
+            if (!el) return;
+            el.autoplay = true;
+            el.playsInline = true;
+            if (typeof el.play === 'function') el.play().catch(()=>{});
+          }catch(_){ }
+        });
+        try{ this._attachSfuLocalPreview(); }catch(_){ }
+        try{ this._ensureRemotePlayback(); }catch(_){ }
+      }catch(_){ }
+    }
+
+    async _attemptSfuRejoinOnResume(){
+      try{
+        if (!this._useSfuCalls || !this._inRoom) return;
+        if (this._isSfuConnected()) return;
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'Reconnecting call...';
+        await this._startOrJoinSfuCall(!!this._videoEnabled);
       }catch(_){ }
     }
 
@@ -8836,6 +9034,14 @@
     if (showBtn) showBtn.innerHTML = '<i class="fas fa-phone-volume"></i>';
     this._layoutCallOverlay();
     if (startBtn) startBtn.onclick = async () => {
+      if (this._emitIosCallIntent('start', { video: this._videoEnabled })){
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'Connecting (iOS native)...';
+        this._inRoom = true;
+        this._syncCallFab();
+        startBtn.style.display = 'none';
+        return;
+      }
       if (this._useSfuCalls){
         const ok = await this._startOrJoinSfuCall(this._videoEnabled);
         if (ok) await this._emitJoinCallMessage(this.getCallConnId());
@@ -8845,6 +9051,16 @@
       startBtn.style.display = 'none';
     };
     if (endBtn) endBtn.onclick = async () => { 
+      if (this._emitIosCallIntent('end', {})){
+        this._disableCallFab = true;
+        const ov2 = document.getElementById('call-overlay');
+        if (ov2) ov2.classList.add('hidden');
+        const status = document.getElementById('call-status');
+        if (status) status.textContent = 'Call ended.';
+        if (showBtn) showBtn.style.display = 'none';
+        this._syncCallFab();
+        return;
+      }
       const roomId = this.getCallConnId();
       this._disableCallFab = true;
       await this.cleanupActiveCall(false, 'close_button');
@@ -8859,6 +9075,10 @@
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
+      if (this._emitIosCallIntent('toggle_mic', { video: this._videoEnabled })){
+        micBtn.classList.toggle('muted', !this._micEnabled);
+        return;
+      }
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setMicrophoneEnabled){
         this._sfuRoom.localParticipant.setMicrophoneEnabled(this._micEnabled, {
           echoCancellation: true,
@@ -8875,6 +9095,10 @@
     };
     if (camBtn) camBtn.onclick = async () => {
       this._videoEnabled = !this._videoEnabled;
+      if (this._emitIosCallIntent('toggle_camera', { video: this._videoEnabled })){
+        camBtn.classList.toggle('muted', !this._videoEnabled);
+        return;
+      }
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setCameraEnabled){
         try{ await this._sfuRoom.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
         this._attachSfuLocalPreview();
@@ -8916,6 +9140,11 @@
       shareBtn.title = screenShareSupport.supported ? 'Share screen' : screenShareSupport.reason;
     }
     if (shareBtn) shareBtn.onclick = async () => {
+      if (this._emitIosCallIntent('toggle_screen', { video: this._videoEnabled })){
+        this._screenSharing = !this._screenSharing;
+        shareBtn.classList.toggle('active', this._screenSharing);
+        return;
+      }
       const support = this._screenShareSupport();
       if (!support.supported){
         alert(`${support.reason} Use Android Chrome or desktop browser for screen sharing.`);
@@ -9633,6 +9862,15 @@
 
   async joinOrStartCall(){
     if (!this.activeConnection) return;
+    if (this._emitIosCallIntent('join', { video: false })){
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.remove('hidden');
+      this._inRoom = true;
+      this._syncCallFab();
+      const cs = document.getElementById('call-status');
+      if (cs) cs.textContent = 'Connecting (iOS native)...';
+      return;
+    }
     await this.enterRoom(false);
     if (this._useSfuCalls){
       await this._startOrJoinSfuCall(false);
@@ -10145,6 +10383,10 @@
       this._sfuCallMarkerByConn.delete(String(this.getCallConnId() || ''));
       this._lastCallMarkerAtByConn.delete(String(this.getCallConnId() || ''));
       this._lastCallEndedMarkerAtByConn.delete(String(this.getCallConnId() || ''));
+      if (this._drawSyncUnsub){
+        try{ this._drawSyncUnsub(); }catch(_){ }
+        this._drawSyncUnsub = null;
+      }
       this._callConnectionId = null;
     }
 
@@ -10154,11 +10396,15 @@
         if (!connId) return;
         const peersRef = firebase.collection(this.db,'callRooms', connId, 'peers');
         const snap = await firebase.getDocs(peersRef);
+        const now = Date.now();
+        const staleAfterMs = 35000;
         let hasActive = false;
         snap.forEach((d)=>{
           const p = d.data() || {};
           const st = String(p.state || '').toLowerCase();
-          if (st === 'connected' || st === 'connecting' || st === 'ringing' || st === 'in_call'){
+          const updatedMs = this.toTimestampMs(p.updatedAt);
+          const fresh = updatedMs > 0 && (now - updatedMs) <= staleAfterMs;
+          if ((st === 'connected' || st === 'connecting' || st === 'ringing' || st === 'in_call') && fresh){
             hasActive = true;
           }
         });
@@ -10468,8 +10714,11 @@ window.addEventListener('beforeunload', () => {
   try{ secureChatApp.stopTypingListener(); }catch(_){ }
   // Do not force-disconnect call on unload/background transitions.
   // Mobile browsers may trigger unload-like lifecycle events while app is being backgrounded.
-  try{ secureChatApp._stopCallStatusStream && secureChatApp._stopCallStatusStream(); }catch(_){ }
-  try{ secureChatApp._updateMediaSessionState && secureChatApp._updateMediaSessionState('idle', null); }catch(_){ }
+  const inCall = !!((secureChatApp._activePCs && secureChatApp._activePCs.size > 0) || (secureChatApp._isSfuConnected && secureChatApp._isSfuConnected()));
+  if (!inCall){
+    try{ secureChatApp._stopCallStatusStream && secureChatApp._stopCallStatusStream(); }catch(_){ }
+    try{ secureChatApp._updateMediaSessionState && secureChatApp._updateMediaSessionState('idle', null); }catch(_){ }
+  }
   if (secureChatApp._monitorStream) {
     secureChatApp._monitorStream.getTracks().forEach(t => t.stop());
     secureChatApp._monitorStream = null;

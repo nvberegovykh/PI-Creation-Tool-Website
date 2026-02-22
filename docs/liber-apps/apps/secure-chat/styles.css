@@ -108,7 +108,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-controls .btn.active{color:#60a5fa}
 .call-controls .btn[disabled]{opacity:.35;cursor:not-allowed;pointer-events:auto}
 .call-controls .btn[disabled]:hover{transform:none;color:#e5e7eb}
-.call-participants{ display:flex; gap:6px; margin-top:6px; padding-top:2px; flex-wrap:nowrap; align-items:center; justify-content:center; width:min(100%,560px); min-height:48px; max-height:76px; overflow-x:auto; overflow-y:hidden }
+.call-participants{ display:flex; gap:6px; margin-top:6px; padding:2px 4px 0; box-sizing:border-box; flex-wrap:nowrap; align-items:center; justify-content:center; width:min(100%,560px); max-width:calc(100vw - 16px); min-height:48px; max-height:76px; overflow-x:auto; overflow-y:hidden }
 .call-participants .avatar{ position:relative; width:44px; height:44px; border-radius:50%; background:#111; overflow:hidden; box-shadow:0 0 0 2px #9ca3af inset; transition:box-shadow .2s }
 .call-participants .avatar.connected{ box-shadow:0 0 0 2px #22c55e inset }
 .call-participants .avatar.connecting{ box-shadow:0 0 0 2px #f59e0b inset; animation:pulse-connecting 1.5s ease-in-out infinite }
@@ -120,7 +120,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-fullscreen{position:fixed;inset:0;z-index:130;background:rgba(0,0,0,.94)}
 .call-fullscreen.hidden{display:none}
 .call-fullscreen-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
-.call-fullscreen-media .call-tile{width:100%;height:100%;border:0;border-radius:0;aspect-ratio:auto}
+.call-fullscreen-media .call-tile{width:100%;height:100%;max-width:none;max-height:none;border:0;border-radius:0;aspect-ratio:auto}
+.call-fullscreen-media .call-tile video{width:100%;height:100%;object-fit:contain;object-position:center center}
 .call-draw-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;pointer-events:auto}
 .call-draw-tools{position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:8px;background:rgba(6,8,12,.5);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:6px 10px}
 .call-draw-tools .btn{background:transparent !important;border:0 !important;color:#fff;padding:6px}
@@ -131,7 +132,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 @media (max-width: 760px){
   .call-videos{grid-template-columns:repeat(2,minmax(132px,1fr));align-content:start}
   .call-tile.screen{grid-column:span 2}
-  .call-participants{width:min(100%,92vw)}
+  .call-overlay{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .call-participants{width:100%;max-width:calc(100vw - 12px);justify-content:flex-start}
 }
 .call-fab{
   position: fixed;

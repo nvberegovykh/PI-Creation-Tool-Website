@@ -502,6 +502,21 @@
 .app-shell.hidden {
     display: none;
 }
+.app-shell.chat-kept-alive{
+    display: block;
+    inset: auto;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+.app-shell.chat-kept-alive #app-shell-frame{
+    width: 1px;
+    height: 1px;
+}
 .app-shell-header {
     min-height: 52px;
     display: flex;

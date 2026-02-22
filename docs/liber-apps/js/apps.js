@@ -13,6 +13,7 @@ class AppsManager {
         this._activeAppUrl = '';
         this._closingShell = false;
         this._chatCallState = { active: false, connId: '', inRoom: false };
+        this._iosNativeCallsEnabled = this._readIosNativeCallsFlag();
         this.init();
     }
 
@@ -23,6 +24,37 @@ class AppsManager {
         this.setupAppShell();
         this.setupEventListeners();
         this.loadApps();
+    }
+
+    _readIosNativeCallsFlag(){
+        try{
+            if (typeof window.LIBER_IOS_NATIVE_CALLS !== 'undefined'){
+                return String(window.LIBER_IOS_NATIVE_CALLS) === 'true' || window.LIBER_IOS_NATIVE_CALLS === true;
+            }
+            const raw = String(localStorage.getItem('liber_ios_native_calls') || '').trim().toLowerCase();
+            return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+        }catch(_){ return false; }
+    }
+
+    _isIOSDevice(){
+        try{
+            const ua = String(navigator.userAgent || '');
+            return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+        }catch(_){ return false; }
+    }
+
+    _shouldUseIosNativeCalls(){
+        return !!(this._iosNativeCallsEnabled && this._isIOSDevice());
+    }
+
+    _sendIosNativeCallIntent(payload){
+        try{
+            if (!this._shouldUseIosNativeCalls()) return false;
+            const bridge = window?.webkit?.messageHandlers?.liberCallBridge;
+            if (!bridge || typeof bridge.postMessage !== 'function') return false;
+            bridge.postMessage(payload || {});
+            return true;
+        }catch(_){ return false; }
     }
 
     setupAppShell(){
@@ -60,6 +92,51 @@ class AppsManager {
                 const data = ev && ev.data ? ev.data : {};
                 if (data && data.type === 'liber:close-app-shell'){
                     this.closeAppShell();
+                } else if (data && data.type === 'liber:ios-call-intent'){
+                    const payload = {
+                        type: 'liber:ios-call-intent',
+                        action: String(data.action || '').trim(),
+                        connId: String(data.connId || ''),
+                        callId: String(data.callId || ''),
+                        video: !!data.video,
+                        source: 'app-shell'
+                    };
+                    const sent = this._sendIosNativeCallIntent(payload);
+                    if (!sent) return;
+                    // Optimistic UI state while native call UI opens.
+                    this._chatCallState = {
+                        active: payload.action === 'start' || payload.action === 'join' || !!this._chatCallState.active,
+                        connId: payload.connId || this._chatCallState.connId || '',
+                        inRoom: true
+                    };
+                    this.updateGlobalCallButton();
+                    try{
+                        const frame = document.getElementById('app-shell-frame');
+                        frame?.contentWindow?.postMessage({
+                            type: 'liber:ios-call-state',
+                            active: !!this._chatCallState.active,
+                            inRoom: true,
+                            connId: this._chatCallState.connId || ''
+                        }, '*');
+                    }catch(_){ }
+                } else if (data && data.type === 'liber:native-call-state'){
+                    this._chatCallState = {
+                        active: !!data.active,
+                        connId: String(data.connId || this._chatCallState?.connId || ''),
+                        inRoom: !!data.inRoom
+                    };
+                    this.updateGlobalCallButton();
+                    try{
+                        const frame = document.getElementById('app-shell-frame');
+                        frame?.contentWindow?.postMessage({
+                            type: 'liber:ios-call-state',
+                            active: !!data.active,
+                            inRoom: !!data.inRoom,
+                            connId: String(data.connId || ''),
+                            callId: String(data.callId || ''),
+                            error: String(data.error || '')
+                        }, '*');
+                    }catch(_){ }
                 } else if (data && data.type === 'liber:chat-call-state'){
                     const active = !!data.active;
                     this._chatCallState = {
@@ -130,6 +207,15 @@ class AppsManager {
 
     openActiveCallShell(){
         try{
+            if (this._shouldUseIosNativeCalls()){
+                const sent = this._sendIosNativeCallIntent({
+                    type: 'liber:ios-call-intent',
+                    action: 'show_call_ui',
+                    connId: String(this._chatCallState?.connId || ''),
+                    source: 'app-shell'
+                });
+                if (sent) return;
+            }
             const shell = document.getElementById('app-shell');
             const frame = document.getElementById('app-shell-frame');
             const title = document.getElementById('app-shell-title');
@@ -138,6 +224,7 @@ class AppsManager {
             const canReuse = /apps\/secure-chat\/index\.html/i.test(src) && src !== 'about:blank';
             if (canReuse){
                 shell.classList.remove('hidden');
+                shell.classList.remove('chat-kept-alive');
                 shell.setAttribute('aria-hidden', 'false');
                 document.body.classList.add('app-shell-open');
                 if (title) title.textContent = 'Connections';
@@ -602,6 +689,7 @@ class AppsManager {
         }
         if (title) title.textContent = app?.name || 'App';
         shell.classList.remove('hidden');
+        shell.classList.remove('chat-kept-alive');
         shell.setAttribute('aria-hidden', 'false');
         document.body.classList.add('app-shell-open');
         window.dispatchEvent(new CustomEvent('liber:app-shell-open', { detail: { appId: app?.id || '', appUrl } }));
@@ -622,8 +710,12 @@ class AppsManager {
             if (!keepAliveChat){
                 frame.src = 'about:blank';
                 this._activeAppUrl = '';
+                shell.classList.remove('chat-kept-alive');
+                shell.classList.add('hidden');
+            } else {
+                shell.classList.remove('hidden');
+                shell.classList.add('chat-kept-alive');
             }
-            shell.classList.add('hidden');
             shell.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('app-shell-open');
             window.dispatchEvent(new Event('liber:app-shell-close'));
