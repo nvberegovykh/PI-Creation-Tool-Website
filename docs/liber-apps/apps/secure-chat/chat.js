@@ -6044,30 +6044,14 @@
       if (!p._voiceBound){
         p._voiceBound = true;
         const sync = ()=> this.updateVoiceWidgets();
-        const startTick = ()=>{
-          try{
-            if (p._voiceTick) return;
-            p._voiceTick = setInterval(()=> {
-              try{ if (!p.paused) this.updateVoiceWidgets(); }catch(_){ }
-            }, 220);
-          }catch(_){ }
-        };
-        const stopTick = ()=>{
-          try{
-            if (p._voiceTick){
-              clearInterval(p._voiceTick);
-              p._voiceTick = null;
-            }
-          }catch(_){ }
-        };
         p.addEventListener('timeupdate', sync);
-        p.addEventListener('play', ()=>{ startTick(); sync(); });
-        p.addEventListener('pause', ()=>{ stopTick(); sync(); });
+        p.addEventListener('play', sync);
+        p.addEventListener('pause', sync);
         p.addEventListener('loadedmetadata', sync);
         p.addEventListener('durationchange', sync);
         p.addEventListener('seeking', sync);
         p.addEventListener('seeked', sync);
-        p.addEventListener('ended', ()=>{ this._voiceUserIntendedPlay = false; stopTick(); sync(); });
+        p.addEventListener('ended', ()=>{ this._voiceUserIntendedPlay = false; sync(); });
       }
       // Resume after external interruption (phone call, tab switch, other app).
       if (!p._voiceVisibilityBound){
@@ -6116,14 +6100,8 @@
     }
 
     startVoiceWidgetTicker(){
-      if (this._voiceWidgetTicker) return;
-      this._voiceWidgetTicker = setInterval(()=>{
-        const p = this.ensureChatBgPlayer();
-        const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
-        const hasActivePlayback = (!!this.getChatPlayerSrc(p) && !p.paused) || (!!topMedia && !topMedia.paused);
-        if (this._voiceWidgets.size === 0 && !hasActivePlayback) return;
-        this.updateVoiceWidgets();
-      }, 80);
+      // Event-driven updates are enough (play/pause/timeupdate/seek); avoid extra loops.
+      if (this._voiceWidgetTicker){ clearInterval(this._voiceWidgetTicker); this._voiceWidgetTicker = null; }
     }
 
     stopVoiceWidgetTicker(){
@@ -6211,9 +6189,7 @@
         bars.forEach((b, i)=> b.classList.toggle('played', i < playedBars));
         if (stripTime) stripTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
       }catch(_){ }
-      const shouldAnimate = (!!playerSrc && !p.paused) || (!!topMedia && !topMedia.paused);
-      if (shouldAnimate) this.startVoiceProgressLoop();
-      else this.stopVoiceProgressLoop();
+      this.stopVoiceProgressLoop();
     }
 
     renderWaveAttachment(containerEl, url, fileName, sourceKey = ''){
