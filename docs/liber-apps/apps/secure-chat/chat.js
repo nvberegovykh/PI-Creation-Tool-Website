@@ -34,6 +34,9 @@
       this._relayRetryForCall = new Set();
       this._lastCallStatePushAt = 0;
       this._lastCallStateSpeakerUid = '';
+      this._autoResumeBySpeech = false;
+      this._playbackUnlockBound = false;
+      this._userInteractedForPlayback = false;
       this._inRoom = false;
       this._startingCall = false;
       this._joiningCall = false;
@@ -99,6 +102,7 @@
       this._latestPeerMessageMsByConn = new Map();
       this._pendingRequestCount = 0;
       this._pendingRequestUnsub = null;
+      this._lastOlderLoadAt = 0;
       this.init();
     }
 
@@ -1688,6 +1692,7 @@
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       this._enableCallFabDrag();
+      this._bindPlaybackUnlock();
       // Drag & Drop upload within chat app area
       const appEl = document.getElementById('chat-app');
       if (appEl){
@@ -2996,6 +3001,8 @@
       const maybeLoadOlder = async ()=>{
         const connId = this.activeConnection;
         if (this._loadMoreOlderInFlight || !connId) return;
+        const nowTs = Date.now();
+        if (nowTs - Number(this._lastOlderLoadAt || 0) < 650) return;
         if (!this._hasMoreOlderByConn.get(connId)) return;
         const lastDoc = this._lastOldestDocSnapshotByConn.get(connId);
         if (!lastDoc) return;
@@ -3003,6 +3010,7 @@
         const nearTop = box.scrollHeight - box.clientHeight - scrollPos <= 120;
         if (!nearTop) return;
         if (box.dataset.renderedConnId !== connId) return;
+        this._lastOlderLoadAt = nowTs;
         this._loadMoreOlderInFlight = true;
         try{
           let qOlder;
@@ -3051,11 +3059,24 @@
           this.applyNewMessagesSeparator(box);
         }finally{ this._loadMoreOlderInFlight = false; }
       };
+      // Keep callbacks fresh for a single persistent scroll listener.
+      box._updateBottomUi = updateBottomUi;
+      box._maybeLoadOlder = maybeLoadOlder;
+      box._isLoadFinished = () => !!loadFinished;
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
         box.addEventListener('scroll', ()=>{
-          updateBottomUi();
-          if (loadFinished && !this._loadMoreOlderInFlight) maybeLoadOlder();
+          if (box._scrollUiRaf) return;
+          box._scrollUiRaf = requestAnimationFrame(()=>{
+            box._scrollUiRaf = 0;
+            try{
+              const upd = box._updateBottomUi;
+              if (typeof upd === 'function') upd();
+              const canLoad = (typeof box._isLoadFinished === 'function') ? box._isLoadFinished() : false;
+              const loadOlder = box._maybeLoadOlder;
+              if (canLoad && !this._loadMoreOlderInFlight && typeof loadOlder === 'function') loadOlder();
+            }catch(_){ }
+          });
         }, { passive: true });
         window.addEventListener('resize', placeToBottomBtn, { passive: true });
         toBottomBtn.addEventListener('click', ()=>{ try{ box.scrollTo({ top: 0, behavior: 'smooth' }); }catch(_){ box.scrollTop = 0; } updateBottomUi(); });
@@ -7846,6 +7867,35 @@
       this._callStatusTrack = null;
     }
 
+    _ensureRemotePlayback(){
+      try{
+        const mediaEls = [
+          ...Array.from(document.querySelectorAll('[id^="remoteAudio-"]')),
+          ...Array.from(document.querySelectorAll('[id^="remoteVideo-"]'))
+        ];
+        mediaEls.forEach((el)=>{
+          try{
+            if (!el || !el.srcObject) return;
+            el.playsInline = true;
+            if (el.tagName === 'AUDIO') el.muted = false;
+            el.play && el.play().catch(()=>{});
+          }catch(_){ }
+        });
+      }catch(_){ }
+    }
+
+    _bindPlaybackUnlock(){
+      if (this._playbackUnlockBound) return;
+      this._playbackUnlockBound = true;
+      const unlock = () => {
+        this._userInteractedForPlayback = true;
+        this._ensureRemotePlayback();
+      };
+      window.addEventListener('pointerdown', unlock, { passive: true });
+      window.addEventListener('touchstart', unlock, { passive: true });
+      window.addEventListener('keydown', unlock, { passive: true });
+    }
+
     _setActiveSpeakerLabel(uid){
       const showBtn = document.getElementById('show-call-btn');
       if (!showBtn) return;
@@ -7997,7 +8047,7 @@
     }, onSnapErr);
     await this.updatePresence('idle', false);
     // Start silence monitor if no call active
-    if (this._roomState.status === 'idle') {
+    if (this._autoResumeBySpeech && this._roomState.status === 'idle') {
       this._startAutoResumeMonitor(video);
     }
     this._inRoom = true;
@@ -8287,22 +8337,36 @@
         console.log('Received remote track for ' + peerUid, e.track.kind);
         const stream = e.streams[0];
         if (!stream) return;
-        const hasVid = stream.getVideoTracks && stream.getVideoTracks().some(t => t.enabled);
+        const getHasVideo = ()=>{
+          const vts = stream.getVideoTracks ? stream.getVideoTracks() : [];
+          return vts.some((t)=> t.readyState === 'live' && !t.muted && t.enabled !== false);
+        };
         // Always ensure an audio sink exists (hidden) regardless of video
         let audEl = document.getElementById(`remoteAudio-${peerUid}`);
         if (!audEl){ audEl = document.createElement('audio'); audEl.id = `remoteAudio-${peerUid}`; audEl.autoplay = true; audEl.playsInline = true; audEl.style.display = 'none'; document.body.appendChild(audEl); }
         audEl.srcObject = stream; audEl.muted = false; audEl.volume = 1;
-        // Video element visible only if video tracks exist
-        let mediaEl = rv;
-        if (!hasVid){ mediaEl = audEl; }
-        mediaEl.srcObject = stream;
-        mediaEl.muted = false;
-        mediaEl.volume = 1;
-        mediaEl.addEventListener('loadedmetadata', () => {
-          try { mediaEl.play().catch(err => console.error('Play failed:', err)); }
-          catch (err) { console.error('Play error:', err); }
+        rv.srcObject = stream;
+        rv.muted = false;
+        rv.volume = 1;
+        const syncVideoVisibility = ()=>{
+          rv.style.display = getHasVideo() ? 'block' : 'none';
+        };
+        stream.getVideoTracks?.().forEach((vt)=>{
+          try{
+            vt.addEventListener('mute', syncVideoVisibility);
+            vt.addEventListener('unmute', syncVideoVisibility);
+            vt.addEventListener('ended', syncVideoVisibility);
+          }catch(_){}
         });
-        mediaEl.style.display = hasVid ? 'block' : 'none';
+        rv.addEventListener('loadedmetadata', () => {
+          try { rv.play().catch(()=>{}); } catch (_) {}
+          this._ensureRemotePlayback();
+        });
+        audEl.addEventListener('loadedmetadata', () => {
+          try { audEl.play().catch(()=>{}); } catch (_) {}
+        });
+        syncVideoVisibility();
+        this._ensureRemotePlayback();
         this._attachSpeakingDetector(stream, `[data-uid="${peerUid}"]`, peerUid);
       };
       const candsRef = firebase.collection(this.db,'calls',callId,'candidates');
@@ -8485,20 +8549,36 @@
       console.log('Received remote track for ' + peerUid, e.track.kind);
       const rstream = e.streams[0];
       if (!rstream) return;
-      const hasVid = rstream.getVideoTracks && rstream.getVideoTracks().some(t => t.enabled);
+      const getHasVideo = ()=>{
+        const vts = rstream.getVideoTracks ? rstream.getVideoTracks() : [];
+        return vts.some((t)=> t.readyState === 'live' && !t.muted && t.enabled !== false);
+      };
       // Always ensure an audio sink exists
       let audEl = document.getElementById(`remoteAudio-${peerUid}`);
       if (!audEl){ audEl = document.createElement('audio'); audEl.id = `remoteAudio-${peerUid}`; audEl.autoplay = true; audEl.playsInline = true; audEl.style.display = 'none'; document.body.appendChild(audEl); }
       audEl.srcObject = rstream; audEl.muted = false; audEl.volume = 1;
-      let mediaEl = rv; if (!hasVid) mediaEl = audEl;
-      mediaEl.srcObject = rstream;
-      mediaEl.muted = false;
-      mediaEl.volume = 1;
-      mediaEl.addEventListener('loadedmetadata', () => {
-        try { mediaEl.play().catch(err => console.error('Play failed:', err)); }
-        catch (err) { console.error('Play error:', err); }
+      rv.srcObject = rstream;
+      rv.muted = false;
+      rv.volume = 1;
+      const syncVideoVisibility = ()=>{
+        rv.style.display = getHasVideo() ? 'block' : 'none';
+      };
+      rstream.getVideoTracks?.().forEach((vt)=>{
+        try{
+          vt.addEventListener('mute', syncVideoVisibility);
+          vt.addEventListener('unmute', syncVideoVisibility);
+          vt.addEventListener('ended', syncVideoVisibility);
+        }catch(_){}
       });
-      mediaEl.style.display = hasVid ? 'block' : 'none';
+      rv.addEventListener('loadedmetadata', () => {
+        try { rv.play().catch(()=>{}); } catch (_) {}
+        this._ensureRemotePlayback();
+      });
+      audEl.addEventListener('loadedmetadata', () => {
+        try { audEl.play().catch(()=>{}); } catch (_) {}
+      });
+      syncVideoVisibility();
+      this._ensureRemotePlayback();
       this._attachSpeakingDetector(rstream, `[data-uid="${peerUid}"]`, peerUid);
     };
 
@@ -8636,7 +8716,7 @@
         const roomRef = firebase.doc(this.db,'callRooms', this.getCallConnId());
         firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null, endedBy: this.currentUser.uid, endedAt: new Date().toISOString() });
         this.saveMessage({ text: '[system] Call ended due to silence' });
-        this._startAutoResumeMonitor(false);
+        if (this._autoResumeBySpeech) this._startAutoResumeMonitor(false);
       }
     }, 15000);
   }

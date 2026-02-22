@@ -56,7 +56,6 @@ self.addEventListener('message', (event) => {
 			renotify: false,
 			requireInteraction: true,
 			silent: true,
-			vibrate: [],
 			icon: '/images/LIBER LOGO.png',
 			badge: '/images/LIBER LOGO.png',
 			actions: [
