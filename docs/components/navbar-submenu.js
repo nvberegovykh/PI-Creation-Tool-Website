@@ -46,7 +46,7 @@
       const dot = dotRow.querySelector('.gc-nav-mobile-dot');
       const submenu = dotRow.querySelector('.gc-nav-mobile-submenu');
       dot.addEventListener('click', () => {
-        const willOpen = !submenu.classList.contains('gc-open');
+        const willOpen = !dotRow.classList.contains('gc-submenu-open');
         dot.classList.toggle('gc-active', willOpen);
         submenu.classList.toggle('gc-open', willOpen);
         dotRow.classList.toggle('gc-submenu-open', willOpen);
