@@ -364,12 +364,9 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   touch-action:none;
   overflow:hidden;
 }
-.voice-wave-player .wave .bar{width:2px;min-width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear;flex-shrink:0}
+.voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear}
 .voice-wave-player .wave .bar.played{background:#ffffff}
 .voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;max-width:72px;flex:0 0 auto;text-align:right;cursor:pointer;white-space:nowrap}
-/* Chat attachments: ensure wave/progress bar visible in compact cards */
-.chat-attachment-preview .voice-wave-player{width:100%;min-width:120px}
-.chat-attachment-preview .voice-wave-player .wave{min-width:60px;flex:1 1 auto}
 /* Slider in chat: fit media bounds like WhatsApp */
 .message .msg-media-slider,
 .message .post-media-visual-shell.msg-media-slider{width:fit-content;max-width:100%;min-width:min(140px,100%)}
