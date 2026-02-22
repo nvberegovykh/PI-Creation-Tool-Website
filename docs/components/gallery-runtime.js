@@ -147,7 +147,7 @@
         window.setTimeout(() => {
           mediaEl.innerHTML = createMediaElement(visuals[idx], true);
           card.classList.remove('fade-swap');
-        }, 170);
+        }, 120);
       };
       const start = () => {
         if (timer) return;
@@ -160,7 +160,7 @@
       };
       card.addEventListener('mouseenter', stop);
       card.addEventListener('mouseleave', start);
-      start();
+      window.setTimeout(start, 400);
     });
   }
 
@@ -178,59 +178,65 @@
     const dotsHtml = visuals.length > 1
       ? `<div class="gc-popup-dots" role="tablist">${visuals.map((_, i) => `<button type="button" class="gc-dot" data-gc-idx="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}</div>`
       : '';
-    const render = () => {
-      const item = visuals[idx] || visuals[0];
-      popup.innerHTML =
-        `<div class="gc-popup-card" role="dialog" aria-modal="true">` +
-        `<div class="gc-popup-media">` +
-        `<button class="gc-slider-btn gc-popup-close" data-gc-close="1">Close</button>` +
-        `${item ? createMediaElement(item, false) : ''}` +
-        dotsHtml +
-        `</div>` +
-        `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${texts.map((t) => `<p>${t.text}</p>`).join('')}</div></div>` +
-        `</div>`;
-      const dots = popup.querySelectorAll('.gc-popup-dots .gc-dot');
-      dots.forEach((dot, i) => {
-        dot.classList.toggle('active', i === idx);
-        dot.setAttribute('aria-selected', i === idx);
-      });
+    const bodyHtml = `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${texts.map((t) => `<p>${t.text}</p>`).join('')}</div></div>`;
+    const slidesHtml = visuals.map((v) => `<div class="gc-popup-slide">${createMediaElement(v, false)}</div>`).join('');
+    popup.innerHTML =
+      `<div class="gc-popup-card" role="dialog" aria-modal="true">` +
+      `<div class="gc-popup-media">` +
+      `<button class="gc-slider-btn gc-popup-close" data-gc-close="1">Close</button>` +
+      `<div class="gc-popup-track">${slidesHtml}</div>` +
+      dotsHtml +
+      `</div>` + bodyHtml + `</div>`;
+    const mediaEl = popup.querySelector('.gc-popup-media');
+    const track = popup.querySelector('.gc-popup-track');
+    const dots = popup.querySelectorAll('.gc-popup-dots .gc-dot');
+    const setIdx = (i) => {
+      idx = Math.max(0, Math.min(i, visuals.length - 1));
+      if (track) track.style.transform = `translateX(-${idx * 100}%)`;
+      dots.forEach((d, j) => { d.classList.toggle('active', j === idx); d.setAttribute('aria-selected', j === idx); });
     };
-    const goPrev = () => { idx = Math.max(0, idx - 1); render(); wireMediaSwipe(); };
-    const goNext = () => { idx = Math.min(visuals.length - 1, idx + 1); render(); wireMediaSwipe(); };
-    const wireMediaSwipe = () => {
-      const mediaEl = popup.querySelector('.gc-popup-media');
-      if (!mediaEl || visuals.length <= 1) return;
+    setIdx(0);
+    const goPrev = () => setIdx(idx - 1);
+    const goNext = () => setIdx(idx + 1);
+    if (mediaEl && track && visuals.length > 1) {
       let startX = 0;
-      const onStart = (x) => { startX = x; };
+      let startIdx = 0;
+      const onStart = (x) => { startX = x; startIdx = idx; };
+      const onMove = (x) => {
+        const w = mediaEl.offsetWidth || 400;
+        const delta = (startX - x) / w;
+        const raw = startIdx + delta;
+        const clamped = Math.max(-0.2, Math.min(visuals.length - 1 + 0.2, raw));
+        track.style.transition = 'none';
+        track.style.transform = `translateX(-${clamped * 100}%)`;
+      };
       const onEnd = (x) => {
+        track.style.transition = '';
+        const w = mediaEl.offsetWidth || 400;
         const delta = startX - x;
-        if (Math.abs(delta) > 40) {
+        if (Math.abs(delta) > w * 0.15) {
           if (delta > 0) goNext();
           else goPrev();
-        }
+        } else setIdx(idx);
       };
       mediaEl.addEventListener('mousedown', (e) => {
         onStart(e.clientX);
-        const u = (ev) => {
-          document.removeEventListener('mouseup', u);
-          onEnd(ev.clientX);
-        };
+        const m = (ev) => onMove(ev.clientX);
+        const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); };
+        document.addEventListener('mousemove', m);
         document.addEventListener('mouseup', u);
       });
       let touching = false;
-      mediaEl.addEventListener('touchstart', (e) => {
-        touching = true;
-        onStart(e.touches[0] ? e.touches[0].clientX : 0);
-      }, { passive: true });
+      mediaEl.addEventListener('touchstart', (e) => { touching = true; onStart(e.touches[0] ? e.touches[0].clientX : 0); }, { passive: true });
+      mediaEl.addEventListener('touchmove', (e) => {
+        if (touching && e.touches[0]) { onMove(e.touches[0].clientX); e.preventDefault(); }
+      }, { passive: false });
       mediaEl.addEventListener('touchend', (e) => {
-        if (touching && e.changedTouches && e.changedTouches[0]) {
-          touching = false;
-          onEnd(e.changedTouches[0].clientX);
-        }
+        if (touching && e.changedTouches && e.changedTouches[0]) { touching = false; onEnd(e.changedTouches[0].clientX); }
       }, { passive: true });
-    };
-    render();
-    wireMediaSwipe();
+      mediaEl.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
+    }
+    dots.forEach((dot, i) => dot.addEventListener('click', (e) => { e.stopPropagation(); setIdx(i); }));
     popup.classList.add('open');
     const handler = (ev) => {
       const target = ev.target;
@@ -238,9 +244,6 @@
       if (target.dataset.gcClose || target === popup) {
         popup.classList.remove('open');
         popup.removeEventListener('click', handler);
-      } else if (target.classList.contains('gc-dot') && target.dataset.gcIdx != null) {
-        idx = Number(target.dataset.gcIdx) || 0;
-        render();
       }
     };
     popup.addEventListener('click', handler);
@@ -271,9 +274,12 @@
   }
 
   function pickProjects(source, count) {
-    const withVisuals = source.filter((p) => visualItems(p.items || []).length > 0);
-    if (!withVisuals.length || count <= 0) return [];
-    return shuffle(withVisuals).slice(0, count);
+    const byId = new Map();
+    source.forEach((p) => {
+      if (visualItems(p.items || []).length > 0) byId.set(p.id, p);
+    });
+    if (!byId.size || count <= 0) return [];
+    return shuffle([...byId.values()]).slice(0, count);
   }
 
   function mountTiles(host, projects, projectById) {
@@ -375,7 +381,15 @@
     const gap = 18;
     const cardWidth = 420 + gap;
     let displaySet = selected.slice();
-    const renderTrack = () => displaySet.concat(displaySet).map((p) => buildCard(p, 'gc-card--full')).join('');
+    /* Repeat so track always scrolls (works with 1 element, prevents desktop stuck) */
+    const renderTrack = () => {
+      const base = displaySet.map((p) => buildCard(p, 'gc-card--full'));
+      const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
+      const needSets = Math.max(2, Math.min(8, Math.ceil(vw / (displaySet.length * cardWidth)) + 1));
+      const out = [];
+      for (let i = 0; i < needSets; i++) out.push(...base);
+      return out.join('');
+    };
     host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack()}</div></div>`;
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
@@ -394,9 +408,10 @@
       wireCardIntro(host);
       requestAnimationFrame(() => { track.style.transition = ''; });
     };
+    const getViewW = () => wrap.offsetWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
     const update = () => {
-      const totalW = setWidth() * 2;
-      const viewW = wrap.offsetWidth || 0;
+      const totalW = track.offsetWidth || setWidth() * 3;
+      const viewW = getViewW();
       const maxO = Math.max(0, totalW - viewW);
       offset = Math.max(0, Math.min(offset, maxO));
       track.style.transform = `translateX(-${offset}px)`;
@@ -405,13 +420,15 @@
       startX = x;
       startOffset = offset;
       if (autoScrollId) { cancelAnimationFrame(autoScrollId); autoScrollId = null; }
+      track.style.transition = 'none';
     };
     const onMove = (x) => {
       if (Math.abs(x - startX) > 5) window.__gcSuppressNextClick = true;
       offset = startOffset + (startX - x);
       update();
     };
-    const onEnd = () => { if (autoScrollId) return; startAutoScroll(); };
+    const onEndRestoreTransition = () => { track.style.transition = ''; };
+    const onEnd = () => { onEndRestoreTransition(); if (autoScrollId) return; startAutoScroll(); };
     const addDrag = (el) => {
       el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = () => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
       let touching = false;
@@ -434,13 +451,16 @@
     wrap.addEventListener('click', (e) => { if (e.target.closest('.gc-card')) return; e.preventDefault(); });
     const AUTO_PX_PER_MS = 0.08;
     const startAutoScroll = () => {
-      const tick = () => {
-        const oneSet = setWidth();
-        const totalW = oneSet * 2;
-        const viewW = wrap.offsetWidth || 0;
-        const maxO = Math.max(0, totalW - viewW);
-        offset += AUTO_PX_PER_MS * 16;
-        if (offset >= oneSet) cycleReset();
+      let lastT = 0;
+      const tick = (t) => {
+        const viewW = getViewW();
+        if (viewW > 0) {
+          const dt = lastT ? Math.min(t - lastT, 100) : 16;
+          lastT = t;
+          const oneSet = setWidth();
+          offset += AUTO_PX_PER_MS * dt;
+          if (offset >= oneSet) cycleReset();
+        }
         update();
         autoScrollId = requestAnimationFrame(tick);
       };
