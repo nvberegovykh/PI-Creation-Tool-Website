@@ -4461,10 +4461,16 @@
       }catch(_){ return 'Chat'; }
     }
 
+    toPlainObject(val){
+      if (val === null || val === undefined) return null;
+      if (typeof val !== 'object') return val;
+      try { return JSON.parse(JSON.stringify(val)); } catch(_){ return null; }
+    }
+
     async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, media, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
-      const mediaArr = Array.isArray(media) && media.length ? media : null;
+      const mediaArr = Array.isArray(media) && media.length ? this.toPlainObject(media) : null;
       const firstMedia = mediaArr && mediaArr[0] ? mediaArr[0] : null;
       const legacyFileUrl = fileUrl || (firstMedia && firstMedia.fileUrl) || null;
       const legacyFileName = fileName || (firstMedia && firstMedia.fileName) || null;
@@ -4477,7 +4483,7 @@
         cipher,
         fileUrl: legacyFileUrl,
         fileName: legacyFileName,
-        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
+        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? this.toPlainObject(sharedAsset) : null,
         media: mediaArr,
         attachmentSourceConnId: String(attachmentSourceConnId || connId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
@@ -5219,7 +5225,7 @@
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
-      const mediaArr = Array.isArray(media) && media.length ? media : null;
+      const mediaArr = Array.isArray(media) && media.length ? this.toPlainObject(media) : null;
       const firstMedia = mediaArr && mediaArr[0] ? mediaArr[0] : null;
       const legacyFileUrl = fileUrl || (firstMedia && firstMedia.fileUrl) || null;
       const legacyFileName = fileName || (firstMedia && firstMedia.fileName) || null;
@@ -5232,7 +5238,7 @@
         cipher,
         fileUrl: legacyFileUrl,
         fileName: legacyFileName,
-        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? sharedAsset : null,
+        sharedAsset: (sharedAsset && typeof sharedAsset === 'object') ? this.toPlainObject(sharedAsset) : null,
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
         isVideoRecording: isVideoRecording === true || (firstMedia && firstMedia.isVideoRecording === true),
