@@ -68,6 +68,11 @@ class DashboardManager {
             if (String(am?.role || '').toLowerCase() === 'admin') return true;
         }catch(_){ }
         try{
+            const raw = localStorage.getItem('liber_session');
+            const sess = raw ? JSON.parse(raw) : null;
+            if (String(sess?.user?.role || '').toLowerCase() === 'admin') return true;
+        }catch(_){ }
+        try{
             const raw = localStorage.getItem('liber_auth_session');
             const parsed = raw ? JSON.parse(raw) : null;
             if (String(parsed?.user?.role || '').toLowerCase() === 'admin') return true;
@@ -6530,6 +6535,9 @@ class DashboardManager {
         this._isAdminSession = !!isAdmin;
         if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){
             this.switchSection('apps');
+        }
+        if (window.appsManager && typeof window.appsManager.filterApps === 'function') {
+            try { window.appsManager.filterApps(); window.appsManager.renderApps(); } catch (_) {}
         }
     }
 

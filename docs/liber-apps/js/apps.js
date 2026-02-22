@@ -502,7 +502,8 @@ class AppsManager {
                 path: 'apps/gallery-control/index.html',
                 author: 'Liber Apps',
                 lastUpdated: '2026-02-22',
-                logo: null
+                logo: null,
+                adminOnly: true
             }
         ];
 
@@ -525,10 +526,12 @@ class AppsManager {
     }
 
     /**
-     * Filter apps based on search term and category
+     * Filter apps based on search term, category, and admin-only
      */
     filterApps() {
+        const isAdmin = this._isAdmin();
         this.filteredApps = this.apps.filter(app => {
+            if (app.adminOnly && !isAdmin) return false;
             const matchesSearch = this.searchTerm === '' || 
                                 app.name.toLowerCase().includes(this.searchTerm) ||
                                 app.description.toLowerCase().includes(this.searchTerm) ||
@@ -537,6 +540,24 @@ class AppsManager {
             
             return matchesSearch && matchesCategory;
         });
+    }
+
+    _isAdmin() {
+        try {
+            const am = window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
+            if (String(am?.role || '').toLowerCase() === 'admin') return true;
+        } catch (_) {}
+        try {
+            const raw = localStorage.getItem('liber_session');
+            const sess = raw ? JSON.parse(raw) : null;
+            if (String(sess?.user?.role || '').toLowerCase() === 'admin') return true;
+        } catch (_) {}
+        try {
+            const rawUser = localStorage.getItem('liber_current_user');
+            const user = rawUser ? JSON.parse(rawUser) : null;
+            if (String(user?.role || '').toLowerCase() === 'admin') return true;
+        } catch (_) {}
+        return !!(window.dashboardManager && window.dashboardManager._isAdminSession);
     }
 
     /**
