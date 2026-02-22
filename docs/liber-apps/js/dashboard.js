@@ -6520,31 +6520,34 @@ class DashboardManager {
      * Update navigation visibility based on user role
      */
     async updateNavigation() {
-        let isAdmin = this._resolveAdminFromLocalState();
-        try {
-            const me = await this.resolveCurrentUserWithRetry(2600);
-            if (me && me.uid && window.firebaseService?.getUserData) {
-                try {
-                    const data = await window.firebaseService.getUserData(me.uid);
-                    if (String(data?.role || '').toLowerCase() === 'admin') isAdmin = true;
-                } catch (_) {}
-            } else {
+        let isAdmin = false;
+        if (window.authManager && typeof window.authManager.isAdmin === 'function' && window.authManager.isAdmin()) {
+            isAdmin = true;
+        }
+        if (!isAdmin) {
+            isAdmin = this._resolveAdminFromLocalState();
+        }
+        if (!isAdmin) {
+            try {
+                const me = await this.resolveCurrentUserWithRetry(2600);
+                if (me && me.uid && window.firebaseService?.getUserData) {
+                    try {
+                        const data = await window.firebaseService.getUserData(me.uid);
+                        if (String(data?.role || '').toLowerCase() === 'admin') isAdmin = true;
+                    } catch (_) {}
+                } else {
+                    const fallback = this._getAuthManagerUser();
+                    if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
+                }
+            } catch (_) {
                 const fallback = this._getAuthManagerUser();
                 if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
             }
-        } catch (_) {
-            const fallback = this._getAuthManagerUser();
-            if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
         }
         document.querySelectorAll('.admin-only').forEach((el) => {
             el.style.display = isAdmin ? '' : 'none';
         });
         this._isAdminSession = !!isAdmin;
-        if (window.__LIBER_DEBUG_ADMIN__) {
-            this.resolveCurrentUserWithRetry(500).then(u => 
-                console.log('[LIBER] updateNavigation', { isAdmin, fromLocal: this._resolveAdminFromLocalState(), uid: u?.uid })
-            );
-        }
         if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){
             this.switchSection('apps');
         }
