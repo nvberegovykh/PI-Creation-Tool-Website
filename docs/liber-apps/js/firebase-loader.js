@@ -84,14 +84,6 @@ async function loadFirebaseVersion(version) {
 
 	const messagingFns = msgMod ? (function(){ const { getMessaging, getToken, onMessage, isSupported } = msgMod; return { getMessaging, getToken, onMessage, isSupported }; })() : {};
 
-	// In iframe: if using parent's firebaseService, do NOT overwrite window.firebase.
-	// Parent's Firestore instance must be used with parent's firebase namespace to avoid type mismatch.
-	try {
-		if (typeof window !== 'undefined' && window.self !== window.top && window.firebaseService === window.parent?.firebaseService && window.parent?.firebase) {
-			console.log('✅ Firebase (iframe): using parent\'s Firebase namespace');
-			return; // Skip overwriting - parent's firebase is already set by firebase-service
-		}
-	} catch (_) {}
 	// Expose compat-style object expected by existing code
 	window.firebase = {
 		initializeApp,

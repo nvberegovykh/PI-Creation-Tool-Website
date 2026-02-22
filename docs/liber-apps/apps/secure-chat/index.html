@@ -128,30 +128,16 @@
         </main>
     </div>
 
-    <!-- In iframe: use parent's Firebase only. Skip loading our own firebase scripts to avoid SDK mismatch. -->
+    <!-- Always load our own Firebase - self-contained in iframe avoids cross-context "custom Object" setDoc error -->
     <script>
-      window.LIBER_CHAT_VERSION = '20260221v6';
-      window.LIBER_CHAT_IN_IFRAME = (window.self !== window.top);
+      window.LIBER_CHAT_VERSION = '20260221v7';
     </script>
     <!-- Scripts (single-source cache version) -->
     <script>
       (function loadChatScripts() {
         const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
-        const inIframe = !!window.LIBER_CHAT_IN_IFRAME;
-        const scripts = [
-          '../../js/secure-keys.js',
-          ...(inIframe ? [] : ['../../js/firebase-loader.js', '../../js/firebase-service.js']),
-          '../../js/crypto.js',
-          'chat-crypto.js'
-        ];
-        if (inIframe) {
-          document.write('<script src="../../js/secure-keys.js?v=' + v + '"><\/script>');
-          document.write('<script src="../../js/crypto.js?v=' + v + '"><\/script>');
-          document.write('<script src="chat-crypto.js?v=' + v + '"><\/script>');
-          document.write('<script src="../../js/chat-iframe-bridge.js?v=' + v + '"><\/script>');
-        } else {
-          document.write(scripts.map((src) => '<script src="' + src + '?v=' + v + '"><\/script>').join(''));
-        }
+        const scripts = ['../../js/secure-keys.js','../../js/firebase-loader.js','../../js/firebase-service.js','../../js/crypto.js','chat-crypto.js'];
+        document.write(scripts.map((s)=>'<script src="'+s+'?v='+v+'"><\/script>').join(''));
       })();
     </script>
     <script>

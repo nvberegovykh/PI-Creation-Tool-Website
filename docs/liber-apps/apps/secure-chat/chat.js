@@ -4498,27 +4498,11 @@
         createdAtTS: firebase.serverTimestamp()
       };
       if (!mediaArr) delete doc.media;
-      if (window.self !== window.top) {
-        const id = Math.random().toString(36).slice(2);
-        delete doc.createdAtTS;
-        const docJson = JSON.stringify(JSON.parse(JSON.stringify(doc)));
-        await new Promise((resolve, reject) => {
-          const handler = (e) => {
-            if (e.data?.type === 'liber-save-chat-message-done' && e.data?.id === id) {
-              window.removeEventListener('message', handler);
-              e.data.error ? reject(new Error(e.data.error)) : resolve();
-            }
-          };
-          window.addEventListener('message', handler);
-          window.parent.postMessage({ type: 'liber-save-chat-message', id, connId, msgId: msgRef.id, docJson }, '*');
-        });
-      } else {
-        const ts = doc.createdAtTS;
-        delete doc.createdAtTS;
-        const plainDoc = JSON.parse(JSON.stringify(doc));
-        plainDoc.createdAtTS = ts;
-        await firebase.setDoc(msgRef, plainDoc);
-      }
+      const ts = doc.createdAtTS;
+      delete doc.createdAtTS;
+      const plainDoc = JSON.parse(JSON.stringify(doc));
+      plainDoc.createdAtTS = ts;
+      await firebase.setDoc(msgRef, plainDoc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',connId),{
         lastMessage: String(text || '').slice(0,200),
         updatedAt: new Date().toISOString()
@@ -5268,27 +5252,11 @@
         createdAtTS: firebase.serverTimestamp()
       };
       if (mediaArr) doc.media = mediaArr;
-      if (window.self !== window.top) {
-        const id = Math.random().toString(36).slice(2);
-        delete doc.createdAtTS;
-        const docJson = JSON.stringify(JSON.parse(JSON.stringify(doc)));
-        await new Promise((resolve, reject) => {
-          const handler = (e) => {
-            if (e.data?.type === 'liber-save-chat-message-done' && e.data?.id === id) {
-              window.removeEventListener('message', handler);
-              e.data.error ? reject(new Error(e.data.error)) : resolve();
-            }
-          };
-          window.addEventListener('message', handler);
-          window.parent.postMessage({ type: 'liber-save-chat-message', id, connId: targetConnId, msgId: msgRef.id, docJson }, '*');
-        });
-      } else {
-        const ts = doc.createdAtTS;
-        delete doc.createdAtTS;
-        const plainDoc = JSON.parse(JSON.stringify(doc));
-        plainDoc.createdAtTS = ts;
-        await firebase.setDoc(msgRef, plainDoc);
-      }
+      const ts = doc.createdAtTS;
+      delete doc.createdAtTS;
+      const plainDoc = JSON.parse(JSON.stringify(doc));
+      plainDoc.createdAtTS = ts;
+      await firebase.setDoc(msgRef, plainDoc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',targetConnId),{
         lastMessage: text.slice(0,200),
         lastMessageSender: this.currentUser.uid,
