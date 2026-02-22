@@ -23,8 +23,12 @@
 
       zone.querySelector('[data-gc-nav="services"]').addEventListener('click', openPricingPopup);
 
-      zone.addEventListener('mouseenter', () => container.classList.add('gc-submenu-visible'));
-      container.addEventListener('mouseleave', () => container.classList.remove('gc-submenu-visible'));
+      const dot = zone.querySelector('.gc-nav-dot');
+      const submenu = zone.querySelector('.gc-nav-submenu');
+      dot.addEventListener('mouseenter', () => container.classList.add('gc-submenu-visible'));
+      submenu.addEventListener('mouseenter', () => container.classList.add('gc-submenu-visible'));
+      const header = container.querySelector('header');
+      (header || container).addEventListener('mouseleave', () => container.classList.remove('gc-submenu-visible'));
     }
 
     if (mobileNav && !mobileNav.querySelector('.gc-nav-mobile-dot-row')) {

@@ -12,11 +12,11 @@
   background-color: #000000 !important;
 }
 
-/* Reserve space so content is visible below fixed navbar (includes submenu zone) */
+/* Reserve space so content is visible below fixed navbar */
 .home-container,
 .gallery-container,
 .contact-container {
-  padding-top: 160px !important;
+  padding-top: 110px !important;
   box-sizing: border-box !important;
 }
 

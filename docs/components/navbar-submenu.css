@@ -47,9 +47,9 @@
   align-items: center;
   width: 100%;
   max-width: 100vw;
-  min-height: 36px;
-  margin-top: 12px;
-  padding: 0 16px;
+  min-height: 20px;
+  margin-top: 4px;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -126,14 +126,14 @@
   50% { opacity: 1; transform: scale(1.15); }
 }
 
-/* Mobile: dot in dropdown */
+/* Mobile: dot in dropdown, fade not slide (no grid transition) */
 .gc-nav-mobile-dot-row {
   display: grid;
   grid-template-rows: auto 0fr;
   align-items: start;
   padding: 12px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
-  transition: grid-template-rows 0.2s ease;
+  transition: none;
 }
 
 .gc-nav-mobile-dot-row.gc-submenu-open {
