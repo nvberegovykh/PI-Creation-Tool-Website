@@ -254,7 +254,8 @@
   function mountFullWidth(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 10);
     const selected = pickProjects(projects, count);
-    const cardWidth = 300 + 14;
+    const gap = 14;
+    const cardWidth = 300 + gap;
     const perPage = Math.max(1, Math.floor((host.offsetWidth || 800) / cardWidth));
     const pages = Math.max(1, Math.ceil(selected.length / perPage));
     const dotsHtml = pages > 1 ? Array.from({ length: pages }, (_, i) => `<button type="button" class="gc-dot" data-gc-full-page="${i}" aria-label="Page ${i + 1}"></button>`).join('') : '';
@@ -263,8 +264,6 @@
       (dotsHtml ? `<div class="gc-slider-dots gc-full-dots" role="tablist">${dotsHtml}</div>` : '');
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
-    const gap = 14;
-    const cardWidth = 300 + gap;
     let offset = 0;
     let dragged = false;
     let startX = 0;
