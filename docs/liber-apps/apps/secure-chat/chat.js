@@ -67,7 +67,7 @@
       this._setActiveSeq = 0;
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
-      this._attachmentPreviewMax = 12;
+      this._attachmentPreviewMax = 4;
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -650,7 +650,7 @@
 
     pumpAttachmentPreviewQueue(){
       try{
-        const max = this._attachmentPreviewMax || 12;
+        const max = this._attachmentPreviewMax || 4;
         while ((this._attachmentPreviewRunning || 0) < max && this._attachmentPreviewQueue.length){
           const item = this._attachmentPreviewQueue.shift();
           this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
@@ -666,7 +666,7 @@
               this.pumpAttachmentPreviewQueue();
             }
           };
-          queueMicrotask(()=> Promise.resolve(run()).catch(()=>{}));
+          setTimeout(()=> Promise.resolve(run()).catch(()=>{}), 0);
         }
       }catch(_){ }
     }
@@ -759,6 +759,16 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
+      const waveConnectBtn = document.createElement('button');
+      waveConnectBtn.className = 'btn secondary';
+      waveConnectBtn.textContent = 'Add from WaveConnect';
+      waveConnectBtn.style.marginBottom = '8px';
+      waveConnectBtn.onclick = ()=>{
+        panel.remove();
+        backdrop.remove();
+        this.openWaveConnectPickerForComposer();
+      };
+      panel.appendChild(waveConnectBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -3406,13 +3416,13 @@
           const docsToRender = appendOnly
             ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIds.includes(d.id)))
             : docs;
-          // column-reverse: first child = bottom. Non-append: iterate newest-first so visible attachments load first. AppendOnly: oldest-first for load-more.
-          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j) : Array.from({length: docsToRender.length}, (_, j)=> j);
+          // column-reverse: first child = bottom. Non-append: iterate newest-first. AppendOnly: prepend oldest-first so newest ends up first.
+          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> j) : Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
           for (let idx = 0; idx < docsToRender.length; idx++) {
             const i = iter[idx];
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (idx % 3 === 2) await this.yieldToUi();
+            if (idx % 5 === 4) await this.yieldToUi();
           }
           if (!appendOnly && renderTarget !== box && lastRenderedDay){
             const topSep = document.createElement('div');
