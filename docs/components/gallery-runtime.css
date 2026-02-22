@@ -64,11 +64,17 @@
   }
 }
 
-/* Main page (index): single slider 2x bigger on desktop */
+/* Main page (index): single slider 3x higher on desktop */
 @media (min-width: 769px) {
   .home-container [data-gallery-template="single-slider"] .gc-single-shell {
     max-width: 2200px;
     min-width: 1000px;
+    min-height: 840px;
+  }
+
+  .home-container [data-gallery-template="single-slider"] .gc-slide-inner .gc-card,
+  .home-container [data-gallery-template="single-slider"] .gc-card--slider {
+    min-height: 800px;
   }
 }
 
