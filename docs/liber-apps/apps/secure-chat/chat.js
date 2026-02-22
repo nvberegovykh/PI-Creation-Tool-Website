@@ -3416,8 +3416,8 @@
           const docsToRender = appendOnly
             ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIds.includes(d.id)))
             : docs;
-          // column-reverse: first child = bottom, last child = top. Must render newest first so DOM ends up [newest...oldest] = newest at bottom.
-          const iter = Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
+          // column-reverse: first child = bottom. Non-append: iterate newest-first so visible attachments load first. AppendOnly: oldest-first for load-more.
+          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j) : Array.from({length: docsToRender.length}, (_, j)=> j);
           for (let idx = 0; idx < docsToRender.length; idx++) {
             const i = iter[idx];
             const d = docsToRender[i];
@@ -3582,8 +3582,7 @@
           box.innerHTML='';
           let lastRenderedDay2 = '';
           let aesKey = await this.getFallbackKey();
-          // Firebase returns desc (newest first). column-reverse needs DOM [newest...oldest] = newest at bottom.
-          const fallbackDocs = (snap.docs || []).slice();
+          const fallbackDocs = (snap.docs || []).slice().reverse();
           for (let i = 0; i < fallbackDocs.length; i++){
             const d = fallbackDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
