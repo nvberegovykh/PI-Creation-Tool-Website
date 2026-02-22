@@ -111,6 +111,25 @@
     );
   }
 
+  const INTRO_MS = 3000;
+  function wireCardIntro(container) {
+    const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]'));
+    if (!cards.length || !('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const card = entry.target;
+          observer.unobserve(card);
+          card.classList.add('gc-intro');
+          window.setTimeout(() => card.classList.remove('gc-intro'), INTRO_MS);
+        });
+      },
+      { threshold: 0.1, rootMargin: '20px' }
+    );
+    cards.forEach((card) => observer.observe(card));
+  }
+
   function wireRotations(container, projectById) {
     const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]'));
     cards.forEach((card) => {
@@ -176,7 +195,42 @@
         dot.setAttribute('aria-selected', i === idx);
       });
     };
+    const goPrev = () => { idx = Math.max(0, idx - 1); render(); wireMediaSwipe(); };
+    const goNext = () => { idx = Math.min(visuals.length - 1, idx + 1); render(); wireMediaSwipe(); };
+    const wireMediaSwipe = () => {
+      const mediaEl = popup.querySelector('.gc-popup-media');
+      if (!mediaEl || visuals.length <= 1) return;
+      let startX = 0;
+      const onStart = (x) => { startX = x; };
+      const onEnd = (x) => {
+        const delta = startX - x;
+        if (Math.abs(delta) > 40) {
+          if (delta > 0) goNext();
+          else goPrev();
+        }
+      };
+      mediaEl.addEventListener('mousedown', (e) => {
+        onStart(e.clientX);
+        const u = (ev) => {
+          document.removeEventListener('mouseup', u);
+          onEnd(ev.clientX);
+        };
+        document.addEventListener('mouseup', u);
+      });
+      let touching = false;
+      mediaEl.addEventListener('touchstart', (e) => {
+        touching = true;
+        onStart(e.touches[0] ? e.touches[0].clientX : 0);
+      }, { passive: true });
+      mediaEl.addEventListener('touchend', (e) => {
+        if (touching && e.changedTouches && e.changedTouches[0]) {
+          touching = false;
+          onEnd(e.changedTouches[0].clientX);
+        }
+      }, { passive: true });
+    };
     render();
+    wireMediaSwipe();
     popup.classList.add('open');
     const handler = (ev) => {
       const target = ev.target;
@@ -194,6 +248,7 @@
 
   function wirePopupOpener(container, projectById) {
     container.addEventListener('click', (e) => {
+      if (window.__gcSuppressNextClick) { window.__gcSuppressNextClick = false; return; }
       const card = e.target.closest('.gc-card[data-project-id]');
       if (!card || !container.contains(card)) return;
       const id = card.getAttribute('data-project-id');
@@ -218,12 +273,7 @@
   function pickProjects(source, count) {
     const withVisuals = source.filter((p) => visualItems(p.items || []).length > 0);
     if (!withVisuals.length || count <= 0) return [];
-    const pool = shuffle(withVisuals);
-    const out = [];
-    while (out.length < count) {
-      out.push(pool[out.length % pool.length]);
-    }
-    return out;
+    return shuffle(withVisuals).slice(0, count);
   }
 
   function mountTiles(host, projects, projectById) {
@@ -235,6 +285,7 @@
     }
     host.innerHTML = `<div class="gc-template"><div class="gc-grid">${selected.map((p) => buildCard(p, '')).join('')}</div></div>`;
     wireRotations(host, projectById);
+    wireCardIntro(host);
     wirePopupOpener(host, projectById);
   }
 
@@ -245,35 +296,72 @@
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
-    const perPage = window.innerWidth <= 900 ? (window.innerWidth <= 640 ? 1 : 2) : 3;
-    const pages = Math.max(1, Math.ceil(selected.length / perPage));
-    const slides = [];
-    for (let i = 0; i < pages; i++) {
-      const chunk = selected.slice(i * perPage, (i + 1) * perPage);
-      slides.push(`<div class="gc-slide">${chunk.map((p) => buildCard(p, 'gc-card--slider')).join('')}</div>`);
-    }
-    const dotsHtml = Array.from({ length: pages }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1}"></button>`).join('');
+    const slides = selected.map((p) => `<div class="gc-slide"><div class="gc-slide-inner">${buildCard(p, 'gc-card--slider')}</div></div>`);
+    const dotsHtml = selected.length > 1 ? Array.from({ length: selected.length }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1}"></button>`).join('') : '';
     host.innerHTML =
-      `<div class="gc-template">` +
-      `<div class="gc-slider-shell"><div class="gc-slider-track">${slides.join('')}</div></div>` +
-      `<div class="gc-slider-dots" role="tablist">${dotsHtml}</div>` +
+      `<div class="gc-template gc-single-slider">` +
+      `<div class="gc-slider-shell gc-single-shell"><div class="gc-slider-track gc-single-track">${slides.join('')}</div></div>` +
+      (dotsHtml ? `<div class="gc-slider-dots" role="tablist">${dotsHtml}</div>` : '') +
       `</div>`;
-    let page = 0;
-    const track = host.querySelector('.gc-slider-track');
+    const shell = host.querySelector('.gc-single-shell');
+    const track = host.querySelector('.gc-single-track');
     const dots = host.querySelectorAll('.gc-dot');
+    let page = 0;
+    let startX = 0;
+    let startPage = 0;
+    let didDrag = false;
     const update = () => {
-      track.style.transform = `translateX(-${page * 100}%)`;
+      page = Math.max(0, Math.min(page, selected.length - 1));
+      const slideWidth = shell ? shell.offsetWidth : 400;
+      track.style.width = `${selected.length * 100}%`;
+      track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${100 / selected.length}%`; });
+      track.style.transform = `translateX(-${page * slideWidth}px)`;
       dots.forEach((d, i) => { d.classList.toggle('active', i === page); d.setAttribute('aria-selected', i === page); });
     };
-    dots.forEach((dot) => {
-      dot.addEventListener('click', (e) => {
-        e.preventDefault();
-        page = Number(dot.getAttribute('data-gc-page')) || 0;
-        update();
-      });
-    });
+    const onStart = (x) => { didDrag = false; startX = x; startPage = page; };
+    const onMove = (x) => {
+      if (Math.abs(x - startX) > 5) { didDrag = true; window.__gcSuppressNextClick = true; }
+      const slideWidth = shell ? shell.offsetWidth : 400;
+      const delta = startX - x;
+      const pageOffset = delta / slideWidth;
+      track.style.transition = 'none';
+      track.style.transform = `translateX(-${(startPage + pageOffset) * slideWidth}px)`;
+    };
+    const onEnd = (x) => {
+      track.style.transition = '';
+      const slideWidth = shell ? shell.offsetWidth : 400;
+      const delta = startX - x;
+      if (Math.abs(delta) > slideWidth * 0.2) page = delta > 0 ? Math.min(page + 1, selected.length - 1) : Math.max(page - 1, 0);
+      update();
+    };
+    const addDrag = (el) => {
+      el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
+      let touched = false;
+      el.addEventListener('touchstart', (e) => {
+        touched = true;
+        onStart(e.touches[0] ? e.touches[0].clientX : 0);
+      }, { passive: true });
+      el.addEventListener('touchmove', (e) => {
+        if (touched && e.touches[0]) {
+          onMove(e.touches[0].clientX);
+          e.preventDefault();
+        }
+      }, { passive: false });
+      el.addEventListener('touchend', (e) => {
+        if (touched && e.changedTouches && e.changedTouches[0]) {
+          touched = false;
+          onEnd(e.changedTouches[0].clientX);
+        }
+      }, { passive: true });
+      el.addEventListener('touchcancel', () => { touched = false; }, { passive: true });
+    };
+    addDrag(shell);
+    dots.forEach((dot) => dot.addEventListener('click', (e) => { e.preventDefault(); page = Number(dot.getAttribute('data-gc-page')) || 0; update(); }));
+    const ro = new ResizeObserver(update);
+    if (shell) ro.observe(shell);
     update();
     wireRotations(host, projectById);
+    wireCardIntro(host);
     wirePopupOpener(host, projectById);
   }
 
@@ -284,92 +372,86 @@
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
-    const gap = 14;
-    const cardWidth = 300 + gap;
-    const perPage = Math.max(1, Math.floor((host.offsetWidth || 800) / cardWidth));
-    const pages = Math.max(1, Math.ceil(selected.length / perPage));
-    const dotsHtml = pages > 1 ? Array.from({ length: pages }, (_, i) => `<button type="button" class="gc-dot" data-gc-full-page="${i}" aria-label="Page ${i + 1}"></button>`).join('') : '';
-    host.innerHTML =
-      `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${selected.map((p) => buildCard(p, 'gc-card--full')).join('')}</div></div>` +
-      (dotsHtml ? `<div class="gc-slider-dots gc-full-dots" role="tablist">${dotsHtml}</div>` : '');
+    const gap = 18;
+    const cardWidth = 420 + gap;
+    let displaySet = selected.slice();
+    const renderTrack = () => displaySet.concat(displaySet).map((p) => buildCard(p, 'gc-card--full')).join('');
+    host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack()}</div></div>`;
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
     let offset = 0;
-    let dragged = false;
     let startX = 0;
     let startOffset = 0;
+    let autoScrollId = null;
+    const setWidth = () => displaySet.length * cardWidth;
+    const cycleReset = () => {
+      track.style.transition = 'none';
+      offset %= setWidth();
+      if (offset < 0) offset += setWidth();
+      displaySet = shuffle(displaySet.slice());
+      track.innerHTML = renderTrack();
+      wireRotations(host, projectById);
+      wireCardIntro(host);
+      requestAnimationFrame(() => { track.style.transition = ''; });
+    };
     const update = () => {
-      const maxO = Math.max(0, (selected.length * cardWidth) - (wrap.offsetWidth || 0));
+      const totalW = setWidth() * 2;
+      const viewW = wrap.offsetWidth || 0;
+      const maxO = Math.max(0, totalW - viewW);
       offset = Math.max(0, Math.min(offset, maxO));
       track.style.transform = `translateX(-${offset}px)`;
-      const dots = host.querySelectorAll('.gc-full-dots .gc-dot');
-      if (dots.length) {
-        const pageIdx = Math.min(pages - 1, Math.round(offset / (perPage * cardWidth)));
-        dots.forEach((d, i) => { d.classList.toggle('active', i === pageIdx); d.setAttribute('aria-selected', i === pageIdx); });
-      }
     };
     const onStart = (x) => {
-      dragged = false;
       startX = x;
       startOffset = offset;
+      if (autoScrollId) { cancelAnimationFrame(autoScrollId); autoScrollId = null; }
     };
     const onMove = (x) => {
-      if (Math.abs(x - startX) > 5) dragged = true;
+      if (Math.abs(x - startX) > 5) window.__gcSuppressNextClick = true;
       offset = startOffset + (startX - x);
       update();
     };
-    const onTap = (x) => {
-      if (dragged) return;
-      const rect = wrap.getBoundingClientRect();
-      if (x - rect.left > rect.width / 2) offset += cardWidth;
-      else offset -= cardWidth;
-      update();
+    const onEnd = () => { if (autoScrollId) return; startAutoScroll(); };
+    const addDrag = (el) => {
+      el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = () => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
+      let touching = false;
+      el.addEventListener('touchstart', (e) => {
+        touching = true;
+        onStart(e.touches[0] ? e.touches[0].clientX : 0);
+      }, { passive: true });
+      el.addEventListener('touchmove', (e) => {
+        if (touching && e.touches[0]) {
+          onMove(e.touches[0].clientX);
+          e.preventDefault();
+        }
+      }, { passive: false });
+      el.addEventListener('touchend', (e) => {
+        if (touching && e.changedTouches && e.changedTouches[0]) { touching = false; onEnd(); }
+      }, { passive: true });
+      el.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     };
-    wrap.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.gc-card')) return;
-      e.preventDefault();
-      onStart(e.clientX);
-      const move = (ev) => onMove(ev.clientX);
-      const up = (ev) => {
-        document.removeEventListener('mousemove', move);
-        document.removeEventListener('mouseup', up);
-        if (!dragged) onTap(ev.clientX);
-      };
-      document.addEventListener('mousemove', move);
-      document.addEventListener('mouseup', up);
-    });
-    let touching = false;
-    wrap.addEventListener('touchstart', (e) => {
-      if (e.target.closest('.gc-card')) return;
-      touching = true;
-      onStart(e.touches[0].clientX);
-    }, { passive: true });
-    wrap.addEventListener('touchmove', (e) => {
-      if (!touching) return;
-      onMove(e.touches[0].clientX);
-      e.preventDefault();
-    }, { passive: false });
-    wrap.addEventListener('touchend', (e) => {
-      if (!touching) return;
-      touching = false;
-      if (e.changedTouches[0] && !dragged) onTap(e.changedTouches[0].clientX);
-    }, { passive: true });
-    wrap.addEventListener('click', (e) => {
-      if (e.target.closest('.gc-card')) return;
-      e.preventDefault();
-    });
-    host.querySelectorAll('.gc-full-dots .gc-dot').forEach((dot) => {
-      dot.addEventListener('click', (e) => {
-        e.preventDefault();
-        const p = Number(dot.getAttribute('data-gc-full-page')) || 0;
-        offset = Math.min(p * perPage * cardWidth, Math.max(0, (selected.length * cardWidth) - (wrap.offsetWidth || 0)));
+    addDrag(wrap);
+    wrap.addEventListener('click', (e) => { if (e.target.closest('.gc-card')) return; e.preventDefault(); });
+    const AUTO_PX_PER_MS = 0.08;
+    const startAutoScroll = () => {
+      const tick = () => {
+        const oneSet = setWidth();
+        const totalW = oneSet * 2;
+        const viewW = wrap.offsetWidth || 0;
+        const maxO = Math.max(0, totalW - viewW);
+        offset += AUTO_PX_PER_MS * 16;
+        if (offset >= oneSet) cycleReset();
         update();
-      });
-    });
+        autoScrollId = requestAnimationFrame(tick);
+      };
+      autoScrollId = requestAnimationFrame(tick);
+    };
+    startAutoScroll();
     wireRotations(host, projectById);
+    wireCardIntro(host);
     wirePopupOpener(host, projectById);
     requestAnimationFrame(update);
-    const ro = new ResizeObserver(update);
+    const ro = new ResizeObserver(() => update());
     ro.observe(wrap);
   }
 
