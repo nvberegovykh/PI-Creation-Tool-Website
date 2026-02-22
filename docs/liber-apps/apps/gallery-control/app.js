@@ -428,6 +428,10 @@
         for (const itemId of (state.projectItemsToRemove || [])) {
           try { await svc.deleteGalleryItem(current.id, itemId); } catch (_) {}
         }
+        const existingToKeep = (state.editingProjectItems || []).filter((i) => !(state.projectItemsToRemove || []).includes(i.id));
+        for (const item of existingToKeep) {
+          try { await svc.updateGalleryItem(current.id, item.id, { isPublished: payload.isPublished }); } catch (_) {}
+        }
         const orders = (state.editingProjectItems || []).map((i) => Number(i.sortOrder) + 1);
         const baseOrder = orders.length ? Math.max(0, ...orders) : 0;
         for (let i = 0; i < mediaFiles.length; i++) {
