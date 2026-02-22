@@ -38,6 +38,9 @@
       this._connRetryTimer = null;
       this._lastRenderSigByConn = new Map();
       this._lastDocIdsByConn = new Map();
+      this._lastOldestDocSnapshotByConn = new Map();
+      this._loadMoreOlderInFlight = false;
+      this._hasMoreOlderByConn = new Map();
       this._lastDayByConn = new Map();
       this._fallbackKeyCandidatesCache = new Map();
       this._voiceWidgets = new Map();
@@ -65,10 +68,6 @@
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
       this._attachmentPreviewMax = 4;
-      this._msgVisibleLimitByConn = new Map();
-      this._lastLoadedConnId = '';
-      this._loadMoreConnId = '';
-      this._loadMoreInProgressByConn = new Set();
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -265,12 +264,7 @@
     formatMessageDay(value, msg = null){
       let d;
       try{
-        const ts = msg?.createdAtTS;
-        let ms = 0;
-        if (ts) {
-          if (typeof ts.toMillis === 'function') ms = Number(ts.toMillis());
-          else if (typeof ts.seconds === 'number' && ts.seconds > 0) ms = ts.seconds * 1000 + (Number(ts.nanoseconds || 0) / 1e6);
-        }
+        const ms = msg ? this.getMessageTimestampMs(msg) : 0;
         if (ms > 0) d = new Date(ms);
         else {
           d = new Date(value || msg?.createdAt || 0);
@@ -286,11 +280,12 @@
           const thatStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
           if (thatStart >= todayStart - 60000) return 'Today';
         }
-        const createdAtFallback = new Date(msg?.createdAt || 0);
-        if (msg?.sender === this.currentUser?.uid && !Number.isNaN(createdAtFallback.getTime())) {
+        const fallbackMs = msg ? this.getMessageTimestampMs(msg) : 0;
+        if (msg?.sender === this.currentUser?.uid && fallbackMs > 0) {
           const now = new Date();
           const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-          const thatStart = new Date(createdAtFallback.getFullYear(), createdAtFallback.getMonth(), createdAtFallback.getDate()).getTime();
+          const thatDate = new Date(fallbackMs);
+          const thatStart = new Date(thatDate.getFullYear(), thatDate.getMonth(), thatDate.getDate()).getTime();
           if (thatStart >= todayStart - 60000) return 'Today';
         }
         if (d.getTime() > nowMs + 60000) d = new Date(nowMs);
@@ -1050,14 +1045,7 @@
         if (!connId || !box) return false;
         const queryId = id.replace(/"/g, '\\"');
         let target = box.querySelector(`[data-msg-id="${queryId}"]`);
-        const pageSize = 50;
-        const maxAttempts = 5;
-        for (let i = 0; !target && i < maxAttempts; i++){
-          const currentLimit = Number(this._msgVisibleLimitByConn.get(connId) || pageSize);
-          const nextLimit = currentLimit + pageSize;
-          this._msgVisibleLimitByConn.set(connId, nextLimit);
-          this._loadMoreConnId = connId;
-          this._loadMoreScrollToMessageId = id;
+        if (!target){
           await this.loadMessages().catch(()=>{});
           await this.yieldToUi();
           target = box.querySelector(`[data-msg-id="${queryId}"]`);
@@ -1087,11 +1075,11 @@
 
       const tabs = document.createElement('div');
       tabs.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px';
-      const tabAll = document.createElement('button'); tabAll.className = 'btn secondary'; tabAll.textContent = 'All';
-      const tabPics = document.createElement('button'); tabPics.className = 'btn secondary'; tabPics.textContent = 'Pictures';
-      const tabVideo = document.createElement('button'); tabVideo.className = 'btn secondary'; tabVideo.textContent = 'Video';
-      const tabAudio = document.createElement('button'); tabAudio.className = 'btn secondary'; tabAudio.textContent = 'Audio';
-      const tabFiles = document.createElement('button'); tabFiles.className = 'btn secondary'; tabFiles.textContent = 'Files';
+      const tabAll = document.createElement('button'); tabAll.className = 'btn secondary'; tabAll.textContent = 'All'; tabAll.dataset.filter = 'all';
+      const tabPics = document.createElement('button'); tabPics.className = 'btn secondary'; tabPics.textContent = 'Pictures'; tabPics.dataset.filter = 'pics';
+      const tabVideo = document.createElement('button'); tabVideo.className = 'btn secondary'; tabVideo.textContent = 'Video'; tabVideo.dataset.filter = 'video';
+      const tabAudio = document.createElement('button'); tabAudio.className = 'btn secondary'; tabAudio.textContent = 'Audio'; tabAudio.dataset.filter = 'audio';
+      const tabFiles = document.createElement('button'); tabFiles.className = 'btn secondary'; tabFiles.textContent = 'Files'; tabFiles.dataset.filter = 'files';
       [tabAll, tabPics, tabVideo, tabAudio, tabFiles].forEach((b)=> tabs.appendChild(b));
       panel.appendChild(tabs);
 
@@ -1121,14 +1109,25 @@
         return key;
       };
 
+      const typeOrder = { pics: 0, video: 1, audio: 2, files: 3 };
       const renderList = async (rows, kind = 'all')=>{
         grid.innerHTML = '';
         markActive(kind);
-        const filtered = rows.filter((r)=> kind === 'all' ? true : categoryOf(String(r.fileName || '')) === kind);
+        let filtered = rows.filter((r)=> kind === 'all' ? true : categoryOf(String(r.fileName || '')) === kind);
+        filtered = filtered.slice().sort((a, b)=>{
+          const catA = categoryOf(String(a.fileName || ''));
+          const catB = categoryOf(String(b.fileName || ''));
+          const ia = typeOrder[catA] ?? 4;
+          const ib = typeOrder[catB] ?? 4;
+          if (ia !== ib) return ia - ib;
+          const ta = Number(a?.createdAtTS?.toMillis?.() || 0) || Number(new Date(a?.createdAt || 0).getTime() || 0) || 0;
+          const tb = Number(b?.createdAtTS?.toMillis?.() || 0) || Number(new Date(b?.createdAt || 0).getTime() || 0) || 0;
+          return tb - ta;
+        });
         if (!filtered.length){
           const empty = document.createElement('div');
-          empty.style.cssText = 'opacity:.75;padding:8px';
-          empty.textContent = 'No attachments in this chat.';
+          empty.style.cssText = 'opacity:.75;padding:8px;grid-column:1/-1';
+          empty.textContent = kind === 'all' ? 'No attachments in this chat.' : `No ${kind} in this chat.`;
           grid.appendChild(empty);
           return;
         }
@@ -1162,13 +1161,15 @@
       loading.textContent = 'Loading attachments...';
       grid.appendChild(loading);
 
+      let currentRows = [];
+      tabs.addEventListener('click', (e)=>{
+        const btn = e.target?.closest?.('button');
+        if (!btn || !btn.dataset.filter) return;
+        renderList(currentRows, btn.dataset.filter);
+      });
       this.loadCurrentChatAttachments(320).then(async (rows)=>{
+        currentRows = rows;
         await renderList(rows, 'all');
-        tabAll.onclick = ()=> renderList(rows, 'all');
-        tabPics.onclick = ()=> renderList(rows, 'pics');
-        tabVideo.onclick = ()=> renderList(rows, 'video');
-        tabAudio.onclick = ()=> renderList(rows, 'audio');
-        tabFiles.onclick = ()=> renderList(rows, 'files');
       }).catch(()=>{
         grid.innerHTML = '<div style="opacity:.75;padding:8px">Failed to load attachments.</div>';
       });
@@ -2552,7 +2553,6 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
-      this._loadMoreInProgressByConn?.clear();
       this.clearPendingAttachments();
       try{
         const pendingShared = this.takePendingSharedAssetsForConn(this.activeConnection);
@@ -2560,10 +2560,6 @@
       }catch(_){ }
       // Drop stale heavy preview tasks from previous chat to keep switching stable.
       this._attachmentPreviewQueue = [];
-      this._lastLoadedConnId = this.activeConnection || '';
-      if (!this._msgVisibleLimitByConn.has(this.activeConnection)){
-        this._msgVisibleLimitByConn.set(this.activeConnection, 50);
-      }
       try{ localStorage.setItem('liber_last_chat_conn', this.activeConnection || ''); }catch(_){ }
       // Never block switching on metadata fetch; render immediately from cached connection data.
       let activeConnData = (this.connections || []).find((c)=> c && c.id === this.activeConnection) || null;
@@ -2607,6 +2603,7 @@
         const box = document.getElementById('messages');
         if (box){
           box.dataset.renderedConnId = '';
+          this._lastDayByConn?.delete(resolvedConnId || connId);
           box.innerHTML = '<div style="opacity:.75;padding:10px 2px">Loading messages…</div>';
         }
       }catch(_){ }
@@ -2733,18 +2730,7 @@
         return;
       }
       const activeConnId = this.activeConnection;
-      const pageSize = 50;
-      const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;
-      if (loadMoreRequestedAtStart){
-        this._suppressLivePatchUntilByConn.set(activeConnId, Date.now() + 2000);
-      }
-      if (this._lastLoadedConnId !== activeConnId){
-        this._lastLoadedConnId = activeConnId;
-        if (!this._msgVisibleLimitByConn.has(activeConnId)){
-          this._msgVisibleLimitByConn.set(activeConnId, pageSize);
-        }
-      }
-      const visibleLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize);
+      const visibleLimit = 500;
       const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
       const readMarkerMs = this.getEffectiveReadMarkerForConn(activeConnId, activeConnData);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
@@ -2779,23 +2765,69 @@
         const canShow = box.childElementCount > 5;
         toBottomBtn.style.display = (!pinned && canShow) ? 'inline-block' : 'none';
       };
-      const ensureLoadMoreAnchor = ()=>{
+      const maybeLoadOlder = async ()=>{
+        const connId = this.activeConnection;
+        if (this._loadMoreOlderInFlight || !connId) return;
+        if (!this._hasMoreOlderByConn.get(connId)) return;
+        const lastDoc = this._lastOldestDocSnapshotByConn.get(connId);
+        if (!lastDoc) return;
+        const nearTop = box.scrollHeight - box.clientHeight - box.scrollTop <= 120;
+        if (!nearTop) return;
+        if (box.dataset.renderedConnId !== connId) return;
+        this._loadMoreOlderInFlight = true;
         try{
-          const wrap = box.querySelector('.msg-load-more-wrap');
-          if (!wrap) return;
-          const isReverse = String(getComputedStyle(box).flexDirection || '').toLowerCase().includes('reverse');
-          if (isReverse){
-            if (box.lastElementChild !== wrap) box.appendChild(wrap);
-          }else{
-            if (box.firstElementChild !== wrap) box.insertBefore(wrap, box.firstElementChild);
+          let qOlder;
+          try{
+            qOlder = firebase.query(
+              firebase.collection(this.db,'chatMessages',connId,'messages'),
+              firebase.orderBy('createdAtTS','desc'),
+              firebase.limit(200),
+              firebase.startAfter(lastDoc)
+            );
+          }catch(_){
+            qOlder = firebase.query(
+              firebase.collection(this.db,'chatMessages',connId,'messages'),
+              firebase.orderBy('createdAt','desc'),
+              firebase.limit(200),
+              firebase.startAfter(lastDoc)
+            );
           }
-          wrap.style.visibility = '';
-          wrap.classList.add('msg-load-more-visible');
-        }catch(_){ }
+          const snapOlder = await firebase.getDocs(qOlder);
+          const rawOlder = snapOlder.docs || [];
+          if (rawOlder.length === 0){
+            this._hasMoreOlderByConn.set(connId, false);
+            return;
+          }
+          this._lastOldestDocSnapshotByConn.set(connId, rawOlder[rawOlder.length - 1]);
+          this._hasMoreOlderByConn.set(connId, rawOlder.length >= 200);
+          const prevScrollTop = box.scrollTop;
+          const prevScrollHeight = box.scrollHeight;
+          const appendContext = { lastRenderedDay: '' };
+          const lastMsgEl = box.lastElementChild?.classList?.contains('message') ? box.lastElementChild : null;
+          if (lastMsgEl?.dataset?.msgTs){
+            const ts = Number(lastMsgEl.dataset.msgTs || 0);
+            if (ts) appendContext.lastRenderedDay = this.formatMessageDay({ createdAt: new Date(ts) }, {});
+          }
+          const olderAsDocs = rawOlder.map((d)=> ({ id: d.id, data: d.data ? d.data() : {}, sourceConnId: connId }));
+          const renderOne = currentRenderOneForLoadMore;
+          if (!renderOne) return;
+          for (let i = olderAsDocs.length - 1; i >= 0; i--){
+            const d = olderAsDocs[i];
+            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== connId) break;
+            try{ await renderOne(d, connId, { forceAppend: true, appendContext }); }catch(_){}
+            if ((olderAsDocs.length - 1 - i) % 3 === 2) await this.yieldToUi();
+          }
+          const heightAdded = box.scrollHeight - prevScrollHeight;
+          box.scrollTop = prevScrollTop + heightAdded;
+          this.applyNewMessagesSeparator(box);
+        }finally{ this._loadMoreOlderInFlight = false; }
       };
       if (!box._bottomUiBound){
         box._bottomUiBound = true;
-        box.addEventListener('scroll', updateBottomUi, { passive: true });
+        box.addEventListener('scroll', ()=>{
+          updateBottomUi();
+          if (loadFinished && !this._loadMoreOlderInFlight) maybeLoadOlder();
+        }, { passive: true });
         window.addEventListener('resize', placeToBottomBtn, { passive: true });
         toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = 0; updateBottomUi(); });
       }
@@ -2881,6 +2913,7 @@
           }catch(_){ return []; }
         };
         const normalizeDocTime = (m)=> this.getMessageTimestampMs(m);
+        let currentRenderOneForLoadMore = null;
         const handleSnap = async (snap, fromLive = false)=>{
           try{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -2947,7 +2980,7 @@
                 const canModify = m.sender === this.currentUser.uid;
                 const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
                 const dayLabel = this.formatMessageDay(m.createdAt, m);
-                if (dayLabel !== lastRenderedDay){ if (lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = lastRenderedDay; box.insertBefore(sep, box.firstElementChild); } lastRenderedDay = dayLabel; }
+                if (dayLabel !== lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = dayLabel; box.insertBefore(sep, box.firstElementChild); lastRenderedDay = dayLabel; }
                 const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
                 const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
                 const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
@@ -3052,11 +3085,9 @@
             this._lastRenderSigByConn.set(activeConnId, sig);
             const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
-            const forceFullRender = this._loadMoreConnId === activeConnId;
-            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch) && !forceFullRender;
+            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch);
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
-            let moreWrap = null;
             if (!appendOnly){
               if (isFirstPaint){
                 box.innerHTML='';
@@ -3066,43 +3097,10 @@
               }
               lastRenderedDay = '';
               this._voiceWidgets.clear();
-              const hasMore = (docsPrimary.length >= visibleLimit);
-              if (hasMore){
-                moreWrap = document.createElement('div');
-                moreWrap.className = 'msg-load-more-wrap msg-load-more-visible';
-                const moreBtn = document.createElement('button');
-                moreBtn.className = 'btn secondary msg-load-more-btn';
-                moreBtn.textContent = `Load ${pageSize} more`;
-                moreBtn.onclick = ()=>{
-                  if (this._loadMoreInProgressByConn.has(activeConnId)) return;
-                  this._loadMoreInProgressByConn.add(activeConnId);
-                  moreBtn.disabled = true;
-                  moreBtn.classList.add('loading');
-                  moreBtn.textContent = 'Loading...';
-                  const msgs = box.querySelectorAll('.message');
-                  const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
-                  this._loadMoreAnchorId = lastMsg?.getAttribute('data-msg-id') || undefined;
-                  const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
-                  this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
-                  this._loadMoreConnId = activeConnId;
-                  this.loadMessages()
-                    .catch(()=>{})
-                    .finally(()=>{
-                      this._loadMoreInProgressByConn.delete(activeConnId);
-                      const w = box?.querySelector('.msg-load-more-wrap');
-                      const b = w?.querySelector('.msg-load-more-btn');
-                      if (b){
-                        b.disabled = false;
-                        b.classList.remove('loading');
-                        b.textContent = `Load ${pageSize} more`;
-                      }
-                    });
-                };
-                moreWrap.appendChild(moreBtn);
-              }
             }
             const renderOne = async (d, sourceConnId = activeConnId, opts = {})=>{
               const forceInsertBefore = !!opts.forceInsertBefore;
+              const forceAppend = !!opts.forceAppend;
               const replaceEl = opts.replaceEl || null;
               if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
               const m=(typeof d.data === 'function' ? d.data() : d.data) || {};
@@ -3183,15 +3181,16 @@
               const canModify = m.sender === this.currentUser.uid;
               const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
               const dayLabel = this.formatMessageDay(m.createdAt, m);
-              if (dayLabel !== lastRenderedDay){
-                if (lastRenderedDay){
-                  const sep = document.createElement('div');
-                  sep.className = 'message-day-separator';
-                  sep.textContent = lastRenderedDay;
-                  if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
-                  else renderTarget.appendChild(sep);
-                }
-                lastRenderedDay = dayLabel;
+              const effectiveLastDay = forceAppend && opts.appendContext ? opts.appendContext.lastRenderedDay : lastRenderedDay;
+              if (dayLabel !== effectiveLastDay){
+                const sep = document.createElement('div');
+                sep.className = 'message-day-separator';
+                sep.textContent = dayLabel;
+                if (forceAppend) box.appendChild(sep);
+                else if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
+                else renderTarget.appendChild(sep);
+                if (forceAppend && opts.appendContext) opts.appendContext.lastRenderedDay = dayLabel;
+                else lastRenderedDay = dayLabel;
               }
               const systemBadge = m.systemType === 'connection_request_intro' ? '<span class="system-chip">Connection request</span>' : '';
               const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
@@ -3208,6 +3207,8 @@
               el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${senderStr2} · ${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
+              } else if (forceAppend){
+                box.appendChild(el);
               } else if (appendOnly || forceInsertBefore){
                 box.insertBefore(el, box.firstElementChild);
               }else{
@@ -3299,6 +3300,7 @@
                 shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
               }
           };
+          currentRenderOneForLoadMore = renderOne;
           // docChanges incremental: add/modify/remove only – no full reload. New messages pop in smoothly.
           let changes = [];
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
@@ -3310,7 +3312,6 @@
             && extraIdsInit.length === 0
             && changes.length > 0
             && !alreadyHaveAll
-            && this._loadMoreConnId !== activeConnId
             && Date.now() >= suppressUntilVal;
           if (useDocChanges){
             let didMutate = false;
@@ -3346,7 +3347,6 @@
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
             if (pinnedBefore) box.scrollTop = 0;
             else box.scrollTop = prevTop;
-            ensureLoadMoreAnchor();
             updateBottomUi();
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
@@ -3368,49 +3368,25 @@
               await this.yieldToUi();
             }
           }
-          if (!appendOnly && lastRenderedDay){
-            const sep = document.createElement('div');
-            sep.className = 'message-day-separator';
-            sep.textContent = lastRenderedDay;
-            renderTarget.appendChild(sep);
-          }
-          if (!appendOnly && moreWrap){ renderTarget.appendChild(moreWrap); }
           if (!appendOnly && renderTarget !== box){
             box.innerHTML = '';
             while (renderTarget.firstChild){
               box.appendChild(renderTarget.firstChild);
             }
           }
-          ensureLoadMoreAnchor();
-          const isLoadMore = this._loadMoreConnId === activeConnId;
-          const anchorId = this._loadMoreAnchorId;
-          const skipScrollForJump = !!this._loadMoreScrollToMessageId;
-          this._loadMoreConnId = '';
-          this._loadMoreAnchorId = undefined;
-          this._loadMoreScrollToMessageId = undefined;
-          if (!isLoadMore){
-            while (box.childElementCount > 220){
-              const last = box.lastElementChild;
-              const toRemove = last?.classList?.contains('msg-load-more-wrap') ? box.children[box.children.length - 2] : last;
-              if (toRemove) box.removeChild(toRemove);
-            }
+          while (box.childElementCount > 2000){
+            const last = box.lastElementChild;
+            if (last) box.removeChild(last);
           }
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
+          const rawDocs = snap.docs || [];
+          if (rawDocs.length > 0){
+            this._lastOldestDocSnapshotByConn.set(activeConnId, rawDocs[rawDocs.length - 1]);
+            this._hasMoreOlderByConn.set(activeConnId, rawDocs.length >= visibleLimit);
+          }
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
-          if (isLoadMore && !appendOnly && !skipScrollForJump){
-            const anchorEl = anchorId ? box.querySelector('[data-msg-id="' + String(anchorId).replace(/"/g, '\\"') + '"]') : null;
-            if (anchorEl?.isConnected){
-              const prevBehavior = box.style.scrollBehavior;
-              box.style.scrollBehavior = 'auto';
-              anchorEl.scrollIntoView({ block: 'start', behavior: 'auto', inline: 'nearest' });
-              box.style.scrollBehavior = prevBehavior;
-            } else if (pinnedBefore){
-              box.scrollTop = 0;
-            } else {
-              box.scrollTop = prevTop;
-            }
-          } else if (pinnedBefore){
+          if (pinnedBefore){
             box.scrollTop = 0;
           }else{
             box.scrollTop = prevTop;
@@ -3439,14 +3415,12 @@
           }
         };
         const scheduleLiveSnap = (snap)=>{
-          if (this._loadMoreInProgressByConn?.has(activeConnId)) return;
           if (Date.now() < Number(this._suppressLivePatchUntilByConn?.get(activeConnId) || 0)) return;
           pendingLiveSnaps.length = 0;
           pendingLiveSnaps.push(snap);
           if (this._scheduleLiveSnapTimer) clearTimeout(this._scheduleLiveSnapTimer);
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
-            if (this._loadMoreInProgressByConn?.has(activeConnId)) return;
             processLiveSnap().catch(()=>{});
           }, 200);
         };
@@ -3464,7 +3438,6 @@
             q,
             (snap)=>{
               if (!loadFinished) return;
-              if (this._loadMoreInProgressByConn?.has(activeConnId) || this._loadMoreConnId === activeConnId) return;
               this._liveSnapshotPrimedByConn.set(activeConnId, true);
               scheduleLiveSnap(snap);
             },
@@ -3530,7 +3503,7 @@
           const q = firebase.query(
             firebase.collection(this.db,'chatMessages',activeConnId,'messages'),
             firebase.orderBy('createdAt','desc'),
-            firebase.limit(Math.max(visibleLimit, 50))
+            firebase.limit(500)
           );
           const snap = await firebase.getDocs(q);
           if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
@@ -3689,6 +3662,11 @@
           }
           box.scrollTop = 0;
           box.dataset.renderedConnId = activeConnId;
+          const rawFallback = snap.docs || [];
+          if (rawFallback.length > 0){
+            this._lastOldestDocSnapshotByConn.set(activeConnId, rawFallback[rawFallback.length - 1]);
+            this._hasMoreOlderByConn.set(activeConnId, rawFallback.length >= 500);
+          }
           updateBottomUi();
           this.applyNewMessagesSeparator(box);
         }catch(e){
@@ -3892,7 +3870,9 @@
                   ? `<div class="post-media-files-item shared-audio-waveconnect"><div class="post-media-audio-head">${cover ? `<img src="${this.renderText(cover)}" alt="cover" class="post-media-audio-cover" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${title}</span>${by ? `<span class="post-media-audio-by">by ${by}</span>` : ''}</div></div><audio class="liber-lib-audio" src="${this.renderText(url)}" style="display:none" data-title="${this.renderText(title)}" data-by="${this.renderText(by)}" data-cover="${this.renderText(cover)}"></audio><div class="wave-item-audio-host" style="margin-top:6px"></div></div>`
                   : `<div style="display:flex;gap:10px;align-items:center">${cover ? `<img src="${this.renderText(cover)}" alt="${title}" style="width:56px;height:56px;border-radius:8px;object-fit:cover">` : ''}<audio src="${this.renderText(url)}" controls style="width:100%"></audio></div>`));
         const titleBy = (kind === 'video' || kind === 'image' || kind === 'picture') ? header : '';
-        const actions = `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div>`;
+        const actions = kind === 'audio'
+          ? `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-asset-add-btn btn secondary" style="padding:4px 10px" title="Add to library"><i class="fas fa-plus"></i></button></div>`
+          : `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div>`;
         return `<div class="shared-asset-card shared-asset-waveconnect" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520">${titleBy}${visual}${actions}</div>`;
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
@@ -4151,15 +4131,14 @@
           if (audioEl && hostEl){
             const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
             if (dm && typeof dm.attachWaveAudioUI === 'function'){
-              dm.attachWaveAudioUI(audioEl, hostEl, { hideNative: true });
+              try{ dm.attachWaveAudioUI(audioEl, hostEl, { hideNative: true }); }catch(_){ hostEl.innerHTML = ''; this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), ''); }
             } else {
-              audioEl.controls = true;
-              audioEl.style.display = 'block';
-              audioEl.style.width = '100%';
-              audioEl.style.marginTop = '6px';
-              hostEl.style.display = 'none';
+              hostEl.innerHTML = '';
+              this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), '');
             }
             audioEl.addEventListener('play', ()=> this.notifyParentAudioPlay(audioEl), { once: false });
+            const addBtn = root.querySelector('.shared-asset-add-btn');
+            if (addBtn) addBtn.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src: url, title: String(a.title || a.name || 'Audio'), author: String(a.by || a.authorName || ''), sourceKey: '' }); }catch(_){ } };
           }
         }
         root.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
@@ -5920,14 +5899,8 @@
     }
 
     renderWaveAttachment(containerEl, url, fileName, sourceKey = ''){
-      const safeTitle = String(fileName || 'Voice message').trim();
       const wrapper = document.createElement('div');
       wrapper.className = 'voice-wave-player';
-      const titleEl = document.createElement('div');
-      titleEl.className = 'voice-wave-title';
-      titleEl.textContent = safeTitle;
-      titleEl.style.cssText = 'font-size:12px;opacity:.9;margin-bottom:4px';
-      wrapper.appendChild(titleEl);
       const playBtn = document.createElement('button');
       playBtn.className = 'play';
       playBtn.innerHTML = '<i class="fas fa-play"></i>';
@@ -6258,7 +6231,11 @@
       const safeAuthor = String(authorName || 'Unknown');
       const wrap = document.createElement('div');
       wrap.className = 'audio-attachment-block post-media-files-item shared-audio-waveconnect';
-      const coverFallback = '<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'audio-attachment-head';
+      nameEl.style.cssText = 'margin-bottom:6px';
+      nameEl.innerHTML = `<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div>`;
+      wrap.appendChild(nameEl);
       const audio = document.createElement('audio');
       audio.className = 'liber-lib-audio';
       audio.src = src;
@@ -6266,34 +6243,80 @@
       audio.style.display = 'none';
       audio.dataset.title = safeName;
       audio.dataset.by = safeAuthor;
+      audio.preload = 'metadata';
       audio.addEventListener('play', ()=> this.notifyParentAudioPlay(audio), { once: false });
-      const hostEl = document.createElement('div');
-      hostEl.className = 'wave-item-audio-host';
-      hostEl.style.marginTop = '6px';
-      wrap.innerHTML = `<div class="post-media-audio-head">${coverFallback}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div></div>`;
-      wrap.appendChild(audio);
-      wrap.appendChild(hostEl);
-      const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
-      if (dm && typeof dm.attachWaveAudioUI === 'function'){
-        dm.attachWaveAudioUI(audio, hostEl, { hideNative: true });
-      } else {
-        audio.controls = true;
-        audio.style.display = 'block';
-        audio.style.width = '100%';
-        audio.style.marginTop = '6px';
-        hostEl.style.display = 'none';
-      }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'voice-wave-player';
+      wrapper.style.cssText = 'display:flex;align-items:center;gap:8px';
+      const playBtn = document.createElement('button');
+      playBtn.className = 'play';
+      playBtn.innerHTML = '<i class="fas fa-play"></i>';
+      playBtn.title = 'Play';
+      const wave = document.createElement('div');
+      wave.className = 'wave';
+      const time = document.createElement('div');
+      time.className = 'time';
+      time.textContent = '0:00 / 0:00';
       const addBtn = document.createElement('button');
       addBtn.type = 'button';
-      addBtn.className = 'btn secondary';
-      addBtn.style.marginTop = '6px';
+      addBtn.className = 'play';
+      addBtn.style.cssText = 'width:28px;height:28px;flex-shrink:0';
       addBtn.innerHTML = '<i class="fas fa-plus"></i>';
-      addBtn.title = 'Add to playlist';
-      addBtn.onclick = (e)=>{
-        try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor, sourceKey }); }catch(_){ }
+      addBtn.title = 'Add to library';
+      const seed = String(safeName || src || 'audio');
+      const barsCount = 54;
+      this.paintSeedWaveBars(wave, barsCount, seed);
+      this.getWaveHeightsForAudio(src, barsCount).then((heights)=>{
+        if (Array.isArray(heights) && heights.length) this.applyWaveHeights(wave, heights);
+      }).catch(()=>{});
+      const sync = ()=>{
+        const d = Number(audio.duration || 0);
+        const c = Number(audio.currentTime || 0);
+        const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
+        const bars = wave.querySelectorAll('.bar');
+        const played = Math.round(bars.length * ratio);
+        bars.forEach((b, i)=> b.classList.toggle('played', i < played));
+        playBtn.innerHTML = `<i class="fas ${audio.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+        playBtn.title = audio.paused ? 'Play' : 'Stop';
+        time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
       };
-      wrap.appendChild(addBtn);
+      ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
+      playBtn.addEventListener('click', (e)=>{
+        try{ e.stopPropagation(); }catch(_){ }
+        if (audio.paused){
+          const p = this.ensureChatBgPlayer();
+          if (p && !p.paused){ p.pause(); try{ p.removeAttribute('src'); p.load(); }catch(_){ } }
+          this.pauseOtherInlineMedia(audio);
+          audio.play().catch(()=>{});
+          this.notifyParentAudioPlay(audio);
+        }else{
+          audio.pause();
+        }
+        sync();
+      });
+      const seekTo = (clientX)=>{
+        const rect = wave.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        if (Number(audio.duration) > 0) audio.currentTime = ratio * audio.duration;
+        if (audio.paused){ this.pauseOtherInlineMedia(audio); audio.play().catch(()=>{}); }
+        sync();
+      };
+      wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekTo(e.clientX); });
+      let dragging = false;
+      wave.addEventListener('pointerdown', (e)=>{ dragging = true; wave.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+      wave.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+      wave.addEventListener('pointerup', (e)=>{ dragging = false; try{ wave.releasePointerCapture(e.pointerId); }catch(_){ } });
+      addBtn.addEventListener('click', (e)=>{
+        try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src, title: safeName, author: safeAuthor, sourceKey }); }catch(_){ }
+      });
+      wrapper.appendChild(playBtn);
+      wrapper.appendChild(wave);
+      wrapper.appendChild(time);
+      wrapper.appendChild(addBtn);
+      wrap.appendChild(audio);
+      wrap.appendChild(wrapper);
       containerEl.appendChild(wrap);
+      sync();
     }
 
     renderInlineWaveAudio(hostEl, url, title = 'Audio', sourceKey = ''){
