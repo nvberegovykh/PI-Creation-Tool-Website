@@ -48,6 +48,7 @@
       this._voiceCurrentAttachmentKey = '';
       this._voiceCurrentTitle = 'Voice message';
       this._voiceUserIntendedPlay = false;
+      this._voiceLastToggleAt = 0;
       this._voiceWaveCache = new Map();
       this._voiceDurationCache = new Map();
       this._voiceWaveCtx = null;
@@ -1824,11 +1825,13 @@
         const playerSrc = this.getChatPlayerSrc(p);
         const m = this._topMediaEl;
         if (playerSrc){
-          if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
-          else{
-            this._voiceUserIntendedPlay = false;
-            p.pause();
-          }
+          this.toggleChatAudioPlayback({
+            src: playerSrc,
+            title: this._voiceCurrentTitle || 'Audio',
+            by: '',
+            cover: '',
+            sourceKey: this._voiceCurrentAttachmentKey || ''
+          });
         } else if (m && m.isConnected){
           if (m.paused){ this._voiceUserIntendedPlay = true; m.play().catch(()=>{}); }
           else{
@@ -2733,6 +2736,8 @@
                   // Keep active chat stable; do not re-open chat on every profile update.
                 }catch(_){ }
               }
+            }, (err)=>{
+              if (err?.code === 'permission-denied') return;
             });
             if (this.userUnsubs) this.userUnsubs.set(uid, unsub);
           }catch(_){ }
@@ -6437,6 +6442,9 @@
 
     toggleChatAudioPlayback(opts = {}){
       try{
+        const now = Date.now();
+        if ((now - Number(this._voiceLastToggleAt || 0)) < 90) return { state: 'throttled', sameTrack: false };
+        this._voiceLastToggleAt = now;
         const src = String(opts.src || opts.url || '').trim();
         if (!src) return { state: 'idle', sameTrack: false };
         const sourceKey = String(opts.sourceKey || '').trim();
