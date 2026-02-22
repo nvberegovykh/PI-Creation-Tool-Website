@@ -34,6 +34,7 @@
       this._relayRetryForCall = new Set();
       this._lastCallStatePushAt = 0;
       this._lastCallStateSpeakerUid = '';
+      this._lastCallStateStatus = 'idle';
       this._autoResumeBySpeech = false;
       this._playbackUnlockBound = false;
       this._userInteractedForPlayback = false;
@@ -1677,16 +1678,16 @@
       this._bindServiceWorkerCallActions();
       // One room-call entry point (camera/screen stay off until user enables them)
       const callRoomBtn = document.getElementById('call-room-btn');
-      if (callRoomBtn) callRoomBtn.addEventListener('click', ()=> this.enterRoom(false));
+      if (callRoomBtn) callRoomBtn.addEventListener('click', ()=> this.joinOrStartCall());
       // Backward-compatible fallback for older markup
-      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom(false));
-      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(false));
+      const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.joinOrStartCall());
+      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.joinOrStartCall());
       const attachSheetBtn = document.getElementById('chat-attachments-btn'); if (attachSheetBtn) attachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const mobileCallRoomBtn = document.getElementById('mobile-call-room-btn');
-      if (mobileCallRoomBtn) mobileCallRoomBtn.addEventListener('click', ()=> this.enterRoom(false));
-      const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
-      const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(false));
+      if (mobileCallRoomBtn) mobileCallRoomBtn.addEventListener('click', ()=> this.joinOrStartCall());
+      const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.joinOrStartCall());
+      const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.joinOrStartCall());
       const mobileAttachSheetBtn = document.getElementById('mobile-chat-attachments-btn'); if (mobileAttachSheetBtn) mobileAttachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
@@ -7757,6 +7758,10 @@
         const state = String(payload?.state || '');
         const speakerUid = String(payload?.speakerUid || '');
         const now = Date.now();
+        if (state && state === this._lastCallStateStatus && (state === 'active' || state === 'idle')) {
+          // Avoid continuous re-notification churn while speaker changes.
+          return;
+        }
         if (state === 'active'){
           const sameSpeaker = speakerUid === this._lastCallStateSpeakerUid;
           if (sameSpeaker && (now - this._lastCallStatePushAt) < 12000) return;
@@ -7769,11 +7774,13 @@
         const msg = { type: 'call-state', payload: payload || {} };
         if (navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage(msg);
+          this._lastCallStateStatus = state || this._lastCallStateStatus;
           return;
         }
         navigator.serviceWorker.getRegistration().then((reg)=>{
           try{ if (reg && reg.active) reg.active.postMessage(msg); }catch(_){}
         }).catch(()=>{});
+        this._lastCallStateStatus = state || this._lastCallStateStatus;
       }catch(_){ }
     }
 
@@ -8242,6 +8249,11 @@
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
     const conn = connSnap.data() || {};
     const participants = (conn.participants||[]).filter(Boolean).filter(uid => uid !== this.currentUser.uid);
+    console.log('[call] startMultiCall', { callId, callConnId, participantCount: participants.length, participants });
+    if (!participants.length){
+      if (statusEl) statusEl.textContent = 'Waiting for others to join...';
+      return;
+    }
     if (participants.length + 1 > 8) {
       alert('Max 8 users per room');
       return;
@@ -8514,6 +8526,7 @@
       }
     }
     const offer = offerDoc.data();
+    console.log('[call] joinMultiCall', { callId, callConnId, fromUid: offer?.fromUid || null });
     const peerUid = offer.fromUid;
 
     const pc = new RTCPeerConnection({
