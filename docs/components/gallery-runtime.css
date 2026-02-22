@@ -51,6 +51,7 @@
 .gc-single-shell {
   width: 90%;
   min-width: 280px;
+  max-width: 1100px;
   margin: 0 auto;
   overflow: hidden;
 }
@@ -58,7 +59,8 @@
 @media (min-width: 769px) {
   .gc-single-shell {
     width: 95%;
-    min-width: 900px;
+    min-width: 600px;
+    max-width: 1100px;
   }
 }
 
@@ -268,8 +270,8 @@ body.gc-popup-open {
   border-radius: 14px;
   background: #0b1220;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  display: grid;
-  grid-template-rows: minmax(260px, 45vh) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
 }
 
 .gc-popup-media {
@@ -277,6 +279,7 @@ body.gc-popup-open {
   background: #070b14;
   overflow: hidden;
   min-height: 260px;
+  flex-shrink: 0;
   display: flex;
 }
 
@@ -314,11 +317,24 @@ body.gc-popup-open {
   padding: 16px;
   overflow-y: auto;
   overflow-x: hidden;
+  flex: 1 1 auto;
   min-height: 0;
   max-height: 45vh;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
   overscroll-behavior-y: contain;
+}
+
+@media (max-width: 768px) {
+  .gc-popup-body {
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: 45vh;
+    overflow-y: scroll;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overflow-x: hidden;
+  }
 }
 
 .gc-popup-dots {

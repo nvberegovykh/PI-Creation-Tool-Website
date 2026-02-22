@@ -4,7 +4,10 @@
 
   function init() {
     const container = document.querySelector('.navbar-interactive-container');
-    if (!container) return;
+    if (!container) {
+      setTimeout(init, 100);
+      return;
+    }
     let lastY = window.scrollY || 0;
     let ticking = false;
 

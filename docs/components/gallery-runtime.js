@@ -319,11 +319,13 @@
     let startX = 0;
     let startPage = 0;
     let didDrag = false;
+    const MAX_SLIDE_WIDTH = 1100;
     const update = () => {
       page = Math.max(0, Math.min(page, selected.length - 1));
-      const slideWidth = shell ? shell.offsetWidth : 400;
+      const rawWidth = shell && shell.offsetWidth > 0 ? shell.offsetWidth : (typeof window !== 'undefined' ? Math.min(900, window.innerWidth || 900) : 600);
+      const slideWidth = Math.min(MAX_SLIDE_WIDTH, rawWidth);
       track.style.width = `${selected.length * slideWidth}px`;
-      track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${slideWidth}px`; s.style.minWidth = `${slideWidth}px`; });
+      track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${slideWidth}px`; s.style.minWidth = `${slideWidth}px`; s.style.maxWidth = `${slideWidth}px`; });
       track.style.transform = `translateX(-${page * slideWidth}px)`;
       dots.forEach((d, i) => { d.classList.toggle('active', i === page); d.setAttribute('aria-selected', i === page); });
     };
@@ -369,6 +371,7 @@
     const ro = new ResizeObserver(update);
     if (shell) ro.observe(shell);
     update();
+    requestAnimationFrame(() => requestAnimationFrame(update));
     wireRotations(host, projectById);
     wireCardIntro(host);
     wirePopupOpener(host, projectById);
