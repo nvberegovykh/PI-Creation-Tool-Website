@@ -3512,15 +3512,12 @@ class DashboardManager {
         navBtns.forEach(btn => {
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
-            newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
+            if (newBtn.dataset.action === 'open-chat') {
+                newBtn.addEventListener('click', openChatApp);
+            } else {
+                newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
+            }
         });
-
-        const chatBtn = document.getElementById('dashboard-chat-btn');
-        if (chatBtn) {
-            const c = chatBtn.cloneNode(true);
-            chatBtn.parentNode.replaceChild(c, chatBtn);
-            c.addEventListener('click', openChatApp);
-        }
 
         // Mobile navigation buttons
         const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
@@ -3529,6 +3526,8 @@ class DashboardManager {
             btn.parentNode.replaceChild(newBtn, btn);
             if (newBtn.id === 'mobile-wall-e-btn') {
                 newBtn.addEventListener('click', () => this.toggleWallEWidget());
+            } else if (newBtn.dataset.action === 'open-chat') {
+                newBtn.addEventListener('click', openChatApp);
             } else {
                 newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
             }
@@ -6331,16 +6330,18 @@ class DashboardManager {
         try{
             const raw = localStorage.getItem('liber_chat_unread_count');
             const count = raw ? parseInt(raw, 10) : 0;
-            const badge = document.getElementById('dashboard-chat-unread-badge');
-            if (!badge) return;
-            if (Number.isFinite(count) && count > 0){
-                badge.textContent = String(count > 99 ? '99+' : count);
-                badge.classList.remove('hidden');
-                badge.removeAttribute('aria-hidden');
-            } else {
-                badge.classList.add('hidden');
-                badge.setAttribute('aria-hidden', 'true');
-            }
+            ['dashboard-chat-unread-badge', 'dashboard-chat-unread-badge-mobile'].forEach(id=>{
+                const badge = document.getElementById(id);
+                if (!badge) return;
+                if (Number.isFinite(count) && count > 0){
+                    badge.textContent = String(count > 99 ? '99+' : count);
+                    badge.classList.remove('hidden');
+                    badge.removeAttribute('aria-hidden');
+                } else {
+                    badge.classList.add('hidden');
+                    badge.setAttribute('aria-hidden', 'true');
+                }
+            });
         }catch(_){ }
     }
 

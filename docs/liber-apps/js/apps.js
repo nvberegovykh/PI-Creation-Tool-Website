@@ -67,17 +67,19 @@ class AppsManager {
                         }
                     }catch(_){ }
                 } else if (data && data.type === 'liber:chat-unread' && typeof data.count === 'number'){
-                    const badge = document.getElementById('dashboard-chat-unread-badge');
-                    if (badge){
-                        if (data.count > 0){
-                            badge.textContent = String(data.count > 99 ? '99+' : data.count);
-                            badge.classList.remove('hidden');
-                            badge.removeAttribute('aria-hidden');
-                        } else {
-                            badge.classList.add('hidden');
-                            badge.setAttribute('aria-hidden', 'true');
+                    ['dashboard-chat-unread-badge', 'dashboard-chat-unread-badge-mobile'].forEach(id=>{
+                        const badge = document.getElementById(id);
+                        if (badge){
+                            if (data.count > 0){
+                                badge.textContent = String(data.count > 99 ? '99+' : data.count);
+                                badge.classList.remove('hidden');
+                                badge.removeAttribute('aria-hidden');
+                            } else {
+                                badge.classList.add('hidden');
+                                badge.setAttribute('aria-hidden', 'true');
+                            }
                         }
-                    }
+                    });
                 }
             });
         }
