@@ -2750,6 +2750,10 @@
       const box = document.getElementById('messages');
       if (!box) return;
       if (!this.activeConnection) return;
+      if (!this.db) {
+        box.innerHTML = '<div class="error">Firestore not ready. Please refresh.</div>';
+        return;
+      }
       const activeConnId = this.activeConnection;
       const pageSize = 50;
       const loadMoreRequestedAtStart = this._loadMoreConnId === activeConnId;

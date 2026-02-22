@@ -552,6 +552,9 @@ class FirebaseService {
      */
     async getUserData(uid) {
         await this.waitForInit();
+        if (!this.db) {
+            throw new Error('Firestore not initialized');
+        }
         
         try {
             const userDocRef = firebase.doc(this.db, 'users', uid);
@@ -1289,8 +1292,19 @@ class FirebaseService {
     }
 }
 
-// Create global instance
-window.firebaseService = new FirebaseService();
+// Create global instance (use parent's when in iframe and parent has initialized Firebase)
+let useParentService = false;
+try {
+    if (typeof window !== 'undefined' && window.self !== window.top && window.parent?.firebaseService?.isInitialized && window.parent?.firebaseService?.db) {
+        window.firebaseService = window.parent.firebaseService;
+        if (window.parent.firebase) window.firebase = window.parent.firebase;
+        if (window.parent.firebaseModular) window.firebaseModular = window.parent.firebaseModular;
+        useParentService = true;
+    }
+} catch (_) { /* cross-origin or access denied */ }
+if (!useParentService) {
+    window.firebaseService = new FirebaseService();
+}
 
 // Add global test function
 window.testFirebase = function() {
