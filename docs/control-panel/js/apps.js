@@ -59,6 +59,25 @@ class AppsManager {
                 const data = ev && ev.data ? ev.data : {};
                 if (data && data.type === 'liber:close-app-shell'){
                     this.closeAppShell();
+                } else if (data && data.type === 'liber:chat-audio-play' && data.src){
+                    try{
+                        const dm = window.dashboardManager;
+                        if (dm && typeof dm.addChatAudioToPlayer === 'function'){
+                            dm.addChatAudioToPlayer({ src: data.src, title: data.title || 'Audio', by: data.by || '', cover: data.cover || '', currentTime: data.currentTime });
+                        }
+                    }catch(_){ }
+                } else if (data && data.type === 'liber:chat-unread' && typeof data.count === 'number'){
+                    const badge = document.getElementById('dashboard-chat-unread-badge');
+                    if (badge){
+                        if (data.count > 0){
+                            badge.textContent = String(data.count > 99 ? '99+' : data.count);
+                            badge.classList.remove('hidden');
+                            badge.removeAttribute('aria-hidden');
+                        } else {
+                            badge.classList.add('hidden');
+                            badge.setAttribute('aria-hidden', 'true');
+                        }
+                    }
                 }
             });
         }

@@ -2960,6 +2960,22 @@ class DashboardManager {
         }
     }
 
+    addChatAudioToPlayer(track){
+        try{
+            if (!track || !track.src) return;
+            const bg = this.getBgPlayer();
+            if (!bg) return;
+            this.pauseAllMediaExcept(null);
+            bg.src = track.src;
+            if (!isNaN(track.currentTime) && track.currentTime > 0) bg.currentTime = track.currentTime;
+            bg.play().catch(()=>{});
+            this.showMiniPlayer(bg, { title: track.title || 'Audio', by: track.by || '', cover: track.cover || '' });
+            this._playQueue = [{ src: track.src, title: track.title || 'Audio', by: track.by || '', cover: track.cover || '' }];
+            this._playQueueIndex = 0;
+            this.renderQueuePanel();
+        }catch(_){ }
+    }
+
     showMiniPlayer(mediaEl, meta={}){
         try{
             if (this._currentPlayer && this._currentPlayer !== mediaEl){
@@ -3411,6 +3427,7 @@ class DashboardManager {
             }
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
+        this.restoreChatUnreadBadgeFromStorage();
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
         if ('serviceWorker' in navigator){
@@ -6308,6 +6325,23 @@ class DashboardManager {
         if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){
             this.switchSection('apps');
         }
+    }
+
+    restoreChatUnreadBadgeFromStorage(){
+        try{
+            const raw = localStorage.getItem('liber_chat_unread_count');
+            const count = raw ? parseInt(raw, 10) : 0;
+            const badge = document.getElementById('dashboard-chat-unread-badge');
+            if (!badge) return;
+            if (Number.isFinite(count) && count > 0){
+                badge.textContent = String(count > 99 ? '99+' : count);
+                badge.classList.remove('hidden');
+                badge.removeAttribute('aria-hidden');
+            } else {
+                badge.classList.add('hidden');
+                badge.setAttribute('aria-hidden', 'true');
+            }
+        }catch(_){ }
     }
 
     /**

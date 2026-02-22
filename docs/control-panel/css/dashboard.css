@@ -200,6 +200,23 @@
 .dashboard-chat-btn i {
     font-size: 1.25rem;
 }
+.dashboard-chat-btn.has-badge {
+    position: relative;
+}
+.dashboard-chat-btn .nav-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.dashboard-chat-btn .nav-badge.hidden {
+    display: none !important;
+}
 /* Desktop: centered in 72px nav column, bottom */
 @media (min-width: 768px) {
     .dashboard-chat-btn {

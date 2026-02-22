@@ -198,6 +198,22 @@
             else if ('clearAppBadge' in navigator) await navigator.clearAppBadge();
           }
         }catch(_){ }
+        const unreadBadge = document.getElementById('connections-unread-badge');
+        if (unreadBadge){
+          if (unreadChats > 0){
+            unreadBadge.textContent = String(unreadChats > 99 ? '99+' : unreadChats);
+            unreadBadge.classList.remove('hidden');
+            unreadBadge.removeAttribute('aria-hidden');
+          }else{
+            unreadBadge.classList.add('hidden');
+            unreadBadge.setAttribute('aria-hidden', 'true');
+          }
+        }
+        try{
+          localStorage.setItem('liber_chat_unread_count', String(unreadChats));
+          const target = window.parent !== window ? window.parent : (window.top || window);
+          if (target && target.postMessage) target.postMessage({ type: 'liber:chat-unread', count: unreadChats }, '*');
+        }catch(_){ }
       }catch(_){ }
     }
 
@@ -265,6 +281,8 @@
           const age = now - d.getTime();
           if (Math.abs(age) < 10 * 60 * 1000) d = new Date(now);
         }
+        const nowMs = Date.now();
+        if (d.getTime() > nowMs + 60000) d = new Date(nowMs);
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
       try{
@@ -2845,7 +2863,7 @@
             }
           }
         };
-        const fetchLatestSnapWithTimeout = async (timeoutMs = 4500)=>{
+        const fetchLatestSnapWithTimeout = async (timeoutMs = 8000)=>{
           return await Promise.race([
             fetchLatestSnap(),
             new Promise((_, reject)=> setTimeout(()=> reject(new Error('fetch-timeout')), timeoutMs))
@@ -2952,7 +2970,8 @@
                 const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
                 const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
                 const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
-                const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+                const isWaveConnectShare = isShared && m.sharedAsset && ['audio','video','image','picture','post'].includes(String(m.sharedAsset?.kind||'').toLowerCase());
+        const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
                 const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
                 const delivery = this.getDeliveryLabel(m);
                 const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
@@ -3195,7 +3214,8 @@
               const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
               const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
               const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
-              const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+              const isWaveConnectShare = isShared && m.sharedAsset && ['audio','video','image','picture','post'].includes(String(m.sharedAsset?.kind||'').toLowerCase());
+        const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
               const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
               const delivery = this.getDeliveryLabel(m);
               const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
@@ -3442,7 +3462,7 @@
         try{
           const sInit = await Promise.race([
             fetchLatestSnap(),
-            new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 5000))
+            new Promise((_, reject)=> setTimeout(()=> reject(new Error('init-fetch-timeout')), 8000))
           ]);
           await handleSnap(sInit, false);
         }catch(_){ }
@@ -3486,7 +3506,7 @@
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             // Skip if messages already rendered – avoids redundant reload when decrypt is slow.
             if (box.querySelector('.message')){ loadFinished = true; if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; } return; }
-            const sKick = await fetchLatestSnapWithTimeout(4500);
+            const sKick = await fetchLatestSnapWithTimeout(8000);
             await handleSnap(sKick, false);
           }catch(_){ }
         }, 7000);
@@ -3496,7 +3516,7 @@
             if (loadFinished) return;
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
             if (!/Loading messages/i.test(String(box.textContent || ''))) return;
-            const sHard = await fetchLatestSnapWithTimeout(4500);
+            const sHard = await fetchLatestSnapWithTimeout(8000);
             await handleSnap(sHard, false);
             const hardDocsCount = Number((sHard && sHard.docs && sHard.docs.length) || 0);
             if (!loadFinished && hardDocsCount === 0 && /Loading messages/i.test(String(box.textContent || ''))){
@@ -3620,7 +3640,8 @@
             const editedBadge = this.isEditedMessage(m) ? ' · <span class="msg-edited-badge">edited</span>' : '';
             const isShared = !!(m.isShared || m.sharedFromMessageId || m.sharedOriginalAuthorUid || m.sharedOriginalAuthorName);
             const originalAuthorName = String(m.sharedOriginalAuthorName || '').trim();
-            const repostBadge = isShared ? ' · <span class="msg-repost-badge">repost</span>' : '';
+            const isWaveConnectShare = isShared && m.sharedAsset && ['audio','video','image','picture','post'].includes(String(m.sharedAsset?.kind||'').toLowerCase());
+        const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
             const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
             const delivery = this.getDeliveryLabel(m);
             const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
@@ -4068,6 +4089,29 @@
       }catch(_){ }
     }
 
+    notifyParentAudioPlay(mediaElOrTrack){
+        try{
+            let src, title, by, cover, currentTime;
+            if (mediaElOrTrack && typeof mediaElOrTrack === 'object' && typeof mediaElOrTrack.nodeType === 'number'){
+                const el = mediaElOrTrack;
+                src = (el?.currentSrc || el?.src || '').trim();
+                title = String(el?.dataset?.title || el?.closest?.('.shared-asset-card,.audio-attachment-block,.post-media-files-item')?.querySelector?.('.post-media-audio-title,.shared-asset-title')?.textContent || 'Audio').trim();
+                by = String(el?.dataset?.by || el?.closest?.('.shared-asset-card,.audio-attachment-block,.post-media-files-item')?.querySelector?.('.post-media-audio-by,.shared-asset-byline')?.textContent || '').replace(/^by\s+/i,'').trim();
+                cover = String(el?.dataset?.cover || '').trim();
+                currentTime = el?.currentTime;
+            } else if (mediaElOrTrack && typeof mediaElOrTrack === 'object'){
+                src = String(mediaElOrTrack.src || mediaElOrTrack.currentSrc || '').trim();
+                title = String(mediaElOrTrack.title || 'Audio').trim();
+                by = String(mediaElOrTrack.by || '').trim();
+                cover = String(mediaElOrTrack.cover || '').trim();
+                currentTime = mediaElOrTrack.currentTime;
+            }
+            if (!src) return;
+            const target = window.parent !== window ? window.parent : (window.top || window);
+            if (target && target.postMessage) target.postMessage({ type: 'liber:chat-audio-play', src, title: title || 'Audio', by, cover, currentTime }, '*');
+        }catch(_){ }
+    }
+
     bindSharedAssetCardInteractions(el, asset){
       try{
         if (!el || !asset) return;
@@ -4125,6 +4169,7 @@
               audioEl.style.marginTop = '6px';
               hostEl.style.display = 'none';
             }
+            audioEl.addEventListener('play', ()=> this.notifyParentAudioPlay(audioEl), { once: false });
           }
         }
         root.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
@@ -5919,6 +5964,7 @@
           p.currentTime = 0;
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
+          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
           const onMeta = ()=>{
             if (Number.isFinite(p.duration) && p.duration > 0){
               p.currentTime = clamped * p.duration;
@@ -5952,6 +5998,7 @@
           try{ p.load(); }catch(_){ }
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
+          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
           this.updateVoiceWidgets();
           return;
         }
@@ -5961,6 +6008,7 @@
         if (p.paused) {
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
+          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
         } else {
           // Keep stable behavior: pause/resume on tap; hard stop only via top-strip close.
           this._voiceUserIntendedPlay = false;
@@ -6192,11 +6240,33 @@
     renderNamedAudioAttachment(containerEl, src, fileName, authorName = '', sourceKey = ''){
       const safeName = String(fileName || 'Audio');
       const safeAuthor = String(authorName || 'Unknown');
-      // Use share-style card (post-media-files-item) with native audio controls so audio always plays.
       const wrap = document.createElement('div');
-      wrap.className = 'audio-attachment-block post-media-files-item';
+      wrap.className = 'audio-attachment-block post-media-files-item shared-audio-waveconnect';
       const coverFallback = '<span class="post-media-audio-cover post-media-audio-cover-fallback" style="width:56px;height:56px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>';
-      wrap.innerHTML = `<div class="post-media-audio-head">${coverFallback}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div></div><audio src="${this.renderText(src)}" controls style="width:100%;margin-top:6px"></audio>`;
+      const audio = document.createElement('audio');
+      audio.className = 'liber-lib-audio';
+      audio.src = src;
+      audio.controls = false;
+      audio.style.display = 'none';
+      audio.dataset.title = safeName;
+      audio.dataset.by = safeAuthor;
+      audio.addEventListener('play', ()=> this.notifyParentAudioPlay(audio), { once: false });
+      const hostEl = document.createElement('div');
+      hostEl.className = 'wave-item-audio-host';
+      hostEl.style.marginTop = '6px';
+      wrap.innerHTML = `<div class="post-media-audio-head">${coverFallback}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div></div>`;
+      wrap.appendChild(audio);
+      wrap.appendChild(hostEl);
+      const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+      if (dm && typeof dm.attachWaveAudioUI === 'function'){
+        dm.attachWaveAudioUI(audio, hostEl, { hideNative: true });
+      } else {
+        audio.controls = true;
+        audio.style.display = 'block';
+        audio.style.width = '100%';
+        audio.style.marginTop = '6px';
+        hostEl.style.display = 'none';
+      }
       const addBtn = document.createElement('button');
       addBtn.type = 'button';
       addBtn.className = 'btn secondary';
@@ -6254,6 +6324,7 @@
             if (p && !p.paused){ p.pause(); try{ p.removeAttribute('src'); p.load(); }catch(_){ } }
             this.pauseOtherInlineMedia(audio);
             audio.play().catch(()=>{});
+            this.notifyParentAudioPlay(audio);
           }else{
             audio.pause();
           }
