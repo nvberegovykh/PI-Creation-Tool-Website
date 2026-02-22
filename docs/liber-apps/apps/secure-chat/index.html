@@ -127,6 +127,18 @@
         </main>
     </div>
 
+    <!-- Use parent's Firebase when embedded in iframe (app shell) -->
+    <script>
+      (function(){
+        try {
+          if (window.self !== window.top && window.parent.firebaseService && window.parent.firebaseService.isInitialized) {
+            window.firebaseService = window.parent.firebaseService;
+            window.firebase = window.parent.firebase;
+            if (window.parent.firebaseModular) window.firebaseModular = window.parent.firebaseModular;
+          }
+        } catch (_) {}
+      })();
+    </script>
     <!-- Scripts (single-source cache version) -->
     <script>
       window.LIBER_CHAT_VERSION = '20260215v1';
