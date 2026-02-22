@@ -67,10 +67,11 @@ class AppsManager {
                         }
                     }catch(_){ }
                 } else if (data && data.type === 'liber:chat-audio-play' && data.src){
+                    // Chat now uses liber:chat-audio-meta only - do NOT take over playback (would pause chat and break it)
                     try{
                         const dm = window.dashboardManager;
-                        if (dm && typeof dm.addChatAudioToPlayer === 'function'){
-                            dm.addChatAudioToPlayer({ src: data.src, title: data.title || 'Audio', by: data.by || '', cover: data.cover || '', currentTime: data.currentTime });
+                        if (dm && typeof dm.setChatAudioMeta === 'function'){
+                            dm.setChatAudioMeta({ src: data.src, title: data.title || 'Audio', by: data.by || '', cover: data.cover || '' });
                         }
                     }catch(_){ }
                 } else if (data && data.type === 'liber:chat-unread' && typeof data.count === 'number'){

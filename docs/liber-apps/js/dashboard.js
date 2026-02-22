@@ -1976,12 +1976,16 @@ class DashboardManager {
             if (bg && bg !== current){ try{ bg.pause(); }catch(_){ } }
             const localChatBg = document.getElementById('chat-bg-player');
             if (localChatBg && localChatBg !== current){ try{ localChatBg.pause(); }catch(_){ } }
-            try{
-                const shellFrame = document.getElementById('app-shell-frame');
-                const iframeDoc = shellFrame?.contentWindow?.document;
-                const iframeChatBg = iframeDoc?.getElementById('chat-bg-player');
-                if (iframeChatBg && iframeChatBg !== current){ try{ iframeChatBg.pause(); }catch(_){ } }
-            }catch(_){ }
+            // Do NOT pause chat-bg-player in iframe when chat is open - it breaks chat audio playback
+            const shellOpen = document.body?.classList?.contains('app-shell-open');
+            if (!shellOpen){
+                try{
+                    const shellFrame = document.getElementById('app-shell-frame');
+                    const iframeDoc = shellFrame?.contentWindow?.document;
+                    const iframeChatBg = iframeDoc?.getElementById('chat-bg-player');
+                    if (iframeChatBg && iframeChatBg !== current){ try{ iframeChatBg.pause(); }catch(_){ } }
+                }catch(_){ }
+            }
             document.querySelectorAll('audio.player-media, video.player-media, .liber-lib-audio, .liber-lib-video').forEach((m)=>{
                 if (m !== current){
                     try{ m.pause(); }catch(_){ }

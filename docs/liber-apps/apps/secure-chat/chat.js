@@ -67,7 +67,7 @@
       this._setActiveSeq = 0;
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
-      this._attachmentPreviewMax = 4;
+      this._attachmentPreviewMax = 12;
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -650,7 +650,7 @@
 
     pumpAttachmentPreviewQueue(){
       try{
-        const max = this._attachmentPreviewMax || 4;
+        const max = this._attachmentPreviewMax || 12;
         while ((this._attachmentPreviewRunning || 0) < max && this._attachmentPreviewQueue.length){
           const item = this._attachmentPreviewQueue.shift();
           this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
@@ -666,7 +666,7 @@
               this.pumpAttachmentPreviewQueue();
             }
           };
-          setTimeout(()=> Promise.resolve(run()).catch(()=>{}), 0);
+          queueMicrotask(()=> Promise.resolve(run()).catch(()=>{}));
         }
       }catch(_){ }
     }
@@ -701,10 +701,12 @@
       const previewNameMatch = /\[(?:Attachment|File)\]\s+(.+)$/i.exec(preview);
       const previewName = previewNameMatch ? String(previewNameMatch[1] || '').trim() : '';
       if (previewName && /\.[a-z0-9]{2,6}$/i.test(previewName)) return previewName;
+      const isExplicitUpload = msg && msg.isVoiceRecording === false;
+      const audioExt = url.match(/\.(mp3|m4a|aac|ogg|wav|oga|weba)(\?|$)/i);
+      if (audioExt) return (isExplicitUpload ? `uploaded.${audioExt[1].toLowerCase()}` : 'voice.webm');
       if (/^\[voice message\]/i.test(plain) || /\bvoice\b|\baudio\b/i.test(preview) || /\bvoice\b|\baudio\b/i.test(url)) return 'voice.webm';
       if (/^\[video message\]/i.test(plain) || /\bvideo\b/i.test(preview) || /\bvideo\b/i.test(url)) return 'video.webm';
       if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video.mp4';
-      if (/\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.test(url)) return 'voice.webm';
       if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return 'image.jpg';
       return '';
     }
@@ -759,16 +761,6 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
-      const waveConnectBtn = document.createElement('button');
-      waveConnectBtn.className = 'btn secondary';
-      waveConnectBtn.textContent = 'Add from WaveConnect';
-      waveConnectBtn.style.marginBottom = '8px';
-      waveConnectBtn.onclick = ()=>{
-        panel.remove();
-        backdrop.remove();
-        this.openWaveConnectPickerForComposer();
-      };
-      panel.appendChild(waveConnectBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -1120,7 +1112,14 @@
       };
 
       const typeOrder = { pics: 0, video: 1, audio: 2, files: 3 };
+      const pruneVoiceWidgetsInContainer = (container)=>{
+        if (!container || !this._voiceWidgets?.size) return;
+        const stale = [];
+        this._voiceWidgets.forEach((w, k)=>{ if (w.wave && container.contains(w.wave)) stale.push(k); });
+        stale.forEach((k)=> this._voiceWidgets.delete(k));
+      };
       const renderList = async (rows, kind = 'all')=>{
+        pruneVoiceWidgetsInContainer(grid);
         grid.innerHTML = '';
         markActive(kind);
         let filtered = rows.filter((r)=> kind === 'all' ? true : categoryOf(String(r.fileName || '')) === kind);
@@ -1186,9 +1185,10 @@
 
       const host = document.body;
       if (host){ host.appendChild(backdrop); host.appendChild(panel); }
+      const doClose = ()=>{ pruneVoiceWidgetsInContainer(panel); panel.remove(); backdrop.remove(); };
       const closeBtn = panel.querySelector('#chat-attachments-close');
-      if (closeBtn) closeBtn.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
-      backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
+      if (closeBtn) closeBtn.addEventListener('click', doClose);
+      backdrop.addEventListener('click', doClose);
       panel.addEventListener('click', (e)=> e.stopPropagation());
     }
 
@@ -1651,7 +1651,7 @@
         const p = this.ensureChatBgPlayer();
         const playerSrc = this.getChatPlayerSrc(p);
         const m = this._topMediaEl;
-        if (playerSrc){
+        if (playerSrc || (p && p.src && !m?.isConnected)){
           if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
           else{ this._voiceUserIntendedPlay = false; p.pause(); }
         } else if (m && m.isConnected){
@@ -3416,13 +3416,13 @@
           const docsToRender = appendOnly
             ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIds.includes(d.id)))
             : docs;
-          // column-reverse: first child = bottom. Non-append: iterate newest-first. AppendOnly: prepend oldest-first so newest ends up first.
-          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> j) : Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
+          // column-reverse: first child = bottom. Non-append: iterate newest-first so visible attachments load first. AppendOnly: oldest-first for load-more.
+          const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j) : Array.from({length: docsToRender.length}, (_, j)=> j);
           for (let idx = 0; idx < docsToRender.length; idx++) {
             const i = iter[idx];
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (idx % 5 === 4) await this.yieldToUi();
+            if (idx % 3 === 2) await this.yieldToUi();
           }
           if (!appendOnly && renderTarget !== box && lastRenderedDay){
             const topSep = document.createElement('div');
@@ -4413,12 +4413,19 @@
               fileName: r.fileName,
               attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
               attachmentSourceConnId: this.activeConnection,
-              isVideoRecording: !!msg.isVideoRecording
+              isVideoRecording: !!msg.isVideoRecording,
+              isVoiceRecording: !!msg.isVoiceRecording
             });
           });
           mediaItems.sort((a,b)=> mediaRank(a) - mediaRank(b));
           const combinedText = text.trim() || '';
-          await this.saveMessage({ text: combinedText, media: mediaItems, attachmentSourceConnId: this.activeConnection });
+          const firstMediaItem = mediaItems[0];
+          await this.saveMessage({
+            text: combinedText,
+            media: mediaItems,
+            attachmentSourceConnId: this.activeConnection,
+            isVoiceRecording: !!(firstMediaItem && firstMediaItem.isVoiceRecording === true)
+          });
           mediaItems.forEach((it)=> this.pushRecentAttachment({ fileUrl: it.fileUrl, fileName: it.fileName, sentAt: new Date().toISOString() }));
         } else {
           if (text) await this.saveMessage({ text });
@@ -4437,7 +4444,8 @@
               fileName: r.fileName,
               attachmentSourceConnId: this.activeConnection,
               attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
-              isVideoRecording: !!msg.isVideoRecording
+              isVideoRecording: !!msg.isVideoRecording,
+              isVoiceRecording: !!msg.isVoiceRecording
             });
           }
         }
@@ -4888,7 +4896,8 @@
               fileName: f.name,
               attachmentKeySalt: salt,
               attachmentSourceConnId: targetConnId,
-              isVideoRecording: false
+              isVideoRecording: false,
+              isVoiceRecording: false
             });
           }catch(_){ result.failedFiles.push(f); }
         }
@@ -4971,7 +4980,8 @@
             connId: targetConnId,
             attachmentSourceConnId: targetConnId,
             attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
-            isVideoRecording: false
+            isVideoRecording: false,
+            isVoiceRecording: false
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
           result.sentCount += 1;
@@ -5990,26 +6000,29 @@
         stripTitle.textContent = this._voiceCurrentTitle || 'Media';
       }
       this._voiceWidgets.forEach((w)=>{
-        const active = (!!playerSrc && (w.src === playerSrc || this.isSameMediaSrc(w.src, playerSrc)))
-          || (!!this._voiceCurrentSrc && (w.src === this._voiceCurrentSrc || this.isSameMediaSrc(w.src, this._voiceCurrentSrc)))
-          || (!!this._voiceCurrentAttachmentKey && !!w.srcKey && w.srcKey === this._voiceCurrentAttachmentKey);
-        const durationRaw = Number(p.duration || 0);
-        const durationIsFinite = Number.isFinite(durationRaw) && durationRaw > 0;
-        const duration = durationIsFinite ? durationRaw : Math.max(0, Number(w.durationGuess || 0));
-        const ctRaw = Number(p.currentTime || 0);
-        const ct = Number.isFinite(ctRaw) && ctRaw > 0 ? ctRaw : 0;
-        if (active && durationIsFinite) w.durationGuess = durationRaw;
-        const ratio = active && duration > 0 ? Math.min(1, Math.max(0, ct / duration)) : 0;
-        const bars = w.wave.querySelectorAll('.bar');
-        const playedBars = Math.round(bars.length * ratio);
-        bars.forEach((b, i)=> b.classList.toggle('played', active && i < playedBars));
-        w.playBtn.innerHTML = `<i class="fas ${active && !p.paused ? 'fa-pause' : 'fa-play'}"></i>`;
-        const currentTxt = this.formatDuration(active ? ct : 0);
-        const totalTxt = this.formatDuration(active ? duration : (w.durationGuess || 0));
-        w.time.textContent = w.showRemaining
-          ? `-${this.formatDuration(Math.max(0, (active ? duration - ct : w.durationGuess || 0)))}`
-          : `${currentTxt} / ${totalTxt}`;
-        if (active && stripTitle) stripTitle.textContent = w.title || 'Voice message';
+        try{
+          if (!w.wave?.isConnected || !w.playBtn || !w.time) return;
+          const active = (!!playerSrc && (w.src === playerSrc || this.isSameMediaSrc(w.src, playerSrc)))
+            || (!!this._voiceCurrentSrc && (w.src === this._voiceCurrentSrc || this.isSameMediaSrc(w.src, this._voiceCurrentSrc)))
+            || (!!this._voiceCurrentAttachmentKey && !!w.srcKey && w.srcKey === this._voiceCurrentAttachmentKey);
+          const durationRaw = Number(p.duration || 0);
+          const durationIsFinite = Number.isFinite(durationRaw) && durationRaw > 0;
+          const duration = durationIsFinite ? durationRaw : Math.max(0, Number(w.durationGuess || 0));
+          const ctRaw = Number(p.currentTime || 0);
+          const ct = Number.isFinite(ctRaw) && ctRaw > 0 ? ctRaw : 0;
+          if (active && durationIsFinite) w.durationGuess = durationRaw;
+          const ratio = active && duration > 0 ? Math.min(1, Math.max(0, ct / duration)) : 0;
+          const bars = w.wave.querySelectorAll('.bar');
+          const playedBars = Math.round(bars.length * ratio);
+          bars.forEach((b, i)=> b.classList.toggle('played', active && i < playedBars));
+          w.playBtn.innerHTML = `<i class="fas ${active && !p.paused ? 'fa-pause' : 'fa-play'}"></i>`;
+          const currentTxt = this.formatDuration(active ? ct : 0);
+          const totalTxt = this.formatDuration(active ? duration : (w.durationGuess || 0));
+          w.time.textContent = w.showRemaining
+            ? `-${this.formatDuration(Math.max(0, (active ? duration - ct : w.durationGuess || 0)))}`
+            : `${currentTxt} / ${totalTxt}`;
+          if (active && stripTitle) stripTitle.textContent = w.title || 'Voice message';
+        }catch(_){}
       });
       if (stripTitle){
         if (!playerSrc) stripTitle.textContent = 'Voice message';
@@ -6126,7 +6139,8 @@
       const seekFromClientX = (clientX)=>{
         this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
         const rect = wave.getBoundingClientRect();
-        const ratio = (clientX - rect.left) / rect.width;
+        if (!(rect.width > 0)) return;
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
         startFromRatio(ratio);
       };
       wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekFromClientX(e.clientX); });
@@ -6237,8 +6251,10 @@
       try{
         if (!this.isAudioFilename(fileName)) return false;
         if (message && message.isVoiceRecording === true) return true;
+        if (message && message.isVoiceRecording === false) return false;
         const n = String(fileName || '').toLowerCase().trim();
         if (n.startsWith('voice.')) return true;
+        if (/\.(mp3|m4a|aac|ogg|wav|oga|weba)(\?|$)/i.test(n)) return false;
         const text = String(message?.text || '').trim();
         if (/^\[voice message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
@@ -6471,6 +6487,7 @@
       });
       const seekTo = (clientX)=>{
         const rect = wave.getBoundingClientRect();
+        if (!(rect.width > 0)) return;
         const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
         const p = this.ensureChatBgPlayer();
         if (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) && Number.isFinite(p.duration) && p.duration > 0){
@@ -6550,6 +6567,7 @@
         });
         const seekTo = (clientX)=>{
           const rect = wave.getBoundingClientRect();
+          if (!(rect.width > 0)) return;
           const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
           const p = this.ensureChatBgPlayer();
           if (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && Number.isFinite(p.duration) && p.duration > 0){
@@ -7170,6 +7188,7 @@
         const isInvalidPayload = String(e?.message || '').includes('invalid-payload');
         const isVideo = this.isVideoRecordingMessage(message, fileName) || this.isVideoFilename(fileName || '');
         if (looksEncrypted && !isFetchFail){
+          try { containerEl.innerHTML = ''; } catch (_) {}
           const err = document.createElement('div');
           err.className = 'file-link';
           err.textContent = isInvalidPayload ? 'Invalid attachment format' : 'Unable to decrypt attachment';
@@ -7195,18 +7214,21 @@
           return;
         }
         if (looksEncrypted && isFetchFail){
+          try { containerEl.innerHTML = ''; } catch (_) {}
           const err = document.createElement('div');
           err.className = 'file-link';
           err.textContent = 'Could not load attachment';
           containerEl.appendChild(err);
           return;
         }
+        try { containerEl.innerHTML = ''; } catch (_) {}
         this.renderDirectAttachment(containerEl, fileUrl, fileName, message, senderDisplayName, !!containerEl?.dataset?.pickerMode);
       }
     }
 
     renderDirectAttachment(containerEl, fileUrl, fileName, message = null, senderDisplayName = '', pickerMode = false){
       try{
+        try { containerEl.innerHTML = ''; } catch (_) {}
         let name = String(fileName || '');
         const isVideoRecording = this.isVideoRecordingMessage(message, name);
         if (!name && fileUrl){
