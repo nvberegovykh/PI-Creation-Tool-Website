@@ -2939,7 +2939,10 @@
             }
             const s2 = await firebase.getDocs(q2);
             return (s2.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: cid }));
-          }catch(_){ return []; }
+          }catch(e){
+            if (e?.code === 'permission-denied') return [];
+            return [];
+          }
         };
         const normalizeDocTime = (m)=> this.getMessageTimestampMs(m);
         let currentRenderOneForLoadMore = null;
@@ -3348,6 +3351,7 @@
             && Date.now() >= suppressUntilVal;
           if (useDocChanges){
             let didMutate = false;
+            let lastDayFromChanges = lastRenderedDay;
             for (const c of changes){
               const type = String(c.type||'').toLowerCase();
               const doc = c.doc || c;
@@ -3361,16 +3365,21 @@
                 const dm = d.data;
                 try{
                   await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
+                  const dayLbl = this.formatMessageDay(dm?.createdAt, dm);
+                  if (dayLbl) lastDayFromChanges = dayLbl;
                   didMutate = true;
                 }catch(_){ }
               } else if (type === 'modified' && existing){
                 const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
                 try{
                   await renderOne(d, d.sourceConnId || activeConnId, { replaceEl: existing });
+                  const dayLbl = this.formatMessageDay(d.data?.createdAt, d.data);
+                  if (dayLbl) lastDayFromChanges = dayLbl;
                   didMutate = true;
                 }catch(_){ }
               }
             }
+            if (didMutate) this._lastDayByConn.set(activeConnId, lastDayFromChanges);
             if (!didMutate){
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3378,9 +3387,12 @@
               return;
             }
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
-            if (pinnedBefore) box.scrollTop = 0;
-            else box.scrollTop = prevTop;
-            updateBottomUi();
+            requestAnimationFrame(()=>{
+              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+              if (pinnedBefore) box.scrollTop = 0;
+              else box.scrollTop = prevTop;
+              updateBottomUi();
+            });
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
             if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3422,12 +3434,12 @@
           }
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
-          if (pinnedBefore){
-            box.scrollTop = 0;
-          }else{
-            box.scrollTop = prevTop;
-          }
-          updateBottomUi();
+          const finalScrollTop = pinnedBefore ? 0 : prevTop;
+          requestAnimationFrame(()=>{
+            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId || !box.isConnected) return;
+            box.scrollTop = finalScrollTop;
+            updateBottomUi();
+          });
           this.applyNewMessagesSeparator(box);
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3468,23 +3480,26 @@
           ]);
           await handleSnap(sInit, false);
         }catch(_){ }
-        if (firebase.onSnapshot && this.activeConnection === activeConnId && loadSeq === this._msgLoadSeq){
+        const hasMergedForListener = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId).length > 0;
+        if (firebase.onSnapshot && this.activeConnection === activeConnId && loadSeq === this._msgLoadSeq && !hasMergedForListener){
           this._liveSnapshotPrimedByConn.set(activeConnId, false);
-          this._unsubMessages = firebase.onSnapshot(
-            q,
-            (snap)=>{
-              if (!loadFinished) return;
-              this._liveSnapshotPrimedByConn.set(activeConnId, true);
-              scheduleLiveSnap(snap);
-            },
-            async ()=>{
-              // If snapshot fails for any reason, keep UI live via polling fallback.
-              try{
-                const s = await fetchLatestSnap();
-                scheduleLiveSnap(s);
-              }catch(_){ }
-            }
-          );
+          try{
+            this._unsubMessages = firebase.onSnapshot(
+              q,
+              (snap)=>{
+                if (!loadFinished) return;
+                this._liveSnapshotPrimedByConn.set(activeConnId, true);
+                scheduleLiveSnap(snap);
+              },
+              async (err)=>{
+                if (err?.code === 'permission-denied') return;
+                try{
+                  const s = await fetchLatestSnap();
+                  scheduleLiveSnap(s);
+                }catch(_){ }
+              }
+            );
+          }catch(_){ this._unsubMessages = null; }
           // No polling when listener is active - poll causes unwanted reloads and scroll resets.
           // No periodic polling in snapshot mode to avoid constant refresh jitter.
         } else {
@@ -4197,13 +4212,8 @@
           const audioEl = root.querySelector('.liber-lib-audio');
           const hostEl = root.querySelector('.wave-item-audio-host');
           if (audioEl && hostEl){
-            const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
-            if (dm && typeof dm.attachWaveAudioUI === 'function'){
-              try{ dm.attachWaveAudioUI(audioEl, hostEl, { hideNative: true }); }catch(_){ hostEl.innerHTML = ''; this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), ''); }
-            } else {
-              hostEl.innerHTML = '';
-              this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), '');
-            }
+            hostEl.innerHTML = '';
+            this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), '');
             audioEl.addEventListener('play', ()=> this.notifyParentAudioPlay(audioEl), { once: false });
             const addBtn = root.querySelector('.shared-asset-add-btn');
             if (addBtn) addBtn.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src: url, title: String(a.title || a.name || 'Audio'), author: String(a.by || a.authorName || ''), sourceKey: '' }); }catch(_){ } };
@@ -5799,7 +5809,7 @@
         p.id = 'chat-bg-player';
         // iOS Safari/PWA: keep element rendered (not display:none) for reliable time/progress events.
         p.style.cssText = 'position:fixed;left:-9999px;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none';
-        p.preload = 'metadata';
+        p.preload = 'auto';
         p.playsInline = true;
         p.setAttribute('playsinline', 'true');
         p.setAttribute('webkit-playsinline', 'true');
@@ -6184,13 +6194,52 @@
         if (!this.isAudioFilename(fileName)) return false;
         if (message && message.isVoiceRecording === true) return true;
         const n = String(fileName || '').toLowerCase().trim();
-        if (n.startsWith('voice.') || n.startsWith('audio.')) return true;
+        if (n.startsWith('voice.')) return true;
         const text = String(message?.text || '').trim();
         if (/^\[voice message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
         if (/^\[voice message\]/i.test(preview)) return true;
         return false;
       }catch(_){ return false; }
+    }
+
+    /** Returns 'voice' | 'uploaded' | 'waveconnect' for audio messages. Used to separate visuals from playback. */
+    getChatAudioType(message, fileName = '', hasSharedAsset = false){
+      try{
+        if (hasSharedAsset && message?.sharedAsset && typeof message.sharedAsset === 'object'){
+          const k = String(message.sharedAsset.kind || message.sharedAsset.type || '').toLowerCase();
+          if (k === 'audio') return 'waveconnect';
+        }
+        if (!this.isAudioFilename(fileName)) return null;
+        if (this.isVoiceRecordingMessage(message, fileName)) return 'voice';
+        return 'uploaded';
+      }catch(_){ return null; }
+    }
+
+    /** Central playback: all 3 audio types use the same bg player. */
+    playChatAudioInBgPlayer(opts = {}){
+      try{
+        const src = String(opts.src || opts.url || '').trim();
+        if (!src) return;
+        const p = this.ensureChatBgPlayer();
+        const seekTo = Number.isFinite(opts.currentTime) && opts.currentTime >= 0 ? opts.currentTime : 0;
+        this._topMediaEl = null;
+        this._voiceCurrentSrc = src;
+        this._voiceCurrentAttachmentKey = String(opts.sourceKey || '').trim();
+        this._voiceCurrentTitle = String(opts.title || 'Audio').trim();
+        this.setupMediaSessionForVoice(this._voiceCurrentTitle);
+        this.pauseOtherInlineMedia(null);
+        p.src = src;
+        try{ p.load(); }catch(_){ }
+        if (seekTo > 0){
+          const onMeta = ()=>{ try{ if (Number.isFinite(p.duration) && p.duration > 0) p.currentTime = Math.min(seekTo, p.duration); }catch(_){ } p.removeEventListener('loadedmetadata', onMeta); };
+          p.addEventListener('loadedmetadata', onMeta);
+        }
+        this._voiceUserIntendedPlay = true;
+        p.play().catch(()=>{});
+        this.notifyParentAudioPlay({ src, title: opts.title || 'Audio', by: opts.by || '', cover: opts.cover || '' });
+        this.updateVoiceWidgets();
+      }catch(_){ }
     }
 
     addToChatAudioPlaylist(item){
@@ -6311,7 +6360,7 @@
       audio.style.display = 'none';
       audio.dataset.title = safeName;
       audio.dataset.by = safeAuthor;
-      audio.preload = 'metadata';
+      audio.preload = 'auto';
       audio.addEventListener('play', ()=> this.notifyParentAudioPlay(audio), { once: false });
       const wrapper = document.createElement('div');
       wrapper.className = 'voice-wave-player';
@@ -6337,36 +6386,56 @@
       this.getWaveHeightsForAudio(src, barsCount).then((heights)=>{
         if (Array.isArray(heights) && heights.length) this.applyWaveHeights(wave, heights);
       }).catch(()=>{});
+      const widget = {
+        id: `ua_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+        src, srcKey: String(sourceKey || '').trim(), title: safeName,
+        playBtn, wave, time, showRemaining: false, durationGuess: 0
+      };
+      this._voiceWidgets.set(widget.id, widget);
+      this.startVoiceWidgetTicker();
       const sync = ()=>{
-        const d = Number(audio.duration || 0);
-        const c = Number(audio.currentTime || 0);
+        const p = this.ensureChatBgPlayer();
+        const playerSrc = this.getChatPlayerSrc(p);
+        const active = (!!playerSrc && (src === playerSrc || this.isSameMediaSrc(src, playerSrc)))
+          || (!!this._voiceCurrentSrc && (src === this._voiceCurrentSrc || this.isSameMediaSrc(src, this._voiceCurrentSrc)))
+          || (!!this._voiceCurrentAttachmentKey && !!sourceKey && this._voiceCurrentAttachmentKey === sourceKey);
+        const d = active && Number.isFinite(p.duration) && p.duration > 0 ? Number(p.duration) : Number(audio.duration || 0);
+        const c = active ? Number(p.currentTime || 0) : Number(audio.currentTime || 0);
+        if (active && d > 0) widget.durationGuess = d;
         const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
         const bars = wave.querySelectorAll('.bar');
         const played = Math.round(bars.length * ratio);
-        bars.forEach((b, i)=> b.classList.toggle('played', i < played));
-        playBtn.innerHTML = `<i class="fas ${audio.paused ? 'fa-play' : 'fa-pause'}"></i>`;
-        playBtn.title = audio.paused ? 'Play' : 'Stop';
+        bars.forEach((b, i)=> b.classList.toggle('played', active && i < played));
+        const paused = active ? !!p.paused : !!audio.paused;
+        playBtn.innerHTML = `<i class="fas ${paused ? 'fa-play' : 'fa-pause'}"></i>`;
+        playBtn.title = paused ? 'Play' : 'Stop';
         time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
       };
       ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
+      audio.addEventListener('error', ()=>{ try{ time.textContent = 'Error loading'; }catch(_){ } });
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
-        if (audio.paused){
-          const p = this.ensureChatBgPlayer();
-          if (p && !p.paused){ p.pause(); try{ p.removeAttribute('src'); p.load(); }catch(_){ } }
-          this.pauseOtherInlineMedia(audio);
-          audio.play().catch(()=>{});
-          this.notifyParentAudioPlay(audio);
-        }else{
-          audio.pause();
+        const p = this.ensureChatBgPlayer();
+        if (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) && !p.paused){
+          this._voiceUserIntendedPlay = false;
+          p.pause();
+          this.updateVoiceWidgets();
+          return;
         }
+        this.playChatAudioInBgPlayer({ src, title: safeName, by: safeAuthor, cover: '', sourceKey });
         sync();
       });
       const seekTo = (clientX)=>{
         const rect = wave.getBoundingClientRect();
         const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        if (Number(audio.duration) > 0) audio.currentTime = ratio * audio.duration;
-        if (audio.paused){ this.pauseOtherInlineMedia(audio); audio.play().catch(()=>{}); }
+        const p = this.ensureChatBgPlayer();
+        if (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) && Number.isFinite(p.duration) && p.duration > 0){
+          p.currentTime = ratio * p.duration;
+          if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
+        } else {
+          if (Number(audio.duration) > 0) audio.currentTime = ratio * audio.duration;
+          this.playChatAudioInBgPlayer({ src, title: safeName, by: safeAuthor, cover: '', sourceKey, currentTime: ratio * (audio.duration || 0) });
+        }
         sync();
       };
       wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekTo(e.clientX); });
@@ -6408,40 +6477,41 @@
         const barsCount = 54;
         this.paintSeedWaveBars(wave, barsCount, seed);
         this.getWaveHeightsForAudio(url, barsCount).then((heights)=>{
-          if (Array.isArray(heights) && heights.length){
-            this.applyWaveHeights(wave, heights);
-            sync();
-          }
+          if (Array.isArray(heights) && heights.length){ this.applyWaveHeights(wave, heights); sync(); }
         }).catch(()=>{});
+        const widget = { id: `wca_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, src: url, srcKey: String(sourceKey || '').trim(), title, playBtn, wave, time, showRemaining: false, durationGuess: 0 };
+        this._voiceWidgets.set(widget.id, widget);
+        this.startVoiceWidgetTicker();
         const sync = ()=>{
-          const d = Number(audio.duration || 0);
-          const c = Number(audio.currentTime || 0);
+          const p = this.ensureChatBgPlayer();
+          const playerSrc = this.getChatPlayerSrc(p);
+          const active = (!!playerSrc && (url === playerSrc || this.isSameMediaSrc(url, playerSrc))) || (!!this._voiceCurrentSrc && (url === this._voiceCurrentSrc || this.isSameMediaSrc(url, this._voiceCurrentSrc)));
+          const d = active && Number.isFinite(p.duration) && p.duration > 0 ? Number(p.duration) : Number(audio.duration || 0);
+          const c = active ? Number(p.currentTime || 0) : Number(audio.currentTime || 0);
+          if (active && d > 0) widget.durationGuess = d;
           const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
           const bars = wave.querySelectorAll('.bar');
           const played = Math.round(bars.length * ratio);
-          bars.forEach((b, i)=> b.classList.toggle('played', i < played));
-          playBtn.innerHTML = `<i class="fas ${audio.paused ? 'fa-play' : 'fa-pause'}"></i>`;
+          bars.forEach((b, i)=> b.classList.toggle('played', active && i < played));
+          playBtn.innerHTML = `<i class="fas ${active ? (p.paused ? 'fa-play' : 'fa-pause') : (audio.paused ? 'fa-play' : 'fa-pause')}"></i>`;
           time.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
         };
         ['play','pause','timeupdate','loadedmetadata','ended'].forEach(ev=> audio.addEventListener(ev, sync));
         playBtn.addEventListener('click', (e)=>{
           try{ e.stopPropagation(); }catch(_){ }
-          if (audio.paused){
-            const p = this.ensureChatBgPlayer();
-            if (p && !p.paused){ p.pause(); try{ p.removeAttribute('src'); p.load(); }catch(_){ } }
-            this.pauseOtherInlineMedia(audio);
-            audio.play().catch(()=>{});
-            this.notifyParentAudioPlay(audio);
-          }else{
-            audio.pause();
-          }
+          const p = this.ensureChatBgPlayer();
+          if (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && !p.paused){ this._voiceUserIntendedPlay = false; p.pause(); this.updateVoiceWidgets(); return; }
+          this.playChatAudioInBgPlayer({ src: url, title, by: '', cover: '', sourceKey });
           sync();
         });
         const seekTo = (clientX)=>{
           const rect = wave.getBoundingClientRect();
           const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-          if (Number(audio.duration) > 0) audio.currentTime = ratio * audio.duration;
-          if (audio.paused){ this.pauseOtherInlineMedia(audio); audio.play().catch(()=>{}); }
+          const p = this.ensureChatBgPlayer();
+          if (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && Number.isFinite(p.duration) && p.duration > 0){
+            p.currentTime = ratio * p.duration;
+            if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
+          } else this.playChatAudioInBgPlayer({ src: url, title, by: '', cover: '', sourceKey, currentTime: ratio * (audio.duration || 0) });
           sync();
         };
         wave.addEventListener('click', (e)=>{ try{ e.stopPropagation(); }catch(_){ } seekTo(e.clientX); });
@@ -7002,16 +7072,10 @@
           const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const cacheKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
-          if (containerEl?.dataset?.pickerMode === '1'){
-            const audio = document.createElement('audio');
-            audio.src = url;
-            audio.controls = true;
-            audio.style.cssText = 'width:100%;margin-top:6px';
-            containerEl.appendChild(audio);
-          } else if (isVoiceRecording){
-            const title = String(senderDisplayName || 'Voice message');
-            this.renderWaveAttachment(containerEl, url, title, attachmentSourceKey);
-          }else{
+          const audioType = this.getChatAudioType(message, fileName, false);
+          if (audioType === 'voice'){
+            this.renderWaveAttachment(containerEl, url, senderDisplayName || 'Voice message', attachmentSourceKey);
+          } else {
             this.renderNamedAudioAttachment(containerEl, url, fileName || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
         } else if ((fileName||'').toLowerCase().endsWith('.pdf')){
@@ -7101,7 +7165,6 @@
       try{
         let name = String(fileName || '');
         const isVideoRecording = this.isVideoRecordingMessage(message, name);
-        const isVoiceRecording = this.isVoiceRecordingMessage(message, name);
         if (!name && fileUrl){
           try{
             const clean = String(fileUrl).split('?')[0].split('#')[0];
@@ -7138,15 +7201,10 @@
         }
         if (this.isAudioFilename(name)){
           const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(name || '')}`;
-          if (pickerMode){
-            const audio = document.createElement('audio');
-            audio.src = fileUrl;
-            audio.controls = true;
-            audio.style.cssText = 'width:100%;margin-top:6px';
-            containerEl.appendChild(audio);
-          } else if (isVoiceRecording){
+          const audioType = this.getChatAudioType(message, name, false);
+          if (audioType === 'voice'){
             this.renderWaveAttachment(containerEl, fileUrl, 'Voice message', attachmentSourceKey);
-          }else{
+          } else {
             this.renderNamedAudioAttachment(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
           }
           return;
