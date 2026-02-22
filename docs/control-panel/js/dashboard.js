@@ -3495,12 +3495,15 @@ class DashboardManager {
         navBtns.forEach(btn => {
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
-            if (newBtn.dataset.action === 'open-chat') {
-                newBtn.addEventListener('click', openChatApp);
-            } else {
-                newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
-            }
+            newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
         });
+
+        const chatBtn = document.getElementById('dashboard-chat-btn');
+        if (chatBtn) {
+            const c = chatBtn.cloneNode(true);
+            chatBtn.parentNode.replaceChild(c, chatBtn);
+            c.addEventListener('click', openChatApp);
+        }
 
         // Mobile navigation buttons
         const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
@@ -3509,8 +3512,6 @@ class DashboardManager {
             btn.parentNode.replaceChild(newBtn, btn);
             if (newBtn.id === 'mobile-wall-e-btn') {
                 newBtn.addEventListener('click', () => this.toggleWallEWidget());
-            } else if (newBtn.dataset.action === 'open-chat' || newBtn.id === 'mobile-chat-btn') {
-                newBtn.addEventListener('click', openChatApp);
             } else {
                 newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
             }

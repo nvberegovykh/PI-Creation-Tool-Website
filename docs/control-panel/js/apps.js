@@ -295,33 +295,6 @@ class AppsManager {
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-16',
                 logo: null
-            }
-            ,
-            {
-                id: 'secure-chat',
-                name: 'Connections',
-                description: 'End-to-end encrypted chat with file sharing.',
-                version: '1.0.0',
-                category: 'communication',
-                icon: 'fas fa-comments',
-                status: 'online',
-                path: 'apps/secure-chat/index.html',
-                author: 'Liber Apps',
-                lastUpdated: '2025-08-18',
-                logo: null
-            },
-            {
-                id: 'waveconnect',
-                name: 'WaveConnect',
-                description: 'Audio library and uploads synced with your Personal Space feed.',
-                version: '1.0.0',
-                category: 'media',
-                icon: 'fas fa-music',
-                status: 'online',
-                path: '#waveconnect',
-                author: 'Liber Apps',
-                lastUpdated: '2025-08-19',
-                logo: null
             },
             {
                 id: 'file-converter',

@@ -98,6 +98,10 @@
     .apps-grid {
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
         gap: 16px;
+        margin-top: 28px;
+    }
+    #apps-section .section-header {
+        margin-bottom: 28px;
     }
     
     .overview-grid {
@@ -221,6 +225,9 @@
         margin-bottom: 20px;
         padding-bottom: 15px;
     }
+    #apps-section .section-header {
+        margin-bottom: 28px;
+    }
     
     .section-header h2 {
         font-size: 1.3rem;
@@ -229,6 +236,7 @@
     .apps-grid {
         grid-template-columns: 1fr;
         gap: 12px;
+        margin-top: 28px;
     }
     
     .app-card {
@@ -393,6 +401,7 @@
 @media print {
     .dashboard-header,
     .dashboard-nav,
+    .dashboard-chat-btn,
     .logout-btn,
     .add-btn,
     .app-actions,
