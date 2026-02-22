@@ -1306,6 +1306,31 @@ if (!useParentService) {
     window.firebaseService = new FirebaseService();
 }
 
+// Parent: handle chat iframe setDoc requests (avoids "custom Object" cross-context error)
+if (typeof window !== 'undefined' && window.self === window.top) {
+    window.addEventListener('message', async (e) => {
+        const d = e.data;
+        if (!d || d.type !== 'liber-save-chat-message') return;
+        const reply = (err) => {
+            try {
+                e.source.postMessage({ type: 'liber-save-chat-message-done', id: d.id, error: err ? String(err) : null }, e.origin || '*');
+            } catch (_) {}
+        };
+        try {
+            const firebase = window.firebase;
+            const fs = window.firebaseService;
+            if (!firebase || !fs || !fs.db) { reply('Firebase not ready'); return; }
+            const doc = JSON.parse(d.docJson);
+            doc.createdAtTS = firebase.serverTimestamp();
+            const msgRef = firebase.doc(fs.db, 'chatMessages', d.connId, 'messages', d.msgId);
+            await firebase.setDoc(msgRef, doc);
+            reply(null);
+        } catch (err) {
+            reply(err?.message || String(err));
+        }
+    });
+}
+
 // Add global test function
 window.testFirebase = function() {
     console.log('=== Testing Firebase ===');
