@@ -1,15 +1,45 @@
 (function () {
+  'use strict';
+  const PREFIX = '[Gallery Control]';
+  function reportToParent(label, err, extra) {
+    const isError = err instanceof Error;
+    const msg = isError ? (err.message || '') : (err ? String(err) : '');
+    const stack = isError && err.stack ? err.stack : '';
+    if (isError) console.error(PREFIX, label, msg, extra || '');
+    try {
+      const target = window.parent || window.top;
+      if (target && target !== window && target.postMessage) {
+        target.postMessage({ type: 'liber:gallery-error', label, message: msg, stack, extra: extra ? JSON.stringify(extra) : '', isError: isError }, '*');
+      }
+    } catch (_) {}
+  }
+
   const state = {
     projects: [],
     selectedProjectId: '',
     items: [],
     selectedItemId: '',
     editingProject: false,
-    editingItem: false
+    editingItem: false,
+    projectMediaQueue: []
   };
 
   const byId = (id) => document.getElementById(id);
+
+  function getFirebaseService() {
+    for (const w of [window.parent, window.top].filter(Boolean)) {
+      try {
+        if (w !== window && w.firebaseService && w.firebaseService.isInitialized) {
+          return w.firebaseService;
+        }
+      } catch (_) { /* cross-origin */ }
+    }
+    return window.firebaseService;
+  }
+
   const notify = (msg, type) => {
+    console.warn(PREFIX, type || 'info', msg);
+    if (type === 'error') reportToParent('notify', new Error(msg), { msg });
     if (window.parent && window.parent.dashboardManager) {
       window.parent.dashboardManager.showNotification(msg, type || 'success');
     } else {
@@ -32,11 +62,13 @@
     const saveBtn = byId('project-save-btn');
     const cancelBtn = byId('project-cancel');
     const deleteBtn = byId('project-delete');
+    const mediaWrap = byId('project-upload-media');
     panel.style.display = '';
     heading.textContent = state.editingProject ? 'Edit Project' : 'New Project';
     saveBtn.textContent = state.editingProject ? 'Update Project' : 'Save Project';
     cancelBtn.style.display = state.editingProject ? '' : 'none';
     deleteBtn.style.display = state.editingProject ? '' : 'none';
+    if (mediaWrap) mediaWrap.style.display = state.editingProject ? 'none' : '';
   }
 
   function hideProjectForm() {
@@ -206,22 +238,28 @@
 
   async function ensureFirebaseReady() {
     let attempts = 0;
-    while (!(window.firebaseService && window.firebaseService.isInitialized) && attempts < 150) {
+    const hasService = () => {
+      const svc = getFirebaseService();
+      return svc && svc.isInitialized;
+    };
+    while (!hasService() && attempts < 150) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       attempts += 1;
     }
-    if (!(window.firebaseService && window.firebaseService.isInitialized)) {
+    if (!hasService()) {
       throw new Error('Firebase failed to initialize');
     }
   }
 
   async function loadProjects() {
     try {
-      state.projects = await window.firebaseService.getGalleryProjects({ publishedOnly: false });
+      const svc = getFirebaseService();
+      state.projects = await svc.getGalleryProjects({ publishedOnly: false });
       for (const p of state.projects) {
-        p.items = await window.firebaseService.getGalleryItems(p.id, { publishedOnly: false });
+        p.items = await svc.getGalleryItems(p.id, { publishedOnly: false });
       }
     } catch (err) {
+      reportToParent('loadProjects', err, { uid: getFirebaseService()?.auth?.currentUser?.uid });
       notify(err.message || 'Failed to load projects', 'error');
       state.projects = [];
     }
@@ -236,8 +274,10 @@
       return;
     }
     try {
-      state.items = await window.firebaseService.getGalleryItems(state.selectedProjectId, { publishedOnly: false });
+      const svc = getFirebaseService();
+      state.items = await svc.getGalleryItems(state.selectedProjectId, { publishedOnly: false });
     } catch (err) {
+      reportToParent('loadItems', err, { projectId: state.selectedProjectId });
       notify(err.message || 'Failed to load items', 'error');
       state.items = [];
     }
@@ -250,46 +290,67 @@
   }
 
   async function uploadMediaFile(file, projectId, itemId) {
-    const user = window.firebaseService.auth.currentUser;
-    if (!user || !user.uid) throw new Error('You must be signed in');
-    const storage = firebase.getStorage();
+    const svc = getFirebaseService();
+    const user = svc.auth.currentUser;
+    if (!user || !user.uid) throw new Error('You must be signed in to upload');
+    const storage = firebase.getStorage(svc.app);
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
     const path = `gallery/${user.uid}/${projectId}/${itemId}/media_0.${ext}`;
     const ref = firebase.ref(storage, path);
     await firebase.uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    return firebase.getDownloadURL(ref);
+    const url = await firebase.getDownloadURL(ref);
+    return url;
   }
 
   async function onSaveProject(e) {
     e.preventDefault();
     const current = getSelectedProject();
+    const svc = getFirebaseService();
+    const uid = svc.auth.currentUser?.uid || '';
+    if (!uid) {
+      notify('You must be signed in', 'error');
+      return;
+    }
     const payload = {
       title: byId('project-title').value.trim(),
       year: byId('project-year').value.trim(),
       description: byId('project-description').value.trim(),
       coverPolicy: byId('project-cover-policy').value,
       isPublished: byId('project-published').checked,
-      ownerId: window.firebaseService.auth.currentUser?.uid || ''
+      ownerId: uid
     };
     if (!payload.title) {
       notify('Project title is required', 'warning');
       return;
     }
+    const mediaInput = byId('project-media');
+    const mediaFiles = mediaInput ? Array.from(mediaInput.files || []) : [];
     try {
       if (current) {
-        await window.firebaseService.updateGalleryProject(current.id, payload);
+        await svc.updateGalleryProject(current.id, payload);
         notify('Project updated');
       } else {
-        const created = await window.firebaseService.createGalleryProject(payload);
+        const created = await svc.createGalleryProject(payload);
         state.selectedProjectId = created.id;
         byId('project-id').value = created.id;
-        notify('Project created');
+        for (let i = 0; i < mediaFiles.length; i++) {
+          const file = mediaFiles[i];
+          const isVideo = file.type.startsWith('video/');
+          const itemPayload = { type: isVideo ? 'video' : 'image', sortOrder: i, isPublished: payload.isPublished, ownerId: uid };
+          const item = await svc.createGalleryItem(created.id, itemPayload);
+          const url = await uploadMediaFile(file, created.id, item.id);
+          await svc.updateGalleryItem(created.id, item.id, { url, thumbUrl: url });
+        }
+        if (mediaInput) mediaInput.value = '';
+        byId('project-media-previews').innerHTML = '';
+        notify(mediaFiles.length ? `Project created with ${mediaFiles.length} media` : 'Project created');
       }
       resetProjectForm();
       hideProjectForm();
       await loadProjects();
       if (state.selectedProjectId) await loadItems();
     } catch (err) {
+      reportToParent('onSaveProject', err, { uid: svc?.auth?.currentUser?.uid, title: payload?.title });
       notify(err.message || String(err), 'error');
     }
   }
@@ -300,7 +361,7 @@
     const ok = confirm(`Delete project "${project.title || project.id}"?`);
     if (!ok) return;
     try {
-      await window.firebaseService.deleteGalleryProject(project.id);
+      await getFirebaseService().deleteGalleryProject(project.id);
       resetProjectForm();
       hideProjectForm();
       state.selectedProjectId = '';
@@ -310,6 +371,7 @@
       renderItemCards();
       notify('Project deleted');
     } catch (err) {
+      reportToParent('onDeleteProject', err);
       notify(err.message || String(err), 'error');
     }
   }
@@ -322,13 +384,14 @@
     }
     const current = getSelectedItem();
     const type = byId('item-type').value;
+    const svc = getFirebaseService();
     const payload = {
       type,
       caption: byId('item-caption').value.trim(),
       text: byId('item-text').value.trim(),
       sortOrder: Number(byId('item-sort-order').value || 0),
       isPublished: byId('item-published').checked,
-      ownerId: window.firebaseService.auth.currentUser?.uid || ''
+      ownerId: svc.auth.currentUser?.uid || ''
     };
     const file = byId('item-file').files[0];
 
@@ -339,13 +402,13 @@
           updates.url = await uploadMediaFile(file, state.selectedProjectId, current.id);
           updates.thumbUrl = updates.url;
         }
-        await window.firebaseService.updateGalleryItem(state.selectedProjectId, current.id, updates);
+        await svc.updateGalleryItem(state.selectedProjectId, current.id, updates);
         notify('Item updated');
       } else {
-        const created = await window.firebaseService.createGalleryItem(state.selectedProjectId, payload);
+        const created = await svc.createGalleryItem(state.selectedProjectId, payload);
         if (type !== 'text' && file) {
           const mediaUrl = await uploadMediaFile(file, state.selectedProjectId, created.id);
-          await window.firebaseService.updateGalleryItem(state.selectedProjectId, created.id, { url: mediaUrl, thumbUrl: mediaUrl });
+          await svc.updateGalleryItem(state.selectedProjectId, created.id, { url: mediaUrl, thumbUrl: mediaUrl });
         }
       }
       resetItemForm();
@@ -353,6 +416,7 @@
       await loadItems();
       await loadProjects();
     } catch (err) {
+      reportToParent('onSaveItem', err);
       notify(err.message || String(err), 'error');
     }
   }
@@ -363,13 +427,14 @@
     const ok = confirm(`Delete item "${item.caption || item.id}"?`);
     if (!ok) return;
     try {
-      await window.firebaseService.deleteGalleryItem(state.selectedProjectId, item.id);
+      await getFirebaseService().deleteGalleryItem(state.selectedProjectId, item.id);
       resetItemForm();
       hideItemForm();
       await loadItems();
       await loadProjects();
       notify('Item deleted');
     } catch (err) {
+      reportToParent('onDeleteItem', err);
       notify(err.message || String(err), 'error');
     }
   }
@@ -394,6 +459,33 @@
     });
     byId('project-delete').addEventListener('click', () => onDeleteProject());
     byId('project-form').addEventListener('submit', (e) => onSaveProject(e));
+    const projectMedia = byId('project-media');
+    if (projectMedia) {
+      projectMedia.addEventListener('change', () => {
+        const previews = byId('project-media-previews');
+        previews.innerHTML = '';
+        const files = Array.from(projectMedia.files || []);
+        files.forEach((f) => {
+          const wrap = document.createElement('div');
+          if (f.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(f);
+            img.alt = f.name;
+            wrap.appendChild(img);
+          } else if (f.type.startsWith('video/')) {
+            const vid = document.createElement('video');
+            vid.src = URL.createObjectURL(f);
+            vid.muted = true;
+            vid.playsInline = true;
+            wrap.appendChild(vid);
+          } else {
+            wrap.textContent = f.name;
+            wrap.style.fontSize = '11px';
+          }
+          previews.appendChild(wrap);
+        });
+      });
+    }
 
     byId('item-add-btn').addEventListener('click', () => {
       resetItemForm();
@@ -428,9 +520,14 @@
       await loadProjects();
       syncItemTypeFields();
     } catch (err) {
+      reportToParent('init', err, { hasFirebase: !!getFirebaseService() });
       notify(err.message || String(err), 'error');
     }
   }
 
-  init();
+  reportToParent('started', { message: 'loaded', isError: false }, { ts: Date.now() });
+  init().catch((err) => {
+    console.error('[Gallery] init:', err);
+    notify(err.message || 'Failed to initialize', 'error');
+  });
 })();

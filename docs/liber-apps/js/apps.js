@@ -92,6 +92,9 @@ class AppsManager {
                 const data = ev && ev.data ? ev.data : {};
                 if (data && data.type === 'liber:close-app-shell'){
                     this.closeAppShell();
+                } else if (data && data.type === 'liber:gallery-error'){
+                    if (data.isError !== false) console.error('[Gallery Control]', data.label || 'error', data.message || '', data.stack || '', data.extra || '');
+                    else console.log('[Gallery Control]', data.label, data.extra || '');
                 } else if (data && data.type === 'liber:ios-call-intent'){
                     const payload = {
                         type: 'liber:ios-call-intent',

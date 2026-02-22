@@ -743,6 +743,8 @@ class FirebaseService {
 
     async createGalleryProject(data = {}){
         await this.waitForInit();
+        const uid = String(data.ownerId || this.auth?.currentUser?.uid || '').trim();
+        if (!uid) throw new Error('You must be signed in to create a gallery project');
         const now = new Date().toISOString();
         const ref = firebase.doc(firebase.collection(this.db, 'galleryProjects'));
         const payload = {
@@ -752,7 +754,7 @@ class FirebaseService {
             description: String(data.description || '').trim(),
             coverPolicy: String(data.coverPolicy || 'first'),
             isPublished: !!data.isPublished,
-            ownerId: String(data.ownerId || this.auth?.currentUser?.uid || ''),
+            ownerId: uid,
             createdAt: now,
             updatedAt: now,
             createdAtTS: firebase.serverTimestamp(),
@@ -780,18 +782,30 @@ class FirebaseService {
     async getGalleryProjects(opts = {}){
         await this.waitForInit();
         const publishedOnly = !!opts.publishedOnly;
+        const uid = this.auth?.currentUser?.uid;
         const col = firebase.collection(this.db, 'galleryProjects');
         let q;
         if (publishedOnly) {
             q = firebase.query(col, firebase.where('isPublished', '==', true), firebase.orderBy('updatedAtTS', 'desc'));
+        } else if (uid) {
+            q = firebase.query(col, firebase.where('ownerId', '==', uid), firebase.orderBy('updatedAtTS', 'desc'));
         } else {
-            q = firebase.query(col, firebase.orderBy('updatedAtTS', 'desc'));
+            q = firebase.query(col, firebase.where('isPublished', '==', true), firebase.orderBy('updatedAtTS', 'desc'));
         }
         let snap;
         try {
             snap = await firebase.getDocs(q);
-        } catch (_) {
-            snap = await firebase.getDocs(col);
+        } catch (err) {
+            if (uid && (err?.code === 'failed-precondition' || err?.message?.includes('index'))) {
+                try {
+                    const fallbackQ = firebase.query(col, firebase.where('ownerId', '==', uid));
+                    snap = await firebase.getDocs(fallbackQ);
+                } catch (_) {
+                    return [];
+                }
+            } else {
+                return [];
+            }
         }
         const out = [];
         snap.forEach((d) => out.push({ id: d.id, ...d.data() }));

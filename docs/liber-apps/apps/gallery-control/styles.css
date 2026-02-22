@@ -42,6 +42,33 @@
   gap: 10px;
 }
 
+.project-upload-media {
+  padding: 10px;
+  border: 1px dashed #2b3854;
+  border-radius: 8px;
+  background: #0a0e14;
+}
+
+.project-upload-media input[type="file"] {
+  margin-top: 4px;
+}
+
+.media-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.media-previews img,
+.media-previews video {
+  max-width: 80px;
+  max-height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #2b3854;
+}
+
 label {
   display: grid;
   gap: 6px;

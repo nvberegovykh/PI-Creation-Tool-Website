@@ -29,6 +29,10 @@
           </select>
         </label>
         <label class="inline"><input id="project-published" type="checkbox" /> Published</label>
+        <div class="project-upload-media" id="project-upload-media">
+          <label>Add media (pictures/videos) <input id="project-media" type="file" accept="image/*,video/*" multiple /></label>
+          <div id="project-media-previews" class="media-previews"></div>
+        </div>
         <div class="actions">
           <button class="btn" type="submit" id="project-save-btn">Save Project</button>
           <button id="project-cancel" class="btn secondary" type="button">Cancel</button>
