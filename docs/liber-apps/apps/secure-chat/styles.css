@@ -63,6 +63,12 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .voice-top-strip.hidden{display:none}
 .voice-top-strip .icon-btn{padding:4px 8px}
 .voice-top-title{flex:1;min-width:0;font-size:12px;color:#dbe2ef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.voice-top-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.voice-top-progress{display:flex;align-items:center;gap:8px;min-width:0}
+.voice-top-wave{flex:1;min-width:0;display:flex;gap:2px;align-items:flex-end;height:12px;overflow:hidden}
+.voice-top-wave .bar{width:2px;border-radius:2px;background:#556076;opacity:.95;transition:background-color .08s linear}
+.voice-top-wave .bar.played{background:#ffffff}
+.voice-top-time{font-size:10px;color:#9da8bc;white-space:nowrap;min-width:58px;text-align:right}
 .typing-indicator{
   min-height: 0;
   max-height: 0;

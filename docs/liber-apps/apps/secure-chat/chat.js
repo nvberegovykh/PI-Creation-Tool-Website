@@ -641,9 +641,11 @@
       }catch(_){ }
     }
 
-    enqueueAttachmentPreview(task, loadSeq, connId){
+    enqueueAttachmentPreview(task, loadSeq, connId, priority = false){
       try{
-        this._attachmentPreviewQueue.push({ task, loadSeq, connId });
+        const item = { task, loadSeq, connId };
+        if (priority) this._attachmentPreviewQueue.unshift(item);
+        else this._attachmentPreviewQueue.push(item);
         this.pumpAttachmentPreviewQueue();
       }catch(_){ }
     }
@@ -1678,7 +1680,11 @@
       const strip = document.getElementById('voice-top-strip');
       const toggle = document.getElementById('voice-top-toggle');
       const close = document.getElementById('voice-top-close');
+      const stripWave = document.getElementById('voice-top-wave');
       if (!strip || !toggle || !close) return;
+      if (stripWave && !stripWave.querySelector('.bar')){
+        try{ this.paintSeedWaveBars(stripWave, 48, 'chat-top-wave'); }catch(_){ }
+      }
       toggle.addEventListener('click', ()=>{
         const p = this.ensureChatBgPlayer();
         const playerSrc = this.getChatPlayerSrc(p);
@@ -3087,13 +3093,11 @@
                   const preview = el.querySelector('.file-preview');
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
                   const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
-                  if (isPriorityMedia && preview){
-                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
-                  }else{
+                  if (preview){
                     this.enqueueAttachmentPreview(()=>{
                       const container = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .file-preview`);
                       if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                    }, loadSeq, activeConnId);
+                    }, loadSeq, activeConnId, isPriorityMedia);
                   }
                 }
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
@@ -3168,7 +3172,6 @@
                 renderTarget = document.createElement('div');
               }
               lastRenderedDay = '';
-              this._voiceWidgets.clear();
             }
             const renderOne = async (d, sourceConnId = activeConnId, opts = {})=>{
               const forceInsertBefore = !!opts.forceInsertBefore;
@@ -3321,18 +3324,15 @@
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
                   const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
                   const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
-                  if (isPriorityMedia){
-                    try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
-                  }else{
-                    this.enqueueAttachmentPreview(
-                      ()=>{
-                        const container = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .file-preview`);
-                        if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                      },
-                      loadSeq,
-                      activeConnId
-                    );
-                  }
+                  this.enqueueAttachmentPreview(
+                    ()=>{
+                      const container = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .file-preview`);
+                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                    },
+                    loadSeq,
+                    activeConnId,
+                    isPriorityMedia
+                  );
                 }
               }
               if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
@@ -3745,19 +3745,16 @@
                 const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
                 const isRecording = this.isVideoRecordingMessage(m, inferredFileName) || this.isVoiceRecordingMessage(m, inferredFileName);
                 const isPriorityMedia = isRecording || this.isAudioFilename(inferredFileName);
-                if (isPriorityMedia){
-                  try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
-                }else{
-                  const msgId = String(d.id || m.id || '');
-                  this.enqueueAttachmentPreview(
-                    ()=>{
-                      const container = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .file-preview`);
-                      if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
-                    },
-                    loadSeq,
-                    activeConnId
-                  );
-                }
+                const msgDomId = this.buildMsgDomId(activeConnId, d.id || m.id || '');
+                this.enqueueAttachmentPreview(
+                  ()=>{
+                    const container = box.querySelector(`[data-msg-id="${msgDomId.replace(/"/g,'\\"')}"] .file-preview`);
+                    if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
+                  },
+                  loadSeq,
+                  activeConnId,
+                  isPriorityMedia
+                );
               }
             }
             if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
@@ -6006,6 +6003,8 @@
       const strip = document.getElementById('voice-top-strip');
       const stripTitle = document.getElementById('voice-top-title');
       const stripToggle = document.getElementById('voice-top-toggle');
+      const stripWave = document.getElementById('voice-top-wave');
+      const stripTime = document.getElementById('voice-top-time');
       const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
       const playerSrc = this.getChatPlayerSrc(p);
       const canShowStrip = (Date.now() > Number(this._forceHideVoiceStripUntil || 0)) && (!!topMedia || !!playerSrc);
@@ -6048,6 +6047,19 @@
         if (!playerSrc) stripTitle.textContent = 'Voice message';
         else if (!this._voiceWidgets.size) stripTitle.textContent = this._voiceCurrentTitle || 'Voice message';
       }
+      try{
+        if (stripWave && !stripWave.querySelector('.bar')) this.paintSeedWaveBars(stripWave, 48, 'chat-top-wave');
+        const source = topMedia || (playerSrc ? p : null);
+        const dRaw = Number(source?.duration || 0);
+        const cRaw = Number(source?.currentTime || 0);
+        const d = Number.isFinite(dRaw) && dRaw > 0 ? dRaw : 0;
+        const c = Number.isFinite(cRaw) && cRaw > 0 ? cRaw : 0;
+        const ratio = d > 0 ? Math.min(1, Math.max(0, c / d)) : 0;
+        const bars = stripWave ? stripWave.querySelectorAll('.bar') : [];
+        const playedBars = Math.round(bars.length * ratio);
+        bars.forEach((b, i)=> b.classList.toggle('played', i < playedBars));
+        if (stripTime) stripTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+      }catch(_){ }
       const shouldAnimate = (!!playerSrc && !p.paused) || (!!topMedia && !topMedia.paused);
       if (shouldAnimate) this.startVoiceProgressLoop();
       else this.stopVoiceProgressLoop();
@@ -6650,6 +6662,14 @@
     async renderEncryptedAttachment(containerEl, fileUrl, fileName, aesKey, sourceConnId = this.activeConnection, senderDisplayName = '', message = null){
       try {
         if (!containerEl?.isConnected) return;
+        const rawUrl = String(fileUrl || '').trim();
+        let decodedUrl = rawUrl;
+        try{ decodedUrl = decodeURIComponent(rawUrl); }catch(_){ decodedUrl = rawUrl; }
+        const looksEncryptedUrl = /\.enc\.json(?:$|\?)/i.test(rawUrl) || /\.enc\.json(?:$|\?)/i.test(decodedUrl);
+        if (!looksEncryptedUrl){
+          this.renderDirectAttachment(containerEl, rawUrl, fileName, message, senderDisplayName, !!containerEl?.dataset?.pickerMode);
+          return;
+        }
         const cid = message?.connId || sourceConnId || this.activeConnection;
         const msgId = message?.id;
         if (msgId && cid && this.db) {
