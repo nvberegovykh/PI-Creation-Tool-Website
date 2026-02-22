@@ -1177,6 +1177,7 @@ class AuthManager {
 
             if (now < expiresAt) {
                 this.currentUser = session.user;
+                this.createSession();
                 this.showDashboard();
             } else {
                 // If local session is expired, try to recover from Firebase auth state

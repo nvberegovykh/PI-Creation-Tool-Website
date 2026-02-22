@@ -65,22 +65,32 @@ class DashboardManager {
     _resolveAdminFromLocalState(){
         try{
             const am = window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
-            if (String(am?.role || '').toLowerCase() === 'admin') return true;
+            const r = String(am?.role ?? '').toLowerCase();
+            if (r === 'admin') return true;
         }catch(_){ }
         try{
             const raw = localStorage.getItem('liber_session');
-            const sess = raw ? JSON.parse(raw) : null;
-            if (String(sess?.user?.role || '').toLowerCase() === 'admin') return true;
+            if (raw){
+                const sess = JSON.parse(raw);
+                const r = String(sess?.user?.role ?? sess?.role ?? '').toLowerCase();
+                if (r === 'admin') return true;
+            }
         }catch(_){ }
         try{
             const raw = localStorage.getItem('liber_auth_session');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (String(parsed?.user?.role || '').toLowerCase() === 'admin') return true;
+            if (raw){
+                const parsed = JSON.parse(raw);
+                const r = String(parsed?.user?.role ?? parsed?.role ?? '').toLowerCase();
+                if (r === 'admin') return true;
+            }
         }catch(_){ }
         try{
             const rawUser = localStorage.getItem('liber_current_user');
-            const user = rawUser ? JSON.parse(rawUser) : null;
-            if (String(user?.role || '').toLowerCase() === 'admin') return true;
+            if (rawUser){
+                const user = JSON.parse(rawUser);
+                const r = String(user?.role ?? '').toLowerCase();
+                if (r === 'admin') return true;
+            }
         }catch(_){ }
         return false;
     }

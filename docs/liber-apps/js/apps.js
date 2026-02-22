@@ -543,21 +543,26 @@ class AppsManager {
     }
 
     _isAdmin() {
+        if (window.dashboardManager && window.dashboardManager._isAdminSession) return true;
         try {
             const am = window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
-            if (String(am?.role || '').toLowerCase() === 'admin') return true;
+            if (String(am?.role ?? '').toLowerCase() === 'admin') return true;
         } catch (_) {}
         try {
             const raw = localStorage.getItem('liber_session');
-            const sess = raw ? JSON.parse(raw) : null;
-            if (String(sess?.user?.role || '').toLowerCase() === 'admin') return true;
+            if (raw) {
+                const sess = JSON.parse(raw);
+                if (String(sess?.user?.role ?? sess?.role ?? '').toLowerCase() === 'admin') return true;
+            }
         } catch (_) {}
         try {
             const rawUser = localStorage.getItem('liber_current_user');
-            const user = rawUser ? JSON.parse(rawUser) : null;
-            if (String(user?.role || '').toLowerCase() === 'admin') return true;
+            if (rawUser) {
+                const user = JSON.parse(rawUser);
+                if (String(user?.role ?? '').toLowerCase() === 'admin') return true;
+            }
         } catch (_) {}
-        return !!(window.dashboardManager && window.dashboardManager._isAdminSession);
+        return false;
     }
 
     /**
