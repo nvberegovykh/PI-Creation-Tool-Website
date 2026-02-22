@@ -1004,6 +1004,7 @@
 
     async loadCurrentChatAttachments(limit = 240){
       const out = [];
+      const seen = new Set();
       try{
         const connId = String(this.activeConnection || '').trim();
         if (!connId || !this.db) return out;
@@ -1033,19 +1034,75 @@
         }
         (snap?.docs || []).forEach((d)=>{
           const m = d.data() || {};
-          if (!m.fileUrl) return;
-          const inferred = this.inferAttachmentFileName(m, m.text || m.previewText || '');
           const ts = Number(m?.createdAtTS?.toMillis?.() || 0) || Number(new Date(m?.createdAt || 0).getTime() || 0) || 0;
-          out.push({
-            id: d.id,
-            fileUrl: m.fileUrl,
-            fileName: inferred || m.fileName || 'Attachment',
-            sender: m.sender || '',
-            createdAt: m.createdAt || '',
-            createdAtTS: m.createdAtTS || null,
-            attachmentKeySalt: m.attachmentKeySalt || '',
-            message: { ...m, id: d.id }
-          });
+          const baseMessage = { ...m, id: d.id };
+          const pushRow = (row)=>{
+            const key = String(row?.key || '').trim();
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            out.push(row);
+          };
+          if (Array.isArray(m.media) && m.media.length){
+            m.media.forEach((it, idx)=>{
+              if (!it?.fileUrl) return;
+              const msgProxy = {
+                ...m,
+                id: d.id,
+                fileUrl: it.fileUrl,
+                fileName: it.fileName || m.fileName || '',
+                attachmentKeySalt: it.attachmentKeySalt || m.attachmentKeySalt || '',
+                attachmentSourceConnId: it.attachmentSourceConnId || m.attachmentSourceConnId || connId,
+                isVideoRecording: (it.isVideoRecording ?? m.isVideoRecording) === true,
+                isVoiceRecording: (it.isVoiceRecording ?? m.isVoiceRecording) === true
+              };
+              const inferred = this.inferAttachmentFileName(msgProxy, m.text || m.previewText || '');
+              pushRow({
+                key: `m|${d.id}|${idx}|${String(it.fileUrl)}`,
+                id: d.id,
+                fileUrl: it.fileUrl,
+                fileName: inferred || it.fileName || m.fileName || 'Attachment',
+                sender: m.sender || '',
+                createdAt: m.createdAt || '',
+                createdAtTS: m.createdAtTS || null,
+                attachmentKeySalt: it.attachmentKeySalt || m.attachmentKeySalt || '',
+                message: msgProxy
+              });
+            });
+          }
+          if (m.fileUrl){
+            const inferred = this.inferAttachmentFileName(m, m.text || m.previewText || '');
+            pushRow({
+              key: `f|${d.id}|${String(m.fileUrl)}`,
+              id: d.id,
+              fileUrl: m.fileUrl,
+              fileName: inferred || m.fileName || 'Attachment',
+              sender: m.sender || '',
+              createdAt: m.createdAt || '',
+              createdAtTS: m.createdAtTS || null,
+              attachmentKeySalt: m.attachmentKeySalt || '',
+              message: baseMessage
+            });
+          }
+          if (m.sharedAsset && typeof m.sharedAsset === 'object'){
+            const asset = m.sharedAsset;
+            const kind = String(asset.kind || asset.type || '').toLowerCase();
+            const title = String(asset.title || asset.name || '').trim() || (kind === 'post' ? 'Post' : 'Shared');
+            const inferredName = kind === 'audio' ? `${title}.mp3`
+              : (kind === 'video' ? `${title}.mp4`
+              : ((kind === 'image' || kind === 'picture') ? `${title}.jpg` : title));
+            pushRow({
+              key: `s|${d.id}|${kind}|${String(asset.url || asset.postId || '')}`,
+              id: d.id,
+              fileUrl: String(asset.url || '').trim() || null,
+              fileName: inferredName,
+              sender: m.sender || '',
+              createdAt: m.createdAt || '',
+              createdAtTS: m.createdAtTS || null,
+              attachmentKeySalt: '',
+              sharedAsset: asset,
+              message: baseMessage
+            });
+          }
         });
       }catch(_){ }
       out.sort((a,b)=>{
@@ -1145,11 +1202,13 @@
 
       const connId = this.activeConnection;
       const keyCache = new Map();
-      const getConnKey = async ()=>{
-        if (keyCache.has(connId)) return keyCache.get(connId);
+      const getConnKeyFor = async (cid)=>{
+        const effectiveCid = String(cid || connId || '').trim();
+        if (!effectiveCid) return null;
+        if (keyCache.has(effectiveCid)) return keyCache.get(effectiveCid);
         let key = null;
-        try{ key = await this.getFallbackKeyForConn(connId); }catch(_){ key = null; }
-        keyCache.set(connId, key);
+        try{ key = await this.getFallbackKeyForConn(effectiveCid); }catch(_){ key = null; }
+        keyCache.set(effectiveCid, key);
         return key;
       };
 
@@ -1157,10 +1216,18 @@
       const renderList = async (rows, kind = 'all')=>{
         grid.innerHTML = '';
         markActive(kind);
-        let filtered = rows.filter((r)=> kind === 'all' ? true : categoryOf(String(r.fileName || '')) === kind);
+        const categoryOfRow = (row)=>{
+          const assetKind = String(row?.sharedAsset?.kind || row?.sharedAsset?.type || '').toLowerCase();
+          if (assetKind === 'image' || assetKind === 'picture') return 'pics';
+          if (assetKind === 'video') return 'video';
+          if (assetKind === 'audio') return 'audio';
+          if (assetKind === 'post') return 'files';
+          return categoryOf(String(row?.fileName || ''));
+        };
+        let filtered = rows.filter((r)=> kind === 'all' ? true : categoryOfRow(r) === kind);
         filtered = filtered.slice().sort((a, b)=>{
-          const catA = categoryOf(String(a.fileName || ''));
-          const catB = categoryOf(String(b.fileName || ''));
+          const catA = categoryOfRow(a);
+          const catB = categoryOfRow(b);
           const ia = typeOrder[catA] ?? 4;
           const ib = typeOrder[catB] ?? 4;
           if (ia !== ib) return ia - ib;
@@ -1185,15 +1252,29 @@
           addBtn.className = 'btn secondary';
           addBtn.textContent = 'Add';
           addBtn.style.cssText = 'margin-top:8px;width:100%';
-          addBtn.onclick = (e)=>{ e.stopPropagation(); this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName, message: a.message, sender: a.sender }); try{ panel.remove(); backdrop.remove(); }catch(_){ } };
+          addBtn.onclick = (e)=>{
+            e.stopPropagation();
+            if (a && a.sharedAsset && typeof a.sharedAsset === 'object'){
+              this.queueRemoteSharedAssets([{ sharedAsset: a.sharedAsset }]);
+            }else{
+              this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName, message: a.message, sender: a.sender });
+            }
+            try{ panel.remove(); backdrop.remove(); }catch(_){ }
+          };
           const senderName = this.usernameCache.get(a.sender) || String(a.sender || '').slice(0,8) || 'Unknown';
           preview.dataset.pickerMode = '1';
           card.appendChild(preview);
           card.appendChild(addBtn);
           grid.appendChild(card);
+          if (a && a.sharedAsset && typeof a.sharedAsset === 'object'){
+            preview.innerHTML = this.renderSharedAssetCardHtml(a.sharedAsset, a.id || '');
+            this.bindSharedAssetCardInteractions(preview, a.sharedAsset);
+            continue;
+          }
           try{
-            const aesKey = await getConnKey();
-            await this.renderEncryptedAttachment(preview, a.fileUrl, a.fileName, aesKey, connId, senderName, a.message);
+            const srcConnId = this.resolveAttachmentSourceConnId(a.message || {}, connId);
+            const aesKey = await getConnKeyFor(srcConnId);
+            await this.renderEncryptedAttachment(preview, a.fileUrl, a.fileName, aesKey, srcConnId, senderName, a.message);
           }catch(_){
             this.renderDirectAttachment(preview, a.fileUrl, a.fileName, a.message, senderName, true);
           }
@@ -1685,16 +1766,77 @@
       if (stripWave && !stripWave.querySelector('.bar')){
         try{ this.paintSeedWaveBars(stripWave, 48, 'chat-top-wave'); }catch(_){ }
       }
+      if (stripWave && !stripWave._seekBound){
+        stripWave._seekBound = true;
+        let dragging = false;
+        const seekFromClientX = (clientX)=>{
+          try{
+            const rect = stripWave.getBoundingClientRect();
+            const width = Number(rect?.width || 0);
+            if (!(width > 0)) return;
+            const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / width));
+            const p = this.ensureChatBgPlayer();
+            const playerSrc = this.getChatPlayerSrc(p);
+            const hasBgTrack = !!playerSrc;
+            const topMedia = (this._topMediaEl && this._topMediaEl.isConnected) ? this._topMediaEl : null;
+            if (hasBgTrack){
+              const d = Number(p.duration || 0);
+              if (Number.isFinite(d) && d > 0){
+                p.currentTime = ratio * d;
+                this.updateVoiceWidgets();
+              }
+              return;
+            }
+            if (topMedia){
+              const d = Number(topMedia.duration || 0);
+              if (Number.isFinite(d) && d > 0){
+                topMedia.currentTime = ratio * d;
+                this.updateVoiceWidgets();
+              }
+            }
+          }catch(_){ }
+        };
+        stripWave.addEventListener('click', (e)=>{
+          try{ e.stopPropagation(); }catch(_){ }
+          seekFromClientX(e.clientX);
+        });
+        stripWave.addEventListener('pointerdown', (e)=>{
+          try{ e.stopPropagation(); }catch(_){ }
+          dragging = true;
+          try{ stripWave.setPointerCapture(e.pointerId); }catch(_){ }
+          seekFromClientX(e.clientX);
+        });
+        stripWave.addEventListener('pointermove', (e)=>{
+          if (!dragging) return;
+          seekFromClientX(e.clientX);
+        });
+        stripWave.addEventListener('pointerup', (e)=>{
+          dragging = false;
+          try{ e.stopPropagation(); }catch(_){ }
+          try{ stripWave.releasePointerCapture(e.pointerId); }catch(_){ }
+        });
+        stripWave.addEventListener('pointercancel', ()=>{
+          dragging = false;
+        });
+      }
       toggle.addEventListener('click', ()=>{
         const p = this.ensureChatBgPlayer();
         const playerSrc = this.getChatPlayerSrc(p);
         const m = this._topMediaEl;
         if (playerSrc){
           if (p.paused){ this._voiceUserIntendedPlay = true; p.play().catch(()=>{}); }
-          else{ this._voiceUserIntendedPlay = false; p.pause(); }
+          else{
+            this._voiceUserIntendedPlay = false;
+            p.pause();
+            try{ p.currentTime = 0; }catch(_){ }
+          }
         } else if (m && m.isConnected){
           if (m.paused){ this._voiceUserIntendedPlay = true; m.play().catch(()=>{}); }
-          else{ this._voiceUserIntendedPlay = false; m.pause(); }
+          else{
+            this._voiceUserIntendedPlay = false;
+            m.pause();
+            try{ m.currentTime = 0; }catch(_){ }
+          }
         }
         this.updateVoiceWidgets();
       });
@@ -4443,7 +4585,8 @@
               fileName: r.fileName,
               attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
               attachmentSourceConnId: this.activeConnection,
-              isVideoRecording: !!msg.isVideoRecording
+              isVideoRecording: !!msg.isVideoRecording,
+              isVoiceRecording: !!msg.isVoiceRecording
             });
           });
           mediaItems.sort((a,b)=> mediaRank(a) - mediaRank(b));
@@ -4462,12 +4605,13 @@
           for (const r of queuedReused){
             const msg = r.message || {};
             await this.saveMessage({
-              text: this.isAudioFilename(r.fileName) ? '[voice message]' : (this.isVideoFilename(r.fileName) ? '[video message]' : `[file] ${r.fileName}`),
+              text: `[file] ${r.fileName}`,
               fileUrl: r.fileUrl,
               fileName: r.fileName,
               attachmentSourceConnId: this.activeConnection,
               attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
-              isVideoRecording: !!msg.isVideoRecording
+              isVideoRecording: !!msg.isVideoRecording,
+              isVoiceRecording: !!msg.isVoiceRecording
             });
           }
         }
@@ -4488,9 +4632,11 @@
       const inferredName = String(fileName || '').trim();
       let nextText = String(rawText || '').trim();
       if (fileUrl){
-        if (this.isAudioFilename(inferredName)) nextText = '[voice message]';
-        else if (this.isVideoFilename(inferredName)) nextText = '[video message]';
-        else if (!nextText || /^\[file\]/i.test(nextText)) nextText = '[file]';
+        const isVoiceRec = !!(sourceMessage?.isVoiceRecording === true);
+        const isVideoRec = !!(sourceMessage?.isVideoRecording === true);
+        if (isVoiceRec) nextText = '[voice message]';
+        else if (isVideoRec) nextText = '[video message]';
+        else if (!nextText || /^\[(voice|video) message\]/i.test(nextText) || /^\[file\]/i.test(nextText)) nextText = '[file]';
       }
       if (!nextText && fileUrl) nextText = '[file]';
       const src = sourceMessage && typeof sourceMessage === 'object' ? sourceMessage : {};
@@ -4511,6 +4657,7 @@
       const originalAuthorUid = String(src.sharedOriginalAuthorUid || src.sender || '').trim() || null;
       const originalAuthorName = String(src.sharedOriginalAuthorName || sourceSenderName || '').trim() || null;
       const isVideoRecording = !!(sourceMessage?.isVideoRecording === true);
+      const isVoiceRecording = !!(sourceMessage?.isVoiceRecording === true);
       return {
         text: nextText,
         fileUrl: fileUrl || null,
@@ -4519,6 +4666,7 @@
         attachmentSourceConnId: sourceConnId || null,
         attachmentKeySalt: String(attachmentKeySalt || '').trim() || null,
         isVideoRecording,
+        isVoiceRecording,
         isShared: true,
         sharedFromConnId: String(sourceConnId || '').trim() || null,
         sharedFromMessageId: String(src.id || '').trim() || null,
@@ -4580,7 +4728,7 @@
       try { return JSON.parse(JSON.stringify(val)); } catch(_){ return null; }
     }
 
-    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, media, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
+    async saveMessageToConnection(connId, { text, fileUrl, fileName, sharedAsset, media, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording, isShared, sharedFromConnId, sharedFromMessageId, sharedOriginalAuthorUid, sharedOriginalAuthorName }){
       const aesKey = await this.getFallbackKeyForConn(connId);
       const cipher = await chatCrypto.encryptWithKey(text, aesKey);
       const mediaArr = Array.isArray(media) && media.length ? this.toPlainObject(media) : null;
@@ -4601,6 +4749,7 @@
         attachmentSourceConnId: String(attachmentSourceConnId || connId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
         isVideoRecording: isVideoRecording === true || (firstMedia && firstMedia.isVideoRecording === true),
+        isVoiceRecording: isVoiceRecording === true || (firstMedia && firstMedia.isVoiceRecording === true),
         isShared: !!isShared,
         sharedFromConnId: String(sharedFromConnId || '').trim() || null,
         sharedFromMessageId: String(sharedFromMessageId || '').trim() || null,
@@ -4992,8 +5141,7 @@
           await firebase.uploadBytes(r, blob, { contentType: 'application/json' });
           const url = await firebase.getDownloadURL(r);
           console.log('File upload completed');
-          const isVideo = this.isVideoFilename(f.name);
-          const text = isVideo ? '[video message]' : (this.isAudioFilename(f.name) ? '[voice message]' : `[file] ${f.name}`);
+          const text = `[file] ${f.name}`;
           await this.saveMessage({
             text,
             fileUrl:url,
@@ -5359,7 +5507,7 @@
         attachmentSourceConnId: String(attachmentSourceConnId || targetConnId || '').trim() || null,
         attachmentKeySalt: String(attachmentKeySalt || (firstMedia && firstMedia.attachmentKeySalt) || '').trim() || null,
         isVideoRecording: isVideoRecording === true || (firstMedia && firstMedia.isVideoRecording === true),
-        isVoiceRecording: isVoiceRecording === true,
+        isVoiceRecording: isVoiceRecording === true || (firstMedia && firstMedia.isVoiceRecording === true),
         previewText: previewText.slice(0, 220),
         createdAt: new Date().toISOString(),
         createdAtTS: firebase.serverTimestamp()
@@ -6163,6 +6311,7 @@
         } else {
           this._voiceUserIntendedPlay = false;
           p.pause();
+          try{ p.currentTime = 0; }catch(_){ }
         }
         this.updateVoiceWidgets();
       });
@@ -6514,6 +6663,7 @@
         if (isThisPlaying){
           this._voiceUserIntendedPlay = false;
           p.pause();
+          try{ p.currentTime = 0; }catch(_){ }
           this.updateVoiceWidgets();
           return;
         }
@@ -6596,7 +6746,7 @@
           try{ e.stopPropagation(); }catch(_){ }
           const p = this.ensureChatBgPlayer();
           const isThisPlaying = (!!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey))) && !p.paused;
-          if (isThisPlaying){ this._voiceUserIntendedPlay = false; p.pause(); this.updateVoiceWidgets(); return; }
+          if (isThisPlaying){ this._voiceUserIntendedPlay = false; p.pause(); try{ p.currentTime = 0; }catch(_){ } this.updateVoiceWidgets(); return; }
           this.playChatAudioInBgPlayer({ src: url, title, by: '', cover: '', sourceKey });
           sync();
         });
