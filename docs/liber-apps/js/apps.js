@@ -502,8 +502,7 @@ class AppsManager {
                 path: 'apps/gallery-control/index.html',
                 author: 'Liber Apps',
                 lastUpdated: '2026-02-22',
-                logo: null,
-                adminOnly: true
+                logo: null
             }
         ];
 
@@ -526,7 +525,7 @@ class AppsManager {
     }
 
     /**
-     * Filter apps based on search term, category, and admin-only
+     * Filter apps based on search term and category
      */
     filterApps() {
         const isAdmin = this._isAdmin();

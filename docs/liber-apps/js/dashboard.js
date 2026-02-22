@@ -6520,17 +6520,14 @@ class DashboardManager {
      * Update navigation visibility based on user role
      */
     async updateNavigation() {
-        // Keep admin tabs visible when role is known locally, even if Firestore read fails.
         let isAdmin = this._resolveAdminFromLocalState();
         try {
             const me = await this.resolveCurrentUserWithRetry(2600);
             if (me && me.uid && window.firebaseService?.getUserData) {
-                try{
+                try {
                     const data = await window.firebaseService.getUserData(me.uid);
                     if (String(data?.role || '').toLowerCase() === 'admin') isAdmin = true;
-                }catch(_){
-                    // Ignore transient permission/read failures and keep prior admin state.
-                }
+                } catch (_) {}
             } else {
                 const fallback = this._getAuthManagerUser();
                 if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
@@ -6543,6 +6540,11 @@ class DashboardManager {
             el.style.display = isAdmin ? '' : 'none';
         });
         this._isAdminSession = !!isAdmin;
+        if (window.__LIBER_DEBUG_ADMIN__) {
+            this.resolveCurrentUserWithRetry(500).then(u => 
+                console.log('[LIBER] updateNavigation', { isAdmin, fromLocal: this._resolveAdminFromLocalState(), uid: u?.uid })
+            );
+        }
         if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){
             this.switchSection('apps');
         }
