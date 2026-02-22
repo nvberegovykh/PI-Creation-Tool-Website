@@ -6481,7 +6481,41 @@ class DashboardManager {
      * Update navigation visibility based on user role
      */
     async updateNavigation() {
-        const isAdmin = !!(window.authManager && typeof window.authManager.isAdmin === 'function' && window.authManager.isAdmin());
+        let isAdmin = false;
+        let uid = null;
+        try {
+            uid = (await this.resolveCurrentUserWithRetry(2500))?.uid
+                || window.firebaseService?.auth?.currentUser?.uid
+                || window.authManager?.currentUser?.id
+                || window.authManager?.currentUser?.uid;
+            if (!uid) {
+                try {
+                    const u = JSON.parse(localStorage.getItem('liber_current_user') || '{}');
+                    uid = u?.id || u?.uid;
+                } catch (_) {}
+            }
+            if (uid && window.firebaseService?.getUserData) {
+                const data = await window.firebaseService.getUserData(uid);
+                const role = String(data?.role || '').toLowerCase();
+                isAdmin = role === 'admin';
+                if (isAdmin && window.authManager) {
+                    if (!window.authManager.currentUser) window.authManager.currentUser = {};
+                    window.authManager.currentUser.role = 'admin';
+                    window.authManager.currentUser.id = window.authManager.currentUser.id || uid;
+                    try {
+                        const raw = localStorage.getItem('liber_current_user');
+                        const u = raw ? JSON.parse(raw) : {};
+                        if (u && (u.id || u.uid)) { u.role = 'admin'; localStorage.setItem('liber_current_user', JSON.stringify(u)); }
+                        const sess = localStorage.getItem('liber_session');
+                        if (sess) {
+                            const s = JSON.parse(sess);
+                            if (s?.user) { s.user.role = 'admin'; localStorage.setItem('liber_session', JSON.stringify(s)); }
+                        }
+                    } catch (_) {}
+                }
+            }
+            if (!isAdmin && window.authManager?.isAdmin?.()) isAdmin = true;
+        } catch (_) {}
         document.querySelectorAll('.admin-only').forEach((el) => { el.style.display = isAdmin ? '' : 'none'; });
         this._isAdminSession = isAdmin;
         if (!isAdmin && (this.currentSection === 'users' || this.currentSection === 'settings')){

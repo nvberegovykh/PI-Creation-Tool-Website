@@ -796,13 +796,17 @@ class FirebaseService {
         try {
             snap = await firebase.getDocs(q);
         } catch (err) {
-            if (uid && (err?.code === 'failed-precondition' || err?.message?.includes('index'))) {
+            const isIndexError = err?.code === 'failed-precondition' || err?.message?.includes('index');
+            const isPermError = err?.code === 'permission-denied' || err?.message?.includes('permission');
+            if (uid && isIndexError) {
                 try {
-                    const fallbackQ = firebase.query(col, firebase.where('ownerId', '==', uid));
-                    snap = await firebase.getDocs(fallbackQ);
-                } catch (_) {
-                    return [];
-                }
+                    snap = await firebase.getDocs(firebase.query(col, firebase.where('ownerId', '==', uid)));
+                } catch (_) { return []; }
+            } else if (uid && isPermError) {
+                try {
+                    q = firebase.query(col, firebase.where('isPublished', '==', true), firebase.orderBy('updatedAtTS', 'desc'));
+                    snap = await firebase.getDocs(q);
+                } catch (_) { return []; }
             } else {
                 return [];
             }

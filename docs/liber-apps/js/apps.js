@@ -502,7 +502,8 @@ class AppsManager {
                 path: 'apps/gallery-control/index.html',
                 author: 'Liber Apps',
                 lastUpdated: '2026-02-22',
-                logo: null
+                logo: null,
+                adminOnly: true
             }
         ];
 
