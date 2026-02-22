@@ -121,6 +121,7 @@ class FirebaseService {
             console.log('Initializing Firebase services...');
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
+            this.storage = firebase.getStorage ? firebase.getStorage(this.app) : null;
             // Optional Functions (for future FCM/webhooks)
             try {
                 // Determine preferred region from secure keys if provided
@@ -858,6 +859,19 @@ class FirebaseService {
         if (!projectId || !itemId) throw new Error('projectId and itemId are required');
         const ref = firebase.doc(this.db, 'galleryProjects', projectId, 'items', itemId);
         await firebase.deleteDoc(ref);
+    }
+
+    async uploadGalleryMedia(file, projectId, itemId) {
+        await this.waitForInit();
+        const uid = this.auth?.currentUser?.uid;
+        if (!uid) throw new Error('You must be signed in to upload');
+        if (!this.storage || !firebase.ref) throw new Error('Storage not available');
+        if (!file || typeof file.name !== 'string') throw new Error('Invalid file');
+        const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+        const path = `gallery/${uid}/${projectId}/${itemId}/media_0.${ext}`;
+        const storageRef = firebase.ref(this.storage, path);
+        await firebase.uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
+        return firebase.getDownloadURL(storageRef);
     }
 
     async getGalleryItems(projectId, opts = {}){
