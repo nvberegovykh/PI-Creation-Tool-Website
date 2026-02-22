@@ -23,6 +23,13 @@
       this._micEnabled = true;
       this._monitoring = false;
       this._monitorStream = null;
+      this._localCallStream = null;
+      this._callStatusStream = null;
+      this._callStatusTrack = null;
+      this._callPresenceEnabled = true;
+      this._swCallActionBound = false;
+      this._lastSpeakerUid = null;
+      this._lastSpeakerUpdateAt = 0;
       this._inRoom = false;
       this._startingCall = false;
       this._joiningCall = false;
@@ -1312,13 +1319,13 @@
       const parts = Array.isArray(data?.participants)
         ? data.participants
         : (Array.isArray(data?.users) ? data.users : (Array.isArray(data?.memberIds) ? data.memberIds : []));
-      if (parts.length) return parts.filter(Boolean);
+      if (parts.length) return Array.from(new Set(parts.filter(Boolean)));
       // Participants as map {uid: true}
       if (data?.participants && typeof data.participants === 'object' && !Array.isArray(data.participants)) {
         const fromMap = Object.keys(data.participants).filter(Boolean);
-        if (fromMap.length) return fromMap;
+        if (fromMap.length) return Array.from(new Set(fromMap));
       }
-      if (typeof data?.key === 'string' && data.key.includes('|')) return data.key.split('|').filter(Boolean);
+      if (typeof data?.key === 'string' && data.key.includes('|')) return Array.from(new Set(data.key.split('|').filter(Boolean)));
       return [];
     }
 
@@ -1659,6 +1666,7 @@
       if ('serviceWorker' in navigator){
         navigator.serviceWorker.register('/sw.js').catch(()=>{});
       }
+      this._bindServiceWorkerCallActions();
       // One room-call entry point (camera/screen stay off until user enables them)
       const callRoomBtn = document.getElementById('call-room-btn');
       if (callRoomBtn) callRoomBtn.addEventListener('click', ()=> this.enterRoom(false));
@@ -7697,16 +7705,141 @@
       showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
     }
 
+    _buildMediaSessionArtwork(uid){
+      try{
+        const cached = uid ? this.usernameCache.get(uid) : null;
+        const raw = cached && cached.avatarUrl ? cached.avatarUrl : '../../images/default-bird.png';
+        const resolved = (() => { try { return new URL(raw, location.href).toString(); } catch(_) { return raw; } })();
+        return [
+          { src: resolved, sizes: '96x96', type: 'image/png' },
+          { src: resolved, sizes: '192x192', type: 'image/png' },
+          { src: resolved, sizes: '512x512', type: 'image/png' }
+        ];
+      }catch(_){ return []; }
+    }
+
+    _notifyCallStateToSw(payload){
+      try{
+        if (!('serviceWorker' in navigator)) return;
+        const msg = { type: 'call-state', payload: payload || {} };
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage(msg);
+          return;
+        }
+        navigator.serviceWorker.getRegistration().then((reg)=>{
+          try{ if (reg && reg.active) reg.active.postMessage(msg); }catch(_){}
+        }).catch(()=>{});
+      }catch(_){ }
+    }
+
+    _bindServiceWorkerCallActions(){
+      if (this._swCallActionBound) return;
+      this._swCallActionBound = true;
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.addEventListener('message', (event)=>{
+        const msg = event && event.data;
+        if (!msg || msg.type !== 'liber-call-action') return;
+        const action = String(msg.action || '').trim();
+        if (action === 'call_mute'){
+          const micBtn = document.getElementById('toggle-mic-btn');
+          if (micBtn && typeof micBtn.onclick === 'function') micBtn.onclick();
+        }
+        if (action === 'call_end'){
+          this.cleanupActiveCall(true, 'sw_notification_end').catch(()=>{});
+        }
+      });
+    }
+
+    _updateMediaSessionState(state = 'idle', speakerUid = null){
+      try{
+        if (!('mediaSession' in navigator)) return;
+        const ms = navigator.mediaSession;
+        if (state !== 'active'){
+          try{ ms.playbackState = 'none'; }catch(_){}
+          try{ ms.metadata = null; }catch(_){}
+          this._notifyCallStateToSw({ state: 'idle', connId: this.activeConnection || '', title: 'Call ended' });
+          return;
+        }
+        const titleEl = document.getElementById('chat-top-title');
+        const title = (titleEl && titleEl.textContent ? titleEl.textContent.trim() : '') || 'Call';
+        const cached = speakerUid ? this.usernameCache.get(speakerUid) : null;
+        const speakerName = (cached && cached.username) ? cached.username : (speakerUid === this.currentUser?.uid ? 'You' : 'Speaking');
+        const artist = `Speaking: ${speakerName}`;
+        try{
+          ms.metadata = new MediaMetadata({
+            title,
+            artist,
+            album: 'LIBER Chat',
+            artwork: this._buildMediaSessionArtwork(speakerUid)
+          });
+        }catch(_){}
+        try{ ms.playbackState = 'playing'; }catch(_){}
+        try{ ms.setActionHandler('play', ()=>{ if (!this._micEnabled){ const btn = document.getElementById('toggle-mic-btn'); if (btn && typeof btn.onclick === 'function') btn.onclick(); } }); }catch(_){}
+        try{ ms.setActionHandler('pause', ()=>{ if (this._micEnabled){ const btn = document.getElementById('toggle-mic-btn'); if (btn && typeof btn.onclick === 'function') btn.onclick(); } }); }catch(_){}
+        try{ ms.setActionHandler('stop', ()=>{ this.cleanupActiveCall(true, 'media_session_stop').catch(()=>{}); }); }catch(_){}
+        this._notifyCallStateToSw({
+          state: 'active',
+          connId: this.activeConnection || '',
+          title,
+          body: artist,
+          speakerUid: speakerUid || '',
+          speakerName
+        });
+      }catch(_){ }
+    }
+
+    async _ensureCallStatusStream(){
+      if (!this._callPresenceEnabled) return;
+      if (this._callStatusTrack && this._callStatusTrack.readyState === 'live') return;
+      try{
+        const s = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 160, max: 320 },
+            height: { ideal: 120, max: 240 },
+            frameRate: { ideal: 2, max: 5 },
+            facingMode: 'user'
+          },
+          audio: false
+        });
+        const t = s.getVideoTracks()[0];
+        if (!t){
+          try{ s.getTracks().forEach((tr)=> tr.stop()); }catch(_){}
+          return;
+        }
+        this._callStatusStream = s;
+        this._callStatusTrack = t;
+      }catch(_){
+        this._callStatusStream = null;
+        this._callStatusTrack = null;
+      }
+    }
+
+    _stopCallStatusStream(){
+      try{
+        if (this._callStatusStream) this._callStatusStream.getTracks().forEach((t)=> t.stop());
+      }catch(_){}
+      this._callStatusStream = null;
+      this._callStatusTrack = null;
+    }
+
     _setActiveSpeakerLabel(uid){
       const showBtn = document.getElementById('show-call-btn');
       if (!showBtn) return;
+      const now = Date.now();
+      if (uid && this._lastSpeakerUid === uid && (now - this._lastSpeakerUpdateAt) < 1800) return;
       if (!uid){
         showBtn.innerHTML = '<i class="fas fa-phone-volume"></i> Call';
+        this._updateMediaSessionState(this._activePCs && this._activePCs.size > 0 ? 'active' : 'idle', null);
+        this._lastSpeakerUid = null;
+        this._lastSpeakerUpdateAt = now;
         return;
       }
       const cached = this.usernameCache.get(uid);
       const name = cached && cached.username ? cached.username : (uid === this.currentUser?.uid ? 'You' : 'Speaking');
       showBtn.innerHTML = `<i class="fas fa-volume-up"></i> ${String(name).slice(0, 14)}`;
+      this._updateMediaSessionState('active', uid);
+      this._lastSpeakerUid = uid;
+      this._lastSpeakerUpdateAt = now;
     }
 
     _enableCallFabDrag(){
@@ -7873,15 +8006,36 @@
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
+      if (this._localCallStream) this._localCallStream.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; });
       this._activePCs.forEach(p => { const s = p.stream; if (s) s.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; }); });
       micBtn.classList.toggle('muted', !this._micEnabled);
     };
-    if (camBtn) camBtn.onclick = () => {
+    if (camBtn) camBtn.onclick = async () => {
       this._videoEnabled = !this._videoEnabled;
+      if (this._videoEnabled && this._localCallStream && this._localCallStream.getVideoTracks().length === 0){
+        try{
+          const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const vTrack = vStream.getVideoTracks()[0];
+          if (vTrack){
+            this._localCallStream.addTrack(vTrack);
+            this._activePCs.forEach((p) => {
+              const senders = p.pc.getSenders?.() || [];
+              const sender = senders.find(s => s.track?.kind === 'video');
+              if (sender) sender.replaceTrack(vTrack);
+              else p.pc.addTrack(vTrack, this._localCallStream);
+            });
+            if (this._activeCid) await this.renegotiateCall(this._activeCid, true);
+          }
+        }catch(e){
+          console.warn('Enable camera failed', e?.message || e);
+          this._videoEnabled = false;
+        }
+      }
+      if (this._localCallStream) this._localCallStream.getVideoTracks().forEach(t => { t.enabled = this._videoEnabled; });
       this._activePCs.forEach(p => { const s = p.stream; if (s) s.getVideoTracks().forEach(t => { t.enabled = this._videoEnabled; }); });
       this.updatePresence(this._roomState ? this._roomState.status : 'idle', this._videoEnabled);
       const lv = document.getElementById('localVideo');
-      if (lv) lv.style.display = this._videoEnabled ? 'block' : 'none';
+      if (lv) lv.style.display = (this._videoEnabled && !!(this._localCallStream && this._localCallStream.getVideoTracks().length)) ? 'block' : 'none';
       camBtn.classList.toggle('muted', !this._videoEnabled);
     };
     if (shareBtn) shareBtn.style.display = '';
@@ -7901,8 +8055,14 @@
           if (videoSender) {
             videoSender.replaceTrack(screenTrack);
             replaced++;
+          } else if (this._localCallStream) {
+            try{
+              p.pc.addTrack(screenTrack, this._localCallStream);
+              replaced++;
+            }catch(_){}
           }
         });
+        if (this._activeCid) await this.renegotiateCall(this._activeCid, true);
         const lv = document.getElementById('localVideo');
         if (lv) lv.srcObject = screenStream;
         shareBtn.classList.add('active');
@@ -8017,6 +8177,7 @@
       return;
     }
     stream.getVideoTracks().forEach(t => t.enabled = !!video);
+    this._localCallStream = stream;
     let videosCont = document.getElementById('call-videos');
     if (!videosCont) {
       videosCont = document.createElement('div');
@@ -8061,11 +8222,11 @@
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
       const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: renegotiate for '+peerUid); const offer = await pc.createOffer({ iceRestart:true }); await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
-      const txVideo = pc.addTransceiver('video', { direction: video ? 'sendrecv' : 'recvonly' });
+      const txVideo = pc.addTransceiver('video', { direction: 'sendrecv' });
       // Attach local tracks via replaceTrack when possible
       try {
         const a = stream.getAudioTracks()[0];
@@ -8168,6 +8329,8 @@
     await this.updatePresence('connected', video);
     this._setupRoomInactivityMonitor();
     this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+    await this._ensureCallStatusStream();
+    this._updateMediaSessionState('active', this.currentUser.uid);
     const sb = document.getElementById('start-call-btn');
     if (sb) sb.style.display = 'none';
   }
@@ -8197,6 +8360,7 @@
       return;
     }
     localStream.getVideoTracks().forEach(t => t.enabled = !!video);
+    this._localCallStream = localStream;
     // UI containers
     let videosCont = document.getElementById('call-videos');
     if (!videosCont) {
@@ -8312,7 +8476,7 @@
       const kind = tx.receiver.track.kind;
       try {
         if (kind === 'audio') tx.direction = 'sendrecv';
-        if (kind === 'video') tx.direction = (video ? 'sendrecv' : 'recvonly');
+        if (kind === 'video') tx.direction = 'sendrecv';
       } catch(_) {}
       const local = localStream.getTracks().find(t => t.kind === kind);
       if (local && tx.sender && typeof tx.sender.replaceTrack === 'function') {
@@ -8376,12 +8540,14 @@
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
     const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connected', video);
       this._setupRoomInactivityMonitor();
       this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
+      await this._ensureCallStatusStream();
+      this._updateMediaSessionState('active', this.currentUser.uid);
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = 'none';
     } finally {
@@ -8698,29 +8864,38 @@
       if (this._monitoring) return;
       this._monitoring = true;
       console.log('Starting speech monitor');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream = null;
+      let ac = null;
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }catch(_){
+        this._monitoring = false;
+        return;
+      }
       this._monitorStream = stream;
-      const ac = new AudioContext();
+      ac = new AudioContext();
       const src = ac.createMediaStreamSource(stream);
       const analyser = ac.createAnalyser();
       analyser.fftSize = 256; // Smaller for faster response
       src.connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
       let streak = 0;
+      const stopMonitor = ()=>{
+        try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
+        this._monitorStream = null;
+        this._monitoring = false;
+        try{ ac.close(); }catch(_){}
+      };
       const tick = () => {
-        if (!this._inRoom || (this._roomState && this._roomState.activeCallId)) return;
+        if (!this._inRoom || (this._roomState && this._roomState.activeCallId)){ stopMonitor(); return; }
         analyser.getByteFrequencyData(data);
         let sum = 0; data.forEach(v => sum += v * v); // Energy
         const rms = Math.sqrt(sum / data.length);
-        console.log('RMS:', rms);
         if (rms > 10) streak++; else streak = 0; // Lower threshold
         if (streak > 3) { // Shorter streak
           console.log('Speech detected! Starting call');
-          stream.getTracks().forEach(t => t.stop());
-          this._monitorStream = null;
-          ac.close();
+          stopMonitor();
           this.attemptStartRoomCall(video);
-          this._monitoring = false;
           return;
         }
         requestAnimationFrame(tick);
@@ -8851,6 +9026,7 @@
           if (videoSender && camTrack) videoSender.replaceTrack(camTrack);
           if (p.stream) localStream = p.stream;
         });
+        if (this._activeCid) await this.renegotiateCall(this._activeCid, !!this._videoEnabled);
         const lv = document.getElementById('localVideo');
         if (lv && localStream) lv.srcObject = localStream;
       } catch (e) { console.warn('Stop screen share error', e); }
@@ -8861,14 +9037,22 @@
     this._joiningCall = false;
     this._lastJoinedCallId = null;
     if (this._screenSharing) await this._stopScreenShare();
-      this._activePCs.forEach((p, uid) => {
-        try{ const key = (this._activeCid||'')+':'+uid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); } }catch(_){ }
+      this._activePCs.forEach((p) => {
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
         try{ p.pc.close(); }catch(_){ }
         try{ p.stream.getTracks().forEach(t => { t.stop(); }); }catch(_){ }
         if (p.videoEl) p.videoEl.remove();
       });
       this._activePCs.clear();
+      try{
+        this._pcWatchdogs.forEach((w)=>{ try{ clearTimeout(w.t1); clearTimeout(w.t2); }catch(_){} });
+        this._pcWatchdogs.clear();
+      }catch(_){}
+      if (this._localCallStream){
+        try{ this._localCallStream.getTracks().forEach(t => t.stop()); }catch(_){}
+        this._localCallStream = null;
+      }
+      this._stopCallStatusStream();
       if (this._inactTimer) clearInterval(this._inactTimer);
       if (endRoom){
         const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
@@ -8898,6 +9082,7 @@
       if (sb) sb.style.display = '';
       this._setActiveSpeakerLabel(null);
       this._syncCallFab();
+      this._updateMediaSessionState('idle', null);
     }
 
     async updatePresence(state, hasVideo = false){
@@ -8914,7 +9099,7 @@
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         const inCall = this._activePCs && this._activePCs.size > 0;
-        const peerUids = inCall ? Array.from(this._activePCs.keys()) : Array.from(new Set((conn.participants || []).filter(Boolean)));
+        const peerUids = inCall ? Array.from(this._activePCs.keys()) : this.getConnParticipants(conn);
         const uniq = Array.from(new Set(peerUids.filter(Boolean)));
         const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;
@@ -8973,6 +9158,7 @@
       });
       if (!inCall) this._setActiveSpeakerLabel(null);
       this._syncCallFab();
+      if (inCall) this._updateMediaSessionState('active', this.currentUser?.uid || null);
     }
 
     async renegotiateCall(callId, video){
@@ -9159,6 +9345,8 @@ window.addEventListener('beforeunload', () => {
   try{ secureChatApp.publishTypingState(false, { force: true }); }catch(_){ }
   try{ secureChatApp.stopTypingListener(); }catch(_){ }
   if (secureChatApp._inRoom) secureChatApp.cleanupActiveCall(false);
+  try{ secureChatApp._stopCallStatusStream && secureChatApp._stopCallStatusStream(); }catch(_){ }
+  try{ secureChatApp._updateMediaSessionState && secureChatApp._updateMediaSessionState('idle', null); }catch(_){ }
   if (secureChatApp._monitorStream) {
     secureChatApp._monitorStream.getTracks().forEach(t => t.stop());
     secureChatApp._monitorStream = null;

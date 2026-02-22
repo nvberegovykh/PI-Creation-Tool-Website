@@ -28,6 +28,39 @@ self.addEventListener('message', (event) => {
 	if (msg && msg.type === 'notify') {
 		showNotification(msg.payload || {});
 	}
+	if (msg && msg.type === 'call-state') {
+		const p = msg.payload || {};
+		const state = String(p.state || 'idle');
+		if (state !== 'active') {
+			event.waitUntil((async ()=>{
+				try{
+					const list = await self.registration.getNotifications({ tag: 'active-call' });
+					await Promise.all((list || []).map((n)=> { try { n.close(); } catch(_) {} return Promise.resolve(); }));
+				}catch(_){}
+			})());
+			return;
+		}
+		const title = String(p.title || 'Call in progress');
+		const body = String(p.body || 'Tap to return to call');
+		const connId = String(p.connId || '');
+		const basePath = (self.location?.pathname || '').replace(/\/[^/]*$/, '') || '/liber-apps';
+		const url = `${basePath}/apps/secure-chat/index.html${connId ? `?connId=${encodeURIComponent(connId)}` : ''}`;
+		event.waitUntil(self.registration.showNotification(title, {
+			body,
+			tag: 'active-call',
+			renotify: false,
+			requireInteraction: true,
+			silent: true,
+			icon: '/images/LIBER LOGO.png',
+			badge: '/images/LIBER LOGO.png',
+			actions: [
+				{ action: 'call_open', title: 'Open' },
+				{ action: 'call_mute', title: 'Mute' },
+				{ action: 'call_end', title: 'End' }
+			],
+			data: { type: 'active_call', connId, url }
+		}));
+	}
 });
 
 self.addEventListener('push', (event) => {
@@ -49,6 +82,20 @@ self.addEventListener('push', (event) => {
 	self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 	const d = (event.notification && event.notification.data) || {};
+	const action = String(event.action || '').trim();
+	if (d.type === 'active_call' && (action === 'call_mute' || action === 'call_end')) {
+		event.waitUntil((async () => {
+			try{
+				const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+				for (const client of allClients) {
+					try{
+						client.postMessage({ type: 'liber-call-action', action, connId: d.connId || '' });
+					}catch(_){}
+				}
+			}catch(_){}
+		})());
+		return;
+	}
 	let targetUrl = d.url;
 	const basePath = (self.location?.pathname || '').replace(/\/[^/]*$/, '') || '/liber-apps';
 	if (!targetUrl && d.type === 'chat_message' && d.connId) {
