@@ -68,7 +68,7 @@
     saveBtn.textContent = state.editingProject ? 'Update Project' : 'Save Project';
     cancelBtn.style.display = state.editingProject ? '' : 'none';
     deleteBtn.style.display = state.editingProject ? '' : 'none';
-    if (mediaWrap) mediaWrap.style.display = '';
+    if (mediaWrap) { mediaWrap.style.display = ''; mediaWrap.style.visibility = 'visible'; mediaWrap.style.opacity = '1'; }
   }
 
   function hideProjectForm() {
@@ -251,13 +251,18 @@
     }).join('');
 
     host.querySelectorAll('.gc-btn-edit').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const id = btn.getAttribute('data-project-id');
-        const p = state.projects.find((pr) => pr.id === id);
+        let p = state.projects.find((pr) => pr.id === id);
         if (p) {
+          try {
+            const svc = getFirebaseService();
+            p.items = await svc.getGalleryItems(p.id, { publishedOnly: false });
+          } catch (_) {}
           fillProjectForm(p);
           showProjectForm('edit');
+          setTimeout(() => byId('project-upload-media')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
         }
       });
     });

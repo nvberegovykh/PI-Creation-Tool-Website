@@ -29,7 +29,9 @@
           </select>
         </label>
         <label class="inline"><input id="project-published" type="checkbox" /> Published</label>
-        <div class="project-upload-media" id="project-upload-media">
+        <div class="project-media-section">
+          <label class="project-media-label">Media — add, remove, or reorder images/videos</label>
+          <div class="project-upload-media" id="project-upload-media">
           <div class="upload-zone" id="project-upload-zone" tabindex="0">
             <input id="project-media" type="file" accept="image/*,video/*" multiple />
             <div class="upload-zone-inner">
@@ -39,6 +41,7 @@
             </div>
           </div>
           <div id="project-media-previews" class="media-previews"></div>
+          </div>
         </div>
         <div class="actions">
           <button class="btn" type="submit" id="project-save-btn">Save Project</button>

@@ -42,12 +42,26 @@
   gap: 10px;
 }
 
+.project-media-section {
+  display: block;
+  margin-top: 12px;
+}
+
+.project-media-label {
+  display: block !important;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--primary-text, #f4f7ff);
+}
+
 .project-upload-media {
+  display: block !important;
   padding: 12px;
   border: 1px dashed #2b3854;
   border-radius: 12px;
   background: #0a0e14;
   margin-top: 8px;
+  min-height: 140px;
 }
 
 .upload-zone {
