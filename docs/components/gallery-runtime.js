@@ -81,10 +81,14 @@
       const bt = (b.updatedAtTS && b.updatedAtTS.toMillis) ? b.updatedAtTS.toMillis() : new Date(b.updatedAt || b.createdAt || 0).getTime();
       return bt - at;
     });
-    return projects.filter((p) => {
+    const withMedia = projects.filter((p) => {
       const v = visualItems(p.items || []);
       return v.length > 0;
     });
+    if (withMedia.length < projects.length && projects.length > 0) {
+      console.warn('[Gallery] Some projects have no published items with media:', projects.map((p) => ({ id: p.id, title: p.title, itemCount: (p.items || []).length, withUrl: (p.items || []).filter((i) => i && i.url).length })));
+    }
+    return withMedia;
   }
 
   function createMediaElement(item, mutedVideo) {
@@ -375,7 +379,7 @@
     try {
       const projects = await loadProjects();
       if (!projects.length) {
-        console.warn('[Gallery] No published projects with media found. Add projects in Gallery Control and publish them with at least one image or video.');
+        console.warn('[Gallery] No published projects with media found. In Gallery Control: ensure the project has "Published" checked, each item has media (image/video with URL), and if you published after adding items, re-open the project in Edit mode and click Save to sync visibility to items.');
         hosts.forEach((host) => { host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>'; });
         return;
       }
