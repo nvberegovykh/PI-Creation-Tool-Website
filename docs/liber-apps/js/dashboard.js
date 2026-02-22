@@ -2959,6 +2959,24 @@ class DashboardManager {
         }
     }
 
+    getShellChatBgPlayer(){
+        try{
+            const frame = document.getElementById('app-shell-frame');
+            const doc = frame?.contentDocument;
+            if (!doc) return null;
+            return doc.getElementById('chat-bg-player') || null;
+        }catch(_){ return null; }
+    }
+
+    clearChatMiniSyncTimer(){
+        try{
+            if (this._chatMiniSyncTimer){
+                clearInterval(this._chatMiniSyncTimer);
+                this._chatMiniSyncTimer = null;
+            }
+        }catch(_){ }
+    }
+
     /** Called when chat sends liber:chat-audio-meta: sync mini player display only. Does NOT pause chat or take over playback. */
     setChatAudioMeta(track){
         try{
@@ -2969,9 +2987,76 @@ class DashboardManager {
             const mTitle = document.getElementById('mini-title');
             const mBy = document.getElementById('mini-by');
             const mCover = mini.querySelector('.cover');
+            const playBtn = document.getElementById('mini-play');
+            const closeBtn = document.getElementById('mini-close');
+            const miniProgress = document.getElementById('mini-progress');
+            const miniFill = document.getElementById('mini-fill');
+            const miniTime = document.getElementById('mini-time');
             if (mTitle) this.setMiniTitleText(track.title || 'Audio');
             if (mBy) mBy.textContent = (track.by ? `by ${track.by}` : '').trim();
             if (mCover) mCover.src = (track.cover || 'images/default-bird.png').trim();
+            this._miniControlledByChat = true;
+            const getChatPlayer = ()=> this.getShellChatBgPlayer();
+            const sync = ()=>{
+                const cp = getChatPlayer();
+                if (!playBtn || !miniFill || !miniTime){
+                    return;
+                }
+                if (!cp){
+                    this.setPlayIcon(playBtn, false);
+                    miniFill.style.width = '0%';
+                    miniTime.textContent = '0:00 / 0:00';
+                    return;
+                }
+                this.setPlayIcon(playBtn, !cp.paused);
+                const d = Number(cp.duration || 0);
+                const c = Number(cp.currentTime || 0);
+                if (d > 0){
+                    miniFill.style.width = `${Math.max(0, Math.min(100, (c / d) * 100))}%`;
+                    miniTime.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+                }else{
+                    miniFill.style.width = '0%';
+                    miniTime.textContent = '0:00 / 0:00';
+                }
+            };
+            if (playBtn){
+                playBtn.onclick = ()=>{
+                    const cp = getChatPlayer();
+                    if (!cp) return;
+                    if (cp.paused) cp.play().catch(()=>{});
+                    else cp.pause();
+                    sync();
+                };
+            }
+            if (miniProgress){
+                miniProgress.onclick = (e)=>{
+                    const cp = getChatPlayer();
+                    if (!cp) return;
+                    const rect = miniProgress.getBoundingClientRect();
+                    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                    if (Number(cp.duration) > 0){
+                        cp.currentTime = ratio * cp.duration;
+                        sync();
+                    }
+                };
+            }
+            if (closeBtn){
+                closeBtn.onclick = ()=>{
+                    const cp = getChatPlayer();
+                    try{
+                        if (cp){
+                            cp.pause();
+                            cp.currentTime = 0;
+                        }
+                    }catch(_){ }
+                    this.clearChatMiniSyncTimer();
+                    if (this._miniTitleTicker){ clearInterval(this._miniTitleTicker); this._miniTitleTicker = null; }
+                    mini.classList.remove('show');
+                };
+            }
+            this.clearChatMiniSyncTimer();
+            this._chatMiniSyncTimer = setInterval(sync, 180);
+            sync();
             mini.classList.add('show');
         }catch(_){ }
     }
@@ -2994,6 +3079,8 @@ class DashboardManager {
 
     showMiniPlayer(mediaEl, meta={}){
         try{
+            this._miniControlledByChat = false;
+            this.clearChatMiniSyncTimer();
             if (this._currentPlayer && this._currentPlayer !== mediaEl){
                 try{ this._currentPlayer.pause(); }catch(_){}
                 try{ this._currentPlayer._waveAttachProxy && this._currentPlayer._waveAttachProxy(null); }catch(_){ }
