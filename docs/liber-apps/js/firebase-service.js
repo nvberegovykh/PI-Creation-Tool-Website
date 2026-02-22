@@ -865,11 +865,13 @@ class FirebaseService {
         await this.waitForInit();
         const uid = this.auth?.currentUser?.uid;
         if (!uid) throw new Error('You must be signed in to upload');
-        if (!this.storage || !firebase.ref) throw new Error('Storage not available');
+        if (!firebase.getStorage || !firebase.ref) throw new Error('Storage not available');
         if (!file || typeof file.name !== 'string') throw new Error('Invalid file');
+        const storage = firebase.getStorage(this.app);
+        if (!storage) throw new Error('Storage not available');
         const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
         const path = `gallery/${uid}/${projectId}/${itemId}/media_0.${ext}`;
-        const storageRef = firebase.ref(this.storage, path);
+        const storageRef = firebase.ref(storage, path);
         await firebase.uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
         return firebase.getDownloadURL(storageRef);
     }

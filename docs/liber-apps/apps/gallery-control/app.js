@@ -380,8 +380,18 @@
 
   async function uploadMediaFile(file, projectId, itemId) {
     const svc = getFirebaseService();
-    if (!svc?.uploadGalleryMedia) throw new Error('Upload not available');
-    return svc.uploadGalleryMedia(file, projectId, itemId);
+    const uid = svc?.auth?.currentUser?.uid;
+    if (!uid) throw new Error('You must be signed in to upload');
+    const fb = typeof firebase !== 'undefined' ? firebase : (window.firebase || window.parent?.firebase);
+    if (!fb?.getStorage || !fb?.ref) throw new Error('Storage not available');
+    if (!file || typeof file.name !== 'string') throw new Error('Invalid file');
+    const storage = fb.getStorage();
+    if (!storage) throw new Error('Storage not available');
+    const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+    const path = `gallery/${uid}/${projectId}/${itemId}/media_0.${ext}`;
+    const storageRef = fb.ref(storage, path);
+    await fb.uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
+    return fb.getDownloadURL(storageRef);
   }
 
   async function onSaveProject(e) {
