@@ -110,6 +110,13 @@
       this._sfuModule = null;
       this._sfuRoom = null;
       this._sfuTrackEls = new Map();
+      this._sfuCallMarkerByConn = new Set();
+      this._lastCallMarkerAtByConn = new Map();
+      this._tileFullscreenState = null;
+      this._drawColor = '#ffffff';
+      this._drawSize = 4;
+      this._drawActive = false;
+      this._drawLastPoint = null;
       this._useSfuCalls = true;
       this.init();
     }
@@ -244,9 +251,22 @@
       return !!window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
     }
 
+    _isEmailLike(value){
+      const s = String(value || '').trim();
+      if (!s) return false;
+      return /@/.test(s) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+    }
+
+    _safeUsername(value, fallback = 'User'){
+      const s = String(value || '').trim();
+      if (!s) return fallback;
+      if (this._isEmailLike(s)) return fallback;
+      return s;
+    }
+
     _displayName(userLike, fallbackUid = ''){
       const u = userLike || {};
-      const raw = String(u.username || '').trim();
+      const raw = this._safeUsername(u.username || '', '');
       if (raw) return raw;
       return 'User';
     }
@@ -1532,6 +1552,214 @@
       return !!this._sfuRoom && (st === 'connected');
     }
 
+    _avatarFromUser(user, fallback = '../../images/default-bird.png'){
+      try{
+        const src = String(
+          user?.avatarUrl
+          || user?.photoURL
+          || user?.photoUrl
+          || user?.profileImage
+          || user?.profilePhoto
+          || user?.avatar
+          || user?.profilePicture
+          || user?.picture
+          || user?.photo
+          || user?.image
+          || ''
+        ).trim();
+        return src || fallback;
+      }catch(_){ return fallback; }
+    }
+
+    _ensureCallVideosContainer(){
+      let videosCont = document.getElementById('call-videos');
+      if (!videosCont){
+        videosCont = document.createElement('div');
+        videosCont.id = 'call-videos';
+        videosCont.className = 'call-videos';
+        const overlay = document.getElementById('call-overlay');
+        if (overlay) overlay.appendChild(videosCont);
+      }
+      return videosCont;
+    }
+
+    _createCallTileForVideo(el, key, isScreen = false){
+      try{
+        const videosCont = this._ensureCallVideosContainer();
+        if (!videosCont || !el) return;
+        const tile = document.createElement('div');
+        tile.className = `call-tile${isScreen ? ' screen' : ''}`;
+        tile.setAttribute('data-sfu-track-key', key);
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'call-tile-expand';
+        expandBtn.type = 'button';
+        expandBtn.title = 'Fullscreen';
+        expandBtn.innerHTML = '<i class="fas fa-expand"></i>';
+        expandBtn.addEventListener('click', (e)=>{
+          try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+          this._openCallTileFullscreen(tile);
+        });
+        tile.appendChild(el);
+        tile.appendChild(expandBtn);
+        videosCont.appendChild(tile);
+        tile.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
+        el.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
+      }catch(_){ }
+    }
+
+    _avatarFromCaches(uid){
+      try{
+        const id = String(uid || '').trim();
+        if (!id) return '../../images/default-bird.png';
+        if (id === this.currentUser?.uid){
+          const mine = this._avatarFromUser(this.me, '');
+          if (mine) return mine;
+        }
+        const direct = String(this._avatarCache.get(id) || '').trim();
+        if (direct) return direct;
+        const cached = this.usernameCache.get(id);
+        const objAvatar = (cached && typeof cached === 'object') ? String(cached.avatarUrl || '').trim() : '';
+        if (objAvatar) return objAvatar;
+        try{
+          const row = document.querySelector(`#connections-list li[data-id="${String(this.activeConnection || '').replace(/"/g,'&quot;')}"] .chat-conn-avatar`);
+          const src = String(row?.getAttribute?.('src') || row?.src || '').trim();
+          if (src) return src;
+        }catch(_){ }
+      }catch(_){ }
+      return '../../images/default-bird.png';
+    }
+
+    async _emitJoinCallMessage(connId){
+      try{
+        const key = String(connId || this.getCallConnId() || '').trim();
+        if (!key) return;
+        const now = Date.now();
+        const prev = Number(this._lastCallMarkerAtByConn.get(key) || 0);
+        if ((now - prev) < 2500) return;
+        this._lastCallMarkerAtByConn.set(key, now);
+        await this.saveMessage({ text: `[call:room:${key}_latest]` });
+      }catch(e){
+        console.warn('Join-call marker send failed', e?.message || e);
+      }
+    }
+
+    _bindCallDrawTools(){
+      if (this._callDrawBound) return;
+      this._callDrawBound = true;
+      const fs = document.getElementById('call-fullscreen');
+      const canvas = document.getElementById('call-draw-canvas');
+      const paletteBtn = document.getElementById('draw-palette-btn');
+      const palette = document.getElementById('draw-palette');
+      const size = document.getElementById('draw-size');
+      const clearBtn = document.getElementById('draw-clear-btn');
+      const closeBtn = document.getElementById('draw-close-btn');
+      if (!fs || !canvas) return;
+      const ctx = canvas.getContext('2d');
+      const resizeCanvas = ()=>{
+        const w = Math.max(1, fs.clientWidth || 1);
+        const h = Math.max(1, fs.clientHeight || 1);
+        canvas.width = w;
+        canvas.height = h;
+      };
+      const pointFromEvt = (e)=>{
+        const r = canvas.getBoundingClientRect();
+        const p = (e.touches && e.touches[0]) ? e.touches[0] : e;
+        return { x: p.clientX - r.left, y: p.clientY - r.top };
+      };
+      const drawLine = (a, b)=>{
+        if (!ctx || !a || !b) return;
+        ctx.strokeStyle = this._drawColor;
+        ctx.lineWidth = this._drawSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      };
+      const startDraw = (e)=>{
+        if (fs.classList.contains('hidden')) return;
+        this._drawActive = true;
+        this._drawLastPoint = pointFromEvt(e);
+      };
+      const moveDraw = (e)=>{
+        if (!this._drawActive) return;
+        const p = pointFromEvt(e);
+        drawLine(this._drawLastPoint, p);
+        this._drawLastPoint = p;
+        try{ e.preventDefault(); }catch(_){}
+      };
+      const stopDraw = ()=>{
+        this._drawActive = false;
+        this._drawLastPoint = null;
+      };
+      window.addEventListener('resize', resizeCanvas);
+      canvas.addEventListener('mousedown', startDraw);
+      window.addEventListener('mousemove', moveDraw, { passive: false });
+      window.addEventListener('mouseup', stopDraw);
+      canvas.addEventListener('touchstart', startDraw, { passive: true });
+      canvas.addEventListener('touchmove', moveDraw, { passive: false });
+      canvas.addEventListener('touchend', stopDraw);
+      if (paletteBtn && palette){
+        paletteBtn.addEventListener('click', ()=> palette.classList.toggle('hidden'));
+        palette.querySelectorAll('.draw-color').forEach((btn)=>{
+          btn.addEventListener('click', ()=>{
+            this._drawColor = String(btn.getAttribute('data-color') || '#ffffff');
+            palette.classList.add('hidden');
+          });
+        });
+      }
+      if (size){
+        size.addEventListener('input', ()=>{
+          const v = Number(size.value || 4);
+          this._drawSize = Math.max(1, Math.min(24, v || 4));
+        });
+      }
+      if (clearBtn && ctx){
+        clearBtn.addEventListener('click', ()=> ctx.clearRect(0, 0, canvas.width, canvas.height));
+      }
+      if (closeBtn){
+        closeBtn.addEventListener('click', ()=> this._closeCallTileFullscreen());
+      }
+      this._resizeCallCanvas = resizeCanvas;
+    }
+
+    _openCallTileFullscreen(tile){
+      try{
+        if (!tile) return;
+        const fs = document.getElementById('call-fullscreen');
+        const host = document.getElementById('call-fullscreen-media');
+        if (!fs || !host) return;
+        if (this._tileFullscreenState && this._tileFullscreenState.tile === tile) return;
+        this._bindCallDrawTools();
+        if (this._tileFullscreenState) this._closeCallTileFullscreen();
+        const parent = tile.parentElement;
+        const next = tile.nextSibling;
+        this._tileFullscreenState = { tile, parent, next };
+        host.appendChild(tile);
+        fs.classList.remove('hidden');
+        try{ this._resizeCallCanvas && this._resizeCallCanvas(); }catch(_){}
+      }catch(_){ }
+    }
+
+    _closeCallTileFullscreen(){
+      try{
+        const fs = document.getElementById('call-fullscreen');
+        const canvas = document.getElementById('call-draw-canvas');
+        const st = this._tileFullscreenState;
+        if (st && st.tile && st.parent){
+          if (st.next && st.next.parentNode === st.parent) st.parent.insertBefore(st.tile, st.next);
+          else st.parent.appendChild(st.tile);
+        }
+        this._tileFullscreenState = null;
+        if (fs) fs.classList.add('hidden');
+        if (canvas){
+          const ctx = canvas.getContext('2d');
+          try{ ctx && ctx.clearRect(0, 0, canvas.width, canvas.height); }catch(_){}
+        }
+      }catch(_){ }
+    }
+
     _attachSfuTrack(track, publication, participant){
       try{
         const kind = String(track?.kind || '');
@@ -1545,15 +1773,9 @@
         if (kind === 'video'){
           el.autoplay = true;
           el.playsInline = true;
-          let videosCont = document.getElementById('call-videos');
-          if (!videosCont){
-            videosCont = document.createElement('div');
-            videosCont.id = 'call-videos';
-            videosCont.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;';
-            const overlay = document.getElementById('call-overlay');
-            if (overlay) overlay.appendChild(videosCont);
-          }
-          videosCont.appendChild(el);
+          const srcName = String(publication?.source || '').toLowerCase();
+          const isScreen = srcName.includes('screen');
+          this._createCallTileForVideo(el, key, isScreen);
         } else if (kind === 'audio'){
           el.autoplay = true;
           el.playsInline = true;
@@ -1576,12 +1798,16 @@
         const el = this._sfuTrackEls.get(key);
         if (el){
           try{ track?.detach?.(el); }catch(_){}
-          try{ el.remove(); }catch(_){}
+          try{
+            const tile = el.closest('.call-tile');
+            if (tile) tile.remove();
+            else el.remove();
+          }catch(_){}
           this._sfuTrackEls.delete(key);
           return;
         }
         // Fallback cleanup for detached elements not indexed
-        document.querySelectorAll('[data-sfu-track-key]').forEach((n)=>{
+        document.querySelectorAll('.call-tile[data-sfu-track-key],[data-sfu-track-key]').forEach((n)=>{
           if (String(n.getAttribute('data-sfu-track-key')||'').startsWith(`${pid}:`)) n.remove();
         });
       }catch(_){ }
@@ -1602,6 +1828,8 @@
         room.localParticipant.trackPublications.forEach((pub)=>{
           const tr = pub?.track;
           if (!tr || String(tr.kind) !== 'video') return;
+          const srcName = String(pub?.source || '').toLowerCase();
+          const isScreen = srcName.includes('screen');
           const key = `local:${String(pub.trackSid || tr.sid || 'video')}`;
           if (this._sfuTrackEls.has(key)) return;
           const el = tr.attach();
@@ -1610,7 +1838,7 @@
           el.autoplay = true;
           el.playsInline = true;
           el.setAttribute('data-sfu-track-key', key);
-          videosCont.appendChild(el);
+          this._createCallTileForVideo(el, key, isScreen);
           this._sfuTrackEls.set(key, el);
         });
       }catch(_){ }
@@ -1701,7 +1929,7 @@
           adaptiveStream: true,
           dynacast: true,
           stopLocalTrackOnUnpublish: true,
-          videoCaptureDefaults: { resolution: { width: 1280, height: 720 }, frameRate: 24 },
+          videoCaptureDefaults: { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
           audioCaptureDefaults: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -1714,7 +1942,9 @@
           if (mod?.VideoPresets?.h720 && mod?.VideoPresets?.h180){
             roomOpts.publishDefaults = {
               simulcast: true,
-              videoSimulcastLayers: [mod.VideoPresets.h180, mod.VideoPresets.h360, mod.VideoPresets.h720]
+              videoSimulcastLayers: [mod.VideoPresets.h180, mod.VideoPresets.h360, mod.VideoPresets.h720],
+              videoEncoding: { maxBitrate: 2800000, maxFramerate: 30 },
+              audioBitrate: 64000
             };
           }
         }catch(_){ }
@@ -1744,6 +1974,13 @@
         }catch(_){}
         this._attachSfuLocalPreview();
         this.updateRoomUI();
+        try{
+          const markerKey = String(callConnId || '');
+          if (markerKey){
+            this._sfuCallMarkerByConn.add(markerKey);
+            await this._emitJoinCallMessage(markerKey);
+          }
+        }catch(_){ }
         const startBtn = document.getElementById('start-call-btn');
         if (startBtn) startBtn.style.display = 'none';
         return true;
@@ -2955,8 +3192,8 @@
       const seen = new Set();
       const getCachedName = (uid, fallback = '')=>{
         const cached = this.usernameCache.get(uid);
-        if (cached && typeof cached === 'object') return String(cached.username || '').trim() || fallback;
-        return String(cached || '').trim() || fallback;
+        if (cached && typeof cached === 'object') return this._safeUsername(cached.username || '', fallback);
+        return this._safeUsername(cached || '', fallback);
       };
       const getCachedAvatar = (uid)=>{
         const direct = this._avatarCache.get(uid);
@@ -2977,7 +3214,7 @@
               if (uid === this.currentUser.uid){ enriched.push(String(this.me?.username || 'You')); continue; }
               const candidate = getCachedName(uid, '');
               if (candidate) enriched.push(candidate);
-              else enriched.push(String(names[i] || '').trim() || 'User');
+              else enriched.push(this._safeUsername(names[i] || '', 'User'));
             }
             c.participantUsernames = enriched;
           }
@@ -2994,7 +3231,9 @@
         let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
-          const others = c.participantUsernames.filter(n=> String(n ?? '').toLowerCase() !== myNameLower);
+          const others = c.participantUsernames
+            .map((n)=> this._safeUsername(n, ''))
+            .filter((n)=> n && String(n ?? '').toLowerCase() !== myNameLower);
           if (String(c.groupName || '').trim()) label = String(c.groupName).trim();
           else if (others.length===1) label = others[0];
           else if (others.length>1){
@@ -3195,7 +3434,11 @@
           if (!displayName || displayName === 'Chat'){
             const parts = this.getConnParticipants(data);
             const stored = Array.isArray(data.participantUsernames) ? data.participantUsernames : [];
-            const names = parts.map((uid, i)=> this.usernameCache.get(uid) || stored[i] || uid);
+            const names = parts.map((uid, i)=>{
+              const cached = this.usernameCache.get(uid);
+              const cachedName = (cached && typeof cached === 'object') ? cached.username : cached;
+              return this._safeUsername(cachedName || stored[i] || '', 'User');
+            });
             const myNameLower = (this.me?.username || '').toLowerCase();
             const others = names.filter((n)=> String(n ?? '').toLowerCase() !== myNameLower);
             const resolvedName = others.length === 1 ? others[0] : (others.slice(0,2).join(', ') + (others.length > 2 ? `, +${others.length-2}` : ''));
@@ -5103,11 +5346,11 @@
         const names = Array.isArray(conn?.participantUsernames) ? conn.participantUsernames : [];
         const mine = String(this.me?.username || '').toLowerCase();
         const resolved = parts.map((uid, i)=>{
-          const fromStored = String(names[i] || '').trim();
+          const fromStored = this._safeUsername(names[i] || '', '');
           if (fromStored) return fromStored;
           const cached = this.usernameCache.get(uid);
-          if (cached && typeof cached === 'object') return String(cached.username || '').trim();
-          return String(cached || '').trim() || 'User';
+          if (cached && typeof cached === 'object') return this._safeUsername(cached.username || '', 'User');
+          return this._safeUsername(cached || '', 'User');
         }).filter(Boolean);
         const others = resolved.filter((n)=> String(n || '').toLowerCase() !== mine);
         if (!others.length) return 'Chat';
@@ -8080,10 +8323,24 @@
       const showBtn = document.getElementById('show-call-btn');
       const ov = document.getElementById('call-overlay');
       if (!showBtn) return;
-      const inCall = !!(this._activePCs && this._activePCs.size > 0);
+      const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
       const roomHasActiveCall = !!(this._roomState && this._roomState.activeCallId);
       const shouldShow = (inCall || roomHasActiveCall || this._inRoom) && !!(ov && ov.classList.contains('hidden'));
       showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
+      this._notifyParentCallState();
+    }
+
+    _notifyParentCallState(){
+      try{
+        if (window.self === window.top) return;
+        const active = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
+        window.parent.postMessage({
+          type: 'liber:chat-call-state',
+          active,
+          inRoom: !!this._inRoom,
+          connId: this.getCallConnId() || ''
+        }, '*');
+      }catch(_){ }
     }
 
     getCallConnId(){
@@ -8272,6 +8529,7 @@
 
     _hideCallOverlayKeepSession(){
       try{
+        this._closeCallTileFullscreen();
         const ov = document.getElementById('call-overlay');
         if (ov) ov.classList.add('hidden');
         this._syncCallFab();
@@ -8442,23 +8700,25 @@
     const shareBtn = document.getElementById('share-screen-btn');
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
-    const exitBtn = document.getElementById('exit-room-btn');
     if (startBtn) startBtn.onclick = async () => {
-      if (this._useSfuCalls) await this._startOrJoinSfuCall(this._videoEnabled);
-      else await this.attemptStartRoomCall(this._videoEnabled);
+      if (this._useSfuCalls){
+        const ok = await this._startOrJoinSfuCall(this._videoEnabled);
+        if (ok) await this._emitJoinCallMessage(this.getCallConnId());
+      } else {
+        await this.attemptStartRoomCall(this._videoEnabled);
+      }
       startBtn.style.display = 'none';
     };
     if (endBtn) endBtn.onclick = async () => { 
-      await this.cleanupActiveCall(true, 'end_button');
+      const roomId = this.getCallConnId();
+      await this.cleanupActiveCall(false, 'close_button');
+      await this._endRoomIfNoParticipantsLeft(roomId);
+      const ov2 = document.getElementById('call-overlay');
+      if (ov2) ov2.classList.add('hidden');
       const status = document.getElementById('call-status');
       if (status) status.textContent = 'Room open. Ready for call.';
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = '';
-    };
-    if (exitBtn) exitBtn.onclick = async () => { 
-      console.log('Exit clicked'); 
-      // Exit button closes the call panel only; call continues in background.
-      this._hideCallOverlayKeepSession();
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
@@ -8516,11 +8776,18 @@
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setScreenShareEnabled){
         try{
           const next = !this._screenSharing;
+          if (next && (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia)){
+            alert('Screen sharing is not supported on this mobile browser. Try Android Chrome or desktop browser.');
+            return;
+          }
           await this._sfuRoom.localParticipant.setScreenShareEnabled(next);
           this._screenSharing = next;
           this._attachSfuLocalPreview();
           shareBtn.classList.toggle('active', next);
-        }catch(e){ console.warn('SFU screen share failed', e?.message || e); }
+        }catch(e){
+          console.warn('SFU screen share failed', e?.message || e);
+          alert('Screen sharing failed on this device/browser. Try updating browser or using desktop.');
+        }
         return;
       }
       if (this._screenSharing) { await this._stopScreenShare(); return; }
@@ -9684,6 +9951,7 @@
     this._joiningCall = false;
     this._lastJoinedCallId = null;
     if (this._screenSharing) await this._stopScreenShare();
+      this._closeCallTileFullscreen();
       if (this._sfuRoom){
         try{ this._sfuRoom.disconnect(); }catch(_){}
         this._sfuRoom = null;
@@ -9742,7 +10010,33 @@
       this._setActiveSpeakerLabel(null);
       this._syncCallFab();
       this._updateMediaSessionState('idle', null);
+      this._sfuCallMarkerByConn.delete(String(this.getCallConnId() || ''));
+      this._lastCallMarkerAtByConn.delete(String(this.getCallConnId() || ''));
       this._callConnectionId = null;
+    }
+
+    async _endRoomIfNoParticipantsLeft(callConnId){
+      try{
+        const connId = String(callConnId || '').trim();
+        if (!connId) return;
+        const peersRef = firebase.collection(this.db,'callRooms', connId, 'peers');
+        const snap = await firebase.getDocs(peersRef);
+        let hasActive = false;
+        snap.forEach((d)=>{
+          const p = d.data() || {};
+          const st = String(p.state || '').toLowerCase();
+          if (st === 'connected' || st === 'connecting' || st === 'ringing' || st === 'in_call'){
+            hasActive = true;
+          }
+        });
+        if (hasActive) return;
+        const roomRef = firebase.doc(this.db,'callRooms', connId);
+        await firebase.updateDoc(roomRef, {
+          status: 'idle',
+          activeCallId: null,
+          lastActiveAt: new Date().toISOString()
+        });
+      }catch(_){ }
     }
 
     async updatePresence(state, hasVideo = false){
@@ -9771,16 +10065,22 @@
           if (uid === this.currentUser.uid) return null;
           const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
           let cached = this.usernameCache.get(uid);
-          if (!cached || !cached.avatarUrl) {
+          const cachedAvatar = (cached && typeof cached === 'object') ? String(cached.avatarUrl || '').trim() : '';
+          if (!cachedAvatar) {
             try {
               const u = await window.firebaseService.getUserData(uid);
               cached = {
                 username: u?.username || 'User',
-                avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
+                avatarUrl: this._avatarFromUser(u, this._avatarFromCaches(uid))
               };
               this.usernameCache.set(uid, cached);
               this._avatarCache.set(uid, cached.avatarUrl || '../../images/default-bird.png');
-            } catch (_) { cached = { username: 'User', avatarUrl: '../../images/default-bird.png' }; }
+            } catch (_) {
+              cached = {
+                username: (this.usernameCache.get(uid)?.username || 'User'),
+                avatarUrl: this._avatarFromCaches(uid)
+              };
+            }
           }
           return { uid, p, cached };
         });
@@ -9800,16 +10100,22 @@
         });
         // Self avatar (single)
         let selfCached = this.usernameCache.get(this.currentUser.uid);
-        if (!selfCached || !selfCached.avatarUrl) {
+        const selfCachedAvatar = (selfCached && typeof selfCached === 'object') ? String(selfCached.avatarUrl || '').trim() : '';
+        if (!selfCachedAvatar) {
           try {
             const u = await window.firebaseService.getUserData(this.currentUser.uid);
             selfCached = {
               username: u?.username || 'You',
-              avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
+              avatarUrl: this._avatarFromUser(u, this._avatarFromCaches(this.currentUser.uid))
             };
             this.usernameCache.set(this.currentUser.uid, selfCached);
             this._avatarCache.set(this.currentUser.uid, selfCached.avatarUrl || '../../images/default-bird.png');
-          } catch (_) { selfCached = { username: 'You', avatarUrl: '../../images/default-bird.png' }; }
+          } catch (_) {
+            selfCached = {
+              username: (this.me?.username || this.usernameCache.get(this.currentUser.uid)?.username || 'You'),
+              avatarUrl: this._avatarFromCaches(this.currentUser.uid)
+            };
+          }
         }
         const meState = (this._peersPresence[this.currentUser.uid] && this._peersPresence[this.currentUser.uid].state) || 'idle';
         const selfAv = document.createElement('div');

@@ -12,6 +12,7 @@ class AppsManager {
         this._autoRefreshTimer = null;
         this._activeAppUrl = '';
         this._closingShell = false;
+        this._chatCallState = { active: false, connId: '', inRoom: false };
         this.init();
     }
 
@@ -59,6 +60,14 @@ class AppsManager {
                 const data = ev && ev.data ? ev.data : {};
                 if (data && data.type === 'liber:close-app-shell'){
                     this.closeAppShell();
+                } else if (data && data.type === 'liber:chat-call-state'){
+                    const active = !!data.active;
+                    this._chatCallState = {
+                        active,
+                        connId: String(data.connId || ''),
+                        inRoom: !!data.inRoom
+                    };
+                    this.updateGlobalCallButton();
                 } else if (data && data.type === 'liber:chat-audio-meta' && data.src){
                     try{
                         const dm = window.dashboardManager;
@@ -94,6 +103,48 @@ class AppsManager {
                 this.closeAppShell();
             }
         });
+        this.ensureGlobalCallButton();
+        this.updateGlobalCallButton();
+    }
+
+    ensureGlobalCallButton(){
+        if (document.getElementById('dashboard-call-btn')) return;
+        const btn = document.createElement('button');
+        btn.id = 'dashboard-call-btn';
+        btn.className = 'dashboard-chat-btn';
+        btn.title = 'Return to active call';
+        btn.setAttribute('aria-label', 'Return to active call');
+        btn.style.display = 'none';
+        btn.style.bottom = '126px';
+        btn.innerHTML = '<i class="fas fa-phone-volume"></i>';
+        btn.addEventListener('click', ()=> this.openActiveCallShell());
+        document.body.appendChild(btn);
+    }
+
+    updateGlobalCallButton(){
+        const btn = document.getElementById('dashboard-call-btn');
+        if (!btn) return;
+        btn.style.display = this._chatCallState?.active ? 'inline-flex' : 'none';
+    }
+
+    openActiveCallShell(){
+        try{
+            const shell = document.getElementById('app-shell');
+            const frame = document.getElementById('app-shell-frame');
+            const title = document.getElementById('app-shell-title');
+            if (!shell || !frame) return;
+            const src = String(frame.getAttribute('src') || '');
+            const canReuse = /apps\/secure-chat\/index\.html/i.test(src) && src !== 'about:blank';
+            if (canReuse){
+                shell.classList.remove('hidden');
+                shell.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('app-shell-open');
+                if (title) title.textContent = 'Connections';
+                return;
+            }
+            const full = new URL('apps/secure-chat/index.html', window.location.href).href;
+            this.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+        }catch(_){ }
     }
 
     bindShellBackBridge(frame){
@@ -540,8 +591,14 @@ class AppsManager {
             return;
         }
         this._activeAppUrl = appUrl;
-        const separator = appUrl.includes('?') ? '&' : '?';
-        frame.src = `${appUrl}${separator}inShell=1`;
+        const currentSrc = String(frame.getAttribute('src') || '');
+        const currentIsChat = /apps\/secure-chat\/index\.html/i.test(currentSrc) && currentSrc !== 'about:blank';
+        const nextIsChat = String(app?.id || '') === 'secure-chat' || /apps\/secure-chat\/index\.html/i.test(String(appUrl || ''));
+        const shouldReuseChat = currentIsChat && nextIsChat && !!this._chatCallState?.active;
+        if (!shouldReuseChat){
+            const separator = appUrl.includes('?') ? '&' : '?';
+            frame.src = `${appUrl}${separator}inShell=1`;
+        }
         if (title) title.textContent = app?.name || 'App';
         shell.classList.remove('hidden');
         shell.setAttribute('aria-hidden', 'false');
@@ -556,11 +613,16 @@ class AppsManager {
         const frame = document.getElementById('app-shell-frame');
         try{
             if (!shell || !frame) return;
-            frame.src = 'about:blank';
+            const activeSrc = String(frame.getAttribute('src') || '');
+            const isChatShell = /apps\/secure-chat\/index\.html/i.test(activeSrc);
+            const keepAliveChat = isChatShell && !!this._chatCallState?.active;
+            if (!keepAliveChat){
+                frame.src = 'about:blank';
+                this._activeAppUrl = '';
+            }
             shell.classList.add('hidden');
             shell.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('app-shell-open');
-            this._activeAppUrl = '';
             window.dispatchEvent(new Event('liber:app-shell-close'));
             // Ensure control panel view is visible and has an active section.
             const dashboard = document.getElementById('dashboard');

@@ -15,7 +15,7 @@
     <link rel="icon" type="image/png" href="../../images/LIBER LOGO.png" />
     <link rel="stylesheet" href="../../css/style.css?v=20260212r12c" />
     <link rel="stylesheet" href="../../css/chatgpt-widget.css?v=20250818c" />
-    <link rel="stylesheet" href="styles.css?v=20260212r18f" />
+    <link rel="stylesheet" href="styles.css?v=20260222r19a" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script type="importmap">
       {
@@ -115,25 +115,41 @@
             <!-- Call overlay -->
             <div id="call-overlay" class="call-overlay hidden">
                 <div id="call-status" style="text-align:center;margin:8px 0;color:#888"></div>
-                <div id="call-videos" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;"></div>
+                <div id="call-videos" class="call-videos"></div>
                 <div class="call-controls">
-                    <button id="start-call-btn" class="btn">Start Call</button>
-                    <button id="toggle-mic-btn" class="btn secondary" title="Mute/Unmute">🎤 Mic</button>
-                    <button id="toggle-camera-btn" class="btn secondary" title="Camera on/off">📷 Cam</button>
-                    <button id="share-screen-btn" class="btn secondary" title="Share screen">🖥 Screen</button>
-                    <button id="hide-call-btn" class="btn secondary">Hide</button>
-                    <button id="exit-room-btn" class="btn secondary">Exit Room</button>
-                    <button id="end-call-btn" class="btn secondary">End</button>
+                    <button id="start-call-btn" class="btn" title="Start call"><i class="fas fa-phone"></i></button>
+                    <button id="toggle-mic-btn" class="btn secondary" title="Mute/Unmute"><i class="fas fa-microphone"></i></button>
+                    <button id="toggle-camera-btn" class="btn secondary" title="Camera on/off"><i class="fas fa-video"></i></button>
+                    <button id="share-screen-btn" class="btn secondary" title="Share screen"><i class="fas fa-display"></i></button>
+                    <button id="hide-call-btn" class="btn secondary" title="Hide call"><i class="fas fa-down-left-and-up-right-to-center"></i></button>
+                    <button id="end-call-btn" class="btn secondary" title="Close call"><i class="fas fa-xmark"></i></button>
                 </div>
                 <div id="call-participants" class="call-participants"></div>
+                <div id="call-fullscreen" class="call-fullscreen hidden">
+                    <div id="call-fullscreen-media" class="call-fullscreen-media"></div>
+                    <canvas id="call-draw-canvas" class="call-draw-canvas"></canvas>
+                    <div class="call-draw-tools">
+                        <button id="draw-palette-btn" class="btn secondary" title="Colors"><i class="fas fa-palette"></i></button>
+                        <div id="draw-palette" class="draw-palette hidden">
+                            <button class="draw-color" type="button" data-color="#ffffff" style="--c:#ffffff" title="White"></button>
+                            <button class="draw-color" type="button" data-color="#22c55e" style="--c:#22c55e" title="Green"></button>
+                            <button class="draw-color" type="button" data-color="#3b82f6" style="--c:#3b82f6" title="Blue"></button>
+                            <button class="draw-color" type="button" data-color="#f59e0b" style="--c:#f59e0b" title="Orange"></button>
+                            <button class="draw-color" type="button" data-color="#ef4444" style="--c:#ef4444" title="Red"></button>
+                        </div>
+                        <input id="draw-size" type="range" min="1" max="24" value="4" title="Brush size">
+                        <button id="draw-clear-btn" class="btn secondary" title="Clear drawing"><i class="fas fa-eraser"></i></button>
+                        <button id="draw-close-btn" class="btn secondary" title="Close fullscreen"><i class="fas fa-xmark"></i></button>
+                    </div>
+                </div>
             </div>
-            <button id="show-call-btn" class="btn secondary call-fab" style="display:none"><i class="fas fa-phone-volume"></i> Call</button>
+            <button id="show-call-btn" class="btn secondary call-fab" style="display:none"><i class="fas fa-phone-volume"></i></button>
         </main>
     </div>
 
     <!-- Always load our own Firebase - self-contained in iframe avoids cross-context "custom Object" setDoc error -->
     <script>
-      window.LIBER_CHAT_VERSION = '20260222v30';
+      window.LIBER_CHAT_VERSION = '20260222v35';
     </script>
     <!-- Scripts (single-source cache version) -->
     <script>

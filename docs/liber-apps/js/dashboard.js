@@ -146,6 +146,26 @@ class DashboardManager {
         }catch(_){ return Number(new Date(post?.createdAt || 0).getTime() || 0) || 0; }
     }
 
+    _isEmailLike(value){
+        const s = String(value || '').trim();
+        if (!s) return false;
+        return /@/.test(s) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+    }
+
+    _safeUsername(value, fallback = 'User'){
+        const s = String(value || '').trim();
+        if (!s) return fallback;
+        if (this._isEmailLike(s)) return fallback;
+        return s;
+    }
+
+    _resolveAuthorName(post = {}, authorProfile = null, opts = {}){
+        const profileName = this._safeUsername(authorProfile?.username || '', '');
+        const postName = this._safeUsername(post?.authorName || '', '');
+        const optName = this._safeUsername(opts?.displayName || '', '');
+        return profileName || postName || optName || 'User';
+    }
+
     async buildRealtimeFeedPostElement(post, opts = {}){
         const p = post || {};
         const div = document.createElement('div');
@@ -154,12 +174,7 @@ class DashboardManager {
         div.dataset.postCreatedTs = String(this.getPostCreatedTs(p));
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
         const authorProfile = await this.getUserPreviewData(p.authorId || '');
-        const profileName = String(authorProfile?.username || '').trim();
-        const postName = String(p.authorName || '').trim();
-        const optName = String(opts.displayName || '').trim();
-        const authorName = (profileName && !profileName.includes('@'))
-            ? profileName
-            : ((postName && !postName.includes('@')) ? postName : ((optName && !optName.includes('@')) ? optName : 'User'));
+        const authorName = this._resolveAuthorName(p, authorProfile, opts);
         const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
         const postTime = this.formatDateTime(p.createdAt);
         const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -499,7 +514,7 @@ class DashboardManager {
                 if (peerUid){
                     try{
                         const u = await window.firebaseService.getUserData(peerUid);
-                        title = String(u?.username || u?.email || title).trim();
+                        title = this._safeUsername(u?.username || '', title);
                         cover = String(u?.avatarUrl || cover).trim() || 'images/default-bird.png';
                     }catch(_){ }
                 }
@@ -4361,7 +4376,7 @@ class DashboardManager {
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const authorProfile = await this.getUserPreviewData(p.authorId || '');
-                const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || 'User');
+                const authorName = this._resolveAuthorName(p, authorProfile, {});
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -4507,7 +4522,7 @@ class DashboardManager {
                             try{
                                 const nm = item.querySelector('[data-comment-name]');
                                 const av = item.querySelector('[data-comment-avatar]');
-                                if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                if (nm) nm.textContent = this._safeUsername(u?.username || '', this._safeUsername(fallbackName || '', 'User'));
                                 if (av && u?.avatarUrl) av.src = u.avatarUrl;
                                 this.bindUserPreviewTriggers(item);
                             }catch(_){ }
@@ -4852,7 +4867,7 @@ class DashboardManager {
                 div.dataset.postId = p.id;
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
                 const authorProfile = await this.getUserPreviewData(p.authorId || '');
-                const authorName = String(p.authorName || authorProfile?.username || authorProfile?.email || 'User');
+                const authorName = this._resolveAuthorName(p, authorProfile, {});
                 const authorAvatar = String(authorProfile?.avatarUrl || p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -4951,7 +4966,7 @@ class DashboardManager {
                                 try{
                                     const nm = item.querySelector('[data-comment-name]');
                                     const av = item.querySelector('[data-comment-avatar]');
-                                    if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                    if (nm) nm.textContent = this._safeUsername(u?.username || '', this._safeUsername(fallbackName || '', 'User'));
                                     if (av && u?.avatarUrl) av.src = u.avatarUrl;
                                     this.bindUserPreviewTriggers(item);
                                 }catch(_){ }
@@ -5040,7 +5055,7 @@ class DashboardManager {
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                const authorName = String(p.authorName || titleName || 'User');
+                const authorName = this._safeUsername(p.authorName || '', this._safeUsername(titleName || '', 'User'));
                 const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                 const postTime = this.formatDateTime(p.createdAt);
                 const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -5152,7 +5167,7 @@ class DashboardManager {
                             try{
                                 const nm = item.querySelector('[data-comment-name]');
                                 const av = item.querySelector('[data-comment-avatar]');
-                                if (nm) nm.textContent = (u?.username || u?.email || fallbackName || 'User');
+                                if (nm) nm.textContent = this._safeUsername(u?.username || '', this._safeUsername(fallbackName || '', 'User'));
                                 if (av && u?.avatarUrl) av.src = u.avatarUrl;
                                 this.bindUserPreviewTriggers(item);
                             }catch(_){ }
@@ -5308,7 +5323,7 @@ class DashboardManager {
                     const div = document.createElement('div');
                     div.className = 'post-item';
                     div.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-                    const authorName = String(p.authorName || displayName || 'User');
+                    const authorName = this._safeUsername(p.authorName || '', this._safeUsername(displayName || '', 'User'));
                     const authorAvatar = String(p.coverUrl || p.thumbnailUrl || 'images/default-bird.png');
                     const postTime = this.formatDateTime(p.createdAt);
                     const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
@@ -7896,7 +7911,7 @@ Do you want to proceed?`);
             const card = document.createElement('div');
             card.className = 'post-item';
             card.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:12px;margin:10px 0;background:var(--secondary-bg)';
-            const authorName = String(p.authorName || data.username || data.email || 'User').replace(/</g,'&lt;');
+            const authorName = this._safeUsername(p.authorName || '', this._safeUsername(data.username || '', 'User')).replace(/</g,'&lt;');
             const authorAvatar = String(p.coverUrl || data.avatarUrl || 'images/default-bird.png');
             const postTime = this.formatDateTime(p.createdAt);
             const editedBadge = this.isEdited(p) ? '<span style="font-size:11px;opacity:.78;border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:1px 6px">edited</span>' : '';
