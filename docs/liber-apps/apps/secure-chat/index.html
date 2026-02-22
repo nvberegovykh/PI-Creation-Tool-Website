@@ -127,31 +127,30 @@
         </main>
     </div>
 
-    <!-- Use parent's Firebase when embedded in iframe (app shell) -->
+    <!-- In iframe: use parent's Firebase only. Skip loading our own firebase scripts to avoid SDK mismatch. -->
     <script>
-      (function(){
-        try {
-          if (window.self !== window.top && window.parent.firebaseService && window.parent.firebaseService.isInitialized) {
-            window.firebaseService = window.parent.firebaseService;
-            window.firebase = window.parent.firebase;
-            if (window.parent.firebaseModular) window.firebaseModular = window.parent.firebaseModular;
-          }
-        } catch (_) {}
-      })();
+      window.LIBER_CHAT_VERSION = '20260221v2';
+      window.LIBER_CHAT_IN_IFRAME = (window.self !== window.top);
     </script>
     <!-- Scripts (single-source cache version) -->
     <script>
-      window.LIBER_CHAT_VERSION = '20260221v1';
       (function loadChatScripts() {
         const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
+        const inIframe = !!window.LIBER_CHAT_IN_IFRAME;
         const scripts = [
           '../../js/secure-keys.js',
-          '../../js/firebase-loader.js',
-          '../../js/firebase-service.js',
+          ...(inIframe ? [] : ['../../js/firebase-loader.js', '../../js/firebase-service.js']),
           '../../js/crypto.js',
           'chat-crypto.js'
         ];
-        document.write(scripts.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
+        if (inIframe) {
+          document.write('<script src="../../js/secure-keys.js?v=' + v + '"><\/script>');
+          document.write('<script src="../../js/crypto.js?v=' + v + '"><\/script>');
+          document.write('<script src="chat-crypto.js?v=' + v + '"><\/script>');
+          document.write('<script src="../../js/chat-iframe-bridge.js?v=' + v + '"><\/script>');
+        } else {
+          document.write(scripts.map((src) => '<script src="' + src + '?v=' + v + '"><\/script>').join(''));
+        }
       })();
     </script>
     <script>

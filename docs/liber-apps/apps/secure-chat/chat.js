@@ -1353,10 +1353,14 @@
     }
 
     async init() {
-      // Wait for firebase
+      // Wait for firebase (parent's when in iframe, or our own)
       let attempts = 0; while((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 150){ await new Promise(r=>setTimeout(r,100)); attempts++; }
       if (!window.firebaseService || !window.firebaseService.isInitialized) return;
       this.db = window.firebaseService.db;
+      if (!this.db) {
+        console.error('Firestore not initialized (db is null)');
+        return;
+      }
       this.storage = window.firebaseService.app ? firebase.getStorage(window.firebaseService.app) : null;
       
       // Enhanced auth readiness with token refresh
