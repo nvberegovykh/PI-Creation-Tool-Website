@@ -759,6 +759,16 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
+      const waveConnectBtn = document.createElement('button');
+      waveConnectBtn.className = 'btn secondary';
+      waveConnectBtn.textContent = 'Add from WaveConnect';
+      waveConnectBtn.style.marginBottom = '8px';
+      waveConnectBtn.onclick = ()=>{
+        panel.remove();
+        backdrop.remove();
+        this.openWaveConnectPickerForComposer();
+      };
+      panel.appendChild(waveConnectBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -2042,24 +2052,39 @@
         overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
         overlay.innerHTML = '<div style="width:min(96vw,560px);max-height:76vh;overflow:auto;background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px"><div style="font-weight:700;margin-bottom:8px">Add from WaveConnect (to composer)</div><div id="chat-wave-picker-list"></div><div style="display:flex;justify-content:flex-end;margin-top:8px"><button id="chat-wave-picker-close" class="btn btn-secondary">Close</button></div></div>';
         const list = overlay.querySelector('#chat-wave-picker-list');
+        list.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px';
         rows.slice(0,80).forEach((entry)=>{
           const w = entry.data || {};
           const isVideo = entry.type === 'video';
           const isImage = entry.type === 'image';
-          const btn = document.createElement('button');
-          btn.className = 'btn btn-secondary';
-          btn.style.cssText = 'width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-          btn.innerHTML = `<i class="fas ${isVideo ? 'fa-video' : (isImage ? 'fa-image' : 'fa-music')}"></i> ${(w.title || (isVideo ? 'Video' : (isImage ? 'Picture' : 'Audio'))).replace(/</g,'&lt;')}`;
-          btn.onclick = ()=>{
+          const kind = isVideo ? 'video' : (isImage ? 'image' : 'audio');
+          const title = String(w.title || (isVideo ? 'Video' : (isImage ? 'Picture' : 'Audio'))).replace(/</g,'&lt;');
+          const by = String(w.authorName || '').replace(/</g,'&lt;');
+          const url = String(w.url || '').trim();
+          const cover = isVideo || isImage ? String(w.thumbnailUrl||w.coverUrl||w.url||'') : String(w.coverUrl||'');
+          const card = document.createElement('div');
+          card.className = 'shared-asset-card shared-asset-waveconnect wave-picker-card';
+          card.style.cssText = 'border:1px solid #2b3240;border-radius:12px;padding:10px;background:#0f1520;cursor:pointer;transition:transform .15s,box-shadow .15s';
+          card.onmouseenter = ()=> { card.style.transform='scale(1.02)'; card.style.boxShadow='0 4px 12px rgba(0,0,0,.4)'; };
+          card.onmouseleave = ()=> { card.style.transform=''; card.style.boxShadow=''; };
+          if (isVideo){
+            card.innerHTML = `<div class="shared-asset-head" style="margin-bottom:8px"><div class="shared-asset-title" style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>${by ? `<div class="shared-asset-byline" style="font-size:11px;opacity:.85">by ${by}</div>` : ''}</div><video src="${this.renderText(url)}" muted playsinline preload="metadata" style="width:100%;max-height:120px;border-radius:8px;object-fit:cover;background:#000"></video>`;
+          } else if (isImage){
+            card.innerHTML = `<div class="shared-asset-head" style="margin-bottom:8px"><div class="shared-asset-title" style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>${by ? `<div class="shared-asset-byline" style="font-size:11px;opacity:.85">by ${by}</div>` : ''}</div><img src="${this.renderText(url)}" alt="" style="width:100%;max-height:140px;border-radius:8px;object-fit:cover">`;
+          } else {
+            const coverHtml = cover ? `<img src="${this.renderText(cover)}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : `<span style="width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08)"><i class="fas fa-music"></i></span>`;
+            card.innerHTML = `<div class="shared-asset-head" style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px"><div style="flex-shrink:0">${coverHtml}</div><div style="min-width:0;flex:1;overflow:hidden"><div class="shared-asset-title" style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>${by ? `<div class="shared-asset-byline" style="font-size:11px;opacity:.85">by ${by}</div>` : ''}</div></div>`;
+          }
+          card.onclick = ()=>{
             const payload = isVideo
-              ? { kind:'video', url: String(w.url||''), title: String(w.title||'Video'), name: String(w.title||'Video'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.thumbnailUrl||w.coverUrl||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||''), sourceId: String(w.id||'') }
+              ? { kind:'video', url, title: String(w.title||'Video'), name: String(w.title||'Video'), by, authorName: by, cover: String(w.thumbnailUrl||w.coverUrl||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||''), sourceId: String(w.id||'') }
               : (isImage
-              ? { kind:'image', url: String(w.url||''), title: String(w.title||'Picture'), name: String(w.title||'Picture'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.thumbnailUrl||w.coverUrl||w.url||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||w.url||''), sourceId: String(w.id||'') }
-              : { kind:'audio', url: String(w.url||''), title: String(w.title||'Audio'), name: String(w.title||'Audio'), by: String(w.authorName||''), authorName: String(w.authorName||''), cover: String(w.coverUrl||''), coverUrl: String(w.coverUrl||''), sourceId: String(w.id||'') });
+              ? { kind:'image', url, title: String(w.title||'Picture'), name: String(w.title||'Picture'), by, authorName: by, cover: String(w.thumbnailUrl||w.coverUrl||w.url||''), thumbnailUrl: String(w.thumbnailUrl||w.coverUrl||w.url||''), sourceId: String(w.id||'') }
+              : { kind:'audio', url, title: String(w.title||'Audio'), name: String(w.title||'Audio'), by, authorName: by, cover: String(w.coverUrl||''), coverUrl: String(w.coverUrl||''), sourceId: String(w.id||'') });
             this.queueRemoteSharedAssets([{ sharedAsset: payload }]);
             overlay.remove();
           };
-          list.appendChild(btn);
+          list.appendChild(card);
         });
         overlay.querySelector('#chat-wave-picker-close').onclick = ()=> overlay.remove();
         overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
@@ -2837,6 +2862,10 @@
         if (this._scheduleLiveSnapTimer) { clearTimeout(this._scheduleLiveSnapTimer); this._scheduleLiveSnapTimer = null; }
         // Keep switching stable: avoid expensive merged-thread fanout queries on each live update.
         let relatedConnIds = [activeConnId];
+        try{
+          const related = await this.getRelatedConnIds(activeConnId);
+          if (Array.isArray(related) && related.length) relatedConnIds = related;
+        }catch(_){}
         let q;
         try{
           q = firebase.query(
@@ -2992,8 +3021,10 @@
                 const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
                 const mediaBlockHtml = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
                 const timeStr = String(this.formatMessageTime(m.createdAt, m) || '');
-                const senderStr = String(senderName || '');
-                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${senderStr} · ${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                const isVoiceMsgAppend = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
+                const senderStr = isVoiceMsgAppend ? '' : String(senderName || '');
+                const metaSepAppend = senderStr ? `${senderStr} · ` : '';
+                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${metaSepAppend}${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
@@ -3203,8 +3234,10 @@
               const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
               const mediaBlockHtml2 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
               const timeStr2 = String(this.formatMessageTime(m.createdAt, m) || '');
-              const senderStr2 = String(senderName || '');
-              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${senderStr2} · ${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              const isVoiceMsg = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
+              const senderStr2 = isVoiceMsg ? '' : String(senderName || '');
+              const metaSep = senderStr2 ? `${senderStr2} · ` : '';
+              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSep}${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (forceAppend){
@@ -3380,9 +3413,12 @@
           }
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
           const rawDocs = snap.docs || [];
-          if (rawDocs.length > 0){
+          const hasMerged = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId).length > 0;
+          if (rawDocs.length > 0 && !hasMerged){
             this._lastOldestDocSnapshotByConn.set(activeConnId, rawDocs[rawDocs.length - 1]);
             this._hasMoreOlderByConn.set(activeConnId, rawDocs.length >= visibleLimit);
+          } else if (hasMerged){
+            this._hasMoreOlderByConn.set(activeConnId, false);
           }
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
@@ -3608,8 +3644,10 @@
             const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
             const mediaBlockHtml3 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
             const timeStr3 = String(this.formatMessageTime(m.createdAt, m) || '');
-            const senderStr3 = String(senderName || '');
-            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${senderStr3} · ${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            const isVoiceMsgFb = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
+            const senderStr3 = isVoiceMsgFb ? '' : String(senderName || '');
+            const metaSepFb = senderStr3 ? `${senderStr3} · ` : '';
+            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -3939,7 +3977,13 @@
         }
         const restHtml = rest.length ? `<div class="post-media-files-list">${rest.map((it)=>{
           if (it.kind === 'audio' && it.url) return `<div class="post-media-files-item"><div class="post-media-audio-head">${it.cover ? `<img src="${this.renderText(it.cover)}" alt="cover" class="post-media-audio-cover">` : `<span class="post-media-audio-cover post-media-audio-cover-fallback"><i class="fas fa-music"></i></span>`}<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(it.name || 'Audio')}</span>${it.by ? `<span class="post-media-audio-by">by ${this.renderText(it.by)}</span>` : ''}</div></div><audio src="${this.renderText(it.url)}" controls style="width:100%"></audio></div>`;
-          if (it.kind === 'playlist') return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02);min-width:0;max-width:100%;overflow:hidden"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.renderText(it.name || 'Playlist')}</div>${it.by ? `<div style="font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">by ${this.renderText(it.by)}</div>` : ''}</div>`;
+          if (it.kind === 'playlist'){
+            const items = Array.isArray(it.items) ? it.items : [];
+            const encoded = encodeURIComponent(JSON.stringify(items));
+            const pid = String(it.playlistId || '').replace(/"/g,'&quot;');
+            const cover = it.cover ? `<img src="${this.renderText(it.cover)}" alt="playlist" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : `<span style="width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#1b2230"><i class="fas fa-list-music"></i></span>`;
+            return `<div class="post-media-files-item post-playlist-card" style="border:1px solid #2b3240;border-radius:10px;padding:10px;background:rgba(255,255,255,.02);min-width:0;max-width:100%;overflow:hidden;display:flex;align-items:center;gap:10px"><div style="flex-shrink:0">${cover}</div><div style="min-width:0;flex:1"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.renderText(it.name || 'Playlist')}</div>${it.by ? `<div style="font-size:12px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">by ${this.renderText(it.by)}</div>` : ''}</div><button type="button" class="btn secondary post-playlist-play-btn" data-playlist-items="${encoded}" data-playlist-id="${pid}" title="Play playlist" style="padding:6px 12px"><i class="fas fa-play"></i></button></div>`;
+          }
           if (it.url) return `<div class="post-media-files-item"><a href="${this.renderText(it.url)}" target="_blank" rel="noopener noreferrer" class="post-media-file-chip"><i class="fas fa-paperclip"></i> ${this.renderText(it.name || 'Attachment')}</a></div>`;
           return '';
         }).filter(Boolean).join('')}</div>` : '';
@@ -4055,6 +4099,30 @@
             bar.addEventListener('pointerup', (e)=>{ dragging = false; bar.releasePointerCapture(e.pointerId); });
           }
           sync();
+        });
+        root.querySelectorAll('.post-playlist-play-btn').forEach((btn)=>{
+          if (btn.dataset.chatPlaylistBound === '1') return;
+          btn.dataset.chatPlaylistBound = '1';
+          btn.onclick = async ()=>{
+            try{
+              const raw = decodeURIComponent(String(btn.dataset.playlistItems || '[]'));
+              let items = [];
+              try{ items = JSON.parse(raw || '[]'); }catch(_){}
+              const pid = String(btn.dataset.playlistId || '').trim();
+              if (!items.length && pid && this.db){
+                const snap = await firebase.getDoc(firebase.doc(this.db,'playlists',pid));
+                if (snap.exists()) items = Array.isArray((snap.data()||{}).items) ? (snap.data()||{}).items : [];
+              }
+              const first = items[0];
+              const src = first && (first.url || first.src) ? String(first.url || first.src || '').trim() : '';
+              const title = first && (first.title || first.name) ? String(first.title || first.name || 'Track') : 'Playlist';
+              const by = first && (first.by || first.authorName) ? String(first.by || first.authorName || '') : '';
+              const cover = first && (first.cover || first.coverUrl) ? String(first.cover || first.coverUrl || '') : '';
+              const target = window.parent !== window ? window.parent : (window.top || window);
+              if (target && target.postMessage) target.postMessage({ type: 'liber:chat-playlist-play', items, firstTrack: { src, title, by, cover } }, '*');
+              if (src) this.notifyParentAudioPlay({ src, title, by, cover });
+            }catch(_){}
+          };
         });
       }catch(_){ }
     }
