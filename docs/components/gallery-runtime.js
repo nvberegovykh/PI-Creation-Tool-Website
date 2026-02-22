@@ -81,10 +81,14 @@
       const bt = (b.updatedAtTS && b.updatedAtTS.toMillis) ? b.updatedAtTS.toMillis() : new Date(b.updatedAt || b.createdAt || 0).getTime();
       return bt - at;
     });
-    return projects.filter((p) => p.items && p.items.length);
+    return projects.filter((p) => {
+      const v = visualItems(p.items || []);
+      return v.length > 0;
+    });
   }
 
   function createMediaElement(item, mutedVideo) {
+    if (!item || !item.url) return '';
     if (item.type === 'video') {
       return `<video src="${item.url}" ${mutedVideo ? 'muted autoplay loop playsinline' : 'controls playsinline'}></video>`;
     }
@@ -94,6 +98,7 @@
   function buildCard(project, modeClass) {
     const visuals = visualItems(project.items);
     const first = visuals[0];
+    if (!first) return '';
     return (
       `<article class="gc-card ${modeClass}" data-project-id="${project.id}" tabindex="0">` +
       `<div class="gc-media" data-rotation-index="0">${createMediaElement(first, true)}</div>` +
@@ -184,23 +189,32 @@
   }
 
   function wirePopupOpener(container, projectById) {
-    Array.from(container.querySelectorAll('.gc-card[data-project-id]')).forEach((card) => {
+    container.addEventListener('click', (e) => {
+      const card = e.target.closest('.gc-card[data-project-id]');
+      if (!card || !container.contains(card)) return;
       const id = card.getAttribute('data-project-id');
       const project = projectById.get(id);
       if (!project) return;
-      card.addEventListener('click', () => openPopup(project));
-      card.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') {
-          ev.preventDefault();
-          openPopup(project);
-        }
-      });
+      e.preventDefault();
+      e.stopPropagation();
+      openPopup(project);
+    });
+    container.addEventListener('keydown', (e) => {
+      const card = e.target.closest('.gc-card[data-project-id]');
+      if (!card || !container.contains(card)) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const id = card.getAttribute('data-project-id');
+      const project = projectById.get(id);
+      if (!project) return;
+      e.preventDefault();
+      openPopup(project);
     });
   }
 
   function pickProjects(source, count) {
-    if (!source.length || count <= 0) return [];
-    const pool = shuffle(source);
+    const withVisuals = source.filter((p) => visualItems(p.items || []).length > 0);
+    if (!withVisuals.length || count <= 0) return [];
+    const pool = shuffle(withVisuals);
     const out = [];
     while (out.length < count) {
       out.push(pool[out.length % pool.length]);
@@ -211,6 +225,10 @@
   function mountTiles(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 9);
     const selected = pickProjects(projects, count);
+    if (!selected.length) {
+      host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
+      return;
+    }
     host.innerHTML = `<div class="gc-template"><div class="gc-grid">${selected.map((p) => buildCard(p, '')).join('')}</div></div>`;
     wireRotations(host, projectById);
     wirePopupOpener(host, projectById);
@@ -219,6 +237,10 @@
   function mountSingleSlider(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 9);
     const selected = pickProjects(projects, count);
+    if (!selected.length) {
+      host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
+      return;
+    }
     const perPage = window.innerWidth <= 900 ? (window.innerWidth <= 640 ? 1 : 2) : 3;
     const pages = Math.max(1, Math.ceil(selected.length / perPage));
     const slides = [];
@@ -254,6 +276,10 @@
   function mountFullWidth(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 10);
     const selected = pickProjects(projects, count);
+    if (!selected.length) {
+      host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
+      return;
+    }
     const gap = 14;
     const cardWidth = 300 + gap;
     const perPage = Math.max(1, Math.floor((host.offsetWidth || 800) / cardWidth));
@@ -348,6 +374,11 @@
     if (!hosts.length) return;
     try {
       const projects = await loadProjects();
+      if (!projects.length) {
+        console.warn('[Gallery] No published projects with media found. Add projects in Gallery Control and publish them with at least one image or video.');
+        hosts.forEach((host) => { host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>'; });
+        return;
+      }
       const projectById = new Map(projects.map((p) => [p.id, p]));
       hosts.forEach((host) => {
         const kind = host.getAttribute('data-gallery-template');

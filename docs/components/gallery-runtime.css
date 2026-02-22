@@ -5,6 +5,12 @@
   display: none !important;
 }
 
+.gc-empty {
+  color: rgba(255,255,255,0.6);
+  text-align: center;
+  padding: 32px 16px;
+}
+
 .gc-template {
   width: 100%;
   margin: 0 auto;
