@@ -10,6 +10,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
 	clients.claim();
 });
+let __activeCallCache = { title: '', body: '', at: 0 };
 
 async function showNotification(data){
 	const title = data.title || 'LIBER/APPS';
@@ -32,6 +33,7 @@ self.addEventListener('message', (event) => {
 		const p = msg.payload || {};
 		const state = String(p.state || 'idle');
 		if (state !== 'active') {
+			__activeCallCache = { title: '', body: '', at: Date.now() };
 			event.waitUntil((async ()=>{
 				try{
 					const list = await self.registration.getNotifications({ tag: 'active-call' });
@@ -42,6 +44,9 @@ self.addEventListener('message', (event) => {
 		}
 		const title = String(p.title || 'Call in progress');
 		const body = String(p.body || 'Tap to return to call');
+		const now = Date.now();
+		if (__activeCallCache.title === title && __activeCallCache.body === body && (now - __activeCallCache.at) < 12000) return;
+		__activeCallCache = { title, body, at: now };
 		const connId = String(p.connId || '');
 		const basePath = (self.location?.pathname || '').replace(/\/[^/]*$/, '') || '/liber-apps';
 		const url = `${basePath}/apps/secure-chat/index.html${connId ? `?connId=${encodeURIComponent(connId)}` : ''}`;
@@ -51,6 +56,7 @@ self.addEventListener('message', (event) => {
 			renotify: false,
 			requireInteraction: true,
 			silent: true,
+			vibrate: [],
 			icon: '/images/LIBER LOGO.png',
 			badge: '/images/LIBER LOGO.png',
 			actions: [

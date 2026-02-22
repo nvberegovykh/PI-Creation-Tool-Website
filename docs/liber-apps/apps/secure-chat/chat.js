@@ -30,6 +30,10 @@
       this._swCallActionBound = false;
       this._lastSpeakerUid = null;
       this._lastSpeakerUpdateAt = 0;
+      this._callConnectionId = null;
+      this._relayRetryForCall = new Set();
+      this._lastCallStatePushAt = 0;
+      this._lastCallStateSpeakerUid = '';
       this._inRoom = false;
       this._startingCall = false;
       this._joiningCall = false;
@@ -2984,7 +2988,8 @@
       placeToBottomBtn();
       const updateBottomUi = ()=>{
         // column-reverse chat: end-of-chat is near scrollTop = 0.
-        const pinned = box.scrollTop <= 36;
+        const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
+        const pinned = scrollPos <= 36;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = !pinned ? 'inline-block' : 'none';
       };
@@ -2994,7 +2999,8 @@
         if (!this._hasMoreOlderByConn.get(connId)) return;
         const lastDoc = this._lastOldestDocSnapshotByConn.get(connId);
         if (!lastDoc) return;
-        const nearTop = box.scrollHeight - box.clientHeight - box.scrollTop <= 120;
+        const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
+        const nearTop = box.scrollHeight - box.clientHeight - scrollPos <= 120;
         if (!nearTop) return;
         if (box.dataset.renderedConnId !== connId) return;
         this._loadMoreOlderInFlight = true;
@@ -3052,7 +3058,7 @@
           if (loadFinished && !this._loadMoreOlderInFlight) maybeLoadOlder();
         }, { passive: true });
         window.addEventListener('resize', placeToBottomBtn, { passive: true });
-        toBottomBtn.addEventListener('click', ()=>{ box.scrollTop = 0; updateBottomUi(); });
+        toBottomBtn.addEventListener('click', ()=>{ try{ box.scrollTo({ top: 0, behavior: 'smooth' }); }catch(_){ box.scrollTop = 0; } updateBottomUi(); });
       }
       try{
         if (this._unsubMessages) { this._unsubMessages(); this._unsubMessages = null; }
@@ -5698,10 +5704,12 @@
 
     async notifyParticipants(plaintext){
       try{
+        const txt = String(plaintext || '');
+        if (this._inRoom || /^\[call:(?:room|voice|video):/i.test(txt)) return;
         // Local device notification
         if ('Notification' in window){
           const chatName = (document.getElementById('active-connection-name')?.textContent || 'Chat').trim();
-          const body = (this.stripPlaceholderText(plaintext) || plaintext || 'New message').slice(0, 120);
+          const body = (this.stripPlaceholderText(txt) || txt || 'New message').slice(0, 120);
           if (Notification.permission === 'granted'){
             new Notification(chatName, { body });
           } else if (Notification.permission !== 'denied'){
@@ -7701,8 +7709,12 @@
       if (!showBtn) return;
       const inCall = !!(this._activePCs && this._activePCs.size > 0);
       const roomHasActiveCall = !!(this._roomState && this._roomState.activeCallId);
-      const shouldShow = (inCall || roomHasActiveCall) && !!(ov && ov.classList.contains('hidden'));
+      const shouldShow = (inCall || roomHasActiveCall || this._inRoom) && !!(ov && ov.classList.contains('hidden'));
       showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
+    }
+
+    getCallConnId(){
+      return this._callConnectionId || this.activeConnection || null;
     }
 
     _buildMediaSessionArtwork(uid){
@@ -7721,6 +7733,18 @@
     _notifyCallStateToSw(payload){
       try{
         if (!('serviceWorker' in navigator)) return;
+        const state = String(payload?.state || '');
+        const speakerUid = String(payload?.speakerUid || '');
+        const now = Date.now();
+        if (state === 'active'){
+          const sameSpeaker = speakerUid === this._lastCallStateSpeakerUid;
+          if (sameSpeaker && (now - this._lastCallStatePushAt) < 12000) return;
+          this._lastCallStateSpeakerUid = speakerUid;
+          this._lastCallStatePushAt = now;
+        } else {
+          this._lastCallStateSpeakerUid = '';
+          this._lastCallStatePushAt = now;
+        }
         const msg = { type: 'call-state', payload: payload || {} };
         if (navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage(msg);
@@ -7757,7 +7781,7 @@
         if (state !== 'active'){
           try{ ms.playbackState = 'none'; }catch(_){}
           try{ ms.metadata = null; }catch(_){}
-          this._notifyCallStateToSw({ state: 'idle', connId: this.activeConnection || '', title: 'Call ended' });
+          this._notifyCallStateToSw({ state: 'idle', connId: this.getCallConnId() || '', title: 'Call ended' });
           return;
         }
         const titleEl = document.getElementById('chat-top-title');
@@ -7779,7 +7803,7 @@
         try{ ms.setActionHandler('stop', ()=>{ this.cleanupActiveCall(true, 'media_session_stop').catch(()=>{}); }); }catch(_){}
         this._notifyCallStateToSw({
           state: 'active',
-          connId: this.activeConnection || '',
+          connId: this.getCallConnId() || '',
           title,
           body: artist,
           speakerUid: speakerUid || '',
@@ -7902,13 +7926,14 @@
     async startVideoCall(){ await this.enterRoom(false); }
 
   async ensureRoom(){
-    if (!this.activeConnection) return null;
-    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    const callConnId = this.getCallConnId();
+    if (!callConnId) return null;
+    const roomRef = firebase.doc(this.db,'callRooms', callConnId);
     try{
       const snap = await firebase.getDoc(roomRef);
       if (!snap.exists()){
         await firebase.setDoc(roomRef, {
-          id: this.activeConnection,
+          id: callConnId,
           status: 'idle',
           activeCallId: null,
           createdAt: new Date().toISOString(),
@@ -7926,6 +7951,8 @@
   }
 
   async enterRoom(video = false){
+    if (!this.activeConnection) return;
+    this._callConnectionId = this.activeConnection;
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log('Mic permission granted');
@@ -7943,7 +7970,8 @@
     this.initCallControls(video);
     if (this._roomUnsub) this._roomUnsub();
     if (this._peersUnsub) this._peersUnsub();
-    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+    const callConnId = this.getCallConnId();
+    const roomRef = firebase.doc(this.db,'callRooms', callConnId);
     const onSnapErr = ()=>{};
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
@@ -7961,7 +7989,7 @@
       const status = document.getElementById('call-status');
       if (status) status.textContent = activeCid ? 'In call' : 'Room open. Click Start Call or wait for other to start.';
     }, onSnapErr);
-    const peersRef = firebase.collection(this.db,'callRooms', this.activeConnection, 'peers');
+    const peersRef = firebase.collection(this.db,'callRooms', callConnId, 'peers');
     this._peersUnsub = firebase.onSnapshot(peersRef, snap => {
       this._peersPresence = {};
       snap.forEach(d => this._peersPresence[d.id] = d.data());
@@ -8086,9 +8114,11 @@
   async attemptStartRoomCall(video){
     console.log('Attempting to start room call');
     if (this._startingCall || this._joiningCall) { console.warn('Call start suppressed (busy)'); return; }
+    const callConnId = this.getCallConnId();
+    if (!callConnId) return;
     if (!this._roomState) {
       try {
-        const snap = await firebase.getDoc(firebase.doc(this.db, 'callRooms', this.activeConnection));
+        const snap = await firebase.getDoc(firebase.doc(this.db, 'callRooms', callConnId));
         this._roomState = snap.exists() ? (snap.data() || { status: 'idle', activeCallId: null }) : { status: 'idle', activeCallId: null };
       } catch (_) {
         this._roomState = { status: 'idle', activeCallId: null };
@@ -8102,8 +8132,8 @@
       finally { this._joiningCall = false; }
       return;
     }
-    const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
-    const cid = `${this.activeConnection}_latest`;
+    const roomRef = firebase.doc(this.db,'callRooms', callConnId);
+    const cid = `${callConnId}_latest`;
     this._startingCall = true;
     this._connectingCid = cid;
     const success = await this.runStartTransaction(roomRef, cid).catch(err => {
@@ -8152,12 +8182,14 @@
   }
 
   async startMultiCall(callId, video = false){
+    const callConnId = this.getCallConnId();
+    if (!callConnId) return;
     const statusEl = document.getElementById('call-status');
     if (statusEl) statusEl.textContent = 'Starting call...';
     if (this._activePCs && this._activePCs.size > 0) {
       await this.cleanupActiveCall(false, 'start_multi_preclean');
     }
-    const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+    const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
     const conn = connSnap.data() || {};
     const participants = (conn.participants||[]).filter(Boolean).filter(uid => uid !== this.currentUser.uid);
     if (participants.length + 1 > 8) {
@@ -8222,7 +8254,7 @@
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
       const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -8239,9 +8271,9 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
-      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
       // Mark room active once first offer is published
-      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'connecting', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
+      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'connecting', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
       if (!rv) {
         rv = document.createElement('video');
@@ -8279,7 +8311,7 @@
       pc.onicecandidate = e => {
         if (e.candidate) {
           if (pc.remoteDescription) {
-            firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+            firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: callConnId, candidate: e.candidate.toJSON() });
           } else {
             localCandidateQueue.push(e.candidate);
           }
@@ -8299,14 +8331,14 @@
           // Flush queued LOCAL ICE now that remoteDescription is set (send to peer)
           while (localCandidateQueue.length) {
             const cand = localCandidateQueue.shift();
-            try { await firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: cand.toJSON() }); } catch (_) {}
+            try { await firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: callConnId, candidate: cand.toJSON() }); } catch (_) {}
           }
           // Flush queued REMOTE ICE now that we can consume candidates safely
           while (remoteCandidateQueue.length) {
             const rc = remoteCandidateQueue.shift();
             try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch (_) {}
           }
-          try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', lastActiveAt: new Date().toISOString() }); } catch(_){ }
+          try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', lastActiveAt: new Date().toISOString() }); } catch(_){ }
         } catch (err) {
           console.error('setRemote failed for ' + peerUid, err);
         }
@@ -8331,11 +8363,29 @@
     this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
     await this._ensureCallStatusStream();
     this._updateMediaSessionState('active', this.currentUser.uid);
+    if (!this._relayRetryForCall.has(callId)){
+      setTimeout(async ()=>{
+        try{
+          if (this._activeCid !== callId) return;
+          let connected = false;
+          this._activePCs.forEach((p)=>{ if (p?.pc?.connectionState === 'connected') connected = true; });
+          if (connected || this._forceRelay) return;
+          this._relayRetryForCall.add(callId);
+          this._forceRelay = true;
+          const cs = document.getElementById('call-status');
+          if (cs) cs.textContent = 'Retrying with relay...';
+          await this.cleanupActiveCall(false, 'relay_retry_start');
+          await this.startMultiCall(callId, this._videoEnabled);
+        }catch(_){ }
+      }, 22000);
+    }
     const sb = document.getElementById('start-call-btn');
     if (sb) sb.style.display = 'none';
   }
 
   async joinMultiCall(callId, video = false){
+    const callConnId = this.getCallConnId();
+    if (!callConnId) return;
     if (this._joiningCall) return;
     if (this._lastJoinedCallId === callId && this._activePCs.size > 0) return;
     const statusEl = document.getElementById('call-status');
@@ -8461,7 +8511,7 @@
     pc.onicecandidate = e => {
       if (e.candidate) {
         if (pc.remoteDescription) {
-          firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: e.candidate.toJSON() });
+          firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: callConnId, candidate: e.candidate.toJSON() });
         } else {
           candidateQueue.push(e.candidate);
         }
@@ -8493,11 +8543,11 @@
     });
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-      await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+      await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
       // Flush any queued ICE now that descriptions are set
       while (candidateQueue.length) { const c = candidateQueue.shift(); try { await pc.addIceCandidate(c); } catch(_){} }
       while (remoteCandidateQueue.length) { const rc = remoteCandidateQueue.shift(); try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch(_){} }
-      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
+      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
       candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
     candidateQueue.length = 0;
     const unsubs = [];
@@ -8529,7 +8579,7 @@
         await pc.setRemoteDescription({ type:'offer', sdp: sdp });
         const ans2 = await pc.createAnswer();
         await pc.setLocalDescription(ans2);
-        await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid });
+        await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
       }catch(e){ console.warn('offer update handling failed', e?.message||e); }
     });
     unsubs.push(uOffers);
@@ -8540,7 +8590,7 @@
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
     const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: this.activeConnection, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connected', video);
@@ -8548,6 +8598,22 @@
       this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
       await this._ensureCallStatusStream();
       this._updateMediaSessionState('active', this.currentUser.uid);
+      if (!this._relayRetryForCall.has(callId)){
+        setTimeout(async ()=>{
+          try{
+            if (this._activeCid !== callId) return;
+            let connected = false;
+            this._activePCs.forEach((p)=>{ if (p?.pc?.connectionState === 'connected') connected = true; });
+            if (connected || this._forceRelay) return;
+            this._relayRetryForCall.add(callId);
+            this._forceRelay = true;
+            const cs = document.getElementById('call-status');
+            if (cs) cs.textContent = 'Retrying with relay...';
+            await this.cleanupActiveCall(false, 'relay_retry_join');
+            await this.joinMultiCall(callId, this._videoEnabled);
+          }catch(_){ }
+        }, 22000);
+      }
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = 'none';
     } finally {
@@ -8567,7 +8633,7 @@
       if (now - maxLast > silenceLimitMs){
         clearInterval(this._inactTimer);
         this.cleanupActiveCall(true, 'silence_timer');
-        const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+        const roomRef = firebase.doc(this.db,'callRooms', this.getCallConnId());
         firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null, endedBy: this.currentUser.uid, endedAt: new Date().toISOString() });
         this.saveMessage({ text: '[system] Call ended due to silence' });
         this._startAutoResumeMonitor(false);
@@ -9055,7 +9121,7 @@
       this._stopCallStatusStream();
       if (this._inactTimer) clearInterval(this._inactTimer);
       if (endRoom){
-        const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
+        const roomRef = firebase.doc(this.db,'callRooms', this.getCallConnId());
         await firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
       }
       await this.updatePresence('idle', false);
@@ -9083,10 +9149,13 @@
       this._setActiveSpeakerLabel(null);
       this._syncCallFab();
       this._updateMediaSessionState('idle', null);
+      this._callConnectionId = null;
     }
 
     async updatePresence(state, hasVideo = false){
-      const ref = firebase.doc(this.db,'callRooms', this.activeConnection, 'peers', this.currentUser.uid);
+      const callConnId = this.getCallConnId();
+      if (!callConnId) return;
+      const ref = firebase.doc(this.db,'callRooms', callConnId, 'peers', this.currentUser.uid);
       await firebase.setDoc(ref, { uid: this.currentUser.uid, state, hasVideo, updatedAt: new Date().toISOString() }, { merge: true });
     }
 
@@ -9095,7 +9164,9 @@
       if (!cont) return;
       cont.innerHTML = '';
       try {
-        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
+        const callConnId = this.getCallConnId();
+        if (!callConnId) return;
+        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         const inCall = this._activePCs && this._activePCs.size > 0;
