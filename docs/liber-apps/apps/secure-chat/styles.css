@@ -367,9 +367,17 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear}
 .voice-wave-player .wave .bar.played{background:#ffffff}
 .voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;max-width:72px;flex:0 0 auto;text-align:right;cursor:pointer;white-space:nowrap}
-/* Slider in chat: width of content, not full bubble */
+/* Slider in chat: fit media bounds like WhatsApp */
 .message .msg-media-slider,
-.message .post-media-visual-shell.msg-media-slider{width:fit-content;max-width:100%;min-width:min(180px,100%)}
+.message .post-media-visual-shell.msg-media-slider{width:fit-content;max-width:100%;min-width:min(140px,100%)}
+.message .msg-media-slider .post-media-visual-wrap,
+.message .post-media-visual-shell.msg-media-slider .post-media-visual-wrap{max-width:min(72vw,300px);overflow-x:auto}
+.message .msg-media-slider .post-media-visual-item,
+.message .msg-media-slider .msg-media-item{max-width:min(72vw,300px)}
+.message .msg-media-slider .msg-slider-preview img,
+.message .msg-media-slider .msg-slider-preview video,
+.message .msg-media-slider .file-preview img,
+.message .msg-media-slider .file-preview video{max-width:100%;max-height:240px;object-fit:contain;border-radius:8px;display:block}
 /* Recording indicator */
 .recording-indicator{ position:absolute; left:50%; transform:translateX(-50%); bottom:62px; z-index:30 }
 .recording-indicator .record-dot{ width:56px; height:56px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(37,99,235,.5) }

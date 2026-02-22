@@ -3217,12 +3217,19 @@
               const dayLabel = this.formatMessageDay(m.createdAt, m);
               const effectiveLastDay = forceAppend && opts.appendContext ? opts.appendContext.lastRenderedDay : lastRenderedDay;
               if (dayLabel !== effectiveLastDay){
-                const sep = document.createElement('div');
-                sep.className = 'message-day-separator';
-                sep.textContent = dayLabel;
-                if (forceAppend) box.appendChild(sep);
-                else if (appendOnly || forceInsertBefore) box.insertBefore(sep, box.firstElementChild);
-                else renderTarget.appendChild(sep);
+                if (!appendOnly && !forceInsertBefore && effectiveLastDay){
+                  const prevSep = document.createElement('div');
+                  prevSep.className = 'message-day-separator';
+                  prevSep.textContent = effectiveLastDay;
+                  renderTarget.appendChild(prevSep);
+                }
+                if (appendOnly || forceInsertBefore || forceAppend){
+                  const sep = document.createElement('div');
+                  sep.className = 'message-day-separator';
+                  sep.textContent = dayLabel;
+                  if (forceAppend) box.insertBefore(sep, box.firstElementChild);
+                  else box.insertBefore(sep, box.firstElementChild);
+                }
                 if (forceAppend && opts.appendContext) opts.appendContext.lastRenderedDay = dayLabel;
                 else lastRenderedDay = dayLabel;
               }
@@ -3408,10 +3415,13 @@
             const i = iter[idx];
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            // Do NOT force scroll during incremental load – let user scroll freely. Scroll only at end.
-            if (idx % 3 === 2){
-              await this.yieldToUi();
-            }
+            if (idx % 5 === 4) await this.yieldToUi();
+          }
+          if (!appendOnly && renderTarget !== box && lastRenderedDay){
+            const topSep = document.createElement('div');
+            topSep.className = 'message-day-separator';
+            topSep.textContent = lastRenderedDay;
+            renderTarget.appendChild(topSep);
           }
           if (!appendOnly && renderTarget !== box){
             box.innerHTML = '';
@@ -3437,7 +3447,10 @@
           const finalScrollTop = pinnedBefore ? 0 : prevTop;
           requestAnimationFrame(()=>{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId || !box.isConnected) return;
+            const prevBehavior = box.style.scrollBehavior;
+            box.style.scrollBehavior = 'auto';
             box.scrollTop = finalScrollTop;
+            box.style.scrollBehavior = prevBehavior || '';
             updateBottomUi();
           });
           this.applyNewMessagesSeparator(box);
@@ -3713,7 +3726,7 @@
               await this.yieldToUi();
             }
           }
-          box.scrollTop = 0;
+          const prevBh = box.style.scrollBehavior; box.style.scrollBehavior = 'auto'; box.scrollTop = 0; box.style.scrollBehavior = prevBh || '';
           box.dataset.renderedConnId = activeConnId;
           const rawFallback = snap.docs || [];
           if (rawFallback.length > 0){
@@ -3873,7 +3886,7 @@
       const rest = m.media.filter((it)=> !this.isImageFilename(it.fileName) && !this.isVideoFilename(it.fileName));
       let html = '<div class="msg-media-block" style="margin-bottom:8px">';
       if (visual.length){
-        const slideItems = visual.map((_,i)=> `<div class="msg-media-item post-media-visual-item" data-media-index="${i}" style="flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start;scroll-snap-stop:always"><div class="file-preview" style="min-height:60px"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div></div>`).join('');
+        const slideItems = visual.map((_,i)=> `<div class="msg-media-item post-media-visual-item" data-media-index="${i}" style="flex:0 0 100%;min-width:0;width:100%;scroll-snap-align:start;scroll-snap-stop:always"><div class="file-preview msg-slider-preview" style="min-height:48px;max-height:280px"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div></div>`).join('');
         html += `<div class="post-media-visual-shell msg-media-slider"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${slideItems}</div></div>${visual.length>1?`<div class="post-media-dots">${visual.map((_,i)=>`<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>`:''}</div>`;
       }
       if (rest.length) html += `<div class="msg-media-files" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${rest.map((_,i)=> `<div class="msg-media-item" data-media-index="${visual.length+i}" style="min-width:0"><div class="file-preview" style="min-height:40px"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div></div>`).join('')}</div>`;
@@ -6236,7 +6249,7 @@
           p.addEventListener('loadedmetadata', onMeta);
         }
         this._voiceUserIntendedPlay = true;
-        p.play().catch(()=>{});
+        p.play().catch((err)=>{ if (err && !String(err?.message||'').includes('aborter')) console.warn('Chat audio play failed:', err); });
         this.notifyParentAudioPlay({ src, title: opts.title || 'Audio', by: opts.by || '', cover: opts.cover || '' });
         this.updateVoiceWidgets();
       }catch(_){ }
