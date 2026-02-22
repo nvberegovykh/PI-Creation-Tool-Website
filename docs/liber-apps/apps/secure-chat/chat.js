@@ -710,6 +710,16 @@
       return '';
     }
 
+    buildMsgDomId(sourceConnId, msgId){
+      try{
+        const cid = String(sourceConnId || this.activeConnection || '').trim();
+        const mid = String(msgId || '').trim();
+        if (!cid) return mid;
+        if (!mid) return cid;
+        return `${cid}:${mid}`;
+      }catch(_){ return String(msgId || '').trim(); }
+    }
+
     getRecentAttachments(){
       try{
         const raw = localStorage.getItem('liber_recent_attachments');
@@ -1076,11 +1086,11 @@
         const box = document.getElementById('messages');
         if (!connId || !box) return false;
         const queryId = id.replace(/"/g, '\\"');
-        let target = box.querySelector(`[data-msg-id="${queryId}"]`);
+        let target = box.querySelector(`[data-msg-id="${queryId}"]`) || box.querySelector(`[data-msg-id$=":${queryId}"]`);
         if (!target){
           await this.loadMessages().catch(()=>{});
           await this.yieldToUi();
-          target = box.querySelector(`[data-msg-id="${queryId}"]`);
+          target = box.querySelector(`[data-msg-id="${queryId}"]`) || box.querySelector(`[data-msg-id$=":${queryId}"]`);
         }
         if (!target) return false;
         return this.scrollMessageIntoViewSafely(target, { smooth: opts.smooth !== false });
@@ -2968,6 +2978,7 @@
           }
         };
         const normalizeDocTime = (m)=> this.getMessageTimestampMs(m);
+        const getDocKey = (d, fallbackConnId = activeConnId)=> this.buildMsgDomId((d && d.sourceConnId) || fallbackConnId, d && d.id);
         let currentRenderOneForLoadMore = null;
         const handleSnap = async (snap, fromLive = false)=>{
           try{
@@ -2980,8 +2991,8 @@
             const docsPrimary = (snap.docs || []).map((d)=> ({ id: d.id, data: d.data() || {}, sourceConnId: activeConnId }));
             const extraIds = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId);
             if (renderedConnId === activeConnId && extraIds.length === 0){
-              const haveIds = new Set([...box.querySelectorAll('[data-msg-id]')].map(el=> el.getAttribute('data-msg-id')));
-              const newDocs = docsPrimary.filter(d=> !haveIds.has(String(d.id)));
+              const haveIds = new Set([...box.querySelectorAll('[data-msg-id]')].map(el=> String(el.getAttribute('data-msg-id') || '')));
+              const newDocs = docsPrimary.filter((d)=> !haveIds.has(getDocKey(d, activeConnId)) && !haveIds.has(String(d.id || '')));
               if (newDocs.length === 0){
                 loadFinished = true;
                 if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3006,7 +3017,8 @@
                 }
                 const el = document.createElement('div');
                 el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-                el.dataset.msgId = String(d.id || m.id || '');
+                const domMsgId = this.buildMsgDomId(sourceConnId, d.id || m.id || '');
+                el.dataset.msgId = domMsgId;
                 const msgTs = this.getMessageTimestampMs(m);
                 el.dataset.msgTs = String(msgTs || 0);
                 if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
@@ -3061,7 +3073,7 @@
                     if (container){
                       const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording ?? m.isVideoRecording, isVoiceRecording: mediaItem.isVoiceRecording ?? m.isVoiceRecording, text, id: d.id };
                       this.enqueueAttachmentPreview(()=>{
-                        const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
+                        const c = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
                         if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
                       }, loadSeq, activeConnId);
                     }
@@ -3079,7 +3091,7 @@
                     try{ await this.renderEncryptedAttachment(preview, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text, id: d.id }); }catch(e){}
                   }else{
                     this.enqueueAttachmentPreview(()=>{
-                      const container = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .file-preview`);
+                      const container = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .file-preview`);
                       if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
                     }, loadSeq, activeConnId);
                   }
@@ -3090,7 +3102,7 @@
               };
               newDocs.sort((a,b)=>{ const ta = normalizeDocTime(a.data); const tb = normalizeDocTime(b.data); return ta !== tb ? ta - tb : String(a.id).localeCompare(String(b.id)); });
               for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
-              this._lastDocIdsByConn.set(activeConnId, docsPrimary.map(x=> x.id));
+              this._lastDocIdsByConn.set(activeConnId, docsPrimary.map((x)=> getDocKey(x, activeConnId)));
               {
                 const firstMsgNow = box.querySelector('.message');
                 const tsNow = firstMsgNow?.dataset?.msgTs ? Number(firstMsgNow.dataset.msgTs) : 0;
@@ -3130,6 +3142,7 @@
             this._latestPeerMessageMsByConn.set(activeConnId, latestPeerMs);
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
+            const docKeys = docs.map((d)=> getDocKey(d, activeConnId));
             const isFirstPaint = renderedConnId !== activeConnId;
             const sigBase = [...docs].sort((a,b)=> String(a.sourceConnId+':'+a.id).localeCompare(String(b.sourceConnId+':'+b.id))).map(d=> `${d.sourceConnId}:${d.id}`).join('|');
             const sig = `${activeConnId}::${sigBase}`;
@@ -3141,9 +3154,9 @@
               return;
             }
             this._lastRenderSigByConn.set(activeConnId, sig);
-            const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
-            const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
-            const shiftedWindow = prevIds.length > 1 && docs.length === prevIds.length && prevIds.slice(1).every((id, i)=> docs[i] && docs[i].id === id);
+            const prefixMatch = prevIds.length > 0 && docKeys.length >= prevIds.length && prevIds.every((id, i)=> docKeys[i] === id);
+            const suffixMatch = prevIds.length > 0 && docKeys.length >= prevIds.length && prevIds.every((id, i)=> docKeys[docKeys.length - prevIds.length + i] === id);
+            const shiftedWindow = prevIds.length > 1 && docKeys.length === prevIds.length && prevIds.slice(1).every((id, i)=> docKeys[i] === id);
             const appendOnly = renderedConnId === activeConnId && (prefixMatch || suffixMatch || shiftedWindow);
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
@@ -3190,7 +3203,8 @@
               }
               const el = document.createElement('div');
               el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-              el.dataset.msgId = String(d.id || m.id || '');
+              const domMsgId = this.buildMsgDomId(sourceConnId, d.id || m.id || '');
+              el.dataset.msgId = domMsgId;
               const msgTs = this.getMessageTimestampMs(m);
               el.dataset.msgTs = String(msgTs || 0);
               if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
@@ -3292,7 +3306,7 @@
                   if (container){
                     const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording ?? m.isVideoRecording, isVoiceRecording: mediaItem.isVoiceRecording ?? m.isVoiceRecording, text, id: d.id };
                     this.enqueueAttachmentPreview(()=>{
-                      const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
+                      const c = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
                       if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
                     }, loadSeq, activeConnId);
                   }
@@ -3312,7 +3326,7 @@
                   }else{
                     this.enqueueAttachmentPreview(
                       ()=>{
-                        const container = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .file-preview`);
+                        const container = box.querySelector(`[data-msg-id="${domMsgId.replace(/"/g,'\\"')}"] .file-preview`);
                         if (container?.isConnected) this.renderEncryptedAttachment(container, m.fileUrl, inferredFileName, attachmentAesKey, attachmentSourceConnId, senderName, { ...m, text });
                       },
                       loadSeq,
@@ -3374,7 +3388,7 @@
           let changes = [];
           try{ changes = (typeof snap.docChanges === 'function' ? snap.docChanges() : snap.docChanges || []); }catch(_){}
           const allAdded = changes.length > 0 && changes.every((c)=> (String(c.type||'').toLowerCase()) === 'added');
-          const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(((c.doc||c).id)));
+          const alreadyHaveAll = allAdded && prevIds.length > 0 && changes.every((c)=> prevIds.includes(this.buildMsgDomId(activeConnId, (c.doc||c).id)) || prevIds.includes(String((c.doc||c).id || '')));
           const suppressUntilVal = Number(this._suppressLivePatchUntilByConn.get(activeConnId) || 0);
           const useDocChanges = fromLive
             && renderedConnId === activeConnId
@@ -3389,7 +3403,8 @@
               const type = String(c.type||'').toLowerCase();
               const doc = c.doc || c;
               const id = doc.id;
-              const existing = box.querySelector('[data-msg-id="' + id + '"]');
+              const domId = this.buildMsgDomId(activeConnId, id);
+              const existing = box.querySelector('[data-msg-id="' + domId + '"]') || box.querySelector('[data-msg-id="' + id + '"]');
               if (type === 'removed'){
                 if (existing){ existing.remove(); didMutate = true; }
               } else if (type === 'added'){
@@ -3427,7 +3442,7 @@
               if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
               return;
             }
-            this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
+            this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> getDocKey(x, activeConnId)));
             updateBottomUi();
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
@@ -3435,8 +3450,9 @@
             if (hardGuardTimer){ clearTimeout(hardGuardTimer); hardGuardTimer = null; }
             return;
           }
+          const prevIdSet = new Set(prevIds);
           const docsToRender = appendOnly
-            ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIds.includes(d.id)))
+            ? (prefixMatch ? docs.slice(prevIds.length) : docs.filter((d)=> !prevIdSet.has(getDocKey(d, activeConnId))))
             : docs;
           // column-reverse: first child = bottom. Non-append: iterate newest-first. AppendOnly: prepend oldest-first so newest ends up first.
           const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> j) : Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
@@ -3462,7 +3478,7 @@
             const last = box.lastElementChild;
             if (last) box.removeChild(last);
           }
-          this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
+          this._lastDocIdsByConn.set(activeConnId, docs.map((d)=> getDocKey(d, activeConnId)));
           const rawDocs = snap.docs || [];
           const hasMerged = (relatedConnIds || []).filter((cid)=> cid && cid !== activeConnId).length > 0;
           if (rawDocs.length > 0 && !hasMerged){
@@ -3631,7 +3647,7 @@
             }
             const el = document.createElement('div');
             el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
-            el.dataset.msgId = String(d.id || m.id || '');
+            el.dataset.msgId = this.buildMsgDomId(activeConnId, d.id || m.id || '');
             const msgTs = this.getMessageTimestampMs(m);
             el.dataset.msgTs = String(msgTs || 0);
             if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
