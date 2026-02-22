@@ -391,39 +391,6 @@ class SecureKeyManager {
         }
     }
 
-    /**
-     * Debug function to show Gist configuration
-     */
-    async debugGistConfig() {
-        console.log('=== Debugging Gist Configuration (redacted) ===');
-        
-        try {
-            const url = this.getKeySource();
-            // URL redacted in logs
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                console.error('Failed to fetch Gist:', response.status, response.statusText);
-                return;
-            }
-            
-            const config = await response.json();
-            console.log('Gist configuration loaded (redacted)');
-            
-            // Check admin hash
-            if (config.admin && config.admin.passwordHash) {
-                console.log('Admin hash check performed (redacted)');
-            }
-            
-            // Check system key
-            if (config.system && config.system.masterKeyHash) {
-                console.log('System master key present (redacted)');
-            }
-            
-        } catch (error) {
-            console.error('Gist debug error:', error);
-        }
-    }
 }
 
 // Initialize secure key manager

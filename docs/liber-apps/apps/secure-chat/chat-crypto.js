@@ -35,9 +35,12 @@ class ChatCrypto {
     }
 
     async decryptMessage(cipher, secret){
+        if (!cipher || typeof cipher.iv !== 'string' || typeof cipher.data !== 'string') {
+            throw new Error('Invalid cipher format: expected { iv: string, data: string }');
+        }
         const key = await this.deriveChatKey(secret);
-        const iv = new Uint8Array(cipher.iv.match(/.{1,2}/g).map(h=>parseInt(h,16)));
-        const data = new Uint8Array(cipher.data.match(/.{1,2}/g).map(h=>parseInt(h,16)));
+        const iv = new Uint8Array(cipher.iv.match(/.{1,2}/g)?.map(h=>parseInt(h,16)) || []);
+        const data = new Uint8Array(cipher.data.match(/.{1,2}/g)?.map(h=>parseInt(h,16)) || []);
         const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, data);
         return new TextDecoder().decode(pt);
     }
@@ -99,8 +102,11 @@ class ChatCrypto {
     }
 
     async decryptWithKey(cipher, aesKey){
-        const iv = new Uint8Array(cipher.iv.match(/.{1,2}/g).map(h=>parseInt(h,16)));
-        const data = new Uint8Array(cipher.data.match(/.{1,2}/g).map(h=>parseInt(h,16)));
+        if (!cipher || typeof cipher.iv !== 'string' || typeof cipher.data !== 'string') {
+            throw new Error('Invalid cipher format: expected { iv: string, data: string }');
+        }
+        const iv = new Uint8Array(cipher.iv.match(/.{1,2}/g)?.map(h=>parseInt(h,16)) || []);
+        const data = new Uint8Array(cipher.data.match(/.{1,2}/g)?.map(h=>parseInt(h,16)) || []);
         const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, aesKey, data);
         return new TextDecoder().decode(pt);
     }

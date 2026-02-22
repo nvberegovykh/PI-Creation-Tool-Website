@@ -1560,43 +1560,6 @@ class AuthManager {
     }
 
     /**
-     * Check and fix user verification status
-     */
-    async checkUserVerificationStatus(email) {
-        console.log('=== Checking User Verification Status ===');
-        console.log('Email:', email);
-        
-        try {
-            const users = await this.getUsers();
-            const user = users.find(u => u.email === email);
-            
-            if (user) {
-                console.log('User found:', user);
-                console.log('isVerified:', user.isVerified);
-                console.log('status:', user.status);
-                console.log('verificationToken:', user.verificationToken);
-                
-                // If user is verified but status is not approved, fix it
-                if (user.isVerified && user.status !== 'approved') {
-                    console.log('Fixing user status...');
-                    user.status = 'approved';
-                    const updatedUsers = users.map(u => u.email === email ? user : u);
-                    await this.saveUsers(updatedUsers);
-                    console.log('User status fixed to approved');
-                }
-                
-                return user;
-            } else {
-                console.log('User not found');
-                return null;
-            }
-        } catch (error) {
-            console.error('Error checking user verification status:', error);
-            return null;
-        }
-    }
-
-    /**
      * Check raw storage data to see what's actually stored
      */
     checkRawStorage() {
