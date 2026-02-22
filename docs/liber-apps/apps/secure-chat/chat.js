@@ -1587,6 +1587,45 @@
       }catch(_){ }
     }
 
+    _attachSfuLocalPreview(){
+      try{
+        const room = this._sfuRoom;
+        if (!room?.localParticipant) return;
+        let videosCont = document.getElementById('call-videos');
+        if (!videosCont){
+          videosCont = document.createElement('div');
+          videosCont.id = 'call-videos';
+          videosCont.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;';
+          const overlay = document.getElementById('call-overlay');
+          if (overlay) overlay.appendChild(videosCont);
+        }
+        room.localParticipant.trackPublications.forEach((pub)=>{
+          const tr = pub?.track;
+          if (!tr || String(tr.kind) !== 'video') return;
+          const key = `local:${String(pub.trackSid || tr.sid || 'video')}`;
+          if (this._sfuTrackEls.has(key)) return;
+          const el = tr.attach();
+          if (!el) return;
+          el.muted = true;
+          el.autoplay = true;
+          el.playsInline = true;
+          el.setAttribute('data-sfu-track-key', key);
+          videosCont.appendChild(el);
+          this._sfuTrackEls.set(key, el);
+        });
+      }catch(_){ }
+    }
+
+    _updateSfuSpeakingIndicators(activeSpeakers){
+      try{
+        const active = new Set((activeSpeakers || []).map((p)=> String(p?.identity || p?.sid || '')).filter(Boolean));
+        document.querySelectorAll('.call-participants [data-uid]').forEach((el)=>{
+          const uid = String(el.getAttribute('data-uid') || '');
+          el.classList.toggle('speaking', active.has(uid));
+        });
+      }catch(_){ }
+    }
+
     _bindSfuRoom(room, callConnId){
       room.on('connected', async ()=>{
         try{
@@ -1595,6 +1634,8 @@
           this._inRoom = true;
           this._syncCallFab();
           await this.updatePresence('connected', this._videoEnabled);
+          await this.updateRoomUI();
+          this._attachSfuLocalPreview();
           this._updateMediaSessionState('active', this.currentUser?.uid || null);
         }catch(_){ }
       });
@@ -1612,6 +1653,9 @@
       room.on('trackUnsubscribed', (track, publication, participant)=>{
         this._detachSfuTrack(track, publication, participant);
       });
+      room.on('participantConnected', ()=>{
+        this.updateRoomUI();
+      });
       room.on('participantDisconnected', (participant)=>{
         try{
           const pid = String(participant?.identity || participant?.sid || '');
@@ -1620,6 +1664,10 @@
             if (k.startsWith(`${pid}:`)) n.remove();
           });
         }catch(_){ }
+        this.updateRoomUI();
+      });
+      room.on('activeSpeakersChanged', (speakers)=>{
+        this._updateSfuSpeakingIndicators(speakers);
       });
     }
 
@@ -1694,6 +1742,8 @@
             }catch(_){}
           });
         }catch(_){}
+        this._attachSfuLocalPreview();
+        this.updateRoomUI();
         const startBtn = document.getElementById('start-call-btn');
         if (startBtn) startBtn.style.display = 'none';
         return true;
@@ -1758,6 +1808,26 @@
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
       this.setupFullscreenImagePreview();
+      if (!this._callVisibilityBound){
+        this._callVisibilityBound = true;
+        document.addEventListener('visibilitychange', ()=>{
+          const inCall = ((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
+          if (!inCall) return;
+          if (document.visibilityState === 'visible'){
+            this._syncCallFab();
+            this._updateMediaSessionState('active', this.currentUser?.uid || null);
+          } else {
+            this._notifyCallStateToSw({
+              state: 'active',
+              connId: this.getCallConnId() || '',
+              title: 'Call',
+              body: 'Call in progress',
+              speakerUid: '',
+              speakerName: ''
+            });
+          }
+        });
+      }
       // If a connId is provided via query param, set active after connections load
       try{
         const params = new URLSearchParams(location.search);
@@ -8200,6 +8270,18 @@
       this._lastSpeakerUpdateAt = now;
     }
 
+    _hideCallOverlayKeepSession(){
+      try{
+        const ov = document.getElementById('call-overlay');
+        if (ov) ov.classList.add('hidden');
+        this._syncCallFab();
+        const inCall = ((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
+        if (inCall){
+          this._updateMediaSessionState('active', this.currentUser?.uid || null);
+        }
+      }catch(_){ }
+    }
+
     _enableCallFabDrag(){
       const btn = document.getElementById('show-call-btn');
       if (!btn || btn._dragBound) return;
@@ -8375,10 +8457,8 @@
     };
     if (exitBtn) exitBtn.onclick = async () => { 
       console.log('Exit clicked'); 
-      await this.cleanupActiveCall(false, 'exit_button'); 
-      const ov = document.getElementById('call-overlay');
-      if (ov) ov.classList.add('hidden'); 
-      this._syncCallFab();
+      // Exit button closes the call panel only; call continues in background.
+      this._hideCallOverlayKeepSession();
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
@@ -8400,6 +8480,8 @@
       this._videoEnabled = !this._videoEnabled;
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setCameraEnabled){
         try{ await this._sfuRoom.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
+        this._attachSfuLocalPreview();
+        this.updateRoomUI();
         camBtn.classList.toggle('muted', !this._videoEnabled);
         return;
       }
@@ -8436,6 +8518,7 @@
           const next = !this._screenSharing;
           await this._sfuRoom.localParticipant.setScreenShareEnabled(next);
           this._screenSharing = next;
+          this._attachSfuLocalPreview();
           shareBtn.classList.toggle('active', next);
         }catch(e){ console.warn('SFU screen share failed', e?.message || e); }
         return;
@@ -8471,9 +8554,7 @@
     };
     if (hideBtn) hideBtn.onclick = () => { 
       console.log('Hide clicked'); 
-      const ov = document.getElementById('call-overlay');
-      if (ov) ov.classList.add('hidden'); 
-      this._syncCallFab();
+      this._hideCallOverlayKeepSession();
     };
     if (showBtn) showBtn.onclick = () => { 
       console.log('Show clicked'); 
@@ -9739,7 +9820,7 @@
       } catch (err) {
         console.error('UI update error:', err);
       }
-      const inCall = !!(this._activePCs && this._activePCs.size > 0);
+      const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
       const statusEl = document.getElementById('call-status');
       if (statusEl) {
         statusEl.textContent = inCall ? 'In call' : ((this._roomState && this._roomState.activeCallId) ? 'Connecting...' : 'Ready for call.');
@@ -9937,7 +10018,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
 window.addEventListener('beforeunload', () => {
   try{ secureChatApp.publishTypingState(false, { force: true }); }catch(_){ }
   try{ secureChatApp.stopTypingListener(); }catch(_){ }
-  if (secureChatApp._inRoom) secureChatApp.cleanupActiveCall(false);
+  // Do not force-disconnect call on unload/background transitions.
+  // Mobile browsers may trigger unload-like lifecycle events while app is being backgrounded.
   try{ secureChatApp._stopCallStatusStream && secureChatApp._stopCallStatusStream(); }catch(_){ }
   try{ secureChatApp._updateMediaSessionState && secureChatApp._updateMediaSessionState('idle', null); }catch(_){ }
   if (secureChatApp._monitorStream) {
