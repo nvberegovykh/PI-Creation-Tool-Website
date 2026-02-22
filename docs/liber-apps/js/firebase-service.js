@@ -231,7 +231,8 @@ class FirebaseService {
                     // Ensure Firestore user doc exists; sync verification + last login
                     (async () => {
                         try {
-                            await this.ensureUserDoc(user.uid, { username: user.displayName || '', email: user.email || '', isVerified: !!user.emailVerified, status: 'approved' });
+                            // Do not force provider displayName into username; preserve app username.
+                            await this.ensureUserDoc(user.uid, { username: '', email: user.email || '', isVerified: !!user.emailVerified, status: 'approved' });
                             const userDocRef = firebase.doc(this.db, 'users', user.uid);
                             try {
                                 await firebase.updateDoc(userDocRef, {
@@ -244,7 +245,7 @@ class FirebaseService {
                                 await firebase.setDoc(userDocRef, {
                                     uid: user.uid,
                                     email: user.email || '',
-                                    username: user.displayName || '',
+                                    username: '',
                                     isVerified: !!user.emailVerified,
                                     status: 'approved',
                                     lastLogin: new Date().toISOString(),

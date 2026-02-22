@@ -105,6 +105,7 @@
       this._pendingRequestCount = 0;
       this._pendingRequestUnsub = null;
       this._lastOlderLoadAt = 0;
+      this._mobileMenuOpen = null;
       this.init();
     }
 
@@ -238,16 +239,34 @@
       return !!window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
     }
 
+    _nameFromEmail(email){
+      const e = String(email || '').trim();
+      if (!e || !e.includes('@')) return e;
+      return e.split('@')[0] || e;
+    }
+
+    _displayName(userLike, fallbackUid = ''){
+      const u = userLike || {};
+      const raw = String(u.username || u.displayName || u.name || '').trim();
+      if (raw) return raw;
+      const fromEmail = this._nameFromEmail(u.email || '');
+      if (fromEmail) return fromEmail;
+      return String(fallbackUid || '').slice(0, 8) || 'User';
+    }
+
     setMobileMenuOpen(open){
       const sidebar = document.querySelector('.sidebar');
       const app = document.getElementById('chat-app');
       if (!sidebar || !app) return;
-      sidebar.classList.toggle('open', !!open);
-      if (!open) sidebar.classList.remove('searching');
-      app.classList.toggle('mobile-menu-open', !!open);
+      const next = !!open;
+      if (this._mobileMenuOpen === next) return;
+      this._mobileMenuOpen = next;
+      sidebar.classList.toggle('open', next);
+      if (!next) sidebar.classList.remove('searching');
+      app.classList.toggle('mobile-menu-open', next);
       const tip = document.getElementById('mobile-sidebar-tip');
       if (tip){
-        tip.setAttribute('aria-label', open ? 'Collapse chat menu' : 'Expand chat menu');
+        tip.setAttribute('aria-label', next ? 'Collapse chat menu' : 'Expand chat menu');
       }
     }
 
@@ -1417,6 +1436,15 @@
         username: 'openrelayproject',
         credential: 'openrelayproject'
       };
+      const asArray = (urls)=> Array.isArray(urls) ? urls : (urls ? [urls] : []);
+      const keepTurnOnly = (servers = [])=>{
+        const out = [];
+        servers.forEach((s)=>{
+          const urls = asArray(s?.urls).filter((u)=> /^turns?:/i.test(String(u || '')));
+          if (urls.length) out.push({ ...s, urls: Array.from(new Set(urls)) });
+        });
+        return out;
+      };
       try{
         // 1) Try static TURN from keys
         let regionPref = 'europe-west1';
@@ -1425,11 +1453,13 @@
           regionPref = (keys && keys.firebase && (keys.firebase.functionsRegion || keys.firebase.region)) || regionPref;
           const turn = keys && keys.turn;
           if (turn && Array.isArray(turn.uris) && turn.username && turn.credential){
-            return [
-              { urls: baseStun },
-              { urls: turn.uris, username: turn.username, credential: turn.credential },
-              emergencyRelay
-            ];
+            const staticTurn = { urls: turn.uris, username: turn.username, credential: turn.credential };
+            if (this._forceRelay){
+              const relayOnly = keepTurnOnly([staticTurn, emergencyRelay]);
+              if (relayOnly.length) return relayOnly;
+            } else {
+              return [ { urls: baseStun }, staticTurn, emergencyRelay ];
+            }
           }
         }
         // 2) Else fetch ephemeral TURN via Cloud Function
@@ -1476,20 +1506,22 @@
                     const dedup = Array.from(new Set([ ...urls, ...tcpUrls ]));
                     expanded.push({ ...s, urls: dedup });
                   });
-                  const hasTurn = expanded.some((s)=>{
+                  const filtered = this._forceRelay ? keepTurnOnly(expanded) : expanded;
+                  const hasTurn = filtered.some((s)=>{
                     const urls = Array.isArray(s?.urls) ? s.urls : (s?.urls ? [s.urls] : []);
                     return urls.some((u)=> String(u || '').startsWith('turn'));
                   });
-                  if (!this._forceRelay) expanded.unshift({ urls: baseStun });
-                  if (!hasTurn) expanded.push(emergencyRelay);
-                  return expanded;
+                  if (!hasTurn) continue;
+                  if (!this._forceRelay) filtered.unshift({ urls: baseStun });
+                  if (!this._forceRelay) filtered.push(emergencyRelay);
+                  return filtered;
                 }
               }
             }catch(_){ /* try next region */ }
           }
         }
       }catch(_){ /* ignore */ }
-      return this._forceRelay ? [ emergencyRelay ] : [ { urls: baseStun }, emergencyRelay ];
+      return this._forceRelay ? keepTurnOnly([ emergencyRelay ]) : [ { urls: baseStun }, emergencyRelay ];
     }
 
     async init() {
@@ -1561,7 +1593,10 @@
       }
 
       // Ensure self is cached
-      this.usernameCache.set(this.currentUser.uid, { username: this.me?.username || 'You', avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png' });
+      this.usernameCache.set(this.currentUser.uid, {
+        username: this._displayName(this.me || { email: this.currentUser?.email }, this.currentUser.uid) || 'You',
+        avatarUrl: this.me?.avatarUrl || '../../images/default-bird.png'
+      });
       this._avatarCache.set(this.currentUser.uid, this.me?.avatarUrl || '../../images/default-bird.png');
       this.startPendingRequestListener();
     }
@@ -2647,8 +2682,8 @@
       const seen = new Set();
       const getCachedName = (uid, fallback = '')=>{
         const cached = this.usernameCache.get(uid);
-        if (cached && typeof cached === 'object') return cached.username || fallback;
-        return cached || fallback;
+        if (cached && typeof cached === 'object') return this._displayName(cached, uid) || fallback;
+        return this._displayName({ username: cached }, uid) || fallback;
       };
       const getCachedAvatar = (uid)=>{
         const direct = this._avatarCache.get(uid);
@@ -2747,7 +2782,7 @@
             const unsub = firebase.onSnapshot(ref, (snap)=>{
               if (!snap.exists()) return;
               const d = snap.data() || {};
-              const name = d.username || d.email || uid;
+              const name = this._displayName(d, uid);
               const avatar = String(d.avatarUrl || '../../images/default-bird.png');
               const prevObj = this.usernameCache.get(uid);
               const prevName = (prevObj && typeof prevObj === 'object') ? prevObj.username : prevObj;
@@ -3242,7 +3277,7 @@
                 let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || m.sender.slice(0,8);
                 if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                   this._senderLookupInFlight.add(m.sender);
-                  Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, (user?.username || user?.email || m.sender.slice(0,8))); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
+                  Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, this._displayName(user, m.sender)); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
                 }
                 const inferredFileName = this.inferAttachmentFileName(m, text);
                 const hasMedia = Array.isArray(m.media) && m.media.length > 0;
@@ -3431,7 +3466,7 @@
                 Promise.resolve().then(async ()=>{
                   try {
                     const user = await window.firebaseService.getUserData(m.sender);
-                    const resolved = (user?.username || user?.email || m.sender.slice(0,8));
+                    const resolved = this._displayName(user, m.sender);
                     this.usernameCache.set(m.sender, resolved);
                   } catch (_err) {
                     this.usernameCache.set(m.sender, senderName || 'Unknown');
@@ -3870,7 +3905,7 @@
               Promise.resolve().then(async ()=>{
                 try {
                   const user = await window.firebaseService.getUserData(m.sender);
-                  const resolved = (user?.username || user?.email || m.sender.slice(0,8));
+                  const resolved = this._displayName(user, m.sender);
                   this.usernameCache.set(m.sender, resolved);
                 } catch (_err) {
                   this.usernameCache.set(m.sender, senderName || 'Unknown');
@@ -8835,9 +8870,6 @@
         };
         pc.onconnectionstatechange = ()=>{
           console.log('PC state:', pc.connectionState);
-          if (pc.connectionState === 'failed' && this._forceRelay){
-            this._forceRelay = false;
-          }
         };
         // Add local tracks safely (avoid duplicate senders)
         try{
@@ -8935,9 +8967,6 @@
         };
         pc.onconnectionstatechange = ()=>{
           console.log('PC state:', pc.connectionState);
-          if (pc.connectionState === 'failed' && this._forceRelay){
-            this._forceRelay = false;
-          }
         };
         try{
           const existing = pc.getSenders ? pc.getSenders() : [];
