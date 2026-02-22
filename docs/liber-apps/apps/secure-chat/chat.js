@@ -1403,6 +1403,20 @@
     }
 
     async getIceServers(){
+      const baseStun = [
+        'stun:stun.l.google.com:19302',
+        'stun:stun1.l.google.com:19302'
+      ];
+      const emergencyRelay = {
+        urls: [
+          'turn:openrelay.metered.ca:80?transport=udp',
+          'turn:openrelay.metered.ca:80?transport=tcp',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+          'turns:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      };
       try{
         // 1) Try static TURN from keys
         let regionPref = 'europe-west1';
@@ -1412,8 +1426,9 @@
           const turn = keys && keys.turn;
           if (turn && Array.isArray(turn.uris) && turn.username && turn.credential){
             return [
-              { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] },
-              { urls: turn.uris, username: turn.username, credential: turn.credential }
+              { urls: baseStun },
+              { urls: turn.uris, username: turn.username, credential: turn.credential },
+              emergencyRelay
             ];
           }
         }
@@ -1461,6 +1476,12 @@
                     const dedup = Array.from(new Set([ ...urls, ...tcpUrls ]));
                     expanded.push({ ...s, urls: dedup });
                   });
+                  const hasTurn = expanded.some((s)=>{
+                    const urls = Array.isArray(s?.urls) ? s.urls : (s?.urls ? [s.urls] : []);
+                    return urls.some((u)=> String(u || '').startsWith('turn'));
+                  });
+                  expanded.unshift({ urls: baseStun });
+                  if (!hasTurn) expanded.push(emergencyRelay);
                   return expanded;
                 }
               }
@@ -1468,7 +1489,7 @@
           }
         }
       }catch(_){ /* ignore */ }
-      return [ { urls: ['stun:stun.l.google.com:19302','stun:global.stun.twilio.com:3478'] } ];
+      return [ { urls: baseStun }, emergencyRelay ];
     }
 
     async init() {
@@ -8312,7 +8333,25 @@
           this._ensureRemotePlayback();
         }
       };
-      pc.onicecandidateerror = (e)=>{ try{ console.warn('ICE candidate error', peerUid, e?.errorCode, e?.errorText || ''); }catch(_){ } };
+      pc.onicecandidateerror = (e)=>{
+        try{
+          console.warn('ICE candidate error', peerUid, e?.errorCode, e?.errorText || '');
+          const code = Number(e?.errorCode || 0);
+          if (code === 701 && !this._forceRelay && !this._relayRetryForCall.has(callId)){
+            this._relayRetryForCall.add(callId);
+            setTimeout(async ()=>{
+              try{
+                if (this._activeCid !== callId) return;
+                this._forceRelay = true;
+                const cs = document.getElementById('call-status');
+                if (cs) cs.textContent = 'Network blocked, retrying relay...';
+                await this.cleanupActiveCall(false, 'ice701_retry_start');
+                await this.startMultiCall(callId, this._videoEnabled);
+              }catch(_){ }
+            }, 1200);
+          }
+        }catch(_){ }
+      };
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
@@ -8550,7 +8589,25 @@
         this._ensureRemotePlayback();
       }
     };
-    pc.onicecandidateerror = (e)=>{ try{ console.warn('ICE candidate error(join)', peerUid, e?.errorCode, e?.errorText || ''); }catch(_){ } };
+    pc.onicecandidateerror = (e)=>{
+      try{
+        console.warn('ICE candidate error(join)', peerUid, e?.errorCode, e?.errorText || '');
+        const code = Number(e?.errorCode || 0);
+        if (code === 701 && !this._forceRelay && !this._relayRetryForCall.has(callId)){
+          this._relayRetryForCall.add(callId);
+          setTimeout(async ()=>{
+            try{
+              if (this._activeCid !== callId && this._lastJoinedCallId !== callId) return;
+              this._forceRelay = true;
+              const cs = document.getElementById('call-status');
+              if (cs) cs.textContent = 'Network blocked, retrying relay...';
+              await this.cleanupActiveCall(false, 'ice701_retry_join');
+              await this.joinMultiCall(callId, this._videoEnabled);
+            }catch(_){ }
+          }, 1200);
+        }
+      }catch(_){ }
+    };
 
     // Remote media element
     let rv = document.getElementById(`remoteVideo-${peerUid}`);
