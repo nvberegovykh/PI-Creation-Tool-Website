@@ -47,9 +47,10 @@
   align-items: center;
   width: 100%;
   max-width: 100vw;
-  height: 36px;
-  margin-top: 4px;
-  padding-bottom: 52px; /* extend hover area so submenu stays reachable */
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 0 16px;
+  box-sizing: border-box;
 }
 
 .navbar-interactive-desktop-menu .gc-nav-submenu-zone {
@@ -57,8 +58,12 @@
 }
 
 .gc-nav-dot {
+  position: absolute;
+  left: 50%;
+  margin-left: -4px;
   width: 8px;
   height: 8px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.6);
   cursor: pointer;
@@ -66,27 +71,17 @@
   animation: gc-pulse 1.5s ease-in-out infinite;
 }
 
-/* Desktop: submenu only on dot/zone hover */
-.gc-nav-submenu-zone:hover .gc-nav-dot {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
+/* Desktop: submenu overlays dot, both centered, swap via fade */
 .gc-nav-submenu {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  width: 100%;
-  max-width: 100vw;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   justify-content: center;
   align-items: center;
   gap: 30px;
-  padding: 0 16px;
   box-sizing: border-box;
   opacity: 0;
   pointer-events: none;
@@ -94,10 +89,16 @@
   transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
-.gc-nav-submenu-zone:hover .gc-nav-submenu {
+.navbar-interactive-container.gc-submenu-visible .gc-nav-submenu {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
+}
+
+.navbar-interactive-container.gc-submenu-visible .gc-nav-dot {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .gc-nav-submenu-btn {
@@ -127,11 +128,16 @@
 
 /* Mobile: dot in dropdown */
 .gc-nav-mobile-dot-row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  display: grid;
+  grid-template-rows: auto 0fr;
+  align-items: start;
   padding: 12px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
+  transition: grid-template-rows 0.2s ease;
+}
+
+.gc-nav-mobile-dot-row.gc-submenu-open {
+  grid-template-rows: auto 1fr;
 }
 
 .gc-nav-mobile-dot {
@@ -145,8 +151,8 @@
 }
 
 .gc-nav-mobile-dot.gc-active {
-  opacity: 0.4;
-  animation: none;
+  opacity: 0.5;
+  animation: none !important;
 }
 
 .gc-nav-mobile-submenu {
@@ -154,16 +160,14 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 0 0 16px;
-  max-height: 0;
-  opacity: 0;
   overflow: hidden;
+  opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: max-height 0.2s ease, opacity 0.2s ease, visibility 0.2s ease;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
-.gc-nav-mobile-submenu.gc-open {
-  max-height: 180px;
+.gc-nav-mobile-dot-row.gc-submenu-open .gc-nav-mobile-submenu {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;

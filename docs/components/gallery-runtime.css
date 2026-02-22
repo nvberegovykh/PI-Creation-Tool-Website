@@ -211,6 +211,11 @@
   opacity: 0;
 }
 
+.gc-media.gc-new-media > img,
+.gc-media.gc-new-media > video {
+  opacity: 0;
+}
+
 .gc-overlay {
   position: absolute;
   inset: 0;

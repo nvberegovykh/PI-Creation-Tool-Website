@@ -22,6 +22,9 @@
       desktopMenu.appendChild(zone);
 
       zone.querySelector('[data-gc-nav="services"]').addEventListener('click', openPricingPopup);
+
+      zone.addEventListener('mouseenter', () => container.classList.add('gc-submenu-visible'));
+      container.addEventListener('mouseleave', () => container.classList.remove('gc-submenu-visible'));
     }
 
     if (mobileNav && !mobileNav.querySelector('.gc-nav-mobile-dot-row')) {
@@ -39,14 +42,17 @@
       const dot = dotRow.querySelector('.gc-nav-mobile-dot');
       const submenu = dotRow.querySelector('.gc-nav-mobile-submenu');
       dot.addEventListener('click', () => {
-        dot.classList.toggle('gc-active');
-        submenu.classList.toggle('gc-open');
+        const willOpen = !submenu.classList.contains('gc-open');
+        dot.classList.toggle('gc-active', willOpen);
+        submenu.classList.toggle('gc-open', willOpen);
+        dotRow.classList.toggle('gc-submenu-open', willOpen);
       });
 
       dotRow.querySelector('[data-gc-nav="services"]').addEventListener('click', () => {
         openPricingPopup();
         submenu.classList.remove('gc-open');
         dot.classList.remove('gc-active');
+        dotRow.classList.remove('gc-submenu-open');
       });
     }
   }

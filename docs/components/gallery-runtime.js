@@ -1,5 +1,5 @@
 (function () {
-  const ROTATION_MS = 10000;
+  const ROTATION_MS = 20000;
   const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function shuffle(arr) {
@@ -147,6 +147,10 @@
         window.setTimeout(() => {
           mediaEl.innerHTML = createMediaElement(visuals[idx], true);
           card.classList.remove('fade-swap');
+          mediaEl.classList.add('gc-new-media');
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => mediaEl.classList.remove('gc-new-media'));
+          });
         }, 320);
       };
       const start = () => {
