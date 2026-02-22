@@ -1659,17 +1659,23 @@
       if ('serviceWorker' in navigator){
         navigator.serviceWorker.register('/sw.js').catch(()=>{});
       }
-      // Call and recording buttons (placeholders)
+      // One room-call entry point (camera/screen stay off until user enables them)
+      const callRoomBtn = document.getElementById('call-room-btn');
+      if (callRoomBtn) callRoomBtn.addEventListener('click', ()=> this.enterRoom(false));
+      // Backward-compatible fallback for older markup
       const voiceBtn = document.getElementById('voice-call-btn'); if (voiceBtn) voiceBtn.addEventListener('click', ()=> this.enterRoom(false));
-      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
+      const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(false));
       const attachSheetBtn = document.getElementById('chat-attachments-btn'); if (attachSheetBtn) attachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
+      const mobileCallRoomBtn = document.getElementById('mobile-call-room-btn');
+      if (mobileCallRoomBtn) mobileCallRoomBtn.addEventListener('click', ()=> this.enterRoom(false));
       const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
-      const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(true));
+      const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(false));
       const mobileAttachSheetBtn = document.getElementById('mobile-chat-attachments-btn'); if (mobileAttachSheetBtn) mobileAttachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
+      this._enableCallFabDrag();
       // Drag & Drop upload within chat app area
       const appEl = document.getElementById('chat-app');
       if (appEl){
@@ -3188,8 +3194,8 @@
                 if (isMediaOnlyMessage) el.classList.add('message-media-only');
                 let bodyHtml = this.renderText(cleanedText);
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-                const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
-                if (callMatch) bodyHtml = `<button class="btn secondary" data-call-id="${callMatch[2]}" data-kind="${callMatch[1]}">${callMatch[1]==='voice'?'Join voice call':'Join video call'}</button>`;
+                const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+                if (callMatch) bodyHtml = `<button class="btn secondary" data-call-id="${callMatch[1]}">Join call</button>`;
                 const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
                 if (gifMatch) bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
                 const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
@@ -3215,7 +3221,7 @@
                 el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${metaSepAppend}${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
-                if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
+                if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall());
                 if (hasMedia){
                   const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                   const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
@@ -3385,11 +3391,10 @@
               if (isMediaOnlyMessage) el.classList.add('message-media-only');
               let bodyHtml = this.renderText(cleanedText);
               if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-              const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+              const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
               if (callMatch){
-                const kind = callMatch[1]; const callId = callMatch[2];
-                const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
-                bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
+                const callId = callMatch[1];
+                bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\">Join call</button>`;
               }
               const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
               if (gifMatch){
@@ -3445,7 +3450,7 @@
                 renderTarget.appendChild(el);
               }
               const joinBtn = el.querySelector('button[data-call-id]');
-              if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' })); }
+              if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall()); }
               if (hasMedia){
                 const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, sourceConnId);
                 const attachmentAesKey = await getKeyForConn(attachmentSourceConnId);
@@ -3825,11 +3830,10 @@
             if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
             if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-            const callMatch = /^\[call:(voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
+            const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
             if (callMatch){
-              const kind = callMatch[1]; const callId = callMatch[2];
-              const btnLabel = kind==='voice' ? 'Join voice call' : 'Join video call';
-              bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\" data-kind=\"${kind}\">${btnLabel}</button>`;
+              const callId = callMatch[1];
+              bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\">Join call</button>`;
             }
             const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
             if (gifMatch){
@@ -3865,7 +3869,7 @@
             el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
-            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
+            if (joinBtn){ joinBtn.addEventListener('click', ()=> this.joinOrStartCall()); }
             if (hasMedia){
               const attachmentSourceConnId = this.resolveAttachmentSourceConnId(m, activeConnId);
               const attachmentAesKey = await this.getFallbackKeyForConn(attachmentSourceConnId);
@@ -7683,9 +7687,86 @@
       }
     }
 
-    // Placeholders / basic signaling for calls
-  async startVoiceCall(){ await this.startCall({ callId: `${this.activeConnection}_latest`, video:false }); }
-  async startVideoCall(){ await this.startCall({ callId: `${this.activeConnection}_latest`, video:true }); }
+    _syncCallFab(){
+      const showBtn = document.getElementById('show-call-btn');
+      const ov = document.getElementById('call-overlay');
+      if (!showBtn) return;
+      const inCall = !!(this._activePCs && this._activePCs.size > 0);
+      const roomHasActiveCall = !!(this._roomState && this._roomState.activeCallId);
+      const shouldShow = (inCall || roomHasActiveCall) && !!(ov && ov.classList.contains('hidden'));
+      showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
+    }
+
+    _setActiveSpeakerLabel(uid){
+      const showBtn = document.getElementById('show-call-btn');
+      if (!showBtn) return;
+      if (!uid){
+        showBtn.innerHTML = '<i class="fas fa-phone-volume"></i> Call';
+        return;
+      }
+      const cached = this.usernameCache.get(uid);
+      const name = cached && cached.username ? cached.username : (uid === this.currentUser?.uid ? 'You' : 'Speaking');
+      showBtn.innerHTML = `<i class="fas fa-volume-up"></i> ${String(name).slice(0, 14)}`;
+    }
+
+    _enableCallFabDrag(){
+      const btn = document.getElementById('show-call-btn');
+      if (!btn || btn._dragBound) return;
+      btn._dragBound = true;
+      let dragging = false;
+      let startX = 0;
+      let startY = 0;
+      let originLeft = 0;
+      let originTop = 0;
+      const begin = (clientX, clientY) => {
+        dragging = true;
+        btn.classList.add('dragging');
+        const rect = btn.getBoundingClientRect();
+        startX = clientX;
+        startY = clientY;
+        originLeft = rect.left;
+        originTop = rect.top;
+      };
+      const move = (clientX, clientY) => {
+        if (!dragging) return;
+        const dx = clientX - startX;
+        const dy = clientY - startY;
+        const maxLeft = Math.max(0, window.innerWidth - btn.offsetWidth - 8);
+        const maxTop = Math.max(0, window.innerHeight - btn.offsetHeight - 8);
+        const nextLeft = Math.min(maxLeft, Math.max(8, originLeft + dx));
+        const nextTop = Math.min(maxTop, Math.max(8, originTop + dy));
+        btn.style.left = `${nextLeft}px`;
+        btn.style.top = `${nextTop}px`;
+        btn.style.right = 'auto';
+        btn.style.bottom = 'auto';
+      };
+      const end = () => {
+        dragging = false;
+        btn.classList.remove('dragging');
+      };
+      btn.addEventListener('mousedown', (e)=> begin(e.clientX, e.clientY));
+      window.addEventListener('mousemove', (e)=> move(e.clientX, e.clientY));
+      window.addEventListener('mouseup', end);
+      btn.addEventListener('touchstart', (e)=>{
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        begin(t.clientX, t.clientY);
+      }, { passive: true });
+      window.addEventListener('touchmove', (e)=>{
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        move(t.clientX, t.clientY);
+      }, { passive: true });
+      window.addEventListener('touchend', end);
+      btn.addEventListener('click', ()=>{
+        const ov = document.getElementById('call-overlay');
+        if (ov) ov.classList.remove('hidden');
+        this._syncCallFab();
+      });
+    }
+
+    async startVoiceCall(){ await this.enterRoom(false); }
+    async startVideoCall(){ await this.enterRoom(false); }
 
   async ensureRoom(){
     if (!this.activeConnection) return null;
@@ -7743,6 +7824,7 @@
         await this.joinMultiCall(activeCid, video);
       }
       await this.updateRoomUI();
+      this._syncCallFab();
       const status = document.getElementById('call-status');
       if (status) status.textContent = activeCid ? 'In call' : 'Room open. Click Start Call or wait for other to start.';
     }, onSnapErr);
@@ -7758,6 +7840,7 @@
       this._startAutoResumeMonitor(video);
     }
     this._inRoom = true;
+    this._syncCallFab();
   }
 
   initCallControls(video){
@@ -7786,6 +7869,7 @@
       await this.cleanupActiveCall(false, 'exit_button'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
+      this._syncCallFab();
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
@@ -7829,15 +7913,13 @@
       console.log('Hide clicked'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.add('hidden'); 
-      const showBtn = document.getElementById('show-call-btn');
-      if (showBtn) showBtn.style.display = 'block'; 
+      this._syncCallFab();
     };
     if (showBtn) showBtn.onclick = () => { 
       console.log('Show clicked'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.remove('hidden'); 
-      const showBtn = document.getElementById('show-call-btn');
-      if (showBtn) showBtn.style.display = 'none'; 
+      this._syncCallFab();
     };
   }
 
@@ -7873,13 +7955,13 @@
       console.log('Transaction success, starting multi call');
       try { await this.startMultiCall(cid, video); }
       finally { this._startingCall = false; }
-      await this.saveMessage({ text: `[call:${video?'video':'voice'}:${cid}]` });
+      await this.saveMessage({ text: `[call:room:${cid}]` });
       this._monitoring = false;
     } else {
       console.log('Room already active, joining');
       if (this._roomState && this._roomState.activeCallId && this._roomState.activeCallId !== 'undefined') {
         const joinCid = this._roomState.activeCallId;
-        await this.saveMessage({ text: `[call:${video?'video':'voice'}:${joinCid}]` });
+        await this.saveMessage({ text: `[call:room:${joinCid}]` });
         console.log('Joining call ID:', joinCid);
         this._joiningCall = true;
         try { await this.joinMultiCall(joinCid, video); }
@@ -7918,8 +8000,6 @@
     const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', this.activeConnection));
     const conn = connSnap.data() || {};
     const participants = (conn.participants||[]).filter(Boolean).filter(uid => uid !== this.currentUser.uid);
-    // Temporary: limit to first remote only for stability
-    const limited = participants.slice(0,1);
     if (participants.length + 1 > 8) {
       alert('Max 8 users per room');
       return;
@@ -7957,7 +8037,7 @@
     }
     lv.srcObject = stream;
     lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
-    for (const peerUid of limited){
+    for (const peerUid of participants){
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
         iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
@@ -8059,6 +8139,11 @@
           while (localCandidateQueue.length) {
             const cand = localCandidateQueue.shift();
             try { await firebase.setDoc(firebase.doc(candsRef), { type: 'offer', fromUid: this.currentUser.uid, toUid: peerUid, connId: this.activeConnection, candidate: cand.toJSON() }); } catch (_) {}
+          }
+          // Flush queued REMOTE ICE now that we can consume candidates safely
+          while (remoteCandidateQueue.length) {
+            const rc = remoteCandidateQueue.shift();
+            try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch (_) {}
           }
           try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', this.activeConnection), { status: 'active', lastActiveAt: new Date().toISOString() }); } catch(_){ }
         } catch (err) {
@@ -8307,20 +8392,21 @@
   async _setupRoomInactivityMonitor(){
     this._lastSpeech.clear();
     if (this._inactTimer) clearInterval(this._inactTimer);
-    // Temporarily disable auto-silence end during debug to avoid premature cleanup
-    /* this._inactTimer = setInterval(()=>{
+    const silenceLimitMs = 3 * 60 * 1000;
+    this._inactTimer = setInterval(()=>{
       const now = Date.now();
       let maxLast = 0;
       this._lastSpeech.forEach(ts => maxLast = Math.max(maxLast, ts));
-      if (now - maxLast > 5 * 60 * 1000){
+      if (!maxLast) maxLast = now;
+      if (now - maxLast > silenceLimitMs){
         clearInterval(this._inactTimer);
-        this.cleanupActiveCall(false, 'silence_timer');
+        this.cleanupActiveCall(true, 'silence_timer');
         const roomRef = firebase.doc(this.db,'callRooms', this.activeConnection);
-        firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
+        firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null, endedBy: this.currentUser.uid, endedAt: new Date().toISOString() });
         this.saveMessage({ text: '[system] Call ended due to silence' });
         this._startAutoResumeMonitor(false);
       }
-    }, 15000); */
+    }, 15000);
   }
 
   // Add to _attachSpeakingDetector to take uid and update this._lastSpeech.set(uid, now) when avg > 30
@@ -8333,19 +8419,15 @@
 
   // Limit: in enterRoom check conn.participants.length > 8 and alert/return
 
-  async joinOrStartCall({ video }){
-    // If latest call offer exists in this room, join; otherwise create a new one
-    const roomId = this.activeConnection; if (!roomId) return;
-    try{
-      const cid = `${roomId}_latest`;
-      const offersRef = firebase.collection(this.db,'calls',cid,'offers');
-      const docSnap = await firebase.getDoc(firebase.doc(offersRef,'offer'));
-      if (docSnap.exists()){
-        await this.answerCall(cid, { video });
-      } else {
-        await this.startCall({ callId: cid, video });
-      }
-    }catch(_){ const cid = `${roomId}_latest`; await this.startCall({ callId: cid, video }); }
+  async joinOrStartCall(){
+    if (!this.activeConnection) return;
+    await this.enterRoom(false);
+    const activeCid = this._roomState && this._roomState.activeCallId;
+    if (activeCid){
+      await this.joinMultiCall(activeCid, false);
+      return;
+    }
+    await this.attemptStartRoomCall(false);
   }
 
   async startCall({ callId, video }){
@@ -8413,7 +8495,7 @@
         const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
         await firebase.setDoc(firebase.doc(offersRef,'offer'), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: this.activeConnection });
         // publish one join message for room-wide latest call id
-        await this.saveMessage({ text:`[call:${video?'video':'voice'}:${callId}]` });
+        await this.saveMessage({ text:`[call:room:${callId}]` });
         // Listen for answer
         if (firebase.onSnapshot){
           const unsubs=[];
@@ -8567,7 +8649,15 @@
           analyser.getByteFrequencyData(data);
           let sum = 0; for (let i=0;i<data.length;i++) sum += data[i];
           const avg = sum / data.length;
-          if (avg > 30){ el.classList.add('speaking'); if (uid) this._lastSpeech.set(uid, Date.now()); } else { el.classList.remove('speaking'); }
+          if (avg > 30){
+            el.classList.add('speaking');
+            if (uid){
+              this._lastSpeech.set(uid, Date.now());
+              this._setActiveSpeakerLabel(uid);
+            }
+          } else {
+            el.classList.remove('speaking');
+          }
           // Update last speech timestamps for inactivity monitor
           if (avg > 30){
             const now = Date.now();
@@ -8806,6 +8896,8 @@
       this.updateRoomUI();
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = '';
+      this._setActiveSpeakerLabel(null);
+      this._syncCallFab();
     }
 
     async updatePresence(state, hasVideo = false){
@@ -8875,10 +8967,12 @@
         statusEl.textContent = inCall ? 'In call' : ((this._roomState && this._roomState.activeCallId) ? 'Connecting...' : 'Ready for call.');
       }
       // Hide header call buttons when in call to avoid duplicated icons
-      [ 'voice-call-btn', 'video-call-btn', 'mobile-voice-call-btn', 'mobile-video-call-btn' ].forEach(id => {
+      [ 'call-room-btn', 'mobile-call-room-btn', 'voice-call-btn', 'video-call-btn', 'mobile-voice-call-btn', 'mobile-video-call-btn' ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = inCall ? 'none' : '';
       });
+      if (!inCall) this._setActiveSpeakerLabel(null);
+      this._syncCallFab();
     }
 
     async renegotiateCall(callId, video){
