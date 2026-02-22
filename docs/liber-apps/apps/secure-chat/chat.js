@@ -258,7 +258,8 @@
         if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const s = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return typeof s === 'string' ? s : String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
     }
 
     formatMessageDay(value, msg = null){
@@ -371,6 +372,12 @@
         if (!msg || msg.sender !== this.currentUser?.uid) return '';
         const msgTs = this.getMessageTimestampMs(msg);
         if (!msgTs) return 'Sent';
+        const res = this._getDeliveryLabelInner(msg, msgTs);
+        return typeof res === 'string' ? res : 'Sent';
+      }catch(_){ return ''; }
+    }
+    _getDeliveryLabelInner(msg, msgTs){
+      try{
         // "Read" only when recipient actually saw the message – use peer's readBy, not ours.
         const readBy = (this._activeConnReadBy && typeof this._activeConnReadBy === 'object')
           ? this._activeConnReadBy
@@ -785,9 +792,26 @@
         const row = document.createElement('button');
         row.className = 'btn secondary';
         row.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;margin-bottom:6px;text-align:left;padding:8px';
-        const icon = document.createElement('span');
-        icon.innerHTML = '<i class="fas fa-music" style="font-size:20px;opacity:.9"></i>';
-        row.appendChild(icon);
+        const thumb = document.createElement('span');
+        thumb.style.cssText = 'width:40px;height:40px;border-radius:6px;overflow:hidden;flex-shrink:0;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center';
+        const coverUrl = String(a?.coverUrl || a?.cover || '').trim();
+        if (coverUrl){
+          const img = document.createElement('img');
+          img.src = coverUrl;
+          img.alt = '';
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+          thumb.appendChild(img);
+        } else {
+          thumb.innerHTML = '<i class="fas fa-music" style="font-size:18px;opacity:.8"></i>';
+        }
+        row.appendChild(thumb);
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = String(a?.fileName || a?.title || 'Audio').trim();
+        titleSpan.style.flex = '1';
+        titleSpan.style.overflow = 'hidden';
+        titleSpan.style.textOverflow = 'ellipsis';
+        titleSpan.style.whiteSpace = 'nowrap';
+        row.appendChild(titleSpan);
         row.onclick = ()=> selectAttachment(a);
         return row;
       };
@@ -796,7 +820,7 @@
         tile.className = 'btn secondary';
         tile.style.cssText = 'display:inline-flex;flex-direction:column;align-items:stretch;width:88px;height:88px;padding:4px;margin:0 6px 8px 0;overflow:hidden;border-radius:10px';
         const mediaWrap = document.createElement('div');
-        mediaWrap.style.cssText = 'width:100%;height:100%;border-radius:8px;overflow:hidden;background:#0b0f16;display:flex;align-items:center;justify-content:center';
+        mediaWrap.style.cssText = 'width:100%;flex:1;min-height:0;border-radius:8px;overflow:hidden;background:#0b0f16;display:flex;align-items:center;justify-content:center';
         if (type === 'video'){
           const video = document.createElement('video');
           video.src = a.fileUrl || '';
@@ -885,7 +909,7 @@
           const sWave = await firebase.getDocs(qWave);
           sWave.forEach((d)=>{
             const w = d.data() || {};
-            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, sentAt: w.createdAt || new Date().toISOString(), mediaKind: 'audio' });
+            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, coverUrl: w.coverUrl || w.cover || null, sentAt: w.createdAt || new Date().toISOString(), mediaKind: 'audio' });
           });
         }catch(_){ }
         try{
@@ -1033,6 +1057,7 @@
           const nextLimit = currentLimit + pageSize;
           this._msgVisibleLimitByConn.set(connId, nextLimit);
           this._loadMoreConnId = connId;
+          this._loadMoreScrollToMessageId = id;
           await this.loadMessages().catch(()=>{});
           await this.yieldToUi();
           target = box.querySelector(`[data-msg-id="${queryId}"]`);
@@ -1512,7 +1537,6 @@
       const videoBtn = document.getElementById('video-call-btn'); if (videoBtn) videoBtn.addEventListener('click', ()=> this.enterRoom(true));
       const attachSheetBtn = document.getElementById('chat-attachments-btn'); if (attachSheetBtn) attachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const groupBtn = document.getElementById('group-menu-btn'); if (groupBtn) groupBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
-      const fixDupBtn = document.getElementById('fix-duplicates-btn'); if (fixDupBtn) fixDupBtn.addEventListener('click', ()=> this.fixDuplicateConnections());
       const mobileVoiceBtn = document.getElementById('mobile-voice-call-btn'); if (mobileVoiceBtn) mobileVoiceBtn.addEventListener('click', ()=> this.enterRoom(false));
       const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.enterRoom(true));
       const mobileAttachSheetBtn = document.getElementById('mobile-chat-attachments-btn'); if (mobileAttachSheetBtn) mobileAttachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
@@ -2932,9 +2956,11 @@
         const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
                 const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
                 const delivery = this.getDeliveryLabel(m);
-                const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+                const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
                 const mediaBlockHtml = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
-                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"></div>`:''}<div class="meta">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                const timeStr = String(this.formatMessageTime(m.createdAt, m) || '');
+                const senderStr = String(senderName || '');
+                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${senderStr} · ${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
                 box.insertBefore(el, box.firstElementChild);
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this.joinOrStartCall({ video: joinBtn.dataset.kind === 'video' }));
@@ -2944,7 +2970,7 @@
                   m.media.forEach((mediaItem, idx)=>{
                     const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
                     if (container){
-                      const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                      const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording ?? m.isVideoRecording, isVoiceRecording: mediaItem.isVoiceRecording ?? m.isVoiceRecording, text, id: d.id };
                       this.enqueueAttachmentPreview(()=>{
                         const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
                         if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
@@ -3043,8 +3069,7 @@
               const hasMore = (docsPrimary.length >= visibleLimit);
               if (hasMore){
                 moreWrap = document.createElement('div');
-                moreWrap.className = 'msg-load-more-wrap';
-                moreWrap.style.opacity = '0';
+                moreWrap.className = 'msg-load-more-wrap msg-load-more-visible';
                 const moreBtn = document.createElement('button');
                 moreBtn.className = 'btn secondary msg-load-more-btn';
                 moreBtn.textContent = `Load ${pageSize} more`;
@@ -3053,10 +3078,10 @@
                   this._loadMoreInProgressByConn.add(activeConnId);
                   moreBtn.disabled = true;
                   moreBtn.classList.add('loading');
-                  const prevText = moreBtn.textContent;
                   moreBtn.textContent = 'Loading...';
-                  const prevHeight = box.scrollHeight;
-                  const prevTop = box.scrollTop;
+                  const msgs = box.querySelectorAll('.message');
+                  const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+                  this._loadMoreAnchorId = lastMsg?.getAttribute('data-msg-id') || undefined;
                   const nextLimit = Number(this._msgVisibleLimitByConn.get(activeConnId) || pageSize) + pageSize;
                   this._msgVisibleLimitByConn.set(activeConnId, nextLimit);
                   this._loadMoreConnId = activeConnId;
@@ -3176,9 +3201,11 @@
         const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
               const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
               const delivery = this.getDeliveryLabel(m);
-              const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+              const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
               const mediaBlockHtml2 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
-              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              const timeStr2 = String(this.formatMessageTime(m.createdAt, m) || '');
+              const senderStr2 = String(senderName || '');
+              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${senderStr2} · ${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (appendOnly || forceInsertBefore){
@@ -3194,7 +3221,7 @@
                 m.media.forEach((mediaItem, idx)=>{
                   const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
                   if (container){
-                    const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                    const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording ?? m.isVideoRecording, isVoiceRecording: mediaItem.isVoiceRecording ?? m.isVoiceRecording, text, id: d.id };
                     this.enqueueAttachmentPreview(()=>{
                       const c = box.querySelector(`[data-msg-id="${String(d.id||m.id||'').replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
                       if (c?.isConnected) this.renderEncryptedAttachment(c, mediaItem.fileUrl, mediaItem.fileName, attachmentAesKey, attachmentSourceConnId, senderName, msgProxy);
@@ -3355,27 +3382,34 @@
             }
           }
           ensureLoadMoreAnchor();
-          // Keep DOM size bounded to avoid jitter on long chats. column-reverse: oldest at top. Preserve Load more button.
-          while (box.childElementCount > 220){
-            const last = box.lastElementChild;
-            const toRemove = last?.classList?.contains('msg-load-more-wrap') ? box.children[box.children.length - 2] : last;
-            if (toRemove) box.removeChild(toRemove);
+          const isLoadMore = this._loadMoreConnId === activeConnId;
+          const anchorId = this._loadMoreAnchorId;
+          const skipScrollForJump = !!this._loadMoreScrollToMessageId;
+          this._loadMoreConnId = '';
+          this._loadMoreAnchorId = undefined;
+          this._loadMoreScrollToMessageId = undefined;
+          if (!isLoadMore){
+            while (box.childElementCount > 220){
+              const last = box.lastElementChild;
+              const toRemove = last?.classList?.contains('msg-load-more-wrap') ? box.children[box.children.length - 2] : last;
+              if (toRemove) box.removeChild(toRemove);
+            }
           }
           this._lastDocIdsByConn.set(activeConnId, docs.map(d=> d.id));
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
-          const isLoadMore = this._loadMoreConnId === activeConnId;
-          this._loadMoreConnId = '';
-          if (isLoadMore && !appendOnly){
-            const nextHeight = box.scrollHeight;
-            const delta = Math.max(0, nextHeight - prevHeight);
-            box.scrollTop = prevTop + delta;
-            requestAnimationFrame(()=>{
-              if (loadSeq === this._msgLoadSeq && this.activeConnection === activeConnId && box.isConnected){
-                const d2 = Math.max(0, box.scrollHeight - prevHeight);
-                box.scrollTop = prevTop + d2;
-              }
-            });
+          if (isLoadMore && !appendOnly && !skipScrollForJump){
+            const anchorEl = anchorId ? box.querySelector('[data-msg-id="' + String(anchorId).replace(/"/g, '\\"') + '"]') : null;
+            if (anchorEl?.isConnected){
+              const prevBehavior = box.style.scrollBehavior;
+              box.style.scrollBehavior = 'auto';
+              anchorEl.scrollIntoView({ block: 'start', behavior: 'auto', inline: 'nearest' });
+              box.style.scrollBehavior = prevBehavior;
+            } else if (pinnedBefore){
+              box.scrollTop = 0;
+            } else {
+              box.scrollTop = prevTop;
+            }
           } else if (pinnedBefore){
             box.scrollTop = 0;
           }else{
@@ -3431,11 +3465,7 @@
             (snap)=>{
               if (!loadFinished) return;
               if (this._loadMoreInProgressByConn?.has(activeConnId) || this._loadMoreConnId === activeConnId) return;
-              const primed = this._liveSnapshotPrimedByConn.get(activeConnId) === true;
-              if (!primed){
-                this._liveSnapshotPrimedByConn.set(activeConnId, true);
-                return;
-              }
+              this._liveSnapshotPrimedByConn.set(activeConnId, true);
               scheduleLiveSnap(snap);
             },
             async ()=>{
@@ -3602,9 +3632,11 @@
         const repostBadge = isShared ? (isWaveConnectShare ? ' · <span class="msg-repost-badge">Repost from WaveConnect</span>' : ' · <span class="msg-repost-badge">repost</span>') : '';
             const originalSignature = isShared ? ` · <span class="msg-original-author">by ${(originalAuthorName || 'original author').replace(/</g,'&lt;')}</span>` : '';
             const delivery = this.getDeliveryLabel(m);
-            const deliveryTxt = delivery ? ` · <span class="msg-delivery">${delivery}</span>` : '';
+            const deliveryTxt = delivery ? ` · <span class="msg-delivery">${String(delivery)}</span>` : '';
             const mediaBlockHtml3 = hasMedia ? this.getMessageMediaBlockHtml(m) : '';
-            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"></div>`:''}<div class=\"meta\">${systemBadge}${senderName} · ${this.formatMessageTime(m.createdAt, m)}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            const timeStr3 = String(this.formatMessageTime(m.createdAt, m) || '');
+            const senderStr3 = String(senderName || '');
+            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${senderStr3} · ${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
             box.appendChild(el);
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this.answerCall(joinBtn.dataset.callId, { video: joinBtn.dataset.kind === 'video' })); }
@@ -3614,7 +3646,7 @@
               m.media.forEach((mediaItem, idx)=>{
                 const container = el.querySelector(`.msg-media-item[data-media-index="${idx}"] .file-preview`);
                 if (container){
-                  const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording, text, id: d.id };
+                  const msgProxy = { ...m, fileUrl: mediaItem.fileUrl, fileName: mediaItem.fileName, attachmentKeySalt: mediaItem.attachmentKeySalt, isVideoRecording: mediaItem.isVideoRecording ?? m.isVideoRecording, isVoiceRecording: mediaItem.isVoiceRecording ?? m.isVoiceRecording, text, id: d.id };
                   const msgId = String(d.id || m.id || '');
                   this.enqueueAttachmentPreview(()=>{
                     const c = box.querySelector(`[data-msg-id="${msgId.replace(/"/g,'\\"')}"] .msg-media-item[data-media-index="${idx}"] .file-preview`);
@@ -3810,10 +3842,10 @@
       const rest = m.media.filter((it)=> !this.isImageFilename(it.fileName) && !this.isVideoFilename(it.fileName));
       let html = '<div class="msg-media-block" style="margin-bottom:8px">';
       if (visual.length){
-        const slideItems = visual.map((_,i)=> `<div class="msg-media-item post-media-visual-item" data-media-index="${i}" style="flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start;scroll-snap-stop:always"><div class="file-preview" style="min-height:60px"></div></div>`).join('');
+        const slideItems = visual.map((_,i)=> `<div class="msg-media-item post-media-visual-item" data-media-index="${i}" style="flex:0 0 100%;min-width:100%;max-width:100%;scroll-snap-align:start;scroll-snap-stop:always"><div class="file-preview" style="min-height:60px"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div></div>`).join('');
         html += `<div class="post-media-visual-shell msg-media-slider"><div class="post-media-visual-wrap"><div class="post-media-visual-slider">${slideItems}</div></div>${visual.length>1?`<div class="post-media-dots">${visual.map((_,i)=>`<button type="button" class="post-media-dot${i===0?' active':''}" data-slide-index="${i}"></button>`).join('')}</div>`:''}</div>`;
       }
-      if (rest.length) html += `<div class="msg-media-files" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${rest.map((_,i)=> `<div class="msg-media-item" data-media-index="${visual.length+i}" style="min-width:0"><div class="file-preview" style="min-height:40px"></div></div>`).join('')}</div>`;
+      if (rest.length) html += `<div class="msg-media-files" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${rest.map((_,i)=> `<div class="msg-media-item" data-media-index="${visual.length+i}" style="min-width:0"><div class="file-preview" style="min-height:40px"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div></div>`).join('')}</div>`;
       html += '</div>';
       return html;
     }
@@ -5888,8 +5920,14 @@
     }
 
     renderWaveAttachment(containerEl, url, fileName, sourceKey = ''){
+      const safeTitle = String(fileName || 'Voice message').trim();
       const wrapper = document.createElement('div');
       wrapper.className = 'voice-wave-player';
+      const titleEl = document.createElement('div');
+      titleEl.className = 'voice-wave-title';
+      titleEl.textContent = safeTitle;
+      titleEl.style.cssText = 'font-size:12px;opacity:.9;margin-bottom:4px';
+      wrapper.appendChild(titleEl);
       const playBtn = document.createElement('button');
       playBtn.className = 'play';
       playBtn.innerHTML = '<i class="fas fa-play"></i>';
@@ -6090,6 +6128,12 @@
     isVideoRecordingMessage(message, fileName = ''){
       try{
         if (message && message.isVideoRecording === true) return true;
+        const n = String(fileName || '').toLowerCase().trim();
+        if (n.startsWith('video.') || /^video\.(webm|mp4|mov)/i.test(n)) return true;
+        const text = String(message?.text || '').trim();
+        if (/^\[video message\]/i.test(text)) return true;
+        const preview = String(message?.previewText || '').trim();
+        if (/^\[video message\]/i.test(preview)) return true;
         return false;
       }catch(_){ return false; }
     }
@@ -6825,6 +6869,11 @@
         if (!resolvedB64){
           throw new Error('empty-decrypted-payload');
         }
+        if (!containerEl?.isConnected) return;
+        this._voiceWidgets.forEach((w, id)=>{
+          if (w?.playBtn && containerEl.contains(w.playBtn)) this._voiceWidgets.delete(id);
+        });
+        try { containerEl.innerHTML = ''; } catch (_) {}
         if (this.isImageFilename(fileName)){
           const mime = fileName.toLowerCase().endsWith('.png') ? 'image/png'
                       : fileName.toLowerCase().endsWith('.webp') ? 'image/webp'

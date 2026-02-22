@@ -284,8 +284,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .composer-attachment-remove:hover{
   background:rgba(255,255,255,.08);
 }
-.msg-load-more-wrap{display:flex;justify-content:center;margin:6px 0 10px;padding:4px 0;opacity:0;transition:opacity .25s ease-out}
-.msg-load-more-wrap.msg-load-more-visible{opacity:1}
+.msg-load-more-wrap{display:flex;justify-content:center;margin:6px 0 10px;padding:4px 0;opacity:1}
 .msg-load-more-btn{transition:opacity .2s ease,transform .05s ease;min-width:140px}
 .msg-load-more-btn:disabled{opacity:.7;cursor:not-allowed}
 .msg-load-more-btn.loading{pointer-events:none}
