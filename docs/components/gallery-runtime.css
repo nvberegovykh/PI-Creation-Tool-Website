@@ -64,6 +64,14 @@
   }
 }
 
+/* Main page (index): single slider 2x bigger on desktop */
+@media (min-width: 769px) {
+  .home-container [data-gallery-template="single-slider"] .gc-single-shell {
+    max-width: 2200px;
+    min-width: 1000px;
+  }
+}
+
 .gc-single-track {
   display: flex;
   flex-wrap: nowrap;
@@ -189,12 +197,12 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: opacity 200ms ease-in-out;
+  transition: opacity 320ms ease-in-out;
 }
 
 .gc-card.fade-swap .gc-media > img,
 .gc-card.fade-swap .gc-media > video {
-  opacity: 0.35;
+  opacity: 0;
 }
 
 .gc-overlay {

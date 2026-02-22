@@ -147,7 +147,7 @@
         window.setTimeout(() => {
           mediaEl.innerHTML = createMediaElement(visuals[idx], true);
           card.classList.remove('fade-swap');
-        }, 120);
+        }, 320);
       };
       const start = () => {
         if (timer) return;
@@ -203,7 +203,7 @@
       let startY = 0;
       let startIdx = 0;
       let isHorizontalSwipe = null; /* null=undecided, true=swipe, false=scroll */
-      const SLOPE = 1.2; /* |dx| > SLOPE * |dy| => horizontal */
+      const SLOPE = 0.5; /* vertical wins: |dx| > SLOPE*|dy| => horizontal, else scroll */
       const onStart = (x, y) => { startX = x; startY = y; startIdx = idx; isHorizontalSwipe = null; };
       const onMove = (x) => {
         const w = mediaEl.offsetWidth || 400;
@@ -339,7 +339,7 @@
     let startX = 0;
     let startPage = 0;
     let didDrag = false;
-    const MAX_SLIDE_WIDTH = 1100;
+    const MAX_SLIDE_WIDTH = 2200;
     const update = () => {
       page = Math.max(0, Math.min(page, selected.length - 1));
       const rawWidth = shell && shell.offsetWidth > 0 ? shell.offsetWidth : (typeof window !== 'undefined' ? Math.min(900, window.innerWidth || 900) : 600);
@@ -366,7 +366,7 @@
       update();
     };
     let isHorizontalSwipe = null;
-    const SLOPE = 1.2;
+    const SLOPE = 0.5; /* vertical scroll wins over horizontal swipe */
     let startY = 0;
     const addDrag = (el) => {
       el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
@@ -468,7 +468,7 @@
     const onEnd = () => { onEndRestoreTransition(); if (autoScrollId) return; startAutoScroll(); };
     let startY = 0;
     let isHorizontalSwipe = null;
-    const SWIPE_SLOPE = 1.2;
+    const SWIPE_SLOPE = 0.5; /* vertical scroll wins over horizontal swipe */
     const addDrag = (el) => {
       el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = () => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
       let touching = false;

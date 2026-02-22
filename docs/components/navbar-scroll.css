@@ -1,4 +1,4 @@
-/* Navbar: fixed, hide on scroll down, reappear with slide on scroll up */
+/* Navbar: fixed at top, no animation */
 .home-container .navbar-interactive-container,
 .gallery-container .navbar-interactive-container,
 .contact-container .navbar-interactive-container,
@@ -9,18 +9,14 @@
   right: 0 !important;
   width: 100% !important;
   z-index: 300;
-  transition: transform 0.45s ease-out;
 }
 
-.navbar-interactive-container.gc-navbar-hidden {
-  transform: translateY(-100%) !important;
-}
-
-/* Reserve space so content isn't hidden under fixed navbar */
+/* Reserve space so content is visible below fixed navbar */
 .home-container,
 .gallery-container,
 .contact-container {
-  padding-top: 92px !important;
+  padding-top: 110px !important;
+  box-sizing: border-box !important;
 }
 
 /* Desktop: bigger navbar items */
