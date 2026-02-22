@@ -650,7 +650,7 @@
 
     pumpAttachmentPreviewQueue(){
       try{
-        const max = this._attachmentPreviewMax || 4;
+        const max = this._attachmentPreviewMax ?? 12;
         while ((this._attachmentPreviewRunning || 0) < max && this._attachmentPreviewQueue.length){
           const item = this._attachmentPreviewQueue.shift();
           this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
@@ -666,7 +666,7 @@
               this.pumpAttachmentPreviewQueue();
             }
           };
-          setTimeout(()=> Promise.resolve(run()).catch(()=>{}), 0);
+          Promise.resolve(run()).catch(()=>{});
         }
       }catch(_){ }
     }
@@ -701,10 +701,11 @@
       const previewNameMatch = /\[(?:Attachment|File)\]\s+(.+)$/i.exec(preview);
       const previewName = previewNameMatch ? String(previewNameMatch[1] || '').trim() : '';
       if (previewName && /\.[a-z0-9]{2,6}$/i.test(previewName)) return previewName;
-      if (/^\[voice message\]/i.test(plain) || /\bvoice\b|\baudio\b/i.test(preview) || /\bvoice\b|\baudio\b/i.test(url)) return 'voice.webm';
+      if (/^\[voice message\]/i.test(plain)) return 'voice.webm';
       if (/^\[video message\]/i.test(plain) || /\bvideo\b/i.test(preview) || /\bvideo\b/i.test(url)) return 'video.webm';
       if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video.mp4';
-      if (/\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.test(url)) return 'voice.webm';
+      const audioExt = /\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.exec(url);
+      if (audioExt) return `audio.${audioExt[1].toLowerCase()}`;
       if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return 'image.jpg';
       return '';
     }
@@ -759,16 +760,6 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
-      const waveConnectBtn = document.createElement('button');
-      waveConnectBtn.className = 'btn secondary';
-      waveConnectBtn.textContent = 'Add from WaveConnect';
-      waveConnectBtn.style.marginBottom = '8px';
-      waveConnectBtn.onclick = ()=>{
-        panel.remove();
-        backdrop.remove();
-        this.openWaveConnectPickerForComposer();
-      };
-      panel.appendChild(waveConnectBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -1749,10 +1740,12 @@
 
     isSameMediaSrc(a, b){
       if (!a || !b) return false;
+      if (a === b) return true;
       const na = this.normalizeMediaSrc(a);
       const nb = this.normalizeMediaSrc(b);
       if (!na || !nb) return false;
       if (na === nb) return true;
+      if (/^blob:/i.test(na) && /^blob:/i.test(nb)) return na === nb;
       if (/^blob:/i.test(na) || /^blob:/i.test(nb)) return false;
       return na.endsWith(nb) || nb.endsWith(na);
     }
@@ -3069,7 +3062,6 @@
               for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
               this._lastDocIdsByConn.set(activeConnId, docsPrimary.map(x=> x.id));
               this._lastDayByConn.set(activeConnId, lastRenderedDay);
-              if (pinnedBefore) box.scrollTop = 0;
               updateBottomUi();
               this.applyNewMessagesSeparator(box);
               loadFinished = true;
@@ -3101,9 +3093,6 @@
               }catch(_){ }
             });
             this._latestPeerMessageMsByConn.set(activeConnId, latestPeerMs);
-            const prevTop = box.scrollTop;
-            const prevHeight = box.scrollHeight;
-            const pinnedBefore = box.scrollTop <= 36;
             let lastRenderedDay = this._lastDayByConn.get(activeConnId) || '';
             const prevIds = this._lastDocIdsByConn.get(activeConnId) || [];
             const isFirstPaint = renderedConnId !== activeConnId;
@@ -3397,16 +3386,7 @@
               return;
             }
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
-            const doScroll = ()=>{
-              if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
-              const prevBh = box.style.scrollBehavior;
-              box.style.scrollBehavior = 'auto';
-              if (pinnedBefore) box.scrollTop = 0;
-              else box.scrollTop = prevTop;
-              box.style.scrollBehavior = prevBh || '';
-              updateBottomUi();
-            };
-            requestAnimationFrame(()=> requestAnimationFrame(doScroll));
+            updateBottomUi();
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
             if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3451,16 +3431,7 @@
           }
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
-          const finalScrollTop = pinnedBefore ? 0 : prevTop;
-          const doScroll = ()=>{
-            if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId || !box.isConnected) return;
-            const prevBehavior = box.style.scrollBehavior;
-            box.style.scrollBehavior = 'auto';
-            box.scrollTop = finalScrollTop;
-            box.style.scrollBehavior = prevBehavior || '';
-            updateBottomUi();
-          };
-          requestAnimationFrame(()=> requestAnimationFrame(doScroll));
+          updateBottomUi();
           this.applyNewMessagesSeparator(box);
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3734,8 +3705,6 @@
               await this.yieldToUi();
             }
           }
-          const doScroll = ()=>{ const prevBh = box.style.scrollBehavior; box.style.scrollBehavior = 'auto'; box.scrollTop = 0; box.style.scrollBehavior = prevBh || ''; };
-          requestAnimationFrame(()=> requestAnimationFrame(doScroll));
           box.dataset.renderedConnId = activeConnId;
           const rawFallback = snap.docs || [];
           if (rawFallback.length > 0){
@@ -6092,7 +6061,8 @@
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
         this.enqueueVoiceWaveHydrate(widget, barsCount, keySeed, { priority: true });
-        if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url)){
+        const isThisPlaying = !!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) || (!!widget.srcKey && this._voiceCurrentAttachmentKey === widget.srcKey)) && !p.paused;
+        if (!this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && !(!!widget.srcKey && this._voiceCurrentAttachmentKey === widget.srcKey)){
           this._topMediaEl = null;
           this._voiceCurrentSrc = url;
           this._voiceCurrentAttachmentKey = widget.srcKey || '';
@@ -6115,7 +6085,6 @@
           p.play().catch(()=>{});
           this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
         } else {
-          // Keep stable behavior: pause/resume on tap; hard stop only via top-strip close.
           this._voiceUserIntendedPlay = false;
           p.pause();
         }
@@ -6460,7 +6429,8 @@
       playBtn.addEventListener('click', (e)=>{
         try{ e.stopPropagation(); }catch(_){ }
         const p = this.ensureChatBgPlayer();
-        if (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) && !p.paused){
+        const isThisPlaying = (!!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), src) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey))) && !p.paused;
+        if (isThisPlaying){
           this._voiceUserIntendedPlay = false;
           p.pause();
           this.updateVoiceWidgets();
@@ -6544,7 +6514,8 @@
         playBtn.addEventListener('click', (e)=>{
           try{ e.stopPropagation(); }catch(_){ }
           const p = this.ensureChatBgPlayer();
-          if (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) && !p.paused){ this._voiceUserIntendedPlay = false; p.pause(); this.updateVoiceWidgets(); return; }
+          const isThisPlaying = (!!this.getChatPlayerSrc(p) && (this.isSameMediaSrc(this.getChatPlayerSrc(p), url) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey))) && !p.paused;
+          if (isThisPlaying){ this._voiceUserIntendedPlay = false; p.pause(); this.updateVoiceWidgets(); return; }
           this.playChatAudioInBgPlayer({ src: url, title, by: '', cover: '', sourceKey });
           sync();
         });
@@ -7207,6 +7178,8 @@
 
     renderDirectAttachment(containerEl, fileUrl, fileName, message = null, senderDisplayName = '', pickerMode = false){
       try{
+        if (!containerEl?.isConnected) return;
+        containerEl.innerHTML = '';
         let name = String(fileName || '');
         const isVideoRecording = this.isVideoRecordingMessage(message, name);
         if (!name && fileUrl){
