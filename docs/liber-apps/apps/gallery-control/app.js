@@ -382,12 +382,16 @@
     const svc = getFirebaseService();
     const user = svc.auth?.currentUser;
     if (!user?.uid) throw new Error('You must be signed in to upload');
-    const storage = firebase.getStorage(svc.app);
+    if (!file || typeof file.name !== 'string') throw new Error('Invalid file');
+    if (!svc?.app) throw new Error('Firebase app not ready');
+    const fb = (window.parent && window.parent !== window && window.parent.firebase) ? window.parent.firebase : window.firebase;
+    if (!fb?.getStorage || !fb?.ref) throw new Error('Storage not available');
+    const storage = fb.getStorage(svc.app);
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
     const path = `gallery/${user.uid}/${projectId}/${itemId}/media_0.${ext}`;
-    const ref = firebase.ref(storage, path);
-    await firebase.uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    const url = await firebase.getDownloadURL(ref);
+    const storageRef = fb.ref(storage, path);
+    await fb.uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
+    const url = await fb.getDownloadURL(storageRef);
     return url;
   }
 
@@ -429,6 +433,7 @@
         const baseOrder = orders.length ? Math.max(0, ...orders) : 0;
         for (let i = 0; i < mediaFiles.length; i++) {
           const file = mediaFiles[i];
+          if (!(file instanceof File)) continue;
           const isVideo = file.type.startsWith('video/');
           const itemPayload = { type: isVideo ? 'video' : 'image', sortOrder: baseOrder + i, isPublished: payload.isPublished, ownerId: uid };
           const item = await svc.createGalleryItem(current.id, itemPayload);
@@ -443,6 +448,7 @@
         byId('project-id').value = created.id;
         for (let i = 0; i < mediaFiles.length; i++) {
           const file = mediaFiles[i];
+          if (!(file instanceof File)) continue;
           const isVideo = file.type.startsWith('video/');
           const itemPayload = { type: isVideo ? 'video' : 'image', sortOrder: i, isPublished: payload.isPublished, ownerId: uid };
           const item = await svc.createGalleryItem(created.id, itemPayload);
