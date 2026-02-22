@@ -334,8 +334,8 @@
 
   async function uploadMediaFile(file, projectId, itemId) {
     const svc = getFirebaseService();
-    const user = svc.auth.currentUser;
-    if (!user || !user.uid) throw new Error('You must be signed in to upload');
+    const user = svc.auth?.currentUser;
+    if (!user?.uid) throw new Error('You must be signed in to upload');
     const storage = firebase.getStorage(svc.app);
     const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
     const path = `gallery/${user.uid}/${projectId}/${itemId}/media_0.${ext}`;

@@ -385,7 +385,7 @@ class FirebaseService {
         
         return true;
     }
-    
+
     /**
      * Check if Firebase is available and initialized
      */

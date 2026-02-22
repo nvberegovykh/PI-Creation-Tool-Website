@@ -506,21 +506,13 @@ class AppsManager {
             }
         ];
 
-        // Filter out apps that don't have actual HTML files
         const validApps = [];
         for (const app of availableApps) {
-            // Keep internal anchor apps without fetching
             if (app.path && app.path.startsWith('#')) { validApps.push(app); continue; }
             try {
-                const response = await fetch(app.path);
-                if (response.ok) {
-                    validApps.push(app);
-                }
-            } catch (error) {
-                console.warn(`App ${app.name} not found at ${app.path}`);
-            }
+                if ((await fetch(app.path)).ok) validApps.push(app);
+            } catch (_) {}
         }
-
         return validApps;
     }
 
@@ -542,26 +534,7 @@ class AppsManager {
     }
 
     _isAdmin() {
-        if (window.dashboardManager && window.dashboardManager._isAdminSession) return true;
-        try {
-            const am = window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
-            if (String(am?.role ?? '').toLowerCase() === 'admin') return true;
-        } catch (_) {}
-        try {
-            const raw = localStorage.getItem('liber_session');
-            if (raw) {
-                const sess = JSON.parse(raw);
-                if (String(sess?.user?.role ?? sess?.role ?? '').toLowerCase() === 'admin') return true;
-            }
-        } catch (_) {}
-        try {
-            const rawUser = localStorage.getItem('liber_current_user');
-            if (rawUser) {
-                const user = JSON.parse(rawUser);
-                if (String(user?.role ?? '').toLowerCase() === 'admin') return true;
-            }
-        } catch (_) {}
-        return false;
+        return !!(window.dashboardManager?._isAdminSession || (window.authManager && window.authManager.isAdmin && window.authManager.isAdmin()));
     }
 
     /**

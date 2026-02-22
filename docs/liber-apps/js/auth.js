@@ -13,10 +13,23 @@ class AuthManager {
 
     async init() {
         try {
-            // Wait for cryptoManager to be available
+            // Restore currentUser from storage immediately (before any await) so admin checks work
+            try {
+                const raw = localStorage.getItem('liber_current_user');
+                if (raw) {
+                    const u = JSON.parse(raw);
+                    if (u && (u.id || u.uid)) this.currentUser = { id: u.id || u.uid, username: u.username, email: u.email, role: u.role || 'user' };
+                }
+                if (!this.currentUser) {
+                    const sess = localStorage.getItem('liber_session');
+                    if (sess) {
+                        const parsed = JSON.parse(sess);
+                        const user = parsed?.user;
+                        if (user && (user.id || user.uid)) this.currentUser = { id: user.id || user.uid, username: user.username, email: user.email, role: user.role || 'user' };
+                    }
+                }
+            } catch (_) {}
             await this.waitForCryptoManager();
-            
-            // Check for existing session
             this.checkSession();
             
             // Setup event listeners
