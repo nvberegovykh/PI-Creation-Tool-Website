@@ -47,7 +47,7 @@
       this._connectingCid = null;
       this._activeCid = null;
       this._joinRetryTimer = null;
-      this._forceRelay = false; // Prefer mixed ICE; TURN is still included in iceServers.
+      this._forceRelay = true; // Default relay-first for hostile/mobile networks.
       this._pcWatchdogs = new Map(); // key: callId:peerUid -> {t1,t2}
       this._msgLoadSeq = 0;
       this._connLoadSeq = 0;
@@ -1480,7 +1480,7 @@
                     const urls = Array.isArray(s?.urls) ? s.urls : (s?.urls ? [s.urls] : []);
                     return urls.some((u)=> String(u || '').startsWith('turn'));
                   });
-                  expanded.unshift({ urls: baseStun });
+                  if (!this._forceRelay) expanded.unshift({ urls: baseStun });
                   if (!hasTurn) expanded.push(emergencyRelay);
                   return expanded;
                 }
@@ -1489,7 +1489,7 @@
           }
         }
       }catch(_){ /* ignore */ }
-      return [ { urls: baseStun }, emergencyRelay ];
+      return this._forceRelay ? [ emergencyRelay ] : [ { urls: baseStun }, emergencyRelay ];
     }
 
     async init() {

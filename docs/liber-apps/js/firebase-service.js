@@ -169,13 +169,18 @@ class FirebaseService {
             
             // Enable offline persistence for Firestore (modular API)
             try {
-                // Prefer single-tab persistence to avoid noisy primary-lease contention.
-                if (firebase.enableIndexedDbPersistence) {
-                    await firebase.enableIndexedDbPersistence(this.db);
-                    console.log('✅ Firestore offline persistence enabled');
+                // Stability-first: disable Firestore IndexedDB persistence by default.
+                // This avoids primary-lease contention and internal assertion crashes
+                // when multiple tabs/webviews open with mixed persistence modes.
+                const forceEnable = localStorage.getItem('liber_enable_firestore_persistence') === '1';
+                if (!forceEnable) {
+                    console.log('ℹ️ Firestore persistence disabled for runtime stability');
                 } else if (firebase.enableMultiTabIndexedDbPersistence) {
                     await firebase.enableMultiTabIndexedDbPersistence(this.db);
                     console.log('✅ Firestore multi-tab offline persistence enabled');
+                } else if (firebase.enableIndexedDbPersistence) {
+                    await firebase.enableIndexedDbPersistence(this.db);
+                    console.log('✅ Firestore offline persistence enabled');
                 } else {
                     console.log('ℹ️ Firestore persistence APIs not exposed; skipping');
                 }
