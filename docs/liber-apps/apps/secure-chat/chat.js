@@ -1839,7 +1839,7 @@
         if (!videosCont){
           videosCont = document.createElement('div');
           videosCont.id = 'call-videos';
-          videosCont.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;';
+          videosCont.className = 'call-videos';
           const overlay = document.getElementById('call-overlay');
           if (overlay) overlay.appendChild(videosCont);
         }
@@ -8395,6 +8395,24 @@
       }catch(_){ }
     }
 
+  _screenShareSupport(){
+    try{
+      const hasApi = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+      const ua = String(navigator.userAgent || '');
+      const isiPhone = /iPhone/i.test(ua);
+      const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS/i.test(ua);
+      if (isiPhone && isSafari){
+        return { supported: false, reason: 'Screen sharing is not supported on Safari iPhone.' };
+      }
+      if (!hasApi){
+        return { supported: false, reason: 'Screen sharing is not supported on this browser.' };
+      }
+      return { supported: true, reason: '' };
+    }catch(_){
+      return { supported: false, reason: 'Screen sharing is not supported on this browser.' };
+    }
+  }
+
     _notifyParentCallState(){
       try{
         if (window.self === window.top) return;
@@ -8772,7 +8790,7 @@
     if (endBtn) endBtn.innerHTML = '<i class="fas fa-xmark"></i>';
     if (micBtn) micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
     if (camBtn) camBtn.innerHTML = '<i class="fas fa-video"></i>';
-    if (shareBtn) shareBtn.innerHTML = '<i class="fas fa-display"></i>';
+    if (shareBtn) shareBtn.innerHTML = '<i class="fas fa-desktop"></i>';
     if (hideBtn) hideBtn.innerHTML = '<i class="fas fa-down-left-and-up-right-to-center"></i>';
     if (showBtn) showBtn.innerHTML = '<i class="fas fa-phone-volume"></i>';
     this._layoutCallOverlay();
@@ -8850,14 +8868,21 @@
       camBtn.classList.toggle('muted', !this._videoEnabled);
     };
     if (shareBtn) shareBtn.style.display = '';
+    const screenShareSupport = this._screenShareSupport();
+    if (shareBtn){
+      shareBtn.disabled = !screenShareSupport.supported;
+      shareBtn.classList.toggle('muted', !screenShareSupport.supported);
+      shareBtn.title = screenShareSupport.supported ? 'Share screen' : screenShareSupport.reason;
+    }
     if (shareBtn) shareBtn.onclick = async () => {
+      const support = this._screenShareSupport();
+      if (!support.supported){
+        alert(`${support.reason} Use Android Chrome or desktop browser for screen sharing.`);
+        return;
+      }
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setScreenShareEnabled){
         try{
           const next = !this._screenSharing;
-          if (next && (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia)){
-            alert('Screen sharing is not supported on this mobile browser. Try Android Chrome or desktop browser.');
-            return;
-          }
           await this._sfuRoom.localParticipant.setScreenShareEnabled(next);
           this._screenSharing = next;
           this._attachSfuLocalPreview();
@@ -9018,7 +9043,7 @@
     if (!videosCont) {
       videosCont = document.createElement('div');
       videosCont.id = 'call-videos';
-      videosCont.style.cssText = 'display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;';
+      videosCont.className = 'call-videos';
       const overlay = document.getElementById('call-overlay');
       if (overlay) overlay.appendChild(videosCont);
     }
@@ -9275,7 +9300,7 @@
     if (!videosCont) {
       videosCont = document.createElement('div');
       videosCont.id = 'call-videos';
-      videosCont.style.cssText = 'display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;';
+      videosCont.className = 'call-videos';
       const overlay = document.getElementById('call-overlay');
       if (overlay) overlay.appendChild(videosCont);
     }
@@ -10117,17 +10142,24 @@
       try {
         const callConnId = this.getCallConnId();
         if (!callConnId) return;
-        const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
-        if (!connSnap.exists()) return;
-        const conn = connSnap.data();
+        let conn = null;
+        try{
+          const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
+          if (connSnap.exists()) conn = connSnap.data();
+        }catch(_){ conn = null; }
         const inCall = (this._activePCs && this._activePCs.size > 0) || this._isSfuConnected();
-        const peerUids = (this._activePCs && this._activePCs.size > 0)
+        let peerUids = (this._activePCs && this._activePCs.size > 0)
           ? Array.from(this._activePCs.keys())
-          : this.getConnParticipants(conn);
+          : this.getConnParticipants(conn || {});
+        if ((!peerUids || !peerUids.length) && this._sfuRoom){
+          try{
+            peerUids = [this.currentUser?.uid, ...Array.from(this._sfuRoom.remoteParticipants.keys())].filter(Boolean);
+          }catch(_){ }
+        }
         const uniq = Array.from(new Set(peerUids.filter(Boolean)));
         const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;
-          const p = this._peersPresence[uid] || { state: 'idle', hasVideo: false };
+          const p = this._peersPresence[uid] || { state: (this._isSfuConnected() ? 'connected' : 'idle'), hasVideo: false };
           let cached = this.usernameCache.get(uid);
           const cachedAvatar = (cached && typeof cached === 'object') ? String(cached.avatarUrl || '').trim() : '';
           if (!cachedAvatar) {
