@@ -239,12 +239,6 @@
       return !!window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
     }
 
-    _nameFromEmail(email){
-      const e = String(email || '').trim();
-      if (!e || !e.includes('@')) return e;
-      return e.split('@')[0] || e;
-    }
-
     _displayName(userLike, fallbackUid = ''){
       const u = userLike || {};
       const raw = String(u.username || '').trim();
@@ -1443,6 +1437,7 @@
         });
         return out;
       };
+      const hasAuthUser = !!(window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser);
       try{
         // 1) Optional static TURN from secure keys (fallback only)
         let regionPref = 'europe-west1';
@@ -1457,7 +1452,7 @@
         }
         // 2) Fetch Twilio ephemeral ice_servers from our backend.
         //    Keep as close as possible to Twilio docs: use returned list as-is.
-        if (window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser){
+        if (hasAuthUser){
           const idToken = await window.firebaseService.auth.currentUser.getIdToken(true);
           let runAppUrl = null;
           try{ const keys = await window.secureKeyManager.getKeys(); runAppUrl = keys && (keys.turnFunctionUrl || keys.turn?.functionUrl) || null; }catch(_){ runAppUrl = null; }
@@ -1498,11 +1493,26 @@
           }
         }
         // 3) Static TURN fallback (if present)
-        if (typeof staticTurn === 'object' && staticTurn){
+        if (!hasAuthUser && typeof staticTurn === 'object' && staticTurn){
           return this._forceRelay ? keepTurnOnly([staticTurn, emergencyRelay]) : [ { urls: baseStun }, staticTurn, emergencyRelay ];
         }
       }catch(_){ /* ignore */ }
+      // In authenticated relay mode, fail closed instead of silently using non-Twilio fallback.
+      if (hasAuthUser && this._forceRelay) return [];
       return this._forceRelay ? keepTurnOnly([ emergencyRelay ]) : [ { urls: baseStun }, emergencyRelay ];
+    }
+
+    async getRequiredIceServers(){
+      const servers = await this.getIceServers();
+      const asArray = (urls)=> Array.isArray(urls) ? urls : (urls ? [urls] : []);
+      const hasTurn = (servers || []).some((s)=> asArray(s?.urls).some((u)=> /^turns?:/i.test(String(u || ''))));
+      const hasTwilioTurn = (servers || []).some((s)=> asArray(s?.urls).some((u)=> /\.turn\.twilio\.com/i.test(String(u || ''))));
+      const hasAuthUser = !!(window.firebaseService && window.firebaseService.auth && window.firebaseService.auth.currentUser);
+      if (!hasTurn) throw new Error('No TURN servers available');
+      if (this._forceRelay && hasAuthUser && !hasTwilioTurn){
+        throw new Error('Twilio TURN unavailable');
+      }
+      return servers;
     }
 
     async init() {
@@ -2664,8 +2674,8 @@
       const seen = new Set();
       const getCachedName = (uid, fallback = '')=>{
         const cached = this.usernameCache.get(uid);
-        if (cached && typeof cached === 'object') return this._displayName(cached, uid) || fallback;
-        return this._displayName({ username: cached }, uid) || fallback;
+        if (cached && typeof cached === 'object') return String(cached.username || '').trim() || fallback;
+        return String(cached || '').trim() || fallback;
       };
       const getCachedAvatar = (uid)=>{
         const direct = this._avatarCache.get(uid);
@@ -2679,14 +2689,14 @@
         try{
           const parts = Array.isArray(c.participants)? c.participants:[];
           const names = Array.isArray(c.participantUsernames)? c.participantUsernames:[];
-          const hasEmailLike = names.some((n)=> String(n || '').includes('@'));
-          if (parts.length && (names.length !== parts.length || hasEmailLike)){
+          if (parts.length && names.length !== parts.length){
             const enriched = [];
-            for (const uid of parts){
-              if (uid === this.currentUser.uid){ enriched.push(this._displayName(this.me || {}, this.currentUser.uid)); continue; }
+            for (let i = 0; i < parts.length; i++){
+              const uid = parts[i];
+              if (uid === this.currentUser.uid){ enriched.push(String(this.me?.username || 'You')); continue; }
               const candidate = getCachedName(uid, '');
               if (candidate) enriched.push(candidate);
-              else enriched.push(this._displayName({ username: names[parts.indexOf(uid)] || '' }, uid));
+              else enriched.push(String(names[i] || '').trim() || uid.slice(0,8));
             }
             c.participantUsernames = enriched;
           }
@@ -2767,7 +2777,10 @@
             const unsub = firebase.onSnapshot(ref, (snap)=>{
               if (!snap.exists()) return;
               const d = snap.data() || {};
-              const name = this._displayName(d, uid);
+              const existing = this.usernameCache.get(uid);
+              const existingName = (existing && typeof existing === 'object') ? String(existing.username || '').trim() : String(existing || '').trim();
+              const nextName = String(d.username || '').trim();
+              const name = nextName || existingName || uid.slice(0,8);
               const avatar = String(d.avatarUrl || '../../images/default-bird.png');
               const prevObj = this.usernameCache.get(uid);
               const prevName = (prevObj && typeof prevObj === 'object') ? prevObj.username : prevObj;
@@ -2936,7 +2949,7 @@
                 btn.onclick = async ()=>{
                   try{
                     const participants = parts.slice(); const names = (data.participantUsernames||[]).slice();
-                    if (!participants.includes(this.currentUser.uid)){ participants.push(this.currentUser.uid); names.push((this.me&&this.me.username)||this.currentUser.email||'me'); }
+                    if (!participants.includes(this.currentUser.uid)){ participants.push(this.currentUser.uid); names.push(this._displayName(this.me || {}, this.currentUser.uid)); }
                     const newKey = this.computeConnKey(participants);
                     let newId = await this.findConnectionByKey(newKey);
                     if (!newId){
@@ -8333,8 +8346,16 @@
     lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
     for (const peerUid of participants){
       const offerToken = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+      let requiredIceServers;
+      try{
+        requiredIceServers = await this.getRequiredIceServers();
+      }catch(e){
+        console.warn('[call] TURN unavailable for startMultiCall', e?.message || e);
+        if (statusEl) statusEl.textContent = 'Call network unavailable (TURN). Deploy getTurnConfig and Twilio secrets.';
+        return;
+      }
       const pc = new RTCPeerConnection({
-        iceServers: await this.getIceServers(),
+        iceServers: requiredIceServers,
         iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
       });
       pc.oniceconnectionstatechange = () => {
@@ -8591,8 +8612,18 @@
     console.log('[call] joinMultiCall', { callId, callConnId, fromUid: offer?.fromUid || null });
     const peerUid = offer.fromUid;
 
+    let requiredIceServers;
+    try{
+      requiredIceServers = await this.getRequiredIceServers();
+    }catch(e){
+      console.warn('[call] TURN unavailable for joinMultiCall', e?.message || e);
+      const cs = document.getElementById('call-status');
+      if (cs) cs.textContent = 'Call network unavailable (TURN).';
+      this._joiningCall = false;
+      return;
+    }
     const pc = new RTCPeerConnection({
-      iceServers: await this.getIceServers(),
+      iceServers: requiredIceServers,
       iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
     });
     pc.oniceconnectionstatechange = () => {
@@ -8843,7 +8874,7 @@
         const config = { audio: true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
-          iceServers: await this.getIceServers(),
+          iceServers: await this.getRequiredIceServers(),
           iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
@@ -8940,7 +8971,7 @@
         const config = { audio:true, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
-          iceServers: await this.getIceServers(),
+          iceServers: await this.getRequiredIceServers(),
           iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
         });
         window._pc = pc; // debug handle
