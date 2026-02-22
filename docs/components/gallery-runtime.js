@@ -408,26 +408,27 @@
   }
 
   function mountFullWidth(host, projects, projectById) {
-    const count = Number(host.dataset.cardCount || 10);
+    const count = Number(host.dataset.cardCount || 10) || 999;
     const selected = pickProjects(projects, count);
     if (!selected.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
+    const noDuplicates = host.dataset.noDuplicates === 'true' || host.dataset.noDuplicates === '';
     const gap = 18;
     const cardWidth = 420 + gap;
     let displaySet = selected.slice();
-    /* 2 sets for loop; if still shorter than viewport, add one more set (max 3 sets to limit duplicates) */
-    const renderTrack = () => {
+    const renderTrack = (numSets) => {
       const base = displaySet.map((p) => buildCard(p, 'gc-card--full'));
-      const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
-      const setW = displaySet.length * cardWidth;
-      const needSets = setW >= vw ? 2 : Math.min(3, Math.ceil(vw / setW) + 1);
+      if (numSets <= 1) return base.join('');
       const out = [];
-      for (let i = 0; i < needSets; i++) out.push(...base);
+      for (let i = 0; i < numSets; i++) out.push(...base);
       return out.join('');
     };
-    host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack()}</div></div>`;
+    const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
+    const setW = displaySet.length * cardWidth;
+    const needSets = noDuplicates ? 1 : (setW >= vw ? 2 : Math.min(3, Math.ceil(vw / setW) + 1));
+    host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack(needSets)}</div></div>`;
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
     let offset = 0;
@@ -437,17 +438,21 @@
     const setWidth = () => displaySet.length * cardWidth;
     const cycleReset = () => {
       track.style.transition = 'none';
-      offset %= setWidth();
-      if (offset < 0) offset += setWidth();
-      displaySet = shuffle(displaySet.slice());
-      track.innerHTML = renderTrack();
-      wireRotations(host, projectById);
-      wireCardIntro(host);
+      if (noDuplicates) {
+        offset = 0;
+      } else {
+        offset %= setWidth();
+        if (offset < 0) offset += setWidth();
+        displaySet = shuffle(displaySet.slice());
+        track.innerHTML = renderTrack(needSets);
+        wireRotations(host, projectById);
+        wireCardIntro(host);
+      }
       requestAnimationFrame(() => { track.style.transition = ''; });
     };
     const getViewW = () => wrap.offsetWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
     const update = () => {
-      const totalW = track.offsetWidth || setWidth() * 3;
+      const totalW = track.offsetWidth || setWidth() * (noDuplicates ? 1 : 3);
       const viewW = getViewW();
       const maxO = Math.max(0, totalW - viewW);
       offset = Math.max(0, Math.min(offset, maxO));

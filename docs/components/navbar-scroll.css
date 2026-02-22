@@ -9,13 +9,14 @@
   right: 0 !important;
   width: 100% !important;
   z-index: 300;
+  background-color: #000000 !important;
 }
 
-/* Reserve space so content is visible below fixed navbar */
+/* Reserve space so content is visible below fixed navbar (includes submenu zone) */
 .home-container,
 .gallery-container,
 .contact-container {
-  padding-top: 110px !important;
+  padding-top: 160px !important;
   box-sizing: border-box !important;
 }
 

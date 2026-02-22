@@ -1157,8 +1157,11 @@
   align-self: flex-start;
   text-align: center;
 }
-.contact6-email {
-  text-decoration: underline none;
+.contact6-email,
+a[href^="mailto:"] {
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
 }
 .contact6-content5 {
   gap: var(--dl-space-space-unit);

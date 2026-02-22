@@ -73,6 +73,7 @@
       href="https://unpkg.com/@teleporthq/teleport-custom-scripts/dist/style.css"
     />
     <link href="./components/navbar-scroll.css" rel="stylesheet" />
+    <link href="./components/navbar-submenu.css" rel="stylesheet" />
   </head>
   <body>
     <link rel="stylesheet" href="./style.css" />
@@ -202,7 +203,7 @@
             </header>
           </div>
         </navbar-interactive-wrapper>
-        <pricing10-wrapper class="pricing10-wrapper">
+        <pricing10-wrapper id="gc-pricing-source" class="pricing10-wrapper">
           <!--Pricing10 component-->
           <div class="pricing10-pricing23 thq-section-padding">
             <div class="pricing10-max-width thq-section-max-width">
@@ -518,11 +519,7 @@
                         href="mailto:nvberegovykh@liberpict.com?subject=Request"
                         class="contact6-email thq-body-small"
                       >
-                        <fragment class="contact-fragment14">
-                          <span class="contact-text21">
-                            nvberegovykh@liberpict.com
-                          </span>
-                        </fragment>
+                        nvberegovykh@liberpict.com
                       </a>
                     </div>
                   </div>
@@ -554,13 +551,10 @@
                   </div>
                 </div>
               </div>
-              <div class="contact6-content6 thq-flex-row">
-                <section data-gallery-template="tile" data-card-count="4"></section>
-              </div>
             </div>
           </div>
         </contact6-wrapper>
-        <section data-gallery-template="full-width-slider" data-card-count="8"></section>
+        <section data-gallery-template="full-width-slider" data-card-count="99" data-no-duplicates="true"></section>
         <footer15-wrapper
           class="footer15-wrapper"
           rootclassname="footer15undefined"
@@ -587,32 +581,7 @@
                       href="mailto:nvberegovykh@liberpict.com?subject=Request"
                       class="footer15-link1"
                     >
-                      <fragment class="contact-fragment18">
-                        <span class="contact-text25">
-                          nvberegovykh@liberpict.com
-                        </span>
-                      </fragment>
-                    </a>
-                    <span class="thq-body-small">
-                      <fragment class="contact-fragment20">
-                        <span class="contact-text27">
-                          <span>products:</span>
-                          <br />
-                        </span>
-                      </fragment>
-                    </span>
-                    <a
-                      href="magenta.html"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      class="footer15-content13 thq-body-small"
-                    >
-                      <fragment class="contact-fragment23">
-                        <span class="contact-text32">
-                          <span class="contact-text33">magenta</span>
-                          <br />
-                        </span>
-                      </fragment>
+                      nvberegovykh@liberpict.com
                     </a>
                   </div>
                   <div class="footer15-media">
@@ -669,6 +638,7 @@
     <script src="./liber-apps/js/secure-keys.js"></script>
     <script src="./components/gallery-runtime.js"></script>
     <script src="./components/navbar-scroll.js"></script>
+    <script src="./components/navbar-submenu.js"></script>
     <script defer="" src="https://unpkg.com/@teleporthq/teleport-custom-scripts"></script>
   </body>
 </html>
