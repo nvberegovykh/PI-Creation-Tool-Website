@@ -650,7 +650,7 @@
 
     pumpAttachmentPreviewQueue(){
       try{
-        const max = this._attachmentPreviewMax ?? 12;
+        const max = this._attachmentPreviewMax ?? 6;
         while ((this._attachmentPreviewRunning || 0) < max && this._attachmentPreviewQueue.length){
           const item = this._attachmentPreviewQueue.shift();
           this._attachmentPreviewRunning = (this._attachmentPreviewRunning || 0) + 1;
@@ -781,7 +781,11 @@
         panel.remove();
         backdrop.remove();
         if (!this.activeConnection) return;
-        this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
+        if (a && a.sharedAsset && typeof a.sharedAsset === 'object'){
+          this.queueRemoteSharedAssets([{ sharedAsset: a.sharedAsset }]);
+        } else {
+          this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
+        }
         this.refreshActionButton();
       };
       const makeRow = (a)=>{
@@ -905,7 +909,20 @@
           const sWave = await firebase.getDocs(qWave);
           sWave.forEach((d)=>{
             const w = d.data() || {};
-            if (w.url) out.push({ fileUrl: w.url, fileName: `${w.title || 'Audio'}.mp3`, coverUrl: w.coverUrl || w.cover || null, sentAt: w.createdAt || new Date().toISOString(), mediaKind: 'audio' });
+            if (w.url) out.push({
+              fileUrl: w.url,
+              fileName: `${w.title || 'Audio'}.mp3`,
+              coverUrl: w.coverUrl || w.cover || null,
+              sentAt: w.createdAt || new Date().toISOString(),
+              mediaKind: 'audio',
+              sharedAsset: {
+                kind: 'audio',
+                url: w.url,
+                title: String(w.title || 'Audio'),
+                by: String(w.authorName || w.by || ''),
+                cover: String(w.coverUrl || w.cover || '')
+              }
+            });
           });
         }catch(_){ }
         try{
@@ -924,7 +941,14 @@
               fileUrl: v.url,
               fileName: `${v.title || (inferredKind === 'image' ? 'Picture' : 'Video')}${ext}`,
               sentAt: v.createdAt || new Date().toISOString(),
-              mediaKind: inferredKind
+              mediaKind: inferredKind,
+              sharedAsset: {
+                kind: inferredKind === 'image' ? 'image' : 'video',
+                url: v.url,
+                title: String(v.title || (inferredKind === 'image' ? 'Picture' : 'Video')),
+                by: String(v.authorName || v.by || ''),
+                cover: ''
+              }
             });
           });
         }catch(_){ }
@@ -949,7 +973,14 @@
                 fileUrl: url,
                 fileName: `${baseName}_${idx + 1}.${ext}`,
                 sentAt: p.createdAt || new Date().toISOString(),
-                mediaKind: inferredKind
+                mediaKind: inferredKind,
+                sharedAsset: {
+                  kind: inferredKind === 'file' ? 'picture' : inferredKind,
+                  url,
+                  title: `${baseName}_${idx + 1}`,
+                  by: String(p.authorName || ''),
+                  cover: ''
+                }
               });
             });
           });
@@ -2780,8 +2811,7 @@
         // column-reverse chat: end-of-chat is near scrollTop = 0.
         const pinned = box.scrollTop <= 36;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
-        const canShow = box.childElementCount > 5;
-        toBottomBtn.style.display = (!pinned && canShow) ? 'inline-block' : 'none';
+        toBottomBtn.style.display = !pinned ? 'inline-block' : 'none';
       };
       const maybeLoadOlder = async ()=>{
         const connId = this.activeConnection;
@@ -2824,7 +2854,7 @@
           const lastMsgEl = box.lastElementChild?.classList?.contains('message') ? box.lastElementChild : null;
           if (lastMsgEl?.dataset?.msgTs){
             const ts = Number(lastMsgEl.dataset.msgTs || 0);
-            if (ts) appendContext.lastRenderedDay = this.formatMessageDay({ createdAt: new Date(ts) }, {});
+            if (ts) appendContext.lastRenderedDay = this.formatMessageDay(ts, {});
           }
           const olderAsDocs = rawOlder.map((d)=> ({ id: d.id, data: d.data ? d.data() : {}, sourceConnId: connId }));
           const renderOne = currentRenderOneForLoadMore;
@@ -3061,7 +3091,12 @@
               newDocs.sort((a,b)=>{ const ta = normalizeDocTime(a.data); const tb = normalizeDocTime(b.data); return ta !== tb ? ta - tb : String(a.id).localeCompare(String(b.id)); });
               for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
               this._lastDocIdsByConn.set(activeConnId, docsPrimary.map(x=> x.id));
-              this._lastDayByConn.set(activeConnId, lastRenderedDay);
+              {
+                const firstMsgNow = box.querySelector('.message');
+                const tsNow = firstMsgNow?.dataset?.msgTs ? Number(firstMsgNow.dataset.msgTs) : 0;
+                const newestDayNow = tsNow > 0 ? this.formatMessageDay(tsNow, {}) : '';
+                this._lastDayByConn.set(activeConnId, newestDayNow || lastRenderedDay);
+              }
               updateBottomUi();
               this.applyNewMessagesSeparator(box);
               loadFinished = true;
@@ -3108,7 +3143,8 @@
             this._lastRenderSigByConn.set(activeConnId, sig);
             const prefixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[i] && docs[i].id === id);
             const suffixMatch = prevIds.length > 0 && docs.length >= prevIds.length && prevIds.every((id, i)=> docs[docs.length - prevIds.length + i] && docs[docs.length - prevIds.length + i].id === id);
-            const appendOnly = renderedConnId === activeConnId && extraIdsInit.length === 0 && (prefixMatch || suffixMatch);
+            const shiftedWindow = prevIds.length > 1 && docs.length === prevIds.length && prevIds.slice(1).every((id, i)=> docs[i] && docs[i].id === id);
+            const appendOnly = renderedConnId === activeConnId && (prefixMatch || suffixMatch || shiftedWindow);
             // Do NOT return here when !appendOnly – we must re-render to show new messages (fixes missing messages in admin/merged chats).
             let renderTarget = box;
             if (!appendOnly){
@@ -3379,7 +3415,12 @@
                 }catch(_){ }
               }
             }
-            if (didMutate) this._lastDayByConn.set(activeConnId, lastDayFromChanges);
+            if (didMutate){
+              const firstMsgNow = box.querySelector('.message');
+              const tsNow = firstMsgNow?.dataset?.msgTs ? Number(firstMsgNow.dataset.msgTs) : 0;
+              const newestDayNow = tsNow > 0 ? this.formatMessageDay(tsNow, {}) : '';
+              this._lastDayByConn.set(activeConnId, newestDayNow || lastDayFromChanges);
+            }
             if (!didMutate){
               loadFinished = true;
               if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3403,7 +3444,7 @@
             const i = iter[idx];
             const d = docsToRender[i];
             try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (idx % 5 === 4) await this.yieldToUi();
+            if (idx % 2 === 1) await this.yieldToUi();
           }
           if (!appendOnly && renderTarget !== box && lastRenderedDay){
             const topSep = document.createElement('div');
@@ -3430,7 +3471,12 @@
           } else if (hasMerged){
             this._hasMoreOlderByConn.set(activeConnId, false);
           }
-          this._lastDayByConn.set(activeConnId, lastRenderedDay);
+          {
+            const firstMsgNow = box.querySelector('.message');
+            const tsNow = firstMsgNow?.dataset?.msgTs ? Number(firstMsgNow.dataset.msgTs) : 0;
+            const newestDayNow = tsNow > 0 ? this.formatMessageDay(tsNow, {}) : '';
+            this._lastDayByConn.set(activeConnId, newestDayNow || lastRenderedDay);
+          }
           box.dataset.renderedConnId = activeConnId;
           updateBottomUi();
           this.applyNewMessagesSeparator(box);
@@ -3703,7 +3749,7 @@
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
-            if ((i % 3) === 2){
+            if ((i % 2) === 1){
               await this.yieldToUi();
             }
           }
@@ -6238,14 +6284,19 @@
         if (!src) return;
         const p = this.ensureChatBgPlayer();
         const seekTo = Number.isFinite(opts.currentTime) && opts.currentTime >= 0 ? opts.currentTime : 0;
+        const sourceKey = String(opts.sourceKey || '').trim();
+        const currentSrc = this.getChatPlayerSrc(p);
+        const sameTrack = (!!currentSrc && this.isSameMediaSrc(currentSrc, src)) || (!!sourceKey && this._voiceCurrentAttachmentKey === sourceKey);
         this._topMediaEl = null;
         this._voiceCurrentSrc = src;
-        this._voiceCurrentAttachmentKey = String(opts.sourceKey || '').trim();
+        this._voiceCurrentAttachmentKey = sourceKey;
         this._voiceCurrentTitle = String(opts.title || 'Audio').trim();
         this.setupMediaSessionForVoice(this._voiceCurrentTitle);
         this.pauseOtherInlineMedia(null);
-        p.src = src;
-        try{ p.load(); }catch(_){ }
+        if (!sameTrack){
+          p.src = src;
+          try{ p.load(); }catch(_){ }
+        }
         if (seekTo > 0){
           const onMeta = ()=>{ try{ if (Number.isFinite(p.duration) && p.duration > 0) p.currentTime = Math.min(seekTo, p.duration); }catch(_){ } p.removeEventListener('loadedmetadata', onMeta); };
           p.addEventListener('loadedmetadata', onMeta);
