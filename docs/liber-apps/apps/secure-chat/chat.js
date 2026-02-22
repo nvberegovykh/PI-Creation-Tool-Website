@@ -26,7 +26,7 @@
       this._localCallStream = null;
       this._callStatusStream = null;
       this._callStatusTrack = null;
-      this._callPresenceEnabled = true;
+      this._callPresenceEnabled = false;
       this._swCallActionBound = false;
       this._lastSpeakerUid = null;
       this._lastSpeakerUpdateAt = 0;
@@ -38,6 +38,7 @@
       this._autoResumeBySpeech = false;
       this._playbackUnlockBound = false;
       this._userInteractedForPlayback = false;
+      this._speakingDetectorStops = new Map();
       this._inRoom = false;
       this._startingCall = false;
       this._joiningCall = false;
@@ -7814,9 +7815,7 @@
         }
         const titleEl = document.getElementById('chat-top-title');
         const title = (titleEl && titleEl.textContent ? titleEl.textContent.trim() : '') || 'Call';
-        const cached = speakerUid ? this.usernameCache.get(speakerUid) : null;
-        const speakerName = (cached && cached.username) ? cached.username : (speakerUid === this.currentUser?.uid ? 'You' : 'Speaking');
-        const artist = `Speaking: ${speakerName}`;
+        const artist = 'In call';
         try{
           ms.metadata = new MediaMetadata({
             title,
@@ -7833,9 +7832,9 @@
           state: 'active',
           connId: this.getCallConnId() || '',
           title,
-          body: artist,
-          speakerUid: speakerUid || '',
-          speakerName
+          body: 'Call in progress',
+          speakerUid: '',
+          speakerName: ''
         });
       }catch(_){ }
     }
@@ -7910,7 +7909,6 @@
       if (uid && this._lastSpeakerUid === uid && (now - this._lastSpeakerUpdateAt) < 1800) return;
       if (!uid){
         showBtn.innerHTML = '<i class="fas fa-phone-volume"></i> Call';
-        this._updateMediaSessionState(this._activePCs && this._activePCs.size > 0 ? 'active' : 'idle', null);
         this._lastSpeakerUid = null;
         this._lastSpeakerUpdateAt = now;
         return;
@@ -7918,7 +7916,6 @@
       const cached = this.usernameCache.get(uid);
       const name = cached && cached.username ? cached.username : (uid === this.currentUser?.uid ? 'You' : 'Speaking');
       showBtn.innerHTML = `<i class="fas fa-volume-up"></i> ${String(name).slice(0, 14)}`;
-      this._updateMediaSessionState('active', uid);
       this._lastSpeakerUid = uid;
       this._lastSpeakerUpdateAt = now;
     }
@@ -8310,8 +8307,12 @@
           const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
           this._activeCid = callId;
           const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
+          this.updatePresence('connected', this._videoEnabled).catch(()=>{});
+          this._updateMediaSessionState('active', this.currentUser?.uid || null);
+          this._ensureRemotePlayback();
         }
       };
+      pc.onicecandidateerror = (e)=>{ try{ console.warn('ICE candidate error', peerUid, e?.errorCode, e?.errorText || ''); }catch(_){ } };
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
@@ -8434,11 +8435,10 @@
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
     }
-    await this.updatePresence('connected', video);
+    await this.updatePresence('connecting', video);
     this._setupRoomInactivityMonitor();
     this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
     await this._ensureCallStatusStream();
-    this._updateMediaSessionState('active', this.currentUser.uid);
     if (!this._relayRetryForCall.has(callId)){
       setTimeout(async ()=>{
         try{
@@ -8545,8 +8545,12 @@
       if (pc.connectionState === 'connected' || pc.connectionState === 'completed'){
         const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
         const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
+        this.updatePresence('connected', this._videoEnabled).catch(()=>{});
+        this._updateMediaSessionState('active', this.currentUser?.uid || null);
+        this._ensureRemotePlayback();
       }
     };
+    pc.onicecandidateerror = (e)=>{ try{ console.warn('ICE candidate error(join)', peerUid, e?.errorCode, e?.errorText || ''); }catch(_){ } };
 
     // Remote media element
     let rv = document.getElementById(`remoteVideo-${peerUid}`);
@@ -8638,11 +8642,13 @@
     await pc.setLocalDescription(answer);
       await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
       // Flush any queued ICE now that descriptions are set
-      while (candidateQueue.length) { const c = candidateQueue.shift(); try { await pc.addIceCandidate(c); } catch(_){} }
+      while (candidateQueue.length) {
+        const c = candidateQueue.shift();
+        try { await firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: callConnId, candidate: c.toJSON() }); } catch(_) {}
+      }
       while (remoteCandidateQueue.length) { const rc = remoteCandidateQueue.shift(); try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch(_){} }
       try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
-      candidateQueue.forEach(async cand => await pc.addIceCandidate(cand));
-    candidateQueue.length = 0;
+      candidateQueue.length = 0;
     const unsubs = [];
     const seenCands = new Set();
     unsubs.push(firebase.onSnapshot(candsRef, snap => {
@@ -8686,11 +8692,10 @@
     const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
-      await this.updatePresence('connected', video);
+      await this.updatePresence('connecting', video);
       this._setupRoomInactivityMonitor();
       this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
       await this._ensureCallStatusStream();
-      this._updateMediaSessionState('active', this.currentUser.uid);
       if (!this._relayRetryForCall.has(callId)){
         setTimeout(async ()=>{
           try{
@@ -8964,13 +8969,18 @@
     _attachSpeakingDetector(stream, selector, uid){
       try{
         const el = document.querySelector(selector); if (!el) return;
+        const detectorKey = String(uid || selector || Math.random());
+        const prevStop = this._speakingDetectorStops.get(detectorKey);
+        if (typeof prevStop === 'function') { try{ prevStop(); }catch(_){} }
         const ac = new (window.AudioContext || window.webkitAudioContext)();
         const src = ac.createMediaStreamSource(stream);
         const analyser = ac.createAnalyser(); analyser.fftSize = 512;
         src.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
-        let rafId = 0;
+        let timer = 0;
+        let closed = false;
         const tick = ()=>{
+          if (closed) return;
           analyser.getByteFrequencyData(data);
           let sum = 0; for (let i=0;i<data.length;i++) sum += data[i];
           const avg = sum / data.length;
@@ -8989,11 +8999,18 @@
             if (selector && selector.includes('local')){ this._lastLocalSpeechTs = now; }
             if (selector && selector.includes('remote')){ this._lastRemoteSpeechTs = now; }
           }
-          rafId = requestAnimationFrame(tick);
         };
+        timer = window.setInterval(tick, 160);
         tick();
         // Stop when stream ends
-        const stop = ()=>{ try{ cancelAnimationFrame(rafId); }catch(_){} try{ ac.close(); }catch(_){} };
+        const stop = ()=>{
+          closed = true;
+          try{ if (timer) clearInterval(timer); }catch(_){}
+          timer = 0;
+          try{ ac.close(); }catch(_){}
+          try{ this._speakingDetectorStops.delete(detectorKey); }catch(_){}
+        };
+        this._speakingDetectorStops.set(detectorKey, stop);
         stream.getTracks().forEach(t=> t.addEventListener('ended', stop));
       }catch(_){ }
     }
@@ -9211,6 +9228,10 @@
         try{ this._localCallStream.getTracks().forEach(t => t.stop()); }catch(_){}
         this._localCallStream = null;
       }
+      try{
+        this._speakingDetectorStops.forEach((stop)=>{ try{ stop(); }catch(_){} });
+        this._speakingDetectorStops.clear();
+      }catch(_){}
       this._stopCallStatusStream();
       if (this._inactTimer) clearInterval(this._inactTimer);
       if (endRoom){
