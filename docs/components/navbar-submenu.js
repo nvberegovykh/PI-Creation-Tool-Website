@@ -117,6 +117,10 @@
     }
 
     ensurePricingStyles();
+    const showPopup = () => {
+      overlay.classList.add('gc-open');
+      document.body.classList.add('gc-pricing-open');
+    };
     fetch('contact.html')
       .then((r) => r.text())
       .then((html) => {
@@ -129,13 +133,11 @@
         } else {
           content.innerHTML = '<p>Pricing unavailable.</p>';
         }
-        overlay.classList.add('gc-open');
-        document.body.classList.add('gc-pricing-open');
+        requestAnimationFrame(() => showPopup());
       })
       .catch(() => {
         content.innerHTML = '<p>Could not load pricing.</p>';
-        overlay.classList.add('gc-open');
-        document.body.classList.add('gc-pricing-open');
+        requestAnimationFrame(() => showPopup());
       });
   }
 
