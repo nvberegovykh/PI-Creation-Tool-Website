@@ -1649,18 +1649,51 @@
           try{ this._sfuRoom.disconnect(); }catch(_){}
           this._sfuRoom = null;
         }
-        const room = new Room({
+        const roomOpts = {
           adaptiveStream: true,
           dynacast: true,
-          stopLocalTrackOnUnpublish: true
-        });
+          stopLocalTrackOnUnpublish: true,
+          videoCaptureDefaults: { resolution: { width: 1280, height: 720 }, frameRate: 24 },
+          audioCaptureDefaults: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 48000
+          }
+        };
+        try{
+          if (mod?.VideoPresets?.h720 && mod?.VideoPresets?.h180){
+            roomOpts.publishDefaults = {
+              simulcast: true,
+              videoSimulcastLayers: [mod.VideoPresets.h180, mod.VideoPresets.h360, mod.VideoPresets.h720]
+            };
+          }
+        }catch(_){ }
+        const room = new Room(roomOpts);
         this._bindSfuRoom(room, callConnId);
         await room.connect(wsUrl, token);
         this._sfuRoom = room;
         this._micEnabled = true;
         this._videoEnabled = !!video;
-        try{ await room.localParticipant.setMicrophoneEnabled(this._micEnabled); }catch(_){}
+        try{
+          await room.localParticipant.setMicrophoneEnabled(this._micEnabled, {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1
+          });
+        }catch(_){}
         try{ await room.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
+        try{
+          room.remoteParticipants.forEach((rp)=>{
+            try{
+              rp.trackPublications.forEach((pub)=>{
+                if (pub?.isSubscribed && pub?.track) this._attachSfuTrack(pub.track, pub, rp);
+              });
+            }catch(_){}
+          });
+        }catch(_){}
         const startBtn = document.getElementById('start-call-btn');
         if (startBtn) startBtn.style.display = 'none';
         return true;
@@ -8350,7 +8383,14 @@
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setMicrophoneEnabled){
-        this._sfuRoom.localParticipant.setMicrophoneEnabled(this._micEnabled).catch(()=>{});
+        this._sfuRoom.localParticipant.setMicrophoneEnabled(this._micEnabled, {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1
+        }).catch(()=>{});
+        micBtn.classList.toggle('muted', !this._micEnabled);
+        return;
       }
       if (this._localCallStream) this._localCallStream.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; });
       this._activePCs.forEach(p => { const s = p.stream; if (s) s.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; }); });
@@ -8360,6 +8400,8 @@
       this._videoEnabled = !this._videoEnabled;
       if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setCameraEnabled){
         try{ await this._sfuRoom.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
+        camBtn.classList.toggle('muted', !this._videoEnabled);
+        return;
       }
       if (this._videoEnabled && this._localCallStream && this._localCallStream.getVideoTracks().length === 0){
         try{
@@ -9640,7 +9682,9 @@
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
         const inCall = (this._activePCs && this._activePCs.size > 0) || this._isSfuConnected();
-        const peerUids = inCall ? Array.from(this._activePCs.keys()) : this.getConnParticipants(conn);
+        const peerUids = (this._activePCs && this._activePCs.size > 0)
+          ? Array.from(this._activePCs.keys())
+          : this.getConnParticipants(conn);
         const uniq = Array.from(new Set(peerUids.filter(Boolean)));
         const fetches = uniq.map(async uid => {
           if (uid === this.currentUser.uid) return null;

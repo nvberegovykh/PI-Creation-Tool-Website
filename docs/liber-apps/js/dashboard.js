@@ -62,6 +62,24 @@ class DashboardManager {
         return user;
     }
 
+    _resolveAdminFromLocalState(){
+        try{
+            const am = window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
+            if (String(am?.role || '').toLowerCase() === 'admin') return true;
+        }catch(_){ }
+        try{
+            const raw = localStorage.getItem('liber_auth_session');
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (String(parsed?.user?.role || '').toLowerCase() === 'admin') return true;
+        }catch(_){ }
+        try{
+            const rawUser = localStorage.getItem('liber_current_user');
+            const user = rawUser ? JSON.parse(rawUser) : null;
+            if (String(user?.role || '').toLowerCase() === 'admin') return true;
+        }catch(_){ }
+        return false;
+    }
+
     openFullscreenImage(src, alt = 'image'){
         try{
             const url = String(src || '').trim();
@@ -6411,19 +6429,24 @@ class DashboardManager {
      * Update navigation visibility based on user role
      */
     async updateNavigation() {
-        let isAdmin = false;
+        // Keep admin tabs visible when role is known locally, even if Firestore read fails.
+        let isAdmin = this._resolveAdminFromLocalState();
         try {
             const me = await this.resolveCurrentUserWithRetry(1200);
             if (me && me.uid && window.firebaseService?.getUserData) {
-                const data = await window.firebaseService.getUserData(me.uid);
-                isAdmin = String(data?.role || '').toLowerCase() === 'admin';
+                try{
+                    const data = await window.firebaseService.getUserData(me.uid);
+                    if (String(data?.role || '').toLowerCase() === 'admin') isAdmin = true;
+                }catch(_){
+                    // Ignore transient permission/read failures and keep prior admin state.
+                }
             } else {
                 const fallback = authManager.getCurrentUser();
-                isAdmin = String(fallback?.role || '').toLowerCase() === 'admin';
+                if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
             }
         } catch (_) {
             const fallback = authManager.getCurrentUser();
-            isAdmin = String(fallback?.role || '').toLowerCase() === 'admin';
+            if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
         }
         document.querySelectorAll('.admin-only').forEach((el) => {
             el.style.display = isAdmin ? '' : 'none';
