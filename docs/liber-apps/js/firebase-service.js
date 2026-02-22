@@ -54,9 +54,10 @@ class FirebaseService {
             // firebase-messaging-sw.js fetch attempts that can 404.
             let swReg = null;
             try{
-                const swPath = (location.pathname && (location.pathname.includes('/control-panel/') || location.pathname.includes('/liber-apps/')))
-                    ? new URL('sw.js', location.href).pathname
-                    : '/sw.js';
+                const path = location.pathname || '';
+                const swPath = path.includes('/control-panel/')
+                    ? '/control-panel/sw.js'
+                    : (path.includes('/liber-apps/') ? '/liber-apps/sw.js' : '/sw.js');
                 swReg = await navigator.serviceWorker.getRegistration(swPath);
                 if (!swReg) swReg = await navigator.serviceWorker.register(swPath);
             }catch(_){

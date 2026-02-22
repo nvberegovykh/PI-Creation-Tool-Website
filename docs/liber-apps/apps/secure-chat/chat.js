@@ -1695,7 +1695,8 @@
 
       // Register service worker once (best-effort)
       if ('serviceWorker' in navigator){
-        navigator.serviceWorker.register('/sw.js').catch(()=>{});
+        const swPath = (location.pathname || '').includes('/liber-apps/') ? '/liber-apps/sw.js' : '/sw.js';
+        navigator.serviceWorker.register(swPath).catch(()=>{});
       }
       this._bindServiceWorkerCallActions();
       // One room-call entry point (camera/screen stay off until user enables them)
@@ -8311,6 +8312,7 @@
     lv.srcObject = stream;
     lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
     for (const peerUid of participants){
+      const offerToken = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
       const pc = new RTCPeerConnection({
         iceServers: await this.getIceServers(),
         iceTransportPolicy: this._forceRelay ? 'relay' : 'all'
@@ -8356,7 +8358,7 @@
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
       const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -8373,7 +8375,7 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       const offersRef = firebase.collection(this.db,'calls',callId,'offers');
-      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
+      await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken });
       // Mark room active once first offer is published
       try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'connecting', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){ }
       let rv = document.getElementById(`remoteVideo-${peerUid}`);
@@ -8437,6 +8439,7 @@
       unsubs.push(firebase.onSnapshot(firebase.doc(this.db,'calls',callId,'answers', peerUid), async doc => {
         if (!doc.exists()) return;
         const data = doc.data();
+        if ((data?.offerToken || '') !== offerToken) return;
         // Normalize to RTCSessionDescriptionInit
         const desc = { type: data.type || 'answer', sdp: data.sdp };
         // Only set when we have a local offer
@@ -8672,6 +8675,7 @@
       }
     };
 
+    const offerToken = offer.offerToken || '';
     await pc.setRemoteDescription({ type:'offer', sdp: offer.sdp });
     // Align transceivers to the remote offer and attach local tracks without changing m-line order
     const trxs = pc.getTransceivers ? pc.getTransceivers() : [];
@@ -8687,17 +8691,9 @@
         try { tx.sender.replaceTrack(local); } catch(_) {}
       }
     });
-    // Fallback: attach any local track that has no sender yet
-    localStream.getTracks().forEach(tr => {
-      const hasSender = trxs.some(tx => tx && tx.sender && tx.sender.track && tx.sender.track.kind === tr.kind);
-      if (!hasSender) {
-        if (tr.kind === 'video' && !video) return;
-        try { pc.addTrack(tr, localStream); } catch(_) {}
-      }
-    });
       const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-      await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
+      await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: answer.sdp, type: answer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken });
       // Flush any queued ICE now that descriptions are set
       while (candidateQueue.length) {
         const c = candidateQueue.shift();
@@ -8727,6 +8723,7 @@
       try{
         if (!d.exists()) return;
         const data = d.data() || {};
+        if ((data.offerToken || '') !== offerToken) return;
         const sdp = data.sdp || '';
         if (!sdp || sdp === lastOfferSdp) return;
         lastOfferSdp = sdp;
@@ -8735,7 +8732,7 @@
         await pc.setRemoteDescription({ type:'offer', sdp: sdp });
         const ans2 = await pc.createAnswer();
         await pc.setLocalDescription(ans2);
-        await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid });
+        await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken });
       }catch(e){ console.warn('offer update handling failed', e?.message||e); }
     });
     unsubs.push(uOffers);
@@ -8746,7 +8743,7 @@
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
     const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connecting', video);
@@ -9011,13 +9008,16 @@
       try{
         const cont = document.getElementById('call-participants'); if (!cont) return;
         cont.innerHTML='';
-        const selfAvatar = (this.me && this.me.avatarUrl) || '../../images/default-bird.png';
+        const selfAvatar = (this.me && (this.me.avatarUrl || this.me.photoURL || this.me.photoUrl || this.me.profileImage || this.me.profilePhoto || this.me.avatar)) || '../../images/default-bird.png';
         const local = document.createElement('div'); local.className = 'avatar local connected'; local.innerHTML = `<img src="${selfAvatar}" alt="me"/>`;
         cont.appendChild(local);
         // Peer
         const peerUid = await this.getPeerUid();
         let peerAvatar = '../../images/default-bird.png';
-        try{ const d = await window.firebaseService.getUserData(peerUid); if (d && d.avatarUrl) peerAvatar = d.avatarUrl; }catch(_){ }
+        try{
+          const d = await window.firebaseService.getUserData(peerUid);
+          if (d) peerAvatar = d.avatarUrl || d.photoURL || d.photoUrl || d.profileImage || d.profilePhoto || d.avatar || peerAvatar;
+        }catch(_){ }
         const remote = document.createElement('div'); remote.className = 'avatar remote connected'; remote.innerHTML = `<img src="${peerAvatar}" alt="peer"/>`;
         cont.appendChild(remote);
       }catch(_){ }
@@ -9350,7 +9350,10 @@
           if (!cached || !cached.avatarUrl) {
             try {
               const u = await window.firebaseService.getUserData(uid);
-              cached = { username: u?.username || uid.slice(0,8), avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
+              cached = {
+                username: u?.username || uid.slice(0,8),
+                avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
+              };
               this.usernameCache.set(uid, cached);
             } catch (_) { cached = { username: uid.slice(0,8), avatarUrl: '../../images/default-bird.png' }; }
           }
@@ -9375,7 +9378,10 @@
         if (!selfCached || !selfCached.avatarUrl) {
           try {
             const u = await window.firebaseService.getUserData(this.currentUser.uid);
-            selfCached = { username: u?.username || 'You', avatarUrl: u?.avatarUrl || '../../images/default-bird.png' };
+            selfCached = {
+              username: u?.username || 'You',
+              avatarUrl: u?.avatarUrl || u?.photoURL || u?.photoUrl || u?.profileImage || u?.profilePhoto || u?.avatar || '../../images/default-bird.png'
+            };
             this.usernameCache.set(this.currentUser.uid, selfCached);
           } catch (_) { selfCached = { username: 'You', avatarUrl: '../../images/default-bird.png' }; }
         }
