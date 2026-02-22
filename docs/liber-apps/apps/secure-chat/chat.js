@@ -106,6 +106,11 @@
       this._pendingRequestUnsub = null;
       this._lastOlderLoadAt = 0;
       this._mobileMenuOpen = null;
+      this._callConnectTimeout = 0;
+      this._sfuModule = null;
+      this._sfuRoom = null;
+      this._sfuTrackEls = new Map();
+      this._useSfuCalls = true;
       this.init();
     }
 
@@ -1515,6 +1520,179 @@
       return servers;
     }
 
+    async _ensureSfuClient(){
+      if (this._sfuModule) return this._sfuModule;
+      const mod = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.15.5/+esm');
+      this._sfuModule = mod;
+      return mod;
+    }
+
+    _isSfuConnected(){
+      const st = String(this._sfuRoom?.state || '').toLowerCase();
+      return !!this._sfuRoom && (st === 'connected');
+    }
+
+    _attachSfuTrack(track, publication, participant){
+      try{
+        const kind = String(track?.kind || '');
+        const pid = String(participant?.identity || participant?.sid || 'peer');
+        const tid = String(publication?.trackSid || track?.sid || `${kind}_${Date.now()}`);
+        const key = `${pid}:${tid}`;
+        if (this._sfuTrackEls.has(key)) return;
+        const el = track.attach();
+        if (!el) return;
+        el.setAttribute('data-sfu-track-key', key);
+        if (kind === 'video'){
+          el.autoplay = true;
+          el.playsInline = true;
+          let videosCont = document.getElementById('call-videos');
+          if (!videosCont){
+            videosCont = document.createElement('div');
+            videosCont.id = 'call-videos';
+            videosCont.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;';
+            const overlay = document.getElementById('call-overlay');
+            if (overlay) overlay.appendChild(videosCont);
+          }
+          videosCont.appendChild(el);
+        } else if (kind === 'audio'){
+          el.autoplay = true;
+          el.playsInline = true;
+          el.style.display = 'none';
+          document.body.appendChild(el);
+          try{ el.play && el.play().catch(()=>{}); }catch(_){}
+        } else {
+          document.body.appendChild(el);
+        }
+        this._sfuTrackEls.set(key, el);
+      }catch(_){ }
+    }
+
+    _detachSfuTrack(track, publication, participant){
+      try{
+        const kind = String(track?.kind || '');
+        const pid = String(participant?.identity || participant?.sid || 'peer');
+        const tid = String(publication?.trackSid || track?.sid || '');
+        const key = `${pid}:${tid}`;
+        const el = this._sfuTrackEls.get(key);
+        if (el){
+          try{ track?.detach?.(el); }catch(_){}
+          try{ el.remove(); }catch(_){}
+          this._sfuTrackEls.delete(key);
+          return;
+        }
+        // Fallback cleanup for detached elements not indexed
+        document.querySelectorAll('[data-sfu-track-key]').forEach((n)=>{
+          if (String(n.getAttribute('data-sfu-track-key')||'').startsWith(`${pid}:`)) n.remove();
+        });
+      }catch(_){ }
+    }
+
+    _bindSfuRoom(room, callConnId){
+      room.on('connected', async ()=>{
+        try{
+          const cs = document.getElementById('call-status');
+          if (cs) cs.textContent = 'In call';
+          this._inRoom = true;
+          this._syncCallFab();
+          await this.updatePresence('connected', this._videoEnabled);
+          this._updateMediaSessionState('active', this.currentUser?.uid || null);
+        }catch(_){ }
+      });
+      room.on('disconnected', async ()=>{
+        try{
+          const cs = document.getElementById('call-status');
+          if (cs) cs.textContent = 'Room open. Ready for call.';
+          await this.updatePresence('idle', false);
+          this._updateMediaSessionState('idle', null);
+        }catch(_){ }
+      });
+      room.on('trackSubscribed', (track, publication, participant)=>{
+        this._attachSfuTrack(track, publication, participant);
+      });
+      room.on('trackUnsubscribed', (track, publication, participant)=>{
+        this._detachSfuTrack(track, publication, participant);
+      });
+      room.on('participantDisconnected', (participant)=>{
+        try{
+          const pid = String(participant?.identity || participant?.sid || '');
+          document.querySelectorAll('[data-sfu-track-key]').forEach((n)=>{
+            const k = String(n.getAttribute('data-sfu-track-key') || '');
+            if (k.startsWith(`${pid}:`)) n.remove();
+          });
+        }catch(_){ }
+      });
+    }
+
+    async _startOrJoinSfuCall(video = false){
+      if (!this._useSfuCalls) return false;
+      const callConnId = this.getCallConnId() || this.activeConnection;
+      if (!callConnId) return false;
+      try{
+        if (this._isSfuConnected()) return true;
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'Connecting SFU...';
+        await this.updatePresence('connecting', !!video);
+        const tokenResp = await window.firebaseService.callFunction('getSfuToken', { connId: callConnId });
+        const wsUrl = String(tokenResp?.wsUrl || '').trim();
+        const token = String(tokenResp?.token || '').trim();
+        if (!wsUrl || !token){
+          if (cs) cs.textContent = 'SFU unavailable. Configure getSfuToken.';
+          return false;
+        }
+        const mod = await this._ensureSfuClient();
+        const Room = mod?.Room;
+        if (!Room){
+          if (cs) cs.textContent = 'SFU client load failed.';
+          return false;
+        }
+        if (this._sfuRoom){
+          try{ this._sfuRoom.disconnect(); }catch(_){}
+          this._sfuRoom = null;
+        }
+        const room = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          stopLocalTrackOnUnpublish: true
+        });
+        this._bindSfuRoom(room, callConnId);
+        await room.connect(wsUrl, token);
+        this._sfuRoom = room;
+        this._micEnabled = true;
+        this._videoEnabled = !!video;
+        try{ await room.localParticipant.setMicrophoneEnabled(this._micEnabled); }catch(_){}
+        try{ await room.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
+        const startBtn = document.getElementById('start-call-btn');
+        if (startBtn) startBtn.style.display = 'none';
+        return true;
+      }catch(e){
+        console.warn('SFU connect failed', e?.message || e);
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'SFU connection failed.';
+        return false;
+      }
+    }
+
+    _scheduleConnectFailSafeguard(callId, callConnId){
+      try{ if (this._callConnectTimeout) clearTimeout(this._callConnectTimeout); }catch(_){}
+      this._callConnectTimeout = setTimeout(async ()=>{
+        try{
+          let connected = false;
+          this._activePCs.forEach((p)=>{
+            const st = p?.pc?.connectionState;
+            if (st === 'connected' || st === 'completed') connected = true;
+          });
+          if (connected) return;
+          const cs = document.getElementById('call-status');
+          if (cs) cs.textContent = 'Connection failed (TURN/permissions).';
+          await this.cleanupActiveCall(false, 'connect_timeout_fail');
+          try{
+            const roomRef = firebase.doc(this.db,'callRooms', callConnId);
+            await firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null, lastActiveAt: new Date().toISOString() });
+          }catch(_){ }
+        }catch(_){ }
+      }, 35000);
+    }
+
     async init() {
       // Wait for firebase (parent's when in iframe, or our own)
       let attempts = 0; while((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 150){ await new Promise(r=>setTimeout(r,100)); attempts++; }
@@ -1586,7 +1764,7 @@
       // Ensure self is cached
       const meAvatar = this.me?.avatarUrl || this.me?.photoURL || this.me?.photoUrl || this.me?.profileImage || this.me?.profilePhoto || this.me?.avatar || '../../images/default-bird.png';
       this.usernameCache.set(this.currentUser.uid, {
-        username: this._displayName(this.me || { email: this.currentUser?.email }, this.currentUser.uid) || 'You',
+        username: String(this.me?.username || 'You'),
         avatarUrl: meAvatar
       });
       this._avatarCache.set(this.currentUser.uid, meAvatar);
@@ -2780,7 +2958,9 @@
               const existing = this.usernameCache.get(uid);
               const existingName = (existing && typeof existing === 'object') ? String(existing.username || '').trim() : String(existing || '').trim();
               const nextName = String(d.username || '').trim();
-              const name = nextName || existingName || 'User';
+              // Do not overwrite stable labels with placeholders.
+              const name = nextName || existingName || '';
+              if (!name) return;
               const avatar = String(d.avatarUrl || '../../images/default-bird.png');
               const prevObj = this.usernameCache.get(uid);
               const prevName = (prevObj && typeof prevObj === 'object') ? prevObj.username : prevObj;
@@ -2799,7 +2979,7 @@
                       if (!c) return;
                       const parts = Array.isArray(c.participants)?c.participants:[];
                       const stored = Array.isArray(c.participantUsernames)?c.participantUsernames:[];
-                      const names = parts.map((p,i)=> getCachedName(p, stored[i] || p));
+                      const names = parts.map((p,i)=> getCachedName(p, stored[i] || 'User'));
                       const others = names.filter(n => String(n ?? '').toLowerCase() !== myNameLower);
                       const label = String(c.groupName || '').trim() || (others.length===1? others[0] : (others.slice(0,2).join(', ')+(others.length>2?`, +${others.length-2}`:'')));
                       const labelEl = li.querySelector('.chat-label');
@@ -3272,7 +3452,9 @@
                 el.dataset.msgTs = String(msgTs || 0);
                 if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
                 if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
-                let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
+                const cachedSender = this.usernameCache.get(m.sender);
+                const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
+                let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
                 if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                   this._senderLookupInFlight.add(m.sender);
                   Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, this._displayName(user, m.sender)); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
@@ -3458,7 +3640,9 @@
                 el.classList.add('message-system', 'message-connection-request');
               }
               // Resolve sender name async
-              let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
+              const cachedSender = this.usernameCache.get(m.sender);
+              const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
+              let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
               if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                 this._senderLookupInFlight.add(m.sender);
                 Promise.resolve().then(async ()=>{
@@ -3897,7 +4081,9 @@
               el.classList.add('message-system', 'message-connection-request');
             }
             // Resolve sender name async
-            let senderName = m.sender === this.currentUser.uid ? 'You' : this.usernameCache.get(m.sender) || 'User';
+            const cachedSender = this.usernameCache.get(m.sender);
+            const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
+            let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
             if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
               this._senderLookupInFlight.add(m.sender);
               Promise.resolve().then(async ()=>{
@@ -4812,8 +4998,14 @@
       try{
         const parts = this.getConnParticipants(conn || {});
         const names = Array.isArray(conn?.participantUsernames) ? conn.participantUsernames : [];
-        const mine = (this.me?.username || this.currentUser?.email || '').toLowerCase();
-        const resolved = parts.map((uid, i)=> names[i] || this.usernameCache.get(uid) || uid).filter(Boolean);
+        const mine = String(this.me?.username || '').toLowerCase();
+        const resolved = parts.map((uid, i)=>{
+          const fromStored = String(names[i] || '').trim();
+          if (fromStored) return fromStored;
+          const cached = this.usernameCache.get(uid);
+          if (cached && typeof cached === 'object') return String(cached.username || '').trim();
+          return String(cached || '').trim() || 'User';
+        }).filter(Boolean);
         const others = resolved.filter((n)=> String(n || '').toLowerCase() !== mine);
         if (!others.length) return 'Chat';
         if (others.length === 1) return String(others[0]);
@@ -8072,6 +8264,19 @@
     }
     this._videoEnabled = !!video;
     await this.ensureRoom();
+    if (this._useSfuCalls){
+      const ov = document.getElementById('call-overlay');
+      if (ov) ov.classList.remove('hidden');
+      const cs = document.getElementById('call-status');
+      if (cs) cs.textContent = 'Room open. Click Start Call.';
+      this.initCallControls(video);
+      if (this._roomUnsub) this._roomUnsub();
+      if (this._peersUnsub) this._peersUnsub();
+      this._inRoom = true;
+      this._syncCallFab();
+      await this.updatePresence('idle', false);
+      return;
+    }
     const ov = document.getElementById('call-overlay');
     if (ov) ov.classList.remove('hidden');
     const cs = document.getElementById('call-status');
@@ -8124,7 +8329,8 @@
     const showBtn = document.getElementById('show-call-btn');
     const exitBtn = document.getElementById('exit-room-btn');
     if (startBtn) startBtn.onclick = async () => {
-      await this.attemptStartRoomCall(this._videoEnabled);
+      if (this._useSfuCalls) await this._startOrJoinSfuCall(this._videoEnabled);
+      else await this.attemptStartRoomCall(this._videoEnabled);
       startBtn.style.display = 'none';
     };
     if (endBtn) endBtn.onclick = async () => { 
@@ -8143,12 +8349,18 @@
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
+      if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setMicrophoneEnabled){
+        this._sfuRoom.localParticipant.setMicrophoneEnabled(this._micEnabled).catch(()=>{});
+      }
       if (this._localCallStream) this._localCallStream.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; });
       this._activePCs.forEach(p => { const s = p.stream; if (s) s.getAudioTracks().forEach(t => { t.enabled = this._micEnabled; }); });
       micBtn.classList.toggle('muted', !this._micEnabled);
     };
     if (camBtn) camBtn.onclick = async () => {
       this._videoEnabled = !this._videoEnabled;
+      if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setCameraEnabled){
+        try{ await this._sfuRoom.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
+      }
       if (this._videoEnabled && this._localCallStream && this._localCallStream.getVideoTracks().length === 0){
         try{
           const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -8177,6 +8389,15 @@
     };
     if (shareBtn) shareBtn.style.display = '';
     if (shareBtn) shareBtn.onclick = async () => {
+      if (this._useSfuCalls && this._sfuRoom?.localParticipant?.setScreenShareEnabled){
+        try{
+          const next = !this._screenSharing;
+          await this._sfuRoom.localParticipant.setScreenShareEnabled(next);
+          this._screenSharing = next;
+          shareBtn.classList.toggle('active', next);
+        }catch(e){ console.warn('SFU screen share failed', e?.message || e); }
+        return;
+      }
       if (this._screenSharing) { await this._stopScreenShare(); return; }
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -8372,6 +8593,7 @@
           this._activeCid = callId;
           const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
           this.updatePresence('connected', this._videoEnabled).catch(()=>{});
+          try { firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){}
           this._updateMediaSessionState('active', this.currentUser?.uid || null);
           this._ensureRemotePlayback();
         }
@@ -8498,10 +8720,14 @@
             const rc = remoteCandidateQueue.shift();
             try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch (_) {}
           }
-          try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', lastActiveAt: new Date().toISOString() }); } catch(_){ }
+          // Do not mark room active until we have an actually connected PeerConnection.
         } catch (err) {
           console.error('setRemote failed for ' + peerUid, err);
         }
+      }, (err)=>{
+        console.warn('answers listener error', peerUid, err?.code || '', err?.message || err);
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'Call permissions error (answers listener).';
       }));
       const seenCands = new Set();
       unsubs.push(firebase.onSnapshot(candsRef, snap => {
@@ -8515,6 +8741,10 @@
           if (pc.signalingState === 'closed') return;
           pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
         });
+      }, (err)=>{
+        console.warn('candidates listener error', peerUid, err?.code || '', err?.message || err);
+        const cs = document.getElementById('call-status');
+        if (cs) cs.textContent = 'Call permissions error (candidates listener).';
       }));
       this._activePCs.set(peerUid, {pc, unsubs, stream, videoEl: rv});
     }
@@ -8522,6 +8752,7 @@
     this._setupRoomInactivityMonitor();
     this._attachSpeakingDetector(stream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
     await this._ensureCallStatusStream();
+    this._scheduleConnectFailSafeguard(callId, callConnId);
     if (!this._relayRetryForCall.has(callId)){
       setTimeout(async ()=>{
         try{
@@ -8639,6 +8870,7 @@
         const key = callId+':'+peerUid; const w=this._pcWatchdogs.get(key); if (w){ clearTimeout(w.t1); clearTimeout(w.t2); this._pcWatchdogs.delete(key); }
         const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'In call';
         this.updatePresence('connected', this._videoEnabled).catch(()=>{});
+        try { firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); } catch(_){}
         this._updateMediaSessionState('active', this.currentUser?.uid || null);
         this._ensureRemotePlayback();
       }
@@ -8751,7 +8983,8 @@
         try { await firebase.setDoc(firebase.doc(candsRef), { type: 'answer', fromUid: this.currentUser.uid, toUid: peerUid, connId: callConnId, candidate: c.toJSON() }); } catch(_) {}
       }
       while (remoteCandidateQueue.length) { const rc = remoteCandidateQueue.shift(); try { await pc.addIceCandidate(new RTCIceCandidate(rc)); } catch(_){} }
-      try { await firebase.updateDoc(firebase.doc(this.db,'callRooms', callConnId), { status: 'active', activeCallId: callId, lastActiveAt: new Date().toISOString() }); this._activeCid = callId; } catch(_){ }
+      // Do not mark room active until we have an actually connected PeerConnection.
+      try { this._activeCid = callId; } catch(_){}
       candidateQueue.length = 0;
     const unsubs = [];
     const seenCands = new Set();
@@ -8766,6 +8999,10 @@
         if (pc.signalingState === 'closed') return;
         pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
       });
+    }, (err)=>{
+      console.warn('join candidates listener error', peerUid, err?.code || '', err?.message || err);
+      const cs = document.getElementById('call-status');
+      if (cs) cs.textContent = 'Call permissions error (join candidates listener).';
     }));
     // Listen for future offers (ICE restarts/renegotiations) from initiator
     let lastOfferSdp = offer.sdp;
@@ -8785,6 +9022,10 @@
         await pc.setLocalDescription(ans2);
         await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken });
       }catch(e){ console.warn('offer update handling failed', e?.message||e); }
+    }, (err)=>{
+      console.warn('join offers listener error', peerUid, err?.code || '', err?.message || err);
+      const cs = document.getElementById('call-status');
+      if (cs) cs.textContent = 'Call permissions error (join offers listener).';
     });
     unsubs.push(uOffers);
 
@@ -8801,6 +9042,7 @@
       this._setupRoomInactivityMonitor();
       this._attachSpeakingDetector(localStream, '[data-uid="' + this.currentUser.uid + '"]', this.currentUser.uid);
       await this._ensureCallStatusStream();
+      this._scheduleConnectFailSafeguard(callId, callConnId);
       if (!this._relayRetryForCall.has(callId)){
         setTimeout(async ()=>{
           try{
@@ -8857,6 +9099,10 @@
   async joinOrStartCall(){
     if (!this.activeConnection) return;
     await this.enterRoom(false);
+    if (this._useSfuCalls){
+      await this._startOrJoinSfuCall(false);
+      return;
+    }
     const activeCid = this._roomState && this._roomState.activeCallId;
     if (activeCid){
       await this.joinMultiCall(activeCid, false);
@@ -9315,6 +9561,14 @@
     this._joiningCall = false;
     this._lastJoinedCallId = null;
     if (this._screenSharing) await this._stopScreenShare();
+      if (this._sfuRoom){
+        try{ this._sfuRoom.disconnect(); }catch(_){}
+        this._sfuRoom = null;
+      }
+      try{
+        this._sfuTrackEls.forEach((el)=>{ try{ el.remove(); }catch(_){} });
+        this._sfuTrackEls.clear();
+      }catch(_){}
       this._activePCs.forEach((p) => {
         try{ p.unsubs.forEach(u => u()); }catch(_){ }
         try{ p.pc.close(); }catch(_){ }
@@ -9385,7 +9639,7 @@
         const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections', callConnId));
         if (!connSnap.exists()) return;
         const conn = connSnap.data();
-        const inCall = this._activePCs && this._activePCs.size > 0;
+        const inCall = (this._activePCs && this._activePCs.size > 0) || this._isSfuConnected();
         const peerUids = inCall ? Array.from(this._activePCs.keys()) : this.getConnParticipants(conn);
         const uniq = Array.from(new Set(peerUids.filter(Boolean)));
         const fetches = uniq.map(async uid => {
