@@ -12,7 +12,7 @@ class ChatGPTIntegration {
         this.proxyAuth = null; // Optional proxy auth token
         this.isEnabled = false;
         this.chatHistory = [];
-        this.currentContext = 'control-panel';
+        this.currentContext = 'liber-apps';
         this.fileUploads = [];
         this.maxFileSize = 25 * 1024 * 1024; // 25MB limit
         this.supportedFileTypes = ['image/*', 'application/pdf', 'text/*', 'application/json', 'application/xml', 'text/csv'];
@@ -2085,7 +2085,7 @@ class ChatGPTIntegration {
         const path = window.location.pathname;
         if (path.includes('/apps/calculator/')) return 'calculator-app';
         if (path.includes('/apps/invoices-app/')) return 'invoice-app';
-        if (path.includes('/control-panel')) return 'control-panel';
+        if (path.includes('/control-panel') || path.includes('/liber-apps')) return 'liber-apps';
         return 'unknown';
     }
 
@@ -2097,7 +2097,7 @@ class ChatGPTIntegration {
         const appMap = {
             'calculator-app': { name: 'Calculator', description: 'Mathematical operations and calculations' },
             'invoice-app': { name: 'Invoice Generator', description: 'Create and manage invoices' },
-            'control-panel': { name: 'Control Panel', description: 'Main dashboard for app management' }
+            'liber-apps': { name: 'Control Panel', description: 'Main dashboard for app management' }
         };
         return appMap[context] || { name: 'Unknown App', description: 'Unknown application' };
     }

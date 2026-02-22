@@ -95,7 +95,7 @@ class AppsManager {
             doc._liberBackBridgeBound = true;
             doc.addEventListener('click', (e)=>{
                 const t = e.target && e.target.closest
-                    ? e.target.closest('#back-btn, [data-close-shell], [onclick*="history.back"], [id*="back"], [class*="back"], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"], a[href="/control-panel/index.html"]')
+                    ? e.target.closest('#back-btn, [data-close-shell], [onclick*="history.back"], [id*="back"], [class*="back"], a[href$="/index.html"], a[href="../../index.html"], a[href="../index.html"]')
                     : null;
                 if (!t) return;
                 const href = (t.getAttribute && t.getAttribute('href')) || '';
@@ -129,7 +129,7 @@ class AppsManager {
             const sameOrigin = url.origin === window.location.origin;
             if (!sameOrigin) return;
             const path = String(url.pathname || '').toLowerCase();
-            const isControlPanelPath = /\/control-panel(\/index\.html)?\/?$/.test(path);
+            const isControlPanelPath = /\/(control-panel|liber-apps)(\/index\.html)?\/?$/.test(path);
             const isSelfPath = path === String(window.location.pathname || '').toLowerCase();
             if (isControlPanelPath || isSelfPath){
                 this.closeAppShell();
@@ -401,10 +401,7 @@ class AppsManager {
         const settings = dashboardManager.getSettings();
         const showDescriptions = settings.showAppDescriptions;
         
-        // Get the current pathname to determine the base path
-        const currentPath = window.location.pathname;
-        const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
-        const appUrl = `${window.location.origin}${basePath}/${app.path}`;
+        const appUrl = new URL(app.path, window.location.href).href;
         
         return `
             <div class="app-card" data-app-id="${app.id}">
@@ -514,10 +511,7 @@ class AppsManager {
                 if (window.dashboardManager){ window.dashboardManager.switchSection(section); this.showSuccess(`Opening ${app.name}...`); }
                 return;
             }
-            // Get the current pathname to determine the base path
-            const currentPath = window.location.pathname;
-            const basePath = currentPath.includes('/control-panel') ? '/control-panel' : '';
-            const appUrl = `${window.location.origin}${basePath}/${app.path}`;
+            const appUrl = new URL(app.path, window.location.href).href;
             
             // Show success message
             this.showSuccess(`Launching ${app.name}...`);

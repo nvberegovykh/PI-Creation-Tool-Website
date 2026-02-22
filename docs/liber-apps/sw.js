@@ -46,15 +46,15 @@ self.addEventListener('push', (event) => {
 
 
 // Focus an existing client or open a new tab when the user clicks a notification
-self.addEventListener('notificationclick', (event) => {
+	self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 	const d = (event.notification && event.notification.data) || {};
 	let targetUrl = d.url;
+	const basePath = (self.location?.pathname || '').replace(/\/[^/]*$/, '') || '/liber-apps';
 	if (!targetUrl && d.type === 'chat_message' && d.connId) {
-		const base = (self.location?.origin || '').replace(/\/$/, '');
-		targetUrl = `${base}/control-panel/apps/secure-chat/index.html?connId=${encodeURIComponent(String(d.connId))}`;
+		targetUrl = `${basePath}/apps/secure-chat/index.html?connId=${encodeURIComponent(String(d.connId))}`;
 	}
-	targetUrl = targetUrl || '/control-panel/index.html';
+	targetUrl = targetUrl || `${basePath}/index.html`;
 	const fullUrl = targetUrl.startsWith('http') ? targetUrl : (self.location.origin || '') + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
 	event.waitUntil((async () => {
 		const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });

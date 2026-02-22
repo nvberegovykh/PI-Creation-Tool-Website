@@ -500,12 +500,11 @@ class DashboardManager {
                     }catch(_){ }
                     overlay.remove();
                     const qs = new URLSearchParams({ connId: String(c.id || '') });
-                    const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
-                    const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
+                    const full = new URL(`apps/secure-chat/index.html?${qs.toString()}`, window.location.href).href;
                     if (window.appsManager && typeof window.appsManager.openAppInShell === 'function'){
                         window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
                     } else {
-                        window.location.href = localPath;
+                        window.location.href = full;
                     }
                 };
                 list.appendChild(btn);
@@ -3431,8 +3430,8 @@ class DashboardManager {
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
         if ('serviceWorker' in navigator){
-            const swPath = (location.pathname && location.pathname.includes('/control-panel/'))
-                ? '/control-panel/sw.js'
+            const swPath = (location.pathname && (location.pathname.includes('/control-panel/') || location.pathname.includes('/liber-apps/')))
+                ? new URL('sw.js', location.href).pathname
                 : '/sw.js';
             navigator.serviceWorker.register(swPath).catch(()=>{});
         }
@@ -3500,8 +3499,7 @@ class DashboardManager {
     setupEventListeners() {
         // Desktop navigation buttons
         const openChatApp = () => {
-            const basePath = window.location.pathname.includes('/control-panel') ? '/control-panel' : '';
-            const full = `${window.location.origin}${basePath}/apps/secure-chat/index.html`;
+            const full = new URL('apps/secure-chat/index.html', window.location.href).href;
             if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
                 window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
             } else {
@@ -7726,12 +7724,11 @@ Do you want to proceed?`);
             const key = [me.uid, uid].sort().join('|');
             closeOverlay();
             const qs = new URLSearchParams({ connId: key });
-            const localPath = `apps/secure-chat/index.html?${qs.toString()}`;
-            const full = `${window.location.origin}${window.location.pathname.includes('/control-panel') ? '/control-panel' : ''}/${localPath}`;
+            const full = new URL(`apps/secure-chat/index.html?${qs.toString()}`, window.location.href).href;
             if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
               window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
             } else {
-              window.location.href = localPath;
+              window.location.href = full;
             }
           } catch(_) {}
         };
