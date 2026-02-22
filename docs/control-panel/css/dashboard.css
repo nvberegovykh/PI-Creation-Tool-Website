@@ -171,6 +171,62 @@
     transform: scale(1.05);
 }
 
+/* Hide nav labels on desktop (icons only) */
+@media (min-width: 768px) {
+    .nav-btn .nav-label {
+        display: none;
+    }
+}
+
+/* Fixed Chat Icon - same z-index or 1 higher than nav */
+.dashboard-chat-btn {
+    display: none;
+    position: fixed;
+    z-index: 1001;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.dashboard-chat-btn:hover {
+    transform: scale(1.08);
+}
+
+.dashboard-chat-btn i {
+    font-size: 1.25rem;
+}
+
+/* Desktop: chat icon bottom-left */
+@media (min-width: 768px) {
+    .dashboard-chat-btn {
+        display: flex;
+        bottom: 24px;
+        left: 24px;
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: var(--accent-color, #00d4ff);
+        color: var(--primary-bg, #000);
+    }
+}
+
+/* Mobile: chat icon top-right */
+@media (max-width: 767px) {
+    .dashboard-chat-btn {
+        display: flex;
+        top: calc(env(safe-area-inset-top, 0) + 12px);
+        right: 12px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--accent-color, #00d4ff);
+        color: var(--primary-bg, #000);
+    }
+}
+
 /* Dashboard Content */
 .dashboard-content {
     flex: 1;
@@ -1083,30 +1139,49 @@
 @media (min-width: 768px) {
   .dashboard-nav {
     position: fixed;
-    border-bottom: 1px solid #ddd;
-    padding: 0 30px;
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 72px;
+    flex-direction: column;
+    border-bottom: none;
+    border-right: 1px solid var(--border-color, #333);
+    padding: 16px 0;
+    gap: 4px;
+    border-radius: 0;
+    overflow-y: auto;
   }
   .nav-btn {
+    position: relative;
     background: transparent;
-    border-bottom: 3px solid transparent;
+    border-bottom: none;
+    border-left: 3px solid transparent;
+    padding: 14px;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-btn .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
   }
   .nav-btn:hover {
     color: cyan;
-    background: #f0f0f0;
+    background: rgba(255, 255, 255, 0.06);
   }
   .nav-btn.active {
     color: cyan;
-    background: black;
-    border-bottom-color: cyan;
+    background: rgba(0, 0, 0, 0.4);
+    border-left-color: cyan;
   }
   .nav-btn i {
     color: cyan;
+    font-size: 20px;
   }
   .dashboard-content {
-    padding-top: 60px;
+    margin-left: 72px;
+    padding-top: 24px;
   }
 }
 

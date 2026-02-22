@@ -3507,6 +3507,20 @@ class DashboardManager {
             }
         });
 
+        // Chat button - open secure-chat app
+        const chatBtn = document.getElementById('dashboard-chat-btn');
+        if (chatBtn) {
+            chatBtn.addEventListener('click', () => {
+                const basePath = window.location.pathname.includes('/control-panel') ? '/control-panel' : '';
+                const full = `${window.location.origin}${basePath}/apps/secure-chat/index.html`;
+                if (window.appsManager && typeof window.appsManager.openAppInShell === 'function') {
+                    window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+                } else {
+                    window.location.href = full;
+                }
+            });
+        }
+
         // Logout button
         const logoutBtn = document.getElementById('logout-btn');
         if (logoutBtn && logoutBtn.parentNode) logoutBtn.parentNode.removeChild(logoutBtn);
