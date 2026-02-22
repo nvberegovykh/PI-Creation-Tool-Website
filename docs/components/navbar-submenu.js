@@ -68,7 +68,7 @@
     const link = document.createElement('link');
     link.id = 'gc-pricing-styles';
     link.rel = 'stylesheet';
-    link.href = 'contact.css';
+    link.href = new URL('contact.css', window.location.href).href;
     document.head.appendChild(link);
   }
 
@@ -109,8 +109,15 @@
 
     const source = document.getElementById('gc-pricing-source');
     if (source) {
-      pricingCache = source.innerHTML;
-      content.innerHTML = pricingCache;
+      // Use outerHTML for full structure; strip id so #gc-pricing-source { display:none } doesn't hide the popup copy
+      let html = source.outerHTML || source.innerHTML;
+      if (html && html.trim()) {
+        html = html.replace(/\s*id=["']gc-pricing-source["']/i, '');
+        pricingCache = html;
+        content.innerHTML = pricingCache;
+      } else {
+        content.innerHTML = '<p>Pricing unavailable.</p>';
+      }
       overlay.classList.add('gc-open');
       document.body.classList.add('gc-pricing-open');
       return;
@@ -129,8 +136,10 @@
         const doc = parser.parseFromString(html, 'text/html');
         const pricing = doc.querySelector('.pricing10-wrapper');
         if (pricing) {
-          pricingCache = pricing.outerHTML;
-          content.innerHTML = pricingCache;
+          let html = pricing.outerHTML;
+          html = html.replace(/\s*id=["']gc-pricing-source["']/i, '');
+          pricingCache = html;
+          content.innerHTML = html;
         } else {
           content.innerHTML = '<p>Pricing unavailable.</p>';
         }

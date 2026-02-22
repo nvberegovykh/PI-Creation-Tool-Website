@@ -222,20 +222,30 @@
   box-sizing: border-box;
 }
 
+/* Force all popup content visible - overrides contact.css in popup context */
 .gc-pricing-popup #gc-pricing-content,
-.gc-pricing-popup #gc-pricing-content * {
+.gc-pricing-popup #gc-pricing-content *,
+.gc-pricing-popup fragment,
+.gc-pricing-popup pricing10-wrapper {
   visibility: visible !important;
   opacity: 1 !important;
+  color: inherit;
 }
 
 .gc-pricing-popup .pricing10-wrapper,
+.gc-pricing-popup pricing10-wrapper,
 .gc-pricing-popup .pricing10-pricing23,
 .gc-pricing-popup #gc-pricing-content {
   display: block !important;
   background: transparent !important;
-  min-height: 1px;
+  min-height: 40px;
   overflow: visible !important;
   color: inherit;
+}
+
+.gc-pricing-popup #gc-pricing-content {
+  min-height: 80px;
+  color: #fff;
 }
 
 .gc-pricing-popup .pricing10-pricing23 {
