@@ -49,6 +49,7 @@
   max-width: 100vw;
   height: 36px;
   margin-top: 4px;
+  padding-bottom: 52px; /* extend hover area so submenu stays reachable */
 }
 
 .navbar-interactive-desktop-menu .gc-nav-submenu-zone {
@@ -65,7 +66,8 @@
   animation: gc-pulse 1.5s ease-in-out infinite;
 }
 
-.navbar-interactive-container:hover .gc-nav-dot {
+/* Desktop: submenu only on dot/zone hover */
+.gc-nav-submenu-zone:hover .gc-nav-dot {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -75,14 +77,15 @@
   position: absolute;
   left: 0;
   right: 0;
+  top: 100%;
   width: 100%;
   max-width: 100vw;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  justify-content: space-evenly;
+  justify-content: center;
   align-items: center;
-  gap: 12px;
+  gap: 30px;
   padding: 0 16px;
   box-sizing: border-box;
   opacity: 0;
@@ -91,7 +94,7 @@
   transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
-.navbar-interactive-container:hover .gc-nav-submenu {
+.gc-nav-submenu-zone:hover .gc-nav-submenu {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
@@ -143,17 +146,27 @@
 
 .gc-nav-mobile-dot.gc-active {
   opacity: 0.4;
+  animation: none;
 }
 
 .gc-nav-mobile-submenu {
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px 0 0 16px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transition: max-height 0.2s ease, opacity 0.2s ease, visibility 0.2s ease;
 }
 
 .gc-nav-mobile-submenu.gc-open {
-  display: flex;
+  max-height: 180px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .gc-nav-mobile-submenu .gc-nav-submenu-btn {
