@@ -200,8 +200,11 @@
     const goNext = () => setIdx(idx + 1);
     if (mediaEl && track && visuals.length > 1) {
       let startX = 0;
+      let startY = 0;
       let startIdx = 0;
-      const onStart = (x) => { startX = x; startIdx = idx; };
+      let isHorizontalSwipe = null; /* null=undecided, true=swipe, false=scroll */
+      const SLOPE = 1.2; /* |dx| > SLOPE * |dy| => horizontal */
+      const onStart = (x, y) => { startX = x; startY = y; startIdx = idx; isHorizontalSwipe = null; };
       const onMove = (x) => {
         const w = mediaEl.offsetWidth || 400;
         const delta = (startX - x) / w;
@@ -220,19 +223,36 @@
         } else setIdx(idx);
       };
       mediaEl.addEventListener('mousedown', (e) => {
-        onStart(e.clientX);
+        onStart(e.clientX, e.clientY);
         const m = (ev) => onMove(ev.clientX);
         const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); };
         document.addEventListener('mousemove', m);
         document.addEventListener('mouseup', u);
       });
       let touching = false;
-      mediaEl.addEventListener('touchstart', (e) => { touching = true; onStart(e.touches[0] ? e.touches[0].clientX : 0); }, { passive: true });
+      mediaEl.addEventListener('touchstart', (e) => {
+        touching = true;
+        const t = e.touches[0];
+        onStart(t ? t.clientX : 0, t ? t.clientY : 0);
+      }, { passive: true });
       mediaEl.addEventListener('touchmove', (e) => {
-        if (touching && e.touches[0]) { onMove(e.touches[0].clientX); e.preventDefault(); }
+        if (!touching || !e.touches[0]) return;
+        const t = e.touches[0];
+        const dx = Math.abs(t.clientX - startX);
+        const dy = Math.abs(t.clientY - startY);
+        if (isHorizontalSwipe === null) {
+          isHorizontalSwipe = dx > SLOPE * dy;
+        }
+        if (isHorizontalSwipe) {
+          onMove(t.clientX);
+          e.preventDefault();
+        }
       }, { passive: false });
       mediaEl.addEventListener('touchend', (e) => {
-        if (touching && e.changedTouches && e.changedTouches[0]) { touching = false; onEnd(e.changedTouches[0].clientX); }
+        if (touching && e.changedTouches && e.changedTouches[0]) {
+          if (isHorizontalSwipe) onEnd(e.changedTouches[0].clientX);
+          touching = false;
+        }
       }, { passive: true });
       mediaEl.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     }
@@ -345,23 +365,33 @@
       if (Math.abs(delta) > slideWidth * 0.2) page = delta > 0 ? Math.min(page + 1, selected.length - 1) : Math.max(page - 1, 0);
       update();
     };
+    let isHorizontalSwipe = null;
+    const SLOPE = 1.2;
+    let startY = 0;
     const addDrag = (el) => {
       el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
       let touched = false;
       el.addEventListener('touchstart', (e) => {
         touched = true;
-        onStart(e.touches[0] ? e.touches[0].clientX : 0);
+        const t = e.touches[0];
+        if (t) { startY = t.clientY; onStart(t.clientX); }
+        isHorizontalSwipe = null;
       }, { passive: true });
       el.addEventListener('touchmove', (e) => {
-        if (touched && e.touches[0]) {
-          onMove(e.touches[0].clientX);
+        if (!touched || !e.touches[0]) return;
+        const t = e.touches[0];
+        const dx = Math.abs(t.clientX - startX);
+        const dy = Math.abs(t.clientY - startY);
+        if (isHorizontalSwipe === null) isHorizontalSwipe = dx > SLOPE * dy;
+        if (isHorizontalSwipe) {
+          onMove(t.clientX);
           e.preventDefault();
         }
       }, { passive: false });
       el.addEventListener('touchend', (e) => {
         if (touched && e.changedTouches && e.changedTouches[0]) {
+          if (isHorizontalSwipe) onEnd(e.changedTouches[0].clientX);
           touched = false;
-          onEnd(e.changedTouches[0].clientX);
         }
       }, { passive: true });
       el.addEventListener('touchcancel', () => { touched = false; }, { passive: true });
@@ -436,21 +466,34 @@
     };
     const onEndRestoreTransition = () => { track.style.transition = ''; };
     const onEnd = () => { onEndRestoreTransition(); if (autoScrollId) return; startAutoScroll(); };
+    let startY = 0;
+    let isHorizontalSwipe = null;
+    const SWIPE_SLOPE = 1.2;
     const addDrag = (el) => {
       el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = () => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
       let touching = false;
       el.addEventListener('touchstart', (e) => {
         touching = true;
-        onStart(e.touches[0] ? e.touches[0].clientX : 0);
+        const t = e.touches[0];
+        if (t) { startY = t.clientY; onStart(t.clientX); }
+        isHorizontalSwipe = null;
       }, { passive: true });
       el.addEventListener('touchmove', (e) => {
-        if (touching && e.touches[0]) {
-          onMove(e.touches[0].clientX);
+        if (!touching || !e.touches[0]) return;
+        const t = e.touches[0];
+        const dx = Math.abs(t.clientX - startX);
+        const dy = Math.abs(t.clientY - startY);
+        if (isHorizontalSwipe === null) isHorizontalSwipe = dx > SWIPE_SLOPE * dy;
+        if (isHorizontalSwipe) {
+          onMove(t.clientX);
           e.preventDefault();
         }
       }, { passive: false });
       el.addEventListener('touchend', (e) => {
-        if (touching && e.changedTouches && e.changedTouches[0]) { touching = false; onEnd(); }
+        if (touching && e.changedTouches && e.changedTouches[0]) {
+          if (isHorizontalSwipe) onEnd();
+          touching = false;
+        }
       }, { passive: true });
       el.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     };
