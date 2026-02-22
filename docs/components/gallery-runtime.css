@@ -57,8 +57,8 @@
 
 @media (min-width: 769px) {
   .gc-single-shell {
-    width: 50%;
-    min-width: 360px;
+    width: 90%;
+    min-width: 720px;
   }
 }
 
@@ -249,10 +249,15 @@
   background: rgba(0, 0, 0, 0.8);
   padding: 20px;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .gc-popup.open {
   display: flex;
+}
+
+body.gc-popup-open {
+  overflow: hidden;
 }
 
 .gc-popup-card {
@@ -310,6 +315,8 @@
   overflow-x: hidden;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .gc-popup-dots {
@@ -339,6 +346,14 @@
   position: absolute;
   left: 12px;
   top: 12px;
+  z-index: 10;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
 }
 
 /* On gallery page mobile: show only tile, hide full-width */

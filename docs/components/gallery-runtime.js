@@ -238,13 +238,16 @@
     }
     dots.forEach((dot, i) => dot.addEventListener('click', (e) => { e.stopPropagation(); setIdx(i); }));
     popup.classList.add('open');
+    document.body.classList.add('gc-popup-open');
+    const close = () => {
+      popup.classList.remove('open');
+      document.body.classList.remove('gc-popup-open');
+      popup.removeEventListener('click', handler);
+    };
     const handler = (ev) => {
       const target = ev.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.dataset.gcClose || target === popup) {
-        popup.classList.remove('open');
-        popup.removeEventListener('click', handler);
-      }
+      if (target.dataset.gcClose || target === popup) close();
     };
     popup.addEventListener('click', handler);
   }
@@ -303,11 +306,11 @@
       return;
     }
     const slides = selected.map((p) => `<div class="gc-slide"><div class="gc-slide-inner">${buildCard(p, 'gc-card--slider')}</div></div>`);
-    const dotsHtml = selected.length > 1 ? Array.from({ length: selected.length }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1}"></button>`).join('') : '';
+    const dotsHtml = Array.from({ length: selected.length }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1} of ${selected.length}"></button>`).join('');
     host.innerHTML =
       `<div class="gc-template gc-single-slider">` +
       `<div class="gc-slider-shell gc-single-shell"><div class="gc-slider-track gc-single-track">${slides.join('')}</div></div>` +
-      (dotsHtml ? `<div class="gc-slider-dots" role="tablist">${dotsHtml}</div>` : '') +
+      `<div class="gc-slider-dots" role="tablist" aria-label="Slides">${dotsHtml}</div>` +
       `</div>`;
     const shell = host.querySelector('.gc-single-shell');
     const track = host.querySelector('.gc-single-track');
@@ -381,11 +384,12 @@
     const gap = 18;
     const cardWidth = 420 + gap;
     let displaySet = selected.slice();
-    /* Repeat so track always scrolls (works with 1 element, prevents desktop stuck) */
+    /* 2 sets for loop; if still shorter than viewport, add one more set (max 3 sets to limit duplicates) */
     const renderTrack = () => {
       const base = displaySet.map((p) => buildCard(p, 'gc-card--full'));
       const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
-      const needSets = Math.max(2, Math.min(8, Math.ceil(vw / (displaySet.length * cardWidth)) + 1));
+      const setW = displaySet.length * cardWidth;
+      const needSets = setW >= vw ? 2 : Math.min(3, Math.ceil(vw / setW) + 1);
       const out = [];
       for (let i = 0; i < needSets; i++) out.push(...base);
       return out.join('');
@@ -449,7 +453,7 @@
     };
     addDrag(wrap);
     wrap.addEventListener('click', (e) => { if (e.target.closest('.gc-card')) return; e.preventDefault(); });
-    const AUTO_PX_PER_MS = 0.08;
+    const AUTO_PX_PER_MS = 0.016;
     const startAutoScroll = () => {
       let lastT = 0;
       const tick = (t) => {
