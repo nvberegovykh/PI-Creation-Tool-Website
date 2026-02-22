@@ -753,6 +753,48 @@ class DashboardManager {
         }catch(_){ return ''; }
     }
 
+    _sanitizeAudioFilename(name = 'audio'){
+        try{
+            const cleaned = String(name || 'audio')
+                .replace(/[\\/:*?"<>|]+/g, '_')
+                .replace(/\s+/g, ' ')
+                .trim();
+            return cleaned || 'audio';
+        }catch(_){ return 'audio'; }
+    }
+
+    async downloadAudioAsset(url, fileName = 'audio'){
+        try{
+            const src = String(url || '').trim();
+            if (!src) return;
+            const res = await fetch(src, { mode: 'cors', cache: 'default' });
+            if (!res.ok) throw new Error('download-failed');
+            const blob = await res.blob();
+            const ext = String(fileName || '').toLowerCase().endsWith('.mp3')
+                || String(fileName || '').toLowerCase().endsWith('.m4a')
+                || String(fileName || '').toLowerCase().endsWith('.wav')
+                || String(fileName || '').toLowerCase().endsWith('.ogg')
+                || String(fileName || '').toLowerCase().endsWith('.webm')
+                ? ''
+                : ((blob.type || '').includes('mpeg') ? '.mp3'
+                  : (blob.type || '').includes('mp4') ? '.m4a'
+                  : (blob.type || '').includes('wav') ? '.wav'
+                  : (blob.type || '').includes('ogg') ? '.ogg'
+                  : '.webm');
+            const safe = this._sanitizeAudioFilename(fileName || 'audio') + ext;
+            const objectUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objectUrl;
+            a.download = safe;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(()=>{ try{ URL.revokeObjectURL(objectUrl); }catch(_){ } }, 2000);
+        }catch(_){
+            this.showError('Failed to download audio');
+        }
+    }
+
     isEdited(entity){
         try{
             const createdMs = Number(entity?.createdAtTS?.toMillis?.() || 0) || Number(new Date(entity?.createdAt || 0).getTime() || 0) || 0;
@@ -6010,7 +6052,7 @@ class DashboardManager {
           : '';
         const iconBtn = 'background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.92;color:#d6deeb';
         const removeBtnHtml = allowRemove ? `<button class="remove-btn" style="${iconBtn}" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-comments"></i></button><button class="audio-download-btn" style="${iconBtn};border:1px solid rgba(255,255,255,.2);border-radius:999px" title="Download audio"><i class="fas fa-download"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6052,6 +6094,13 @@ class DashboardManager {
                     if (typeof opts.onRemoved === 'function') opts.onRemoved();
                     this.showSuccess('Removed from library');
                 }catch(_){ this.showError('Failed to remove'); }
+            };
+        }
+        const dlBtn = div.querySelector('.audio-download-btn');
+        if (dlBtn){
+            dlBtn.onclick = async (e)=>{
+                try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+                await this.downloadAudioAsset(String(w.url || ''), String(w.title || 'audio'));
             };
         }
         const a = div.querySelector('.liber-lib-audio');
@@ -8022,9 +8071,16 @@ Do you want to proceed?`);
             card.style.cssText = 'border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0;background:var(--secondary-bg)';
             const cover = String(w.coverUrl || '').trim() || 'images/default-bird.png';
             const byline = String(w.authorName || '').trim();
-            card.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${cover}" alt="cover" style="width:34px;height:34px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div class="audio-title" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(w.title||'Audio').replace(/</g,'&lt;')}</div>${byline ? `<div class="audio-byline" style="font-size:12px;color:#aaa;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">by ${byline.replace(/</g,'&lt;')}</div>` : ''}</div></div><audio class="liber-lib-audio" src="${w.url||''}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${cover.replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div>`;
+            card.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="${cover}" alt="cover" style="width:34px;height:34px;border-radius:8px;object-fit:cover"><div style="min-width:0"><div class="audio-title" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(w.title||'Audio').replace(/</g,'&lt;')}</div>${byline ? `<div class="audio-byline" style="font-size:12px;color:#aaa;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">by ${byline.replace(/</g,'&lt;')}</div>` : ''}</div><button class="audio-download-btn" title="Download audio" style="margin-left:auto;width:20px;height:20px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:rgba(8,12,18,.55);color:#dbe6f7;display:inline-flex;align-items:center;justify-content:center;padding:0"><i class="fas fa-download" style="font-size:11px"></i></button></div><audio class="liber-lib-audio" src="${w.url||''}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${cover.replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div>`;
             audioEl.appendChild(card);
             const a = card.querySelector('.liber-lib-audio');
+            const dl = card.querySelector('.audio-download-btn');
+            if (dl){
+              dl.onclick = async (e)=>{
+                try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+                await this.downloadAudioAsset(String(w.url || ''), String(w.title || 'audio'));
+              };
+            }
             const host = card.querySelector('.wave-item-audio-host') || card;
             if (a){
               this.attachWaveAudioUI(a, host, { hideNative: true });

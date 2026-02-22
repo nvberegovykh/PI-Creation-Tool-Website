@@ -112,6 +112,8 @@
       this._sfuTrackEls = new Map();
       this._sfuCallMarkerByConn = new Set();
       this._lastCallMarkerAtByConn = new Map();
+      this._disableCallFab = false;
+      this._callOverlayLayoutBound = false;
       this._tileFullscreenState = null;
       this._drawColor = '#ffffff';
       this._drawSize = 4;
@@ -1603,7 +1605,11 @@
         tile.appendChild(expandBtn);
         videosCont.appendChild(tile);
         tile.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
+        tile.addEventListener('pointerup', ()=> this._openCallTileFullscreen(tile));
+        tile.addEventListener('touchend', ()=> this._openCallTileFullscreen(tile), { passive: true });
         el.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
+        el.addEventListener('pointerup', ()=> this._openCallTileFullscreen(tile));
+        el.addEventListener('touchend', ()=> this._openCallTileFullscreen(tile), { passive: true });
       }catch(_){ }
     }
 
@@ -1615,6 +1621,18 @@
           const mine = this._avatarFromUser(this.me, '');
           if (mine) return mine;
         }
+        try{
+          const localAvatar = String(localStorage.getItem(`liber_profile_avatar_${id}`) || '').trim();
+          if (localAvatar) return localAvatar;
+        }catch(_){ }
+        try{
+          const rawUser = localStorage.getItem('liber_current_user');
+          const user = rawUser ? JSON.parse(rawUser) : null;
+          if (id === this.currentUser?.uid){
+            const sessAvatar = this._avatarFromUser(user, '');
+            if (sessAvatar) return sessAvatar;
+          }
+        }catch(_){ }
         const direct = String(this._avatarCache.get(id) || '').trim();
         if (direct) return direct;
         const cached = this.usernameCache.get(id);
@@ -2045,6 +2063,10 @@
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
       this.setupFullscreenImagePreview();
+      if (!this._callOverlayLayoutBound){
+        this._callOverlayLayoutBound = true;
+        window.addEventListener('resize', ()=> this._layoutCallOverlay());
+      }
       if (!this._callVisibilityBound){
         this._callVisibilityBound = true;
         document.addEventListener('visibilitychange', ()=>{
@@ -7219,8 +7241,25 @@
       wrap.className = 'audio-attachment-block post-media-files-item shared-audio-waveconnect';
       const nameEl = document.createElement('div');
       nameEl.className = 'audio-attachment-head';
-      nameEl.style.cssText = 'margin-bottom:6px';
+      nameEl.style.cssText = 'margin-bottom:6px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px';
       nameEl.innerHTML = `<div class="post-media-audio-head-text"><span class="post-media-audio-title">${this.renderText(safeName)}</span><span class="post-media-audio-by">by ${this.renderText(safeAuthor)}</span></div>`;
+      const dlBtn = document.createElement('button');
+      dlBtn.type = 'button';
+      dlBtn.title = 'Download audio';
+      dlBtn.innerHTML = '<i class="fas fa-download"></i>';
+      dlBtn.style.cssText = 'width:20px;height:20px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(8,12,18,.52);color:#dbe6f7;display:inline-flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;cursor:pointer';
+      dlBtn.addEventListener('click', (e)=>{
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+        try{
+          const a = document.createElement('a');
+          a.href = src;
+          a.download = safeName || 'audio.webm';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }catch(_){ }
+      });
+      nameEl.appendChild(dlBtn);
       wrap.appendChild(nameEl);
       const audio = document.createElement('audio');
       audio.className = 'liber-lib-audio';
@@ -8323,11 +8362,37 @@
       const showBtn = document.getElementById('show-call-btn');
       const ov = document.getElementById('call-overlay');
       if (!showBtn) return;
+      if (this._disableCallFab){
+        showBtn.style.display = 'none';
+        this._notifyParentCallState();
+        return;
+      }
       const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
       const roomHasActiveCall = !!(this._roomState && this._roomState.activeCallId);
       const shouldShow = (inCall || roomHasActiveCall || this._inRoom) && !!(ov && ov.classList.contains('hidden'));
       showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
       this._notifyParentCallState();
+    }
+
+    _layoutCallOverlay(){
+      try{
+        const ov = document.getElementById('call-overlay');
+        const videos = document.getElementById('call-videos');
+        const status = document.getElementById('call-status');
+        const controls = ov ? ov.querySelector('.call-controls') : null;
+        const participants = document.getElementById('call-participants');
+        if (!ov || !videos) return;
+        const totalH = Math.max(320, ov.clientHeight || window.innerHeight || 0);
+        const used = (status?.offsetHeight || 0) + (controls?.offsetHeight || 0) + (participants?.offsetHeight || 0) + 28;
+        const free = Math.max(160, totalH - used);
+        videos.style.height = `${free}px`;
+        videos.style.maxHeight = `${free}px`;
+        // Safety migration: wrap any legacy direct <video> nodes into tiles.
+        videos.querySelectorAll(':scope > video').forEach((v, idx)=>{
+          const key = String(v.getAttribute('data-sfu-track-key') || `legacy_${idx}_${Date.now()}`);
+          this._createCallTileForVideo(v, key, false);
+        });
+      }catch(_){ }
     }
 
     _notifyParentCallState(){
@@ -8515,14 +8580,16 @@
       const now = Date.now();
       if (uid && this._lastSpeakerUid === uid && (now - this._lastSpeakerUpdateAt) < 1800) return;
       if (!uid){
-        showBtn.innerHTML = '<i class="fas fa-phone-volume"></i> Call';
+        showBtn.innerHTML = '<i class="fas fa-phone-volume"></i>';
+        showBtn.title = 'Call';
         this._lastSpeakerUid = null;
         this._lastSpeakerUpdateAt = now;
         return;
       }
       const cached = this.usernameCache.get(uid);
       const name = cached && cached.username ? cached.username : (uid === this.currentUser?.uid ? 'You' : 'Speaking');
-      showBtn.innerHTML = `<i class="fas fa-volume-up"></i> ${String(name).slice(0, 14)}`;
+      showBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+      showBtn.title = `Speaking: ${String(name).slice(0, 24)}`;
       this._lastSpeakerUid = uid;
       this._lastSpeakerUpdateAt = now;
     }
@@ -8636,6 +8703,7 @@
       return;
     }
     this._videoEnabled = !!video;
+    this._disableCallFab = false;
     await this.ensureRoom();
     if (this._useSfuCalls){
       const ov = document.getElementById('call-overlay');
@@ -8700,6 +8768,14 @@
     const shareBtn = document.getElementById('share-screen-btn');
     const hideBtn = document.getElementById('hide-call-btn');
     const showBtn = document.getElementById('show-call-btn');
+    if (startBtn) startBtn.innerHTML = '<i class="fas fa-phone"></i>';
+    if (endBtn) endBtn.innerHTML = '<i class="fas fa-xmark"></i>';
+    if (micBtn) micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    if (camBtn) camBtn.innerHTML = '<i class="fas fa-video"></i>';
+    if (shareBtn) shareBtn.innerHTML = '<i class="fas fa-display"></i>';
+    if (hideBtn) hideBtn.innerHTML = '<i class="fas fa-down-left-and-up-right-to-center"></i>';
+    if (showBtn) showBtn.innerHTML = '<i class="fas fa-phone-volume"></i>';
+    this._layoutCallOverlay();
     if (startBtn) startBtn.onclick = async () => {
       if (this._useSfuCalls){
         const ok = await this._startOrJoinSfuCall(this._videoEnabled);
@@ -8711,6 +8787,7 @@
     };
     if (endBtn) endBtn.onclick = async () => { 
       const roomId = this.getCallConnId();
+      this._disableCallFab = true;
       await this.cleanupActiveCall(false, 'close_button');
       await this._endRoomIfNoParticipantsLeft(roomId);
       const ov2 = document.getElementById('call-overlay');
@@ -8719,6 +8796,7 @@
       if (status) status.textContent = 'Room open. Ready for call.';
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = '';
+      if (showBtn) showBtn.style.display = 'none';
     };
     if (micBtn) micBtn.onclick = () => {
       this._micEnabled = !this._micEnabled;
@@ -8827,6 +8905,7 @@
       console.log('Show clicked'); 
       const ov = document.getElementById('call-overlay');
       if (ov) ov.classList.remove('hidden'); 
+      this._layoutCallOverlay();
       this._syncCallFab();
     };
   }
@@ -9589,16 +9668,8 @@
           unsubs.push(u2);
           this._activeCall = { pc, unsubs };
         }
-        const endBtn = document.getElementById('end-call-btn'); if (endBtn) endBtn.textContent = 'Exit';
-        const micBtn = document.getElementById('toggle-mic-btn');
-        const camBtn = document.getElementById('toggle-camera-btn');
-        const hideBtn = document.getElementById('hide-call-btn');
-        const showBtn = document.getElementById('show-call-btn');
-        if (endBtn){ endBtn.onclick = ()=>{ try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ } try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
-        if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
-        if (camBtn){ camBtn.onclick = ()=>{ const enabled = stream.getVideoTracks().some(t=> t.enabled); stream.getVideoTracks().forEach(t=> t.enabled = !enabled); if (lv) lv.style.display = stream.getVideoTracks().some(t=>t.enabled)? 'block':'none'; }; }
-        if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
-        if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
+        this.initCallControls(video);
+        this._layoutCallOverlay();
       }catch(e){ console.warn('Call start failed', e); }
     }
 
@@ -9672,16 +9743,8 @@
             });
           });
         }
-        const endBtn = document.getElementById('end-call-btn');
-        const micBtn = document.getElementById('toggle-mic-btn');
-        const camBtn = document.getElementById('toggle-camera-btn');
-        const hideBtn = document.getElementById('hide-call-btn');
-        const showBtn = document.getElementById('show-call-btn');
-        if (endBtn){ endBtn.onclick = ()=>{ try{ pc.close(); }catch(_){} stream.getTracks().forEach(t=> t.stop()); if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='none'; }; }
-        if (micBtn){ micBtn.onclick = ()=>{ stream.getAudioTracks().forEach(t=> t.enabled = !t.enabled); }; }
-        if (camBtn){ camBtn.onclick = ()=>{ stream.getVideoTracks().forEach(t=> t.enabled = !t.enabled); }; }
-        if (hideBtn){ hideBtn.onclick = ()=>{ if (ov) ov.classList.add('hidden'); if (showBtn) showBtn.style.display='block'; }; }
-        if (showBtn){ showBtn.onclick = ()=>{ if (ov) ov.classList.remove('hidden'); showBtn.style.display='none'; }; }
+        this.initCallControls(video);
+        this._layoutCallOverlay();
       }catch(e){ console.warn('Answer call failed', e); }
     }
 
@@ -9689,15 +9752,15 @@
       try{
         const cont = document.getElementById('call-participants'); if (!cont) return;
         cont.innerHTML='';
-        const selfAvatar = (this.me && (this.me.avatarUrl || this.me.photoURL || this.me.photoUrl || this.me.profileImage || this.me.profilePhoto || this.me.avatar)) || '../../images/default-bird.png';
+        const selfAvatar = this._avatarFromCaches(this.currentUser?.uid || '');
         const local = document.createElement('div'); local.className = 'avatar local connected'; local.innerHTML = `<img src="${selfAvatar}" alt="me"/>`;
         cont.appendChild(local);
         // Peer
         const peerUid = await this.getPeerUid();
-        let peerAvatar = '../../images/default-bird.png';
+        let peerAvatar = this._avatarFromCaches(peerUid);
         try{
           const d = await window.firebaseService.getUserData(peerUid);
-          if (d) peerAvatar = d.avatarUrl || d.photoURL || d.photoUrl || d.profileImage || d.profilePhoto || d.avatar || peerAvatar;
+          if (d) peerAvatar = this._avatarFromUser(d, peerAvatar);
         }catch(_){ }
         const remote = document.createElement('div'); remote.className = 'avatar remote connected'; remote.innerHTML = `<img src="${peerAvatar}" alt="peer"/>`;
         cont.appendChild(remote);
@@ -10008,6 +10071,7 @@
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = '';
       this._setActiveSpeakerLabel(null);
+      if (reason !== 'close_button') this._disableCallFab = false;
       this._syncCallFab();
       this._updateMediaSessionState('idle', null);
       this._sfuCallMarkerByConn.delete(String(this.getCallConnId() || ''));
@@ -10136,6 +10200,7 @@
         const el = document.getElementById(id);
         if (el) el.style.display = inCall ? 'none' : '';
       });
+      this._layoutCallOverlay();
       if (!inCall) this._setActiveSpeakerLabel(null);
       this._syncCallFab();
       if (inCall) this._updateMediaSessionState('active', this.currentUser?.uid || null);

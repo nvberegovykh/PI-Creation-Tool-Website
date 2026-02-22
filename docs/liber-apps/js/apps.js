@@ -124,7 +124,8 @@ class AppsManager {
     updateGlobalCallButton(){
         const btn = document.getElementById('dashboard-call-btn');
         if (!btn) return;
-        btn.style.display = this._chatCallState?.active ? 'inline-flex' : 'none';
+        const show = !!(this._chatCallState?.active || this._chatCallState?.inRoom);
+        btn.style.display = show ? 'inline-flex' : 'none';
     }
 
     openActiveCallShell(){
@@ -594,7 +595,7 @@ class AppsManager {
         const currentSrc = String(frame.getAttribute('src') || '');
         const currentIsChat = /apps\/secure-chat\/index\.html/i.test(currentSrc) && currentSrc !== 'about:blank';
         const nextIsChat = String(app?.id || '') === 'secure-chat' || /apps\/secure-chat\/index\.html/i.test(String(appUrl || ''));
-        const shouldReuseChat = currentIsChat && nextIsChat && !!this._chatCallState?.active;
+        const shouldReuseChat = currentIsChat && nextIsChat;
         if (!shouldReuseChat){
             const separator = appUrl.includes('?') ? '&' : '?';
             frame.src = `${appUrl}${separator}inShell=1`;
@@ -615,7 +616,9 @@ class AppsManager {
             if (!shell || !frame) return;
             const activeSrc = String(frame.getAttribute('src') || '');
             const isChatShell = /apps\/secure-chat\/index\.html/i.test(activeSrc);
-            const keepAliveChat = isChatShell && !!this._chatCallState?.active;
+            // Keep secure-chat iframe alive when shell is closed to preserve
+            // in-call/background behavior across shell open/close transitions.
+            const keepAliveChat = isChatShell;
             if (!keepAliveChat){
                 frame.src = 'about:blank';
                 this._activeAppUrl = '';
