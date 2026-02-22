@@ -4501,6 +4501,7 @@
       if (window.self !== window.top) {
         const id = Math.random().toString(36).slice(2);
         delete doc.createdAtTS;
+        const docJson = JSON.stringify(JSON.parse(JSON.stringify(doc)));
         await new Promise((resolve, reject) => {
           const handler = (e) => {
             if (e.data?.type === 'liber-save-chat-message-done' && e.data?.id === id) {
@@ -4509,13 +4510,7 @@
             }
           };
           window.addEventListener('message', handler);
-          window.parent.postMessage({
-            type: 'liber-save-chat-message',
-            id,
-            connId,
-            msgId: msgRef.id,
-            docJson: JSON.stringify(doc)
-          }, '*');
+          window.parent.postMessage({ type: 'liber-save-chat-message', id, connId, msgId: msgRef.id, docJson }, '*');
         });
       } else {
         const ts = doc.createdAtTS;
@@ -5276,6 +5271,7 @@
       if (window.self !== window.top) {
         const id = Math.random().toString(36).slice(2);
         delete doc.createdAtTS;
+        const docJson = JSON.stringify(JSON.parse(JSON.stringify(doc)));
         await new Promise((resolve, reject) => {
           const handler = (e) => {
             if (e.data?.type === 'liber-save-chat-message-done' && e.data?.id === id) {
@@ -5284,13 +5280,7 @@
             }
           };
           window.addEventListener('message', handler);
-          window.parent.postMessage({
-            type: 'liber-save-chat-message',
-            id,
-            connId: targetConnId,
-            msgId: msgRef.id,
-            docJson: JSON.stringify(doc)
-          }, '*');
+          window.parent.postMessage({ type: 'liber-save-chat-message', id, connId: targetConnId, msgId: msgRef.id, docJson }, '*');
         });
       } else {
         const ts = doc.createdAtTS;
