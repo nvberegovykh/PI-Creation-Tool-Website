@@ -4498,7 +4498,11 @@
         createdAtTS: firebase.serverTimestamp()
       };
       if (!mediaArr) delete doc.media;
-      await firebase.setDoc(msgRef, doc);
+      const ts = doc.createdAtTS;
+      delete doc.createdAtTS;
+      const plainDoc = JSON.parse(JSON.stringify(doc));
+      plainDoc.createdAtTS = ts;
+      await firebase.setDoc(msgRef, plainDoc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',connId),{
         lastMessage: String(text || '').slice(0,200),
         updatedAt: new Date().toISOString()
@@ -5248,7 +5252,11 @@
         createdAtTS: firebase.serverTimestamp()
       };
       if (mediaArr) doc.media = mediaArr;
-      await firebase.setDoc(msgRef, doc);
+      const ts = doc.createdAtTS;
+      delete doc.createdAtTS;
+      const plainDoc = JSON.parse(JSON.stringify(doc));
+      plainDoc.createdAtTS = ts;
+      await firebase.setDoc(msgRef, plainDoc);
       await firebase.updateDoc(firebase.doc(this.db,'chatConnections',targetConnId),{
         lastMessage: text.slice(0,200),
         lastMessageSender: this.currentUser.uid,
