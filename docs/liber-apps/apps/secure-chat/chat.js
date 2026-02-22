@@ -112,6 +112,7 @@
       this._sfuTrackEls = new Map();
       this._sfuCallMarkerByConn = new Set();
       this._lastCallMarkerAtByConn = new Map();
+      this._lastCallEndedMarkerAtByConn = new Map();
       this._disableCallFab = false;
       this._callOverlayLayoutBound = false;
       this._tileFullscreenState = null;
@@ -1591,6 +1592,7 @@
         if (!videosCont || !el) return;
         const tile = document.createElement('div');
         tile.className = `call-tile${isScreen ? ' screen' : ''}`;
+        tile.classList.add('call-tile-enter');
         tile.setAttribute('data-sfu-track-key', key);
         const expandBtn = document.createElement('button');
         expandBtn.className = 'call-tile-expand';
@@ -1604,6 +1606,9 @@
         tile.appendChild(el);
         tile.appendChild(expandBtn);
         videosCont.appendChild(tile);
+        try{
+          requestAnimationFrame(()=> tile.classList.remove('call-tile-enter'));
+        }catch(_){ tile.classList.remove('call-tile-enter'); }
         tile.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
         tile.addEventListener('pointerup', ()=> this._openCallTileFullscreen(tile));
         tile.addEventListener('touchend', ()=> this._openCallTileFullscreen(tile), { passive: true });
@@ -1659,6 +1664,45 @@
       }catch(e){
         console.warn('Join-call marker send failed', e?.message || e);
       }
+    }
+
+    async _emitEndCallMessage(connId){
+      try{
+        const key = String(connId || this.getCallConnId() || '').trim();
+        if (!key) return;
+        const now = Date.now();
+        const prev = Number(this._lastCallEndedMarkerAtByConn.get(key) || 0);
+        if ((now - prev) < 2500) return;
+        this._lastCallEndedMarkerAtByConn.set(key, now);
+        await this.saveMessage({ text: `[call:ended:${key}]` });
+      }catch(e){
+        console.warn('End-call marker send failed', e?.message || e);
+      }
+    }
+
+    _parseCallBadgeToken(text){
+      try{
+        const raw = String(text || '').trim();
+        const join = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(raw);
+        if (join) return { kind: 'join', callId: String(join[1] || '') };
+        const ended = /^\[call:ended:([A-Za-z0-9_\-]+)\]$/.exec(raw);
+        if (ended) return { kind: 'ended', callId: String(ended[1] || '') };
+      }catch(_){ }
+      return null;
+    }
+
+    _renderCallBadgeHtml(callBadge, msg){
+      try{
+        if (!callBadge) return '';
+        const ts = String(this.formatMessageTime(msg?.createdAt, msg) || '');
+        if (callBadge.kind === 'join'){
+          return `<div class="call-msg-wrap"><button class="call-status-badge join" data-call-id="${callBadge.callId}" type="button"><i class="fas fa-phone"></i><span>Join call</span></button>${ts ? `<div class="call-status-time">${ts}</div>` : ''}</div>`;
+        }
+        if (callBadge.kind === 'ended'){
+          return `<div class="call-msg-wrap"><div class="call-status-badge ended"><i class="fas fa-phone-slash"></i><span>Call ended</span></div>${ts ? `<div class="call-status-time">${ts}</div>` : ''}</div>`;
+        }
+      }catch(_){ }
+      return '';
     }
 
     _bindCallDrawTools(){
@@ -3819,7 +3863,9 @@
                 const msgTs = this.getMessageTimestampMs(m);
                 el.dataset.msgTs = String(msgTs || 0);
                 if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+                const callBadge = this._parseCallBadgeToken(text);
                 if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
+                if (callBadge) el.classList.add('message-system', 'message-call-badge');
                 const cachedSender = this.usernameCache.get(m.sender);
                 const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
                 let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
@@ -3836,8 +3882,7 @@
                 if (isMediaOnlyMessage) el.classList.add('message-media-only');
                 let bodyHtml = this.renderText(cleanedText);
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-                const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
-                if (callMatch) bodyHtml = `<button class="btn secondary" data-call-id="${callMatch[1]}">Join call</button>`;
+                if (callBadge) bodyHtml = this._renderCallBadgeHtml(callBadge, m);
                 const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
                 if (gifMatch) bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
                 const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
@@ -4004,9 +4049,11 @@
               const msgTs = this.getMessageTimestampMs(m);
               el.dataset.msgTs = String(msgTs || 0);
               if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+              const callBadge = this._parseCallBadgeToken(text);
               if (m.systemType === 'connection_request_intro'){
                 el.classList.add('message-system', 'message-connection-request');
               }
+              if (callBadge) el.classList.add('message-system', 'message-call-badge');
               // Resolve sender name async
               const cachedSender = this.usernameCache.get(m.sender);
               const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
@@ -4035,11 +4082,7 @@
               if (isMediaOnlyMessage) el.classList.add('message-media-only');
               let bodyHtml = this.renderText(cleanedText);
               if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-              const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
-              if (callMatch){
-                const callId = callMatch[1];
-                bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\">Join call</button>`;
-              }
+              if (callBadge) bodyHtml = this._renderCallBadgeHtml(callBadge, m);
               const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
               if (gifMatch){
                 bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
@@ -4445,9 +4488,11 @@
             const msgTs = this.getMessageTimestampMs(m);
             el.dataset.msgTs = String(msgTs || 0);
             if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+            const callBadge = this._parseCallBadgeToken(text);
             if (m.systemType === 'connection_request_intro'){
               el.classList.add('message-system', 'message-connection-request');
             }
+            if (callBadge) el.classList.add('message-system', 'message-call-badge');
             // Resolve sender name async
             const cachedSender = this.usernameCache.get(m.sender);
             const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
@@ -4476,11 +4521,7 @@
             if (isMediaOnlyMessage) el.classList.add('message-media-only');
             let bodyHtml = this.renderText(cleanedText);
             if (m.sharedAsset && typeof m.sharedAsset === 'object') bodyHtml = this.renderSharedAssetCardHtml(m.sharedAsset, d.id || m.id || '');
-            const callMatch = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(text);
-            if (callMatch){
-              const callId = callMatch[1];
-              bodyHtml = `<button class=\"btn secondary\" data-call-id=\"${callId}\">Join call</button>`;
-            }
+            if (callBadge) bodyHtml = this._renderCallBadgeHtml(callBadge, m);
             const gifMatch = /^\[gif\]\s+(https?:\/\/\S+)$/i.exec(text || '');
             if (gifMatch){
               bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
@@ -8384,7 +8425,7 @@
         if (!ov || !videos) return;
         const totalH = Math.max(320, ov.clientHeight || window.innerHeight || 0);
         const used = (status?.offsetHeight || 0) + (controls?.offsetHeight || 0) + (participants?.offsetHeight || 0) + 28;
-        const free = Math.max(160, totalH - used);
+        const free = Math.max(180, Math.min(680, totalH - used));
         videos.style.height = `${free}px`;
         videos.style.maxHeight = `${free}px`;
         // Safety migration: wrap any legacy direct <video> nodes into tiles.
@@ -10035,6 +10076,7 @@
     }
 
     async cleanupActiveCall(endRoom = false, reason = 'unknown'){
+    const endedConnId = String(this.getCallConnId() || this.activeConnection || '').trim();
     this._startingCall = false;
     this._joiningCall = false;
     this._lastJoinedCallId = null;
@@ -10072,6 +10114,7 @@
       if (endRoom){
         const roomRef = firebase.doc(this.db,'callRooms', this.getCallConnId());
         await firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null });
+        await this._emitEndCallMessage(endedConnId);
       }
       await this.updatePresence('idle', false);
       if (this._monitorStream) {
@@ -10101,6 +10144,7 @@
       this._updateMediaSessionState('idle', null);
       this._sfuCallMarkerByConn.delete(String(this.getCallConnId() || ''));
       this._lastCallMarkerAtByConn.delete(String(this.getCallConnId() || ''));
+      this._lastCallEndedMarkerAtByConn.delete(String(this.getCallConnId() || ''));
       this._callConnectionId = null;
     }
 
@@ -10125,6 +10169,7 @@
           activeCallId: null,
           lastActiveAt: new Date().toISOString()
         });
+        await this._emitEndCallMessage(connId);
       }catch(_){ }
     }
 
