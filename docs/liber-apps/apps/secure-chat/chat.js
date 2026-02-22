@@ -276,12 +276,22 @@
           if (msg?.sender === this.currentUser?.uid && (Number.isNaN(d.getTime()) || d.getTime() <= 0)) d = new Date();
         }
         if (Number.isNaN(d.getTime()) || d.getTime() <= 0) d = new Date(value || msg?.createdAt || Date.now());
-        if (msg?.sender === this.currentUser?.uid){
-          const now = Date.now();
-          const age = now - d.getTime();
-          if (Math.abs(age) < 10 * 60 * 1000) d = new Date(now);
-        }
         const nowMs = Date.now();
+        const age = nowMs - d.getTime();
+        if (msg?.sender === this.currentUser?.uid && age >= -60000 && age < 24 * 60 * 60 * 1000) return 'Today';
+        if (age >= -60000 && age < 24 * 60 * 60 * 1000) {
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const thatStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+          if (thatStart >= todayStart - 60000) return 'Today';
+        }
+        const createdAtFallback = new Date(msg?.createdAt || 0);
+        if (msg?.sender === this.currentUser?.uid && !Number.isNaN(createdAtFallback.getTime())) {
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const thatStart = new Date(createdAtFallback.getFullYear(), createdAtFallback.getMonth(), createdAtFallback.getDate()).getTime();
+          if (thatStart >= todayStart - 60000) return 'Today';
+        }
         if (d.getTime() > nowMs + 60000) d = new Date(nowMs);
       }catch(_){ d = new Date(value || msg?.createdAt || Date.now()); }
       if (Number.isNaN(d.getTime())) return '';
@@ -747,16 +757,6 @@
         if (fileInput) fileInput.click();
       };
       panel.appendChild(browseDevice);
-      const addWaveBtn = document.createElement('button');
-      addWaveBtn.className = 'btn secondary';
-      addWaveBtn.innerHTML = '<i class="fas fa-music"></i> Add from WaveConnect';
-      addWaveBtn.style.marginBottom = '8px';
-      addWaveBtn.onclick = ()=>{
-        panel.remove();
-        backdrop.remove();
-        this.openWaveConnectPickerForComposer();
-      };
-      panel.appendChild(addWaveBtn);
       const mineTitle = document.createElement('div');
       mineTitle.textContent = 'My media';
       mineTitle.style.cssText = 'font-size:12px;opacity:.8;margin:2px 0 8px';
@@ -774,26 +774,29 @@
       panel.appendChild(tabs);
       const listHost = document.createElement('div');
       panel.appendChild(listHost);
+      const selectAttachment = (a)=>{
+        panel.remove();
+        backdrop.remove();
+        if (!this.activeConnection) return;
+        this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
+        this.refreshActionButton();
+      };
       const makeRow = (a)=>{
         const row = document.createElement('button');
         row.className = 'btn secondary';
-        row.style.cssText = 'display:block;width:100%;margin-bottom:6px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-        row.textContent = `${a.fileName || 'Media'} • ${this.formatMessageTime(a.sentAt)}`;
-        row.onclick = ()=>{
-          panel.remove();
-          backdrop.remove();
-          if (!this.activeConnection) return;
-          this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
-          this.refreshActionButton();
-        };
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;margin-bottom:6px;text-align:left;padding:8px';
+        const icon = document.createElement('span');
+        icon.innerHTML = '<i class="fas fa-music" style="font-size:20px;opacity:.9"></i>';
+        row.appendChild(icon);
+        row.onclick = ()=> selectAttachment(a);
         return row;
       };
       const makeTile = (a, type)=>{
         const tile = document.createElement('button');
         tile.className = 'btn secondary';
-        tile.style.cssText = 'display:inline-flex;flex-direction:column;align-items:stretch;justify-content:flex-start;width:108px;height:124px;padding:6px;margin:0 6px 8px 0;vertical-align:top;overflow:hidden';
+        tile.style.cssText = 'display:inline-flex;flex-direction:column;align-items:stretch;width:88px;height:88px;padding:4px;margin:0 6px 8px 0;overflow:hidden;border-radius:10px';
         const mediaWrap = document.createElement('div');
-        mediaWrap.style.cssText = 'width:100%;height:84px;border-radius:8px;overflow:hidden;background:#0b0f16;display:flex;align-items:center;justify-content:center';
+        mediaWrap.style.cssText = 'width:100%;height:100%;border-radius:8px;overflow:hidden;background:#0b0f16;display:flex;align-items:center;justify-content:center';
         if (type === 'video'){
           const video = document.createElement('video');
           video.src = a.fileUrl || '';
@@ -802,25 +805,19 @@
           video.preload = 'metadata';
           video.style.cssText = 'width:100%;height:100%;object-fit:cover';
           mediaWrap.appendChild(video);
-        } else {
+        } else if (type === 'pics') {
           const img = document.createElement('img');
           img.src = a.fileUrl || '';
-          img.alt = a.fileName || 'Image';
+          img.alt = '';
           img.style.cssText = 'width:100%;height:100%;object-fit:cover';
           mediaWrap.appendChild(img);
+        } else {
+          const icon = document.createElement('span');
+          icon.innerHTML = '<i class="fas fa-music" style="font-size:28px;opacity:.7"></i>';
+          mediaWrap.appendChild(icon);
         }
-        const label = document.createElement('div');
-        label.style.cssText = 'margin-top:6px;font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92';
-        label.textContent = a.fileName || 'Media';
         tile.appendChild(mediaWrap);
-        tile.appendChild(label);
-        tile.onclick = ()=>{
-          panel.remove();
-          backdrop.remove();
-          if (!this.activeConnection) return;
-          this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName || 'Media', message: null });
-          this.refreshActionButton();
-        };
+        tile.onclick = ()=> selectAttachment(a);
         return tile;
       };
       this.loadMyMediaQuickChoices().then((items)=>{
@@ -1112,72 +1109,25 @@
         }
         for (const a of filtered){
           const card = document.createElement('div');
-          card.style.cssText = 'background:#0f141d;border:1px solid #2a2f36;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px';
-          const senderName = this.usernameCache.get(a.sender) || String(a.sender || '').slice(0,8) || 'Unknown';
-          const meta = document.createElement('div');
-          meta.style.cssText = 'font-size:12px;opacity:.85;display:flex;justify-content:space-between;gap:8px';
-          meta.innerHTML = `<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(a.fileName || 'Attachment')}</span><span>${this.formatMessageTime(a.createdAt, a.message)}</span>`;
-          const sub = document.createElement('div');
-          sub.style.cssText = 'font-size:11px;opacity:.65;margin-top:-4px';
-          sub.textContent = `${senderName} • ${this.formatMessageDay(a.createdAt, a.message)}`;
+          card.style.cssText = 'background:#0f141d;border:1px solid #2a2f36;border-radius:10px;overflow:hidden;padding:8px';
           const preview = document.createElement('div');
-          preview.className = 'file-preview';
-          preview.style.cssText = 'min-height:68px';
-          const actions = document.createElement('div');
-          actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
-          const dl = document.createElement('button');
-          dl.className = 'btn secondary';
-          dl.textContent = 'Download';
-          dl.onclick = ()=>{
-            let href = '';
-            const media = preview.querySelector('img,video,audio');
-            if (media){
-              href = media.currentSrc || media.src || '';
-            } else {
-              const anchor = preview.querySelector('a[href]');
-              href = anchor ? anchor.href : '';
-            }
-            href = href || a.fileUrl || '';
-            if (!href) return;
-            const link = document.createElement('a');
-            link.href = href;
-            link.download = a.fileName || 'attachment';
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-          };
-          const open = document.createElement('button');
-          open.className = 'btn secondary';
-          open.textContent = 'Open message';
-          open.onclick = async ()=>{
-            const ok = await this.jumpToMessageById(a.id, { smooth: true });
-            if (!ok) alert('Message not found in this chat.');
-            try{ panel.remove(); }catch(_){ }
-            try{ backdrop.remove(); }catch(_){ }
-          };
-          const addToComposer = document.createElement('button');
-          addToComposer.className = 'btn secondary';
-          addToComposer.textContent = 'Add to composer';
-          addToComposer.onclick = ()=>{
-            this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName, message: a.message, sender: a.sender });
-            try{ panel.remove(); }catch(_){ }
-            try{ backdrop.remove(); }catch(_){ }
-          };
-          actions.appendChild(dl);
-          actions.appendChild(open);
-          actions.appendChild(addToComposer);
-          card.appendChild(meta);
-          card.appendChild(sub);
+          preview.className = 'file-preview chat-attachment-preview';
+          preview.style.cssText = 'min-height:100px';
+          const addBtn = document.createElement('button');
+          addBtn.className = 'btn secondary';
+          addBtn.textContent = 'Add';
+          addBtn.style.cssText = 'margin-top:8px;width:100%';
+          addBtn.onclick = (e)=>{ e.stopPropagation(); this.queueReusedAttachment({ fileUrl: a.fileUrl, fileName: a.fileName, message: a.message, sender: a.sender }); try{ panel.remove(); backdrop.remove(); }catch(_){ } };
+          const senderName = this.usernameCache.get(a.sender) || String(a.sender || '').slice(0,8) || 'Unknown';
+          preview.dataset.pickerMode = '1';
           card.appendChild(preview);
-          card.appendChild(actions);
+          card.appendChild(addBtn);
           grid.appendChild(card);
           try{
             const aesKey = await getConnKey();
             await this.renderEncryptedAttachment(preview, a.fileUrl, a.fileName, aesKey, connId, senderName, a.message);
           }catch(_){
-            this.renderDirectAttachment(preview, a.fileUrl, a.fileName, a.message, senderName);
+            this.renderDirectAttachment(preview, a.fileUrl, a.fileName, a.message, senderName, true);
           }
         }
       };
@@ -6912,7 +6862,13 @@
           const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const cacheKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(fileName || '')}|${mime}`;
           const url = this.getStableBlobUrl(cacheKey, blob);
-          if (isVoiceRecording){
+          if (containerEl?.dataset?.pickerMode === '1'){
+            const audio = document.createElement('audio');
+            audio.src = url;
+            audio.controls = true;
+            audio.style.cssText = 'width:100%;margin-top:6px';
+            containerEl.appendChild(audio);
+          } else if (isVoiceRecording){
             const title = String(senderDisplayName || 'Voice message');
             this.renderWaveAttachment(containerEl, url, title, attachmentSourceKey);
           }else{
@@ -6997,11 +6953,11 @@
           containerEl.appendChild(err);
           return;
         }
-        this.renderDirectAttachment(containerEl, fileUrl, fileName, message, senderDisplayName);
+        this.renderDirectAttachment(containerEl, fileUrl, fileName, message, senderDisplayName, !!containerEl?.dataset?.pickerMode);
       }
     }
 
-    renderDirectAttachment(containerEl, fileUrl, fileName, message = null, senderDisplayName = ''){
+    renderDirectAttachment(containerEl, fileUrl, fileName, message = null, senderDisplayName = '', pickerMode = false){
       try{
         let name = String(fileName || '');
         const isVideoRecording = this.isVideoRecordingMessage(message, name);
@@ -7042,7 +6998,13 @@
         }
         if (this.isAudioFilename(name)){
           const attachmentSourceKey = `aud|${String(message?.id || '')}|${String(fileUrl || '')}|${String(name || '')}`;
-          if (isVoiceRecording){
+          if (pickerMode){
+            const audio = document.createElement('audio');
+            audio.src = fileUrl;
+            audio.controls = true;
+            audio.style.cssText = 'width:100%;margin-top:6px';
+            containerEl.appendChild(audio);
+          } else if (isVoiceRecording){
             this.renderWaveAttachment(containerEl, fileUrl, 'Voice message', attachmentSourceKey);
           }else{
             this.renderNamedAudioAttachment(containerEl, fileUrl, name || 'Audio', senderDisplayName || 'Unknown', attachmentSourceKey);
