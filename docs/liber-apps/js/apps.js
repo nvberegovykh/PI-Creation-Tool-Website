@@ -59,6 +59,13 @@ class AppsManager {
                 const data = ev && ev.data ? ev.data : {};
                 if (data && data.type === 'liber:close-app-shell'){
                     this.closeAppShell();
+                } else if (data && data.type === 'liber:chat-audio-meta' && data.src){
+                    try{
+                        const dm = window.dashboardManager;
+                        if (dm && typeof dm.setChatAudioMeta === 'function'){
+                            dm.setChatAudioMeta({ src: data.src, title: data.title || 'Audio', by: data.by || '', cover: data.cover || '' });
+                        }
+                    }catch(_){ }
                 } else if (data && data.type === 'liber:chat-audio-play' && data.src){
                     try{
                         const dm = window.dashboardManager;

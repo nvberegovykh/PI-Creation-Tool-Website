@@ -2959,6 +2959,23 @@ class DashboardManager {
         }
     }
 
+    /** Called when chat sends liber:chat-audio-meta: sync mini player display only. Does NOT pause chat or take over playback. */
+    setChatAudioMeta(track){
+        try{
+            if (!track || !track.src) return;
+            this._chatAudioMeta = { src: track.src, title: track.title || 'Audio', by: track.by || '', cover: track.cover || '' };
+            const mini = document.getElementById('mini-player');
+            if (!mini) return;
+            const mTitle = document.getElementById('mini-title');
+            const mBy = document.getElementById('mini-by');
+            const mCover = mini.querySelector('.cover');
+            if (mTitle) this.setMiniTitleText(track.title || 'Audio');
+            if (mBy) mBy.textContent = (track.by ? `by ${track.by}` : '').trim();
+            if (mCover) mCover.src = (track.cover || 'images/default-bird.png').trim();
+            mini.classList.add('show');
+        }catch(_){ }
+    }
+
     addChatAudioToPlayer(track){
         try{
             if (!track || !track.src) return;

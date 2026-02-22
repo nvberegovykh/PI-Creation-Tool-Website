@@ -3215,7 +3215,7 @@
               const canModify = m.sender === this.currentUser.uid;
               const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
               const dayLabel = this.formatMessageDay(m.createdAt, m);
-              const effectiveLastDay = forceAppend && opts.appendContext ? opts.appendContext.lastRenderedDay : lastRenderedDay;
+              const effectiveLastDay = (forceAppend || forceInsertBefore) && opts.appendContext ? opts.appendContext.lastRenderedDay : lastRenderedDay;
               if (dayLabel !== effectiveLastDay){
                 if (!appendOnly && !forceInsertBefore && effectiveLastDay){
                   const prevSep = document.createElement('div');
@@ -3370,8 +3370,11 @@
                 if (existing) continue;
                 const d = { id, data: (typeof doc.data === 'function' ? doc.data() : (doc.data || {})) || {}, sourceConnId: activeConnId };
                 const dm = d.data;
+                const firstMsg = box.querySelector('.message');
+                const ts = firstMsg?.dataset?.msgTs ? Number(firstMsg.dataset.msgTs) : 0;
+                const appendCtx = ts > 0 ? { lastRenderedDay: this.formatMessageDay(ts, {}) } : undefined;
                 try{
-                  await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true });
+                  await renderOne(d, d.sourceConnId || activeConnId, { forceInsertBefore: true, appendContext: appendCtx });
                   const dayLbl = this.formatMessageDay(dm?.createdAt, dm);
                   if (dayLbl) lastDayFromChanges = dayLbl;
                   didMutate = true;
@@ -3394,12 +3397,16 @@
               return;
             }
             this._lastDocIdsByConn.set(activeConnId, docs.map((x)=> x.id));
-            requestAnimationFrame(()=>{
+            const doScroll = ()=>{
               if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
+              const prevBh = box.style.scrollBehavior;
+              box.style.scrollBehavior = 'auto';
               if (pinnedBefore) box.scrollTop = 0;
               else box.scrollTop = prevTop;
+              box.style.scrollBehavior = prevBh || '';
               updateBottomUi();
-            });
+            };
+            requestAnimationFrame(()=> requestAnimationFrame(doScroll));
             this.applyNewMessagesSeparator(box);
             loadFinished = true;
             if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3445,14 +3452,15 @@
           this._lastDayByConn.set(activeConnId, lastRenderedDay);
           box.dataset.renderedConnId = activeConnId;
           const finalScrollTop = pinnedBefore ? 0 : prevTop;
-          requestAnimationFrame(()=>{
+          const doScroll = ()=>{
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId || !box.isConnected) return;
             const prevBehavior = box.style.scrollBehavior;
             box.style.scrollBehavior = 'auto';
             box.scrollTop = finalScrollTop;
             box.style.scrollBehavior = prevBehavior || '';
             updateBottomUi();
-          });
+          };
+          requestAnimationFrame(()=> requestAnimationFrame(doScroll));
           this.applyNewMessagesSeparator(box);
           loadFinished = true;
           if (loadWatchdog){ clearTimeout(loadWatchdog); loadWatchdog = null; }
@@ -3726,7 +3734,8 @@
               await this.yieldToUi();
             }
           }
-          const prevBh = box.style.scrollBehavior; box.style.scrollBehavior = 'auto'; box.scrollTop = 0; box.style.scrollBehavior = prevBh || '';
+          const doScroll = ()=>{ const prevBh = box.style.scrollBehavior; box.style.scrollBehavior = 'auto'; box.scrollTop = 0; box.style.scrollBehavior = prevBh || ''; };
+          requestAnimationFrame(()=> requestAnimationFrame(doScroll));
           box.dataset.renderedConnId = activeConnId;
           const rawFallback = snap.docs || [];
           if (rawFallback.length > 0){
@@ -4148,7 +4157,7 @@
               const cover = first && (first.cover || first.coverUrl) ? String(first.cover || first.coverUrl || '') : '';
               const target = window.parent !== window ? window.parent : (window.top || window);
               if (target && target.postMessage) target.postMessage({ type: 'liber:chat-playlist-play', items, firstTrack: { src, title, by, cover } }, '*');
-              if (src) this.notifyParentAudioPlay({ src, title, by, cover });
+              if (src) this.notifyParentAudioMetaOnly({ src, title, by, cover });
             }catch(_){}
           };
         });
@@ -4175,6 +4184,28 @@
             if (!src) return;
             const target = window.parent !== window ? window.parent : (window.top || window);
             if (target && target.postMessage) target.postMessage({ type: 'liber:chat-audio-play', src, title: title || 'Audio', by, cover, currentTime }, '*');
+        }catch(_){ }
+    }
+
+    /** Notify parent only to sync mini player display (metadata). Does NOT trigger addChatAudioToPlayer. */
+    notifyParentAudioMetaOnly(mediaElOrTrack){
+        try{
+            let src, title, by, cover;
+            if (mediaElOrTrack && typeof mediaElOrTrack === 'object' && typeof mediaElOrTrack.nodeType === 'number'){
+                const el = mediaElOrTrack;
+                src = (el?.currentSrc || el?.src || '').trim();
+                title = String(el?.dataset?.title || el?.closest?.('.shared-asset-card,.audio-attachment-block,.post-media-files-item')?.querySelector?.('.post-media-audio-title,.shared-asset-title')?.textContent || 'Audio').trim();
+                by = String(el?.dataset?.by || el?.closest?.('.shared-asset-card,.audio-attachment-block,.post-media-files-item')?.querySelector?.('.post-media-audio-by,.shared-asset-byline')?.textContent || '').replace(/^by\s+/i,'').trim();
+                cover = String(el?.dataset?.cover || '').trim();
+            } else if (mediaElOrTrack && typeof mediaElOrTrack === 'object'){
+                src = String(mediaElOrTrack.src || mediaElOrTrack.currentSrc || '').trim();
+                title = String(mediaElOrTrack.title || 'Audio').trim();
+                by = String(mediaElOrTrack.by || '').trim();
+                cover = String(mediaElOrTrack.cover || '').trim();
+            }
+            if (!src) return;
+            const target = window.parent !== window ? window.parent : (window.top || window);
+            if (target && target.postMessage) target.postMessage({ type: 'liber:chat-audio-meta', src, title: title || 'Audio', by, cover }, '*');
         }catch(_){ }
     }
 
@@ -4227,7 +4258,7 @@
           if (audioEl && hostEl){
             hostEl.innerHTML = '';
             this.renderInlineWaveAudio(hostEl, url, String(a.title || a.name || 'Audio'), '');
-            audioEl.addEventListener('play', ()=> this.notifyParentAudioPlay(audioEl), { once: false });
+            audioEl.addEventListener('play', ()=> this.notifyParentAudioMetaOnly(audioEl), { once: false });
             const addBtn = root.querySelector('.shared-asset-add-btn');
             if (addBtn) addBtn.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src: url, title: String(a.title || a.name || 'Audio'), author: String(a.by || a.authorName || ''), sourceKey: '' }); }catch(_){ } };
           }
@@ -6038,7 +6069,7 @@
           p.currentTime = 0;
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
-          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
+          this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
           const onMeta = ()=>{
             if (Number.isFinite(p.duration) && p.duration > 0){
               p.currentTime = clamped * p.duration;
@@ -6072,7 +6103,7 @@
           try{ p.load(); }catch(_){ }
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
-          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
+          this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
           this.updateVoiceWidgets();
           return;
         }
@@ -6082,7 +6113,7 @@
         if (p.paused) {
           this._voiceUserIntendedPlay = true;
           p.play().catch(()=>{});
-          this.notifyParentAudioPlay({ src: url, title: widget.title, by: '', cover: '' });
+          this.notifyParentAudioMetaOnly({ src: url, title: widget.title, by: '', cover: '' });
         } else {
           // Keep stable behavior: pause/resume on tap; hard stop only via top-strip close.
           this._voiceUserIntendedPlay = false;
@@ -6250,7 +6281,7 @@
         }
         this._voiceUserIntendedPlay = true;
         p.play().catch((err)=>{ if (err && !String(err?.message||'').includes('aborter')) console.warn('Chat audio play failed:', err); });
-        this.notifyParentAudioPlay({ src, title: opts.title || 'Audio', by: opts.by || '', cover: opts.cover || '' });
+        this.notifyParentAudioMetaOnly({ src, title: opts.title || 'Audio', by: opts.by || '', cover: opts.cover || '' });
         this.updateVoiceWidgets();
       }catch(_){ }
     }
@@ -6374,7 +6405,7 @@
       audio.dataset.title = safeName;
       audio.dataset.by = safeAuthor;
       audio.preload = 'auto';
-      audio.addEventListener('play', ()=> this.notifyParentAudioPlay(audio), { once: false });
+      audio.addEventListener('play', ()=> this.notifyParentAudioMetaOnly(audio), { once: false });
       const wrapper = document.createElement('div');
       wrapper.className = 'voice-wave-player';
       wrapper.style.cssText = 'display:flex;align-items:center;gap:8px';
