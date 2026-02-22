@@ -487,6 +487,19 @@ class AppsManager {
                 author: 'Liber Apps',
                 lastUpdated: '2025-08-23',
                 logo: null
+            },
+            {
+                id: 'gallery-control',
+                name: 'Gallery Control',
+                description: 'Admin app to manage project galleries, media and publish state.',
+                version: '1.0.0',
+                category: 'media',
+                icon: 'fas fa-images',
+                status: 'online',
+                path: 'apps/gallery-control/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2026-02-22',
+                logo: null
             }
         ];
 

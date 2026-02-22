@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Gallery Control</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="gallery-admin">
+    <header class="gallery-admin__top">
+      <h1>Gallery Control</h1>
+      <button id="back-btn" class="btn secondary">Back</button>
+    </header>
+
+    <section class="panel">
+      <h2>Project</h2>
+      <form id="project-form" class="project-form">
+        <input type="hidden" id="project-id" />
+        <label>Title <input id="project-title" required /></label>
+        <label>Year <input id="project-year" maxlength="8" /></label>
+        <label>Description <textarea id="project-description" rows="4"></textarea></label>
+        <label>Layout tags (comma separated) <input id="project-layout-tags" placeholder="tile, slider, full-width" /></label>
+        <label>Cover policy
+          <select id="project-cover-policy">
+            <option value="first">First item</option>
+            <option value="random">Random item</option>
+          </select>
+        </label>
+        <label class="inline"><input id="project-published" type="checkbox" /> Published</label>
+        <div class="actions">
+          <button class="btn" type="submit">Save Project</button>
+          <button id="project-new" class="btn secondary" type="button">New Project</button>
+          <button id="project-delete" class="btn secondary" type="button">Delete Project</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel split">
+      <div>
+        <h2>Projects</h2>
+        <div id="projects-list" class="list"></div>
+      </div>
+      <div>
+        <h2>Items</h2>
+        <form id="item-form" class="item-form">
+          <input type="hidden" id="item-id" />
+          <label>Type
+            <select id="item-type">
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+              <option value="text">Text</option>
+            </select>
+          </label>
+          <label>Caption <input id="item-caption" /></label>
+          <label>Text <textarea id="item-text" rows="3"></textarea></label>
+          <label>Sort order <input id="item-sort-order" type="number" min="0" step="1" value="0" /></label>
+          <label class="inline"><input id="item-published" type="checkbox" /> Published</label>
+          <label id="item-file-wrap">Media file <input id="item-file" type="file" accept="image/*,video/*" /></label>
+          <div class="actions">
+            <button class="btn" type="submit">Save Item</button>
+            <button id="item-new" class="btn secondary" type="button">New Item</button>
+            <button id="item-delete" class="btn secondary" type="button">Delete Item</button>
+          </div>
+        </form>
+        <div id="items-list" class="list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="../../js/secure-keys.js"></script>
+  <script src="../../js/firebase-loader.js"></script>
+  <script src="../../js/firebase-service.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

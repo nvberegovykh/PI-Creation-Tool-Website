@@ -80,6 +80,12 @@ class DashboardManager {
         return false;
     }
 
+    _getAuthManagerUser(){
+        try{
+            return window.authManager?.getCurrentUser?.() || window.authManager?.currentUser || null;
+        }catch(_){ return null; }
+    }
+
     openFullscreenImage(src, alt = 'image'){
         try{
             const url = String(src || '').trim();
@@ -3610,6 +3616,9 @@ class DashboardManager {
             }
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
+        // Mobile Chrome/PWA can hydrate auth state slightly later; retry nav role gate.
+        setTimeout(()=> this.updateNavigation().catch(()=>{}), 900);
+        setTimeout(()=> this.updateNavigation().catch(()=>{}), 2200);
         this.restoreChatUnreadBadgeFromStorage();
         this.handleWallETransitionToDashboard();
         // Service worker registration (best-effort)
@@ -3860,7 +3869,7 @@ class DashboardManager {
                             let isAdmin = false;
                             try{
                                 const meData = await window.firebaseService.getUserData(currentUid);
-                                isAdmin = String(meData?.role || 'user') === 'admin';
+                                isAdmin = String(meData?.role || 'user').toLowerCase() === 'admin';
                             }catch(_){ isAdmin = false; }
                             let customToken = null;
                             // Cache-proof same-device switch (requires both accounts seeded on this device).
@@ -6496,7 +6505,7 @@ class DashboardManager {
         // Keep admin tabs visible when role is known locally, even if Firestore read fails.
         let isAdmin = this._resolveAdminFromLocalState();
         try {
-            const me = await this.resolveCurrentUserWithRetry(1200);
+            const me = await this.resolveCurrentUserWithRetry(2600);
             if (me && me.uid && window.firebaseService?.getUserData) {
                 try{
                     const data = await window.firebaseService.getUserData(me.uid);
@@ -6505,11 +6514,11 @@ class DashboardManager {
                     // Ignore transient permission/read failures and keep prior admin state.
                 }
             } else {
-                const fallback = authManager.getCurrentUser();
+                const fallback = this._getAuthManagerUser();
                 if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
             }
         } catch (_) {
-            const fallback = authManager.getCurrentUser();
+            const fallback = this._getAuthManagerUser();
             if (String(fallback?.role || '').toLowerCase() === 'admin') isAdmin = true;
         }
         document.querySelectorAll('.admin-only').forEach((el) => {

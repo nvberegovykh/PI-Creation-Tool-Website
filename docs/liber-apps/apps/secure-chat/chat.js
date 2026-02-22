@@ -115,6 +115,8 @@
       this._lastCallEndedMarkerAtByConn = new Map();
       this._callBadgeJoinInFlight = false;
       this._drawSyncUnsub = null;
+      this._drawEventsUnsub = null;
+      this._drawEventsSeen = new Set();
       this._lastDrawClearAtMs = 0;
       this._iosNativeCallsEnabled = this._readIosNativeCallsFlag();
       this._disableCallFab = false;
@@ -124,6 +126,8 @@
       this._drawSize = 4;
       this._drawActive = false;
       this._drawLastPoint = null;
+      this._drawLastSentAt = 0;
+      this._drawSegments = [];
       this._useSfuCalls = true;
       this.init();
     }
@@ -136,6 +140,16 @@
       try{
         const ua = String(navigator.userAgent || '');
         return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+      }catch(_){ return false; }
+    }
+
+    _isMobileDevice(){
+      try{
+        const ua = String(navigator.userAgent || '');
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+        const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        const small = Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 900;
+        return coarse && small;
       }catch(_){ return false; }
     }
 
@@ -1813,6 +1827,133 @@
       }
     }
 
+    _ensurePreviewDrawCanvas(){
+      try{
+        const host = document.getElementById('call-videos');
+        if (!host) return null;
+        let canvas = document.getElementById('call-preview-draw-canvas');
+        if (!canvas){
+          canvas = document.createElement('canvas');
+          canvas.id = 'call-preview-draw-canvas';
+          canvas.className = 'call-preview-draw-canvas';
+          host.appendChild(canvas);
+        }
+        const w = Math.max(1, host.clientWidth || 1);
+        const h = Math.max(1, host.clientHeight || 1);
+        if (canvas.width !== w) canvas.width = w;
+        if (canvas.height !== h) canvas.height = h;
+        return canvas;
+      }catch(_){ return null; }
+    }
+
+    _getDrawCanvases(){
+      const canvases = [];
+      try{
+        const preview = this._ensurePreviewDrawCanvas();
+        if (preview) canvases.push(preview);
+      }catch(_){ }
+      try{
+        const fs = document.getElementById('call-draw-canvas');
+        if (fs) canvases.push(fs);
+      }catch(_){ }
+      return canvases;
+    }
+
+    _drawSegmentOnCanvas(canvas, seg){
+      try{
+        if (!canvas || !seg) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const w = Math.max(1, canvas.width || 1);
+        const h = Math.max(1, canvas.height || 1);
+        const ax = Math.max(0, Math.min(1, Number(seg.ax || 0)));
+        const ay = Math.max(0, Math.min(1, Number(seg.ay || 0)));
+        const bx = Math.max(0, Math.min(1, Number(seg.bx || 0)));
+        const by = Math.max(0, Math.min(1, Number(seg.by || 0)));
+        const size = Math.max(1, Math.min(24, Number(seg.size || 4)));
+        const color = String(seg.color || '#ffffff');
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ax * w, ay * h);
+        ctx.lineTo(bx * w, by * h);
+        ctx.stroke();
+      }catch(_){ }
+    }
+
+    _redrawDrawCanvases(){
+      try{
+        const all = this._getDrawCanvases();
+        all.forEach((canvas)=>{
+          try{
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+          }catch(_){ }
+        });
+        (this._drawSegments || []).forEach((seg)=> this._drawSegmentOnAllCanvases(seg, { skipStore: true }));
+      }catch(_){ }
+    }
+
+    _drawSegmentOnAllCanvases(seg, opts = {}){
+      try{
+        if (!seg || String(seg.type || '') !== 'line') return;
+        if (!opts.skipStore){
+          if (!Array.isArray(this._drawSegments)) this._drawSegments = [];
+          this._drawSegments.push({
+            type: 'line',
+            ax: Number(seg.ax || 0),
+            ay: Number(seg.ay || 0),
+            bx: Number(seg.bx || 0),
+            by: Number(seg.by || 0),
+            color: String(seg.color || '#ffffff'),
+            size: Math.max(1, Math.min(24, Number(seg.size || 4)))
+          });
+          if (this._drawSegments.length > 1400){
+            this._drawSegments.splice(0, this._drawSegments.length - 1400);
+          }
+        }
+        this._getDrawCanvases().forEach((canvas)=> this._drawSegmentOnCanvas(canvas, seg));
+      }catch(_){ }
+    }
+
+    _clearAllDrawCanvases(opts = {}){
+      try{
+        this._getDrawCanvases().forEach((canvas)=>{
+          try{
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+          }catch(_){ }
+        });
+        if (!opts.keepHistory) this._drawSegments = [];
+      }catch(_){ }
+    }
+
+    async _sendDrawEvent(connId, evt){
+      try{
+        const id = String(connId || '').trim();
+        if (!id || !this.db || !evt) return;
+        const docRef = firebase.doc(firebase.collection(this.db,'callRooms', id, 'drawEvents'));
+        const payload = {
+          type: String(evt.type || ''),
+          from: String(this.currentUser?.uid || ''),
+          ts: firebase.serverTimestamp(),
+          createdAt: new Date().toISOString()
+        };
+        if (payload.type === 'line'){
+          payload.ax = Number(evt.ax || 0);
+          payload.ay = Number(evt.ay || 0);
+          payload.bx = Number(evt.bx || 0);
+          payload.by = Number(evt.by || 0);
+          payload.color = String(evt.color || '#ffffff');
+          payload.size = Math.max(1, Math.min(24, Number(evt.size || 4)));
+        }
+        await firebase.setDoc(docRef, payload);
+      }catch(_){ }
+    }
+
     _bindDrawSyncForRoom(connId){
       try{
         const id = String(connId || '').trim();
@@ -1821,6 +1962,11 @@
           try{ this._drawSyncUnsub(); }catch(_){ }
           this._drawSyncUnsub = null;
         }
+        if (this._drawEventsUnsub){
+          try{ this._drawEventsUnsub(); }catch(_){ }
+          this._drawEventsUnsub = null;
+        }
+        this._drawEventsSeen = new Set();
         const roomRef = firebase.doc(this.db,'callRooms', id);
         this._drawSyncUnsub = firebase.onSnapshot(roomRef, (snap)=>{
           try{
@@ -1828,11 +1974,31 @@
             const clearAt = Number(new Date(data.drawClearAt || 0).getTime() || 0);
             if (!clearAt || clearAt <= this._lastDrawClearAtMs) return;
             this._lastDrawClearAtMs = clearAt;
-            const canvas = document.getElementById('call-draw-canvas');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            this._clearAllDrawCanvases();
+          }catch(_){ }
+        }, ()=>{});
+        const eventsQ = firebase.query(
+          firebase.collection(this.db,'callRooms', id, 'drawEvents'),
+          firebase.orderBy('ts','desc'),
+          firebase.limit(800)
+        );
+        this._drawEventsUnsub = firebase.onSnapshot(eventsQ, (snap)=>{
+          try{
+            (snap?.docChanges?.() || []).forEach((chg)=>{
+              if (!chg || chg.type !== 'added') return;
+              const docId = String(chg.doc?.id || '');
+              if (!docId || this._drawEventsSeen.has(docId)) return;
+              this._drawEventsSeen.add(docId);
+              const evt = chg.doc?.data?.() || {};
+              if (String(evt.from || '') === String(this.currentUser?.uid || '')) return;
+              if (String(evt.type || '') === 'clear'){
+                this._clearAllDrawCanvases();
+                return;
+              }
+              if (String(evt.type || '') === 'line'){
+                this._drawSegmentOnAllCanvases(evt);
+              }
+            });
           }catch(_){ }
         }, ()=>{});
       }catch(_){ }
@@ -1855,6 +2021,8 @@
         const h = Math.max(1, fs.clientHeight || 1);
         canvas.width = w;
         canvas.height = h;
+        this._ensurePreviewDrawCanvas();
+        this._redrawDrawCanvases();
       };
       const pointFromEvt = (e)=>{
         const r = canvas.getBoundingClientRect();
@@ -1863,14 +2031,24 @@
       };
       const drawLine = (a, b)=>{
         if (!ctx || !a || !b) return;
-        ctx.strokeStyle = this._drawColor;
-        ctx.lineWidth = this._drawSize;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
+        const w = Math.max(1, canvas.width || 1);
+        const h = Math.max(1, canvas.height || 1);
+        const seg = {
+          type: 'line',
+          ax: Math.max(0, Math.min(1, a.x / w)),
+          ay: Math.max(0, Math.min(1, a.y / h)),
+          bx: Math.max(0, Math.min(1, b.x / w)),
+          by: Math.max(0, Math.min(1, b.y / h)),
+          color: this._drawColor,
+          size: this._drawSize
+        };
+        this._drawSegmentOnAllCanvases(seg);
+        const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
+        const now = Date.now();
+        if (connId && (now - Number(this._drawLastSentAt || 0)) >= 55){
+          this._drawLastSentAt = now;
+          this._sendDrawEvent(connId, seg);
+        }
       };
       const startDraw = (e)=>{
         if (fs.classList.contains('hidden')) return;
@@ -1912,10 +2090,11 @@
       }
       if (clearBtn && ctx){
         clearBtn.addEventListener('click', async ()=>{
-          try{ ctx.clearRect(0, 0, canvas.width, canvas.height); }catch(_){ }
+          try{ this._clearAllDrawCanvases(); }catch(_){ }
           try{
             const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
             if (!connId) return;
+            await this._sendDrawEvent(connId, { type: 'clear' });
             await firebase.updateDoc(firebase.doc(this.db,'callRooms', connId), {
               drawClearAt: new Date().toISOString(),
               drawClearedBy: this.currentUser?.uid || ''
@@ -2070,13 +2249,14 @@
           await this.updatePresence('connected', this._videoEnabled);
           await this.updateRoomUI();
           this._attachSfuLocalPreview();
+          this._bindDrawSyncForRoom(callConnId);
           this._updateMediaSessionState('active', this.currentUser?.uid || null);
         }catch(_){ }
       });
       room.on('disconnected', async ()=>{
         try{
           const cs = document.getElementById('call-status');
-          const shouldKeep = !!(this._inRoom && this._isIOSDevice());
+          const shouldKeep = !!(this._inRoom && this._isMobileDevice());
           if (shouldKeep){
             if (cs) cs.textContent = 'Reconnecting call...';
             return;
@@ -2272,11 +2452,12 @@
             if (stillInCall) this._updateMediaSessionState('active', this.currentUser?.uid || null);
           } else {
             if (!inCall) return;
+            const meta = this._getCallNotificationMeta();
             this._notifyCallStateToSw({
               state: 'active',
               connId: this.getCallConnId() || '',
-              title: 'Call',
-              body: 'Call in progress',
+              title: meta.title,
+              body: meta.body,
               speakerUid: '',
               speakerName: ''
             });
@@ -2496,6 +2677,17 @@
       const mobileVideoBtn = document.getElementById('mobile-video-call-btn'); if (mobileVideoBtn) mobileVideoBtn.addEventListener('click', ()=> this.joinOrStartCall());
       const mobileAttachSheetBtn = document.getElementById('mobile-chat-attachments-btn'); if (mobileAttachSheetBtn) mobileAttachSheetBtn.addEventListener('click', ()=> this.openCurrentChatAttachmentsSheet());
       const mobileGroupMenuBtn = document.getElementById('mobile-group-menu-btn'); if (mobileGroupMenuBtn) mobileGroupMenuBtn.addEventListener('click', ()=>{ if (this._isPersonalChat) return; this.toggleGroupPanel(); });
+      const incomingOpenBtn = document.getElementById('incoming-call-open-btn');
+      if (incomingOpenBtn && !incomingOpenBtn._bound){
+        incomingOpenBtn._bound = true;
+        incomingOpenBtn.addEventListener('click', async ()=>{
+          const ov = document.getElementById('call-overlay');
+          if (ov) ov.classList.remove('hidden');
+          this._syncCallFab();
+          const activeCid = this._roomState && this._roomState.activeCallId;
+          if (activeCid) await this.joinOrStartCall();
+        });
+      }
       const recAudioBtn = document.getElementById('record-audio-btn'); if (recAudioBtn) recAudioBtn.addEventListener('click', ()=> this.recordVoiceMessage());
       const recVideoBtn = document.getElementById('record-video-btn'); if (recVideoBtn) recVideoBtn.addEventListener('click', ()=> this.recordVideoMessage());
       this._enableCallFabDrag();
@@ -8573,17 +8765,29 @@
 
     _syncCallFab(){
       const showBtn = document.getElementById('show-call-btn');
+      const incomingPrompt = document.getElementById('incoming-call-prompt');
       const ov = document.getElementById('call-overlay');
-      if (!showBtn) return;
+      if (!showBtn){
+        if (incomingPrompt) incomingPrompt.classList.add('hidden');
+        return;
+      }
       if (this._disableCallFab){
         showBtn.style.display = 'none';
+        showBtn.classList.remove('incoming');
+        if (incomingPrompt) incomingPrompt.classList.add('hidden');
         this._notifyParentCallState();
         return;
       }
       const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
       const roomHasActiveCall = !!(this._roomState && this._roomState.activeCallId);
-      const shouldShow = (inCall || roomHasActiveCall || this._inRoom) && !!(ov && ov.classList.contains('hidden'));
+      const overlayHidden = !!(ov && ov.classList.contains('hidden'));
+      const incoming = roomHasActiveCall && !inCall && !this._inRoom && overlayHidden;
+      const shouldShow = (inCall || roomHasActiveCall || this._inRoom) && overlayHidden;
       showBtn.style.display = shouldShow ? 'inline-flex' : 'none';
+      showBtn.classList.toggle('incoming', incoming);
+      if (incomingPrompt){
+        incomingPrompt.classList.toggle('hidden', !incoming);
+      }
       this._notifyParentCallState();
     }
 
@@ -8600,6 +8804,8 @@
         const free = Math.max(180, Math.min(680, totalH - used));
         videos.style.height = `${free}px`;
         videos.style.maxHeight = `${free}px`;
+        this._ensurePreviewDrawCanvas();
+        this._redrawDrawCanvases();
         // Safety migration: wrap any legacy direct <video> nodes into tiles.
         videos.querySelectorAll(':scope > video').forEach((v, idx)=>{
           const key = String(v.getAttribute('data-sfu-track-key') || `legacy_${idx}_${Date.now()}`);
@@ -8615,7 +8821,7 @@
         return { supported: true, reason: '' };
       }
       if (this._isIOSDevice()){
-        return { supported: false, reason: 'Screen sharing is not supported on iOS browsers yet.' };
+        return { supported: false, reason: 'iOS browsers (Safari/Chrome/PWA) do not support web screen sharing yet.' };
       }
       if (!hasApi){
         return { supported: false, reason: 'Screen sharing is not supported on this browser.' };
@@ -8661,12 +8867,42 @@
         if (this._isSfuConnected()) return;
         const cs = document.getElementById('call-status');
         if (cs) cs.textContent = 'Reconnecting call...';
-        await this._startOrJoinSfuCall(!!this._videoEnabled);
+        for (let i = 0; i < 4; i++){
+          if (this._isSfuConnected()) break;
+          await this._startOrJoinSfuCall(!!this._videoEnabled);
+          if (this._isSfuConnected()) break;
+          await new Promise((r)=> setTimeout(r, 450 + (i * 350)));
+        }
       }catch(_){ }
     }
 
     getCallConnId(){
       return this._callConnectionId || this.activeConnection || null;
+    }
+
+    _getCallNotificationMeta(){
+      try{
+        const callConnId = String(this.getCallConnId() || '').trim();
+        const conn = (this.connections || []).find((c)=> String(c?.id || '').trim() === callConnId)
+          || (this.connections || []).find((c)=> String(c?.id || '').trim() === String(this.activeConnection || '').trim())
+          || null;
+        let chatName = '';
+        if (conn){
+          const groupName = this._safeUsername(conn.groupName || '', '');
+          chatName = groupName || this._safeUsername(this.getConnectionDisplayName(conn), '');
+        }
+        if (!chatName){
+          const titleEl = document.getElementById('chat-top-title');
+          chatName = this._safeUsername(titleEl?.textContent || '', '');
+        }
+        if (!chatName) chatName = 'Chat';
+        return {
+          title: chatName,
+          body: `${chatName} is calling you`
+        };
+      }catch(_){
+        return { title: 'Chat', body: 'Chat is calling you' };
+      }
     }
 
     _buildMediaSessionArtwork(uid){
@@ -8739,11 +8975,12 @@
         if (state !== 'active'){
           try{ ms.playbackState = 'none'; }catch(_){}
           try{ ms.metadata = null; }catch(_){}
-          this._notifyCallStateToSw({ state: 'idle', connId: this.getCallConnId() || '', title: 'Call ended' });
+          const endedMeta = this._getCallNotificationMeta();
+          this._notifyCallStateToSw({ state: 'idle', connId: this.getCallConnId() || '', title: `${endedMeta.title} call ended` });
           return;
         }
-        const titleEl = document.getElementById('chat-top-title');
-        const title = (titleEl && titleEl.textContent ? titleEl.textContent.trim() : '') || 'Call';
+        const notifMeta = this._getCallNotificationMeta();
+        const title = notifMeta.title || 'Chat';
         const artist = 'In call';
         try{
           ms.metadata = new MediaMetadata({
@@ -8761,7 +8998,7 @@
           state: 'active',
           connId: this.getCallConnId() || '',
           title,
-          body: 'Call in progress',
+          body: notifMeta.body || `${title} is calling you`,
           speakerUid: '',
           speakerName: ''
         });
@@ -8913,10 +9150,15 @@
         move(t.clientX, t.clientY);
       }, { passive: true });
       window.addEventListener('touchend', end);
-      btn.addEventListener('click', ()=>{
+      btn.addEventListener('click', async ()=>{
         const ov = document.getElementById('call-overlay');
         if (ov) ov.classList.remove('hidden');
         this._syncCallFab();
+        const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
+        const activeCid = this._roomState && this._roomState.activeCallId;
+        if (!inCall && activeCid){
+          try{ await this.joinOrStartCall(); }catch(_){ }
+        }
       });
     }
 
@@ -10387,6 +10629,11 @@
         try{ this._drawSyncUnsub(); }catch(_){ }
         this._drawSyncUnsub = null;
       }
+      if (this._drawEventsUnsub){
+        try{ this._drawEventsUnsub(); }catch(_){ }
+        this._drawEventsUnsub = null;
+      }
+      this._drawEventsSeen = new Set();
       this._callConnectionId = null;
     }
 
@@ -10397,7 +10644,7 @@
         const peersRef = firebase.collection(this.db,'callRooms', connId, 'peers');
         const snap = await firebase.getDocs(peersRef);
         const now = Date.now();
-        const staleAfterMs = 35000;
+        const staleAfterMs = this._isMobileDevice() ? 180000 : 45000;
         let hasActive = false;
         snap.forEach((d)=>{
           const p = d.data() || {};
@@ -10715,7 +10962,8 @@ window.addEventListener('beforeunload', () => {
   // Do not force-disconnect call on unload/background transitions.
   // Mobile browsers may trigger unload-like lifecycle events while app is being backgrounded.
   const inCall = !!((secureChatApp._activePCs && secureChatApp._activePCs.size > 0) || (secureChatApp._isSfuConnected && secureChatApp._isSfuConnected()));
-  if (!inCall){
+  const shouldKeep = !!(secureChatApp._inRoom && secureChatApp._isMobileDevice && secureChatApp._isMobileDevice());
+  if (!inCall && !shouldKeep){
     try{ secureChatApp._stopCallStatusStream && secureChatApp._stopCallStatusStream(); }catch(_){ }
     try{ secureChatApp._updateMediaSessionState && secureChatApp._updateMediaSessionState('idle', null); }catch(_){ }
   }

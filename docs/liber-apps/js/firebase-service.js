@@ -741,6 +741,131 @@ class FirebaseService {
         await firebase.deleteDoc(ref);
     }
 
+    async createGalleryProject(data = {}){
+        await this.waitForInit();
+        const now = new Date().toISOString();
+        const ref = firebase.doc(firebase.collection(this.db, 'galleryProjects'));
+        const payload = {
+            id: ref.id,
+            title: String(data.title || '').trim(),
+            year: String(data.year || '').trim(),
+            description: String(data.description || '').trim(),
+            coverPolicy: String(data.coverPolicy || 'first'),
+            layoutTags: Array.isArray(data.layoutTags) ? data.layoutTags : [],
+            isPublished: !!data.isPublished,
+            ownerId: String(data.ownerId || this.auth?.currentUser?.uid || ''),
+            createdAt: now,
+            updatedAt: now,
+            createdAtTS: firebase.serverTimestamp(),
+            updatedAtTS: firebase.serverTimestamp()
+        };
+        await firebase.setDoc(ref, payload);
+        return payload;
+    }
+
+    async updateGalleryProject(projectId, updates = {}){
+        await this.waitForInit();
+        if (!projectId) throw new Error('projectId is required');
+        const ref = firebase.doc(this.db, 'galleryProjects', projectId);
+        const payload = { ...updates, updatedAt: new Date().toISOString(), updatedAtTS: firebase.serverTimestamp() };
+        await firebase.updateDoc(ref, payload);
+    }
+
+    async deleteGalleryProject(projectId){
+        await this.waitForInit();
+        if (!projectId) throw new Error('projectId is required');
+        const ref = firebase.doc(this.db, 'galleryProjects', projectId);
+        await firebase.deleteDoc(ref);
+    }
+
+    async getGalleryProjects(opts = {}){
+        await this.waitForInit();
+        const publishedOnly = !!opts.publishedOnly;
+        const col = firebase.collection(this.db, 'galleryProjects');
+        let q;
+        if (publishedOnly) {
+            q = firebase.query(col, firebase.where('isPublished', '==', true), firebase.orderBy('updatedAtTS', 'desc'));
+        } else {
+            q = firebase.query(col, firebase.orderBy('updatedAtTS', 'desc'));
+        }
+        let snap;
+        try {
+            snap = await firebase.getDocs(q);
+        } catch (_) {
+            snap = await firebase.getDocs(col);
+        }
+        const out = [];
+        snap.forEach((d) => out.push({ id: d.id, ...d.data() }));
+        out.sort((a, b) => {
+            const at = a.updatedAtTS?.toMillis?.() || new Date(a.updatedAt || a.createdAt || 0).getTime();
+            const bt = b.updatedAtTS?.toMillis?.() || new Date(b.updatedAt || b.createdAt || 0).getTime();
+            return bt - at;
+        });
+        return out;
+    }
+
+    async createGalleryItem(projectId, data = {}){
+        await this.waitForInit();
+        if (!projectId) throw new Error('projectId is required');
+        const now = new Date().toISOString();
+        const ref = firebase.doc(firebase.collection(this.db, 'galleryProjects', projectId, 'items'));
+        const payload = {
+            id: ref.id,
+            type: String(data.type || 'image'),
+            url: String(data.url || ''),
+            thumbUrl: String(data.thumbUrl || ''),
+            text: String(data.text || ''),
+            caption: String(data.caption || ''),
+            sortOrder: Number.isFinite(Number(data.sortOrder)) ? Number(data.sortOrder) : 0,
+            isPublished: !!data.isPublished,
+            ownerId: String(data.ownerId || this.auth?.currentUser?.uid || ''),
+            createdAt: now,
+            updatedAt: now,
+            createdAtTS: firebase.serverTimestamp(),
+            updatedAtTS: firebase.serverTimestamp()
+        };
+        await firebase.setDoc(ref, payload);
+        return payload;
+    }
+
+    async updateGalleryItem(projectId, itemId, updates = {}){
+        await this.waitForInit();
+        if (!projectId || !itemId) throw new Error('projectId and itemId are required');
+        const ref = firebase.doc(this.db, 'galleryProjects', projectId, 'items', itemId);
+        const payload = { ...updates, updatedAt: new Date().toISOString(), updatedAtTS: firebase.serverTimestamp() };
+        await firebase.updateDoc(ref, payload);
+    }
+
+    async deleteGalleryItem(projectId, itemId){
+        await this.waitForInit();
+        if (!projectId || !itemId) throw new Error('projectId and itemId are required');
+        const ref = firebase.doc(this.db, 'galleryProjects', projectId, 'items', itemId);
+        await firebase.deleteDoc(ref);
+    }
+
+    async getGalleryItems(projectId, opts = {}){
+        await this.waitForInit();
+        if (!projectId) throw new Error('projectId is required');
+        const publishedOnly = !!opts.publishedOnly;
+        const col = firebase.collection(this.db, 'galleryProjects', projectId, 'items');
+        let q;
+        if (publishedOnly) {
+            q = firebase.query(col, firebase.where('isPublished', '==', true), firebase.orderBy('sortOrder', 'asc'));
+        } else {
+            q = firebase.query(col, firebase.orderBy('sortOrder', 'asc'));
+        }
+        let snap;
+        try {
+            snap = await firebase.getDocs(q);
+        } catch (_) {
+            snap = await firebase.getDocs(col);
+        }
+        const out = [];
+        snap.forEach((d) => out.push({ id: d.id, ...d.data() }));
+        out.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+        return out;
+    }
+
     async updateComment(postId, commentId, newText){
         await this.waitForInit();
         const ref = firebase.doc(this.db, 'posts', postId, 'comments', commentId);
