@@ -30,7 +30,7 @@
             <div class="rq-field">
               <label>Upload files</label>
               <div class="rq-upload-zone" id="rq-upload-zone" tabindex="0">
-                <input type="file" id="rq-file-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
+                <input type="file" id="rq-file-input" multiple accept="image/*,video/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
                 <div class="rq-upload-icon">📁</div>
                 <div>Drag & drop files here or click to browse</div>
                 <div style="font-size:12px;margin-top:4px;opacity:0.8">Paste (Ctrl+V) to add images</div>
