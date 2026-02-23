@@ -1275,7 +1275,7 @@ class FirebaseService {
             return null;
         } catch (e) {
             console.warn('Callable function failed:', name, e?.message || e);
-            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest') throw e;
+            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest' || name === 'adminDeleteUser') throw e;
             return null;
         }
     }

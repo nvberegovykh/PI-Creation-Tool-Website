@@ -6676,6 +6676,7 @@ Do you want to proceed?`);
             // Wait for firebase
             if (window.firebaseService && window.firebaseService.isFirebaseAvailable()) {
                 const user = await window.firebaseService.getCurrentUser();
+                if (!user) return;
                 const data = await window.firebaseService.getUserData(user.uid) || {};
                 const emailEl = document.getElementById('profil-email');
                 const unameEl = document.getElementById('profile-username');

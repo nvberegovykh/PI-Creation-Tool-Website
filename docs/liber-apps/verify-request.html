@@ -13,13 +13,29 @@
     .verify-error { color: #dc2626; }
     .verify-success { color: #22c55e; }
     .verify-link { display: inline-block; margin-top: 16px; color: #3b82f6; }
+    .verify-form { text-align: left; margin-top: 24px; }
+    .verify-form input { width: 100%; padding: 10px 12px; margin: 8px 0 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+    .verify-form label { font-size: 14px; color: #444; }
+    .verify-form .hint { font-size: 12px; color: #666; margin: -8px 0 12px 0; }
   </style>
 </head>
 <body>
   <div class="verify-container">
     <div id="verify-loading">
       <div class="verify-spinner"></div>
-      <p>Verifying and signing you in...</p>
+      <p id="verify-loading-msg">Verifying...</p>
+    </div>
+    <div id="verify-password" style="display:none">
+      <h3>Create your password</h3>
+      <p style="color:#666;font-size:14px;margin-bottom:16px">Choose a password to access your account. Use at least 8 characters with uppercase, lowercase, number and special character.</p>
+      <form class="verify-form" id="verify-password-form">
+        <label for="pwd">Password</label>
+        <input type="password" id="pwd" required minlength="8" placeholder="Your password" autocomplete="new-password" />
+        <label for="pwd2">Confirm password</label>
+        <input type="password" id="pwd2" required minlength="8" placeholder="Confirm password" autocomplete="new-password" />
+        <p class="hint" id="verify-pwd-hint"></p>
+        <button type="submit" class="btn btn-primary" style="width:100%;padding:12px">Continue</button>
+      </form>
     </div>
     <div id="verify-error" style="display:none" class="verify-error">
       <p id="verify-error-msg"></p>
@@ -36,19 +52,71 @@
   <script>
     (function(){
       const loading = document.getElementById('verify-loading');
+      const loadingMsg = document.getElementById('verify-loading-msg');
+      const passwordDiv = document.getElementById('verify-password');
+      const passwordForm = document.getElementById('verify-password-form');
+      const pwdHint = document.getElementById('verify-pwd-hint');
       const errDiv = document.getElementById('verify-error');
       const errMsg = document.getElementById('verify-error-msg');
       const successDiv = document.getElementById('verify-success');
 
       function showError(msg){
         loading.style.display = 'none';
+        passwordDiv.style.display = 'none';
         errDiv.style.display = '';
         errMsg.textContent = msg || 'Verification failed. The link may have expired.';
       }
 
       function showSuccess(){
         loading.style.display = 'none';
+        passwordDiv.style.display = 'none';
         successDiv.style.display = '';
+      }
+
+      function showPasswordForm(){
+        loading.style.display = 'none';
+        passwordDiv.style.display = '';
+      }
+
+      async function doVerify(payload){
+        const fs = window.firebaseService;
+        const firebaseProjectId = (fs?.app?.options?.projectId) || 'liber-apps-cca20';
+        const region = (fs?.functionsByRegion && Object.keys(fs.functionsByRegion)[0]) || 'europe-west1';
+        const verifyUrl = 'https://' + region + '-' + firebaseProjectId + '.cloudfunctions.net/verifyRequestTokenHttp';
+        try {
+          const httpRes = await fetch(verifyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const json = await httpRes.json().catch(function(){ return {}; });
+          if (httpRes.ok) return json;
+          throw new Error(json?.error || 'Verification failed');
+        } catch (httpErr) {
+          if (fs?.callFunction) {
+            const result = await fs.callFunction('verifyRequestToken', payload);
+            return result?.data ?? result;
+          }
+          throw httpErr;
+        }
+      }
+
+      async function signInAndRedirect(data){
+        const fs = window.firebaseService;
+        const customToken = data?.customToken;
+        if (!customToken){ showError(data?.message || 'Verification failed.'); return; }
+        const user = await firebase.signInWithCustomToken(fs.auth, customToken);
+        if (user?.user){
+          showSuccess();
+          const base = window.location.pathname.replace(/[^/]*$/, '');
+          const fullUrl = window.location.origin + base + 'index.html#apps';
+          sessionStorage.setItem('liber_launch_after_verify', 'project-tracker');
+          const launchProjectId = data?.projectId || null;
+          if (launchProjectId) sessionStorage.setItem('liber_verify_project_id', launchProjectId);
+          setTimeout(function(){ window.location.href = fullUrl; }, 800);
+        } else {
+          showError('Sign-in failed.');
+        }
       }
 
       async function run(){
@@ -60,60 +128,43 @@
         }
 
         try {
-          let attempts = 0;
+          var attempts = 0;
           while ((!window.firebase || !window.firebaseService?.isInitialized) && attempts < 50){
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(function(r){ setTimeout(r, 200); });
             attempts++;
           }
 
           const fs = window.firebaseService;
-          if (fs?.auth) {
-            try { await firebase.signOut(fs.auth); } catch (_) {}
-          }
-          const firebaseProjectId = (fs?.app?.options?.projectId) || 'liber-apps-cca20';
-          const region = (fs?.functionsByRegion && Object.keys(fs.functionsByRegion)[0]) || 'europe-west1';
-          const verifyUrl = `https://${region}-${firebaseProjectId}.cloudfunctions.net/verifyRequestTokenHttp`;
+          if (fs?.auth) { try { await firebase.signOut(fs.auth); } catch (_) {} }
 
-          let data = null;
-          try {
-            const httpRes = await fetch(verifyUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token })
-            });
-            const json = await httpRes.json().catch(() => ({}));
-            if (httpRes.ok) data = json;
-            else throw new Error(json?.error || 'Verification failed');
-          } catch (httpErr) {
-            if (fs?.callFunction) {
-              const result = await fs.callFunction('verifyRequestToken', { token });
-              data = result?.data ?? result;
-            } else {
-              throw httpErr;
-            }
-          }
+          loadingMsg.textContent = 'Verifying...';
+          var data = await doVerify({ token: token });
 
-          const customToken = data?.customToken;
-
-          if (!customToken){
-            showError(data?.message || 'Verification failed.');
+          if (data.needsPassword){
+            showPasswordForm();
+            passwordForm.onsubmit = async function(e){
+              e.preventDefault();
+              pwdHint.textContent = '';
+              var pwd = document.getElementById('pwd').value.trim();
+              var pwd2 = document.getElementById('pwd2').value.trim();
+              if (pwd !== pwd2){ pwdHint.textContent = 'Passwords do not match.'; return; }
+              if (pwd.length < 8){ pwdHint.textContent = 'Password must be at least 8 characters.'; return; }
+              var btn = passwordForm.querySelector('button[type="submit"]');
+              btn.disabled = true;
+              btn.textContent = 'Creating...';
+              try {
+                data = await doVerify({ token: token, password: pwd });
+                await signInAndRedirect(data);
+              } catch (err){
+                pwdHint.textContent = err?.message || 'Failed. Try again.';
+                btn.disabled = false;
+                btn.textContent = 'Continue';
+              }
+            };
             return;
           }
 
-          const user = await firebase.signInWithCustomToken(fs.auth, customToken);
-          if (user?.user){
-            showSuccess();
-            const base = window.location.pathname.replace(/[^/]*$/, '');
-            const fullUrl = window.location.origin + base + 'index.html#apps';
-            sessionStorage.setItem('liber_launch_after_verify', 'project-tracker');
-            const launchProjectId = data?.projectId || null;
-            if (launchProjectId) sessionStorage.setItem('liber_verify_project_id', launchProjectId);
-            setTimeout(function(){
-              window.location.href = fullUrl;
-            }, 800);
-          } else {
-            showError('Sign-in failed.');
-          }
+          await signInAndRedirect(data);
         } catch (e){
           console.error('Verify error', e);
           showError(e?.message || 'Verification failed. The link may have expired.');
