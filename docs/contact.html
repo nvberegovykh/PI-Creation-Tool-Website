@@ -74,6 +74,7 @@
     />
     <link href="./components/navbar-scroll.css" rel="stylesheet" />
     <link href="./components/navbar-submenu.css" rel="stylesheet" />
+    <link href="./components/request-quiz.css" rel="stylesheet" />
   </head>
   <body>
     <link rel="stylesheet" href="./style.css" />
@@ -515,6 +516,7 @@
                     </svg>
                     <div class="contact6-contact-info1">
                       <h3 class="contact6-text3 thq-heading-3">Email</h3>
+                      <button type="button" class="btn-request" data-action="open-request-quiz" style="margin-bottom:8px">Request</button>
                       <a
                         href="mailto:nvberegovykh@liberpict.com?subject=Request"
                         class="contact6-email thq-body-small"
@@ -636,9 +638,12 @@
       </div>
     </div>
     <script src="./liber-apps/js/secure-keys.js"></script>
+    <script type="module" src="./liber-apps/js/firebase-loader.js"></script>
+    <script src="./liber-apps/js/firebase-service.js"></script>
     <script src="./components/gallery-runtime.js"></script>
     <script src="./components/navbar-scroll.js"></script>
     <script src="./components/navbar-submenu.js"></script>
+    <script src="./components/request-quiz.js"></script>
     <script defer="" src="https://unpkg.com/@teleporthq/teleport-custom-scripts"></script>
   </body>
 </html>

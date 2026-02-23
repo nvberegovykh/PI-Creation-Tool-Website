@@ -224,6 +224,7 @@
   align-items: flex-end;
   padding: 14px;
   opacity: 0;
+  pointer-events: none; /* let hover pass through to card so animation works on whole card */
   transition: opacity 220ms ease, transform 220ms ease;
   transform: translateY(10px);
 }
