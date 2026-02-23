@@ -282,7 +282,7 @@
         <div class="project-actions">
           <button class="btn-icon" data-action="edit" data-project-id="${escapeHtml(p.id)}" title="Edit"><i class="fas fa-pencil-alt"></i></button>
           <button class="btn-icon" data-action="library" data-project-id="${escapeHtml(p.id)}" title="Library"><i class="fas fa-folder"></i></button>
-          <a href="#" class="btn-icon" data-action="chat" data-conn-id="${escapeHtml(p.chatConnId || '')}" title="Chat"><i class="fas fa-comments"></i></a>
+          <a href="#" class="btn-icon" data-action="chat" data-project-id="${escapeHtml(p.id)}" title="Chat"><i class="fas fa-comments"></i></a>
         </div>
       </div>`;
     }).join('');
@@ -304,17 +304,28 @@
       });
     });
     list.querySelectorAll('[data-action="chat"]').forEach((a) => {
-      a.addEventListener('click', (e) => {
+      a.addEventListener('click', async (e) => {
         e.preventDefault();
-        const connId = a.getAttribute('data-conn-id');
-        if (!connId) return;
-        const path = window.location.pathname.replace(/project-manager\/[^?]*/, 'secure-chat/index.html');
-        const full = window.location.origin + path + '?connId=' + encodeURIComponent(connId);
-        const host = window.parent && window.parent !== window ? window.parent : window.top || window;
-        if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
-          host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
-        } else {
-          window.open(full, '_blank');
+        const projectId = a.getAttribute('data-project-id');
+        if (!projectId) return;
+        const fs = getFirebaseService();
+        if (!fs) return;
+        try {
+          const res = await fs.callFunction('ensureProjectChat', { projectId });
+          const connId = res?.connId;
+          if (!connId) { notify('Could not open project chat', 'error'); return; }
+          const path = window.location.pathname.replace(/project-manager\/[^?]*/, 'secure-chat/index.html');
+          const full = window.location.origin + path + '?connId=' + encodeURIComponent(connId);
+          const host = window.parent && window.parent !== window ? window.parent : window.top || window;
+          if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
+            host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+          } else {
+            window.open(full, '_blank');
+          }
+          const p = state.projects.find((pr) => pr.id === projectId);
+          if (p && res?.repaired) p.chatConnId = connId;
+        } catch (err) {
+          notify(err?.message || 'Failed to open chat', 'error');
         }
       });
     });
@@ -797,7 +808,6 @@
     const respondUpload = byId('project-respond-upload');
     const respondFileInput = byId('project-respond-files');
     if (respondUpload && respondFileInput) {
-      respondUpload.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => respondFileInput.click(), 0); });
       respondFileInput.addEventListener('change', (e) => {
         addProjectRespondFiles(Array.from(e.target.files || []));
         e.target.value = '';
@@ -880,7 +890,6 @@
     const formUploadZone = byId('project-form-upload-zone');
     const formFileInput = byId('project-form-file-input');
     if (formUploadZone && formFileInput) {
-      formUploadZone.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => formFileInput.click(), 0); });
       formUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); formUploadZone.classList.add('dragover'); });
       formUploadZone.addEventListener('dragleave', () => formUploadZone.classList.remove('dragover'));
       formUploadZone.addEventListener('drop', (e) => {

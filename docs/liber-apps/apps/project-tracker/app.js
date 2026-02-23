@@ -164,19 +164,29 @@
       : '';
     byId('detail-description').textContent = project.description || 'No description.';
 
-    const chatUrl = project.chatConnId ? getChatUrl(project.chatConnId) : '#';
     const chatLink = byId('detail-chat-link');
-    chatLink.href = chatUrl;
-    chatLink.style.display = project.chatConnId ? '' : 'none';
-    chatLink.onclick = project.chatConnId ? (e) => {
+    chatLink.style.display = '';
+    chatLink.href = '#';
+    chatLink.onclick = async (e) => {
       e.preventDefault();
-      const host = window.parent && window.parent !== window ? window.parent : window.top || window;
-      if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
-        host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, chatUrl);
-      } else {
-        window.open(chatUrl, '_blank');
+      const fs = getFirebaseService();
+      if (!fs) return;
+      try {
+        const res = await fs.callFunction('ensureProjectChat', { projectId });
+        const connId = res?.connId;
+        if (!connId) { notify('Could not open project chat', 'error'); return; }
+        const chatUrl = getChatUrl(connId);
+        const host = window.parent && window.parent !== window ? window.parent : window.top || window;
+        if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
+          host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, chatUrl);
+        } else {
+          window.open(chatUrl, '_blank');
+        }
+        if (res?.repaired) state.projects.find((p) => p.id === projectId).chatConnId = connId;
+      } catch (err) {
+        notify(err?.message || 'Failed to open chat', 'error');
       }
-    } : null;
+    };
 
     const respondSec = byId('tracker-respond-section');
     const approveSec = byId('tracker-approve-section');
@@ -628,7 +638,6 @@
     const libUploadZone = byId('library-upload-zone');
     const libUploadInput = byId('library-upload-input');
     if (libUploadZone && libUploadInput) {
-      libUploadZone.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => libUploadInput.click(), 0); });
       libUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); libUploadZone.classList.add('dragover'); });
       libUploadZone.addEventListener('dragleave', () => libUploadZone.classList.remove('dragover'));
       libUploadZone.addEventListener('drop', async (e) => {
@@ -684,14 +693,10 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
-      const fb = getFirebaseApi(fs);
-      if (!fs?.db || !fb?.updateDoc) return;
-      const db = (fb.firestore && fs?.app) ? fb.firestore(fs.app) : fs.db;
-      if (!db) return;
+      if (!fs) return;
       try {
-        const now = new Date().toISOString();
-        const updateData = { status: 'completed', completedAt: now, updatedAt: now };
-        await fb.updateDoc(fb.doc(db, 'projects', projectId), updateData);
+        const res = await fs.callFunction('approveProject', { projectId });
+        if (res === null || (res && res.ok !== true)) throw new Error('Approval failed');
         notify('Project completed.');
         await loadProjects();
         openProject(projectId);
@@ -700,7 +705,6 @@
     const addCommentUpload = byId('tracker-add-comment-upload');
     const addCommentFileInput = byId('tracker-add-comment-files');
     if (addCommentUpload && addCommentFileInput) {
-      addCommentUpload.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => addCommentFileInput.click(), 0); });
       addCommentFileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files || []);
         e.target.value = '';

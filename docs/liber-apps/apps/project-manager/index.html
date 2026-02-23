@@ -50,10 +50,10 @@
           <div class="respond-form-wrap">
             <textarea id="project-respond-message" rows="3" placeholder="Your message to the project owner..."></textarea>
             <div class="respond-attach-row">
-              <div class="respond-upload-zone" id="project-respond-upload" tabindex="0">
+              <label class="respond-upload-zone" id="project-respond-upload" for="project-respond-files">
                 <input type="file" id="project-respond-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
                 <span>📎 Attach files</span>
-              </div>
+              </label>
               <div class="respond-invoice-attach">
                 <select id="project-respond-invoice" class="invoice-attach-select" title="Attach from my invoices">
                   <option value="">— Attach from my invoices —</option>
@@ -120,12 +120,12 @@
         </div>
         <div class="form-group" id="project-attachments-wrap">
           <label>Attachments (new project)</label>
-          <div class="project-form-upload-zone" id="project-form-upload-zone" tabindex="0">
+          <label class="project-form-upload-zone" id="project-form-upload-zone" for="project-form-file-input">
             <input type="file" id="project-form-file-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
             <div class="project-form-upload-icon">📁</div>
             <div>Drag &amp; drop files here or click to browse</div>
             <div class="project-form-upload-hint">Paste (Ctrl+V) to add images</div>
-          </div>
+          </label>
           <div class="project-form-file-list" id="project-form-file-list"></div>
         </div>
         <div class="form-group">

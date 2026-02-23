@@ -60,10 +60,10 @@
               <button type="button" id="tracker-approve-review-btn" class="btn btn-primary"><i class="fas fa-check-circle"></i> Approve (Complete)</button>
               <div class="add-comment-wrap">
                 <textarea id="tracker-add-comment-message" rows="3" placeholder="Add a comment (admin will respond)..." class="add-comment-textarea"></textarea>
-                <div class="add-comment-upload" id="tracker-add-comment-upload" tabindex="0">
+                <label class="add-comment-upload" id="tracker-add-comment-upload" for="tracker-add-comment-files">
                   <input type="file" id="tracker-add-comment-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
                   <span>📎 Attach files</span>
-                </div>
+                </label>
                 <div id="tracker-add-comment-file-list" class="project-form-file-list"></div>
                 <button type="button" id="tracker-add-comment-btn" class="btn btn-secondary"><i class="fas fa-comment"></i> Add Comment</button>
               </div>
@@ -119,11 +119,11 @@
           </div>
           <div id="library-upload-wrap" class="library-upload-wrap hidden">
             <label>Add files (goes to Record In by type)</label>
-            <div class="library-upload-zone" id="library-upload-zone" tabindex="0">
+            <label class="library-upload-zone" id="library-upload-zone" for="library-upload-input">
               <input type="file" id="library-upload-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv,video/*" />
               <div class="library-upload-icon">📁</div>
               <div>Drop files or click to add to Record In</div>
-            </div>
+            </label>
           </div>
           <div id="library-content" class="library-content"></div>
           <div id="library-empty" class="tracker-empty hidden">
