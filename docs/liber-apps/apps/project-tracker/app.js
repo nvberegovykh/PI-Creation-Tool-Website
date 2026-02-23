@@ -40,6 +40,17 @@
     return window.firebaseService;
   }
 
+  // Must use the same Firebase SDK that created fs.db - never mix instances (fails in iframe)
+  function getFirebaseApi(fs) {
+    fs = fs || getFirebaseService();
+    if (fs?.firebase && typeof fs.firebase.collection === 'function') return fs.firebase;
+    try {
+      if (window.self !== window.top && window.parent?.firebaseService === fs && window.parent?.firebase?.collection) return window.parent.firebase;
+      if (window.firebaseService === fs && window.firebase?.collection) return window.firebase;
+    } catch (_) {}
+    return null;
+  }
+
   function getChatUrl(connId) {
     try {
       const loc = window.location;
@@ -238,9 +249,10 @@
 
   async function loadTrackerResponses(projectId) {
     const fs = getFirebaseService();
-    if (!fs?.db || !projectId) return [];
+    const fb = getFirebaseApi();
+    if (!fs?.db || !projectId || !fb?.collection) return [];
     try {
-      const snap = await firebase.getDocs(firebase.collection(fs.db, 'projects', projectId, 'responses'));
+      const snap = await fb.getDocs(fb.collection(fs.db, 'projects', projectId, 'responses'));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     } catch (e) {
       console.warn('[Project Tracker] loadResponses failed', e);
@@ -276,11 +288,11 @@
         const path = a.getAttribute('data-path');
         if (!path) return;
         const fs = getFirebaseService();
-        if (!fs?.storage) { notify('Storage not available', 'error'); return; }
+        const fb = getFirebaseApi();
+        if (!fs?.storage || !fb?.ref) { notify('Storage not available', 'error'); return; }
         try {
-          const firebaseApi = typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase));
-          const r = firebaseApi.ref(fs.storage, path);
-          const url = await firebaseApi.getDownloadURL(r);
+          const r = fb.ref(fs.storage, path);
+          const url = await fb.getDownloadURL(r);
           const link = document.createElement('a');
           link.href = url;
           link.target = '_blank';
@@ -381,15 +393,16 @@
 
   async function loadLibrary(projectId) {
     const fs = getFirebaseService();
-    if (!fs || !fs.db) {
+    const fb = getFirebaseApi();
+    if (!fs || !fs.db || !fb?.collection) {
       state.library = [];
       return;
     }
 
     try {
-      const libRef = firebase.collection(fs.db, 'projects', projectId, 'library');
-      const q = firebase.query(libRef);
-      const snap = await firebase.getDocs(q);
+      const libRef = fb.collection(fs.db, 'projects', projectId, 'library');
+      const q = fb.query(libRef);
+      const snap = await fb.getDocs(q);
       state.library = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     } catch (e) {
       console.warn('[Project Tracker] loadLibrary failed', e);
@@ -439,10 +452,11 @@
       a.addEventListener('click', async (e) => {
         e.preventDefault();
         const fs = getFirebaseService();
-        if (!fs || !fs.storage) return;
+        const fb = getFirebaseApi();
+        if (!fs || !fs.storage || !fb?.ref) return;
         try {
-          const r = firebase.ref(fs.storage, path);
-          const url = await firebase.getDownloadURL(r);
+          const r = fb.ref(fs.storage, path);
+          const url = await fb.getDownloadURL(r);
           window.open(url, '_blank', 'noopener');
         } catch (err) {
           console.warn('[Project Tracker] getDownloadURL failed', err);
@@ -453,10 +467,11 @@
 
   async function checkIsAdmin() {
     const fs = getFirebaseService();
+    const fb = getFirebaseApi();
     const me = fs?.auth?.currentUser;
-    if (!me || !fs?.db) return false;
+    if (!me || !fs?.db || !fb?.doc) return false;
     try {
-      const userDoc = await firebase.getDoc(firebase.doc(fs.db, 'users', me.uid));
+      const userDoc = await fb.getDoc(fb.doc(fs.db, 'users', me.uid));
       return (userDoc?.data?.()?.role || '').toLowerCase() === 'admin';
     } catch (_) {}
     return false;
@@ -464,12 +479,13 @@
 
   async function uploadToRecordIn(projectId, file) {
     const fs = getFirebaseService();
-    if (!fs?.storage || !fs?.db || !projectId || !file) return;
+    const fb = getFirebaseApi();
+    if (!fs?.storage || !fs?.db || !fb?.collection || !projectId || !file) return;
     const folder = getRecordInFolderByFile(file);
     const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'file';
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
-    const r = firebase.ref(fs.storage, storagePath);
-    await firebase.uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+    const r = fb.ref(fs.storage, storagePath);
+    await fb.uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
     const libData = JSON.parse(JSON.stringify({
       folderPath: folder,
       name: fname,
@@ -478,12 +494,14 @@
       createdAt: new Date().toISOString(),
       createdBy: fs.auth?.currentUser?.uid
     }));
-    await firebase.addDoc(firebase.collection(fs.db, 'projects', projectId, 'library'), libData);
+    await fb.addDoc(fb.collection(fs.db, 'projects', projectId, 'library'), libData);
   }
 
   const LOAD_RETRY_MAX = 50;
+  let _loadProjectsSeq = 0;
 
   async function loadProjects(retryCount = 0) {
+    const loadSeq = ++_loadProjectsSeq;
     const fs = getFirebaseService();
     if (!fs || !fs.isInitialized || !fs.db) {
       showLoading();
@@ -503,11 +521,19 @@
       return;
     }
 
-    // Use the same Firebase SDK that created fs.db (critical when running in iframe)
-    const firebaseApi = (fs.firebase && typeof fs.firebase.collection === 'function') ? fs.firebase : (typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase)));
+    const firebaseApi = getFirebaseApi(fs);
     if (!firebaseApi || typeof firebaseApi.collection !== 'function') {
       if (retryCount >= LOAD_RETRY_MAX) {
         byId('tracker-loading').innerHTML = '<p>Firebase SDK not ready. Please refresh the page.</p>';
+        return;
+      }
+      setTimeout(() => loadProjects(retryCount + 1), 300);
+      return;
+    }
+    const db = (firebaseApi.firestore && fs?.app) ? firebaseApi.firestore(fs.app) : fs.db;
+    if (!db) {
+      if (retryCount >= LOAD_RETRY_MAX) {
+        byId('tracker-loading').innerHTML = '<p>Firebase not ready. Please refresh the page.</p>';
         return;
       }
       setTimeout(() => loadProjects(retryCount + 1), 300);
@@ -517,7 +543,7 @@
     try {
       try {
         const qOwner = firebaseApi.query(
-          firebaseApi.collection(fs.db, 'projects'),
+          firebaseApi.collection(db, 'projects'),
           firebaseApi.where('ownerId', '==', user.uid),
           firebaseApi.orderBy('updatedAt', 'desc'),
           firebaseApi.limit(50)
@@ -529,7 +555,7 @@
       }
       try {
         const qMember = firebaseApi.query(
-          firebaseApi.collection(fs.db, 'projects'),
+          firebaseApi.collection(db, 'projects'),
           firebaseApi.where('memberIds', 'array-contains', user.uid),
           firebaseApi.orderBy('updatedAt', 'desc'),
           firebaseApi.limit(50)
@@ -539,10 +565,12 @@
       } catch (e2) {
         console.warn('[Project Tracker] memberIds query failed', e2?.message || e2);
       }
+      if (loadSeq !== _loadProjectsSeq) return;
       state.projects = Array.from(projectsById.values()).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       showMain();
       renderProjects();
     } catch (e) {
+      if (loadSeq !== _loadProjectsSeq) return;
       console.error('[Project Tracker] loadProjects failed', e);
       byId('tracker-loading').innerHTML = '<p>Failed to load projects. ' + (e?.message || '') + '</p>';
     }
@@ -635,9 +663,11 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
+      const fb = getFirebaseApi();
+      if (!fs?.db || !fb?.updateDoc) return;
       try {
         const now = new Date().toISOString();
-        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), {
+        await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), {
           status: 'completed',
           completedAt: now,
           updatedAt: now
@@ -698,20 +728,21 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
+      const fb = getFirebaseApi();
       const me = fs?.auth?.currentUser?.uid;
       const proj = state.selectedProject;
-      if (!me || !proj) return;
+      if (!me || !proj || !fs?.db || !fb?.updateDoc) return;
       try {
         const now = new Date().toISOString();
         const update = { updatedAt: now };
         if (proj.ownerId === me) update.ownerApprovedResponse = true;
         else if (state.isAdmin) update.adminApprovedResponse = true;
-        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), update);
-        const snap = await firebase.getDoc(firebase.doc(fs.db, 'projects', projectId));
+        await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), update);
+        const snap = await fb.getDoc(fb.doc(fs.db, 'projects', projectId));
         const d = snap?.data?.() || {};
         const bothApproved = !!(d.ownerApprovedResponse && d.adminApprovedResponse);
         if (bothApproved) {
-          await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), { status: 'in_progress', updatedAt: now });
+          await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), { status: 'in_progress', updatedAt: now });
           notify('Both approved. Project now in progress.');
         } else {
           notify('Approval recorded. Waiting for the other side.');
@@ -724,9 +755,10 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
+      const fb = getFirebaseApi();
       const me = fs?.auth?.currentUser?.uid;
       const text = (byId('tracker-review-input')?.value || '').trim();
-      if (!me) return;
+      if (!me || !fs?.db || !fb?.addDoc) return;
       try {
         const reviewData = JSON.parse(JSON.stringify({
           projectId,
@@ -734,7 +766,7 @@
           text,
           createdAt: new Date().toISOString()
         }));
-        await firebase.addDoc(firebase.collection(fs.db, 'projects', projectId, 'reviews'), reviewData);
+        await fb.addDoc(fb.collection(fs.db, 'projects', projectId, 'reviews'), reviewData);
         notify('Thank you for your review!');
         const inp = byId('tracker-review-input');
         if (inp) inp.value = '';
