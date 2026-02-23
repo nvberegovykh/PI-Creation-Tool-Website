@@ -3663,6 +3663,7 @@
         const li = document.createElement('li');
         li.setAttribute('data-id', c.id);
         if (isProject) li.classList.add('conn-project');
+        if (c.id === this.activeConnection) li.classList.add('active');
         let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
@@ -3837,6 +3838,10 @@
         displayName = this.getConnectionDisplayName(activeConnData || {}) || 'Chat';
       }
       this.updateChatScopeUI(activeConnData);
+      document.querySelectorAll('.connections-list li[data-id]').forEach((el)=>{
+        if (el.getAttribute('data-id') === this.activeConnection) el.classList.add('active');
+        else el.classList.remove('active');
+      });
       document.getElementById('active-connection-name').textContent = displayName;
       const topTitle = document.getElementById('chat-top-title');
       if (topTitle) topTitle.textContent = displayName;

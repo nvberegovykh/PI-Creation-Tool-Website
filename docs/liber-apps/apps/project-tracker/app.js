@@ -485,7 +485,7 @@
 
   async function loadProjects(retryCount = 0) {
     const fs = getFirebaseService();
-    if (!fs || !fs.isInitialized) {
+    if (!fs || !fs.isInitialized || !fs.db) {
       showLoading();
       if (retryCount >= LOAD_RETRY_MAX) {
         const el = byId('tracker-loading');
@@ -503,7 +503,16 @@
       return;
     }
 
-    const firebaseApi = typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase));
+    // Use the same Firebase SDK that created fs.db (critical when running in iframe)
+    const firebaseApi = (fs.firebase && typeof fs.firebase.collection === 'function') ? fs.firebase : (typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase)));
+    if (!firebaseApi || typeof firebaseApi.collection !== 'function') {
+      if (retryCount >= LOAD_RETRY_MAX) {
+        byId('tracker-loading').innerHTML = '<p>Firebase SDK not ready. Please refresh the page.</p>';
+        return;
+      }
+      setTimeout(() => loadProjects(retryCount + 1), 300);
+      return;
+    }
     const projectsById = new Map();
     try {
       try {
