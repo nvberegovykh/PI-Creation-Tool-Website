@@ -22,6 +22,9 @@
       desktopMenu.appendChild(zone);
 
       zone.querySelector('[data-gc-nav="services"]').addEventListener('click', openPricingPopup);
+      zone.querySelector('[data-gc-nav="request"]').addEventListener('click', () => {
+        if (typeof window.openRequestQuiz === 'function') window.openRequestQuiz();
+      });
 
       const dot = zone.querySelector('.gc-nav-dot');
       const submenu = zone.querySelector('.gc-nav-submenu');
@@ -54,6 +57,12 @@
 
       dotRow.querySelector('[data-gc-nav="services"]').addEventListener('click', () => {
         openPricingPopup();
+        submenu.classList.remove('gc-open');
+        dot.classList.remove('gc-active');
+        dotRow.classList.remove('gc-submenu-open');
+      });
+      dotRow.querySelector('[data-gc-nav="request"]').addEventListener('click', () => {
+        if (typeof window.openRequestQuiz === 'function') window.openRequestQuiz();
         submenu.classList.remove('gc-open');
         dot.classList.remove('gc-active');
         dotRow.classList.remove('gc-submenu-open');
