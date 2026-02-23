@@ -20,6 +20,11 @@
     return window.firebaseService;
   }
 
+  function fb() {
+    const fs = getFirebaseService();
+    return (fs && fs.firebase) ? fs.firebase : (typeof firebase !== 'undefined' ? firebase : window.firebase);
+  }
+
   function escapeHtml(s) {
     const div = document.createElement('div');
     div.textContent = s;
@@ -38,8 +43,8 @@
     const fs = getFirebaseService();
     if (!fs || !fs.db) return;
     try {
-      const q = firebase.query(firebase.collection(fs.db, 'users'), firebase.limit(200));
-      const snap = await firebase.getDocs(q);
+      const q = fb().query(fb().collection(fs.db, 'users'), fb().limit(200));
+      const snap = await fb().getDocs(q);
       state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     } catch (e) {
       console.warn('[Project Manager] loadUsers failed', e);
@@ -47,9 +52,83 @@
   }
 
   function renderOwnerSelect(selectedId) {
-    const sel = byId('project-owner');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">-- Select owner --</option>' + state.users.map((u) => `<option value="${escapeHtml(u.id)}" ${u.id === selectedId ? 'selected' : ''}>${escapeHtml(u.username || u.email || u.id)}</option>`).join('');
+    const input = byId('project-owner-search');
+    const hidden = byId('project-owner');
+    if (!input || !hidden) return;
+    hidden.value = selectedId || '';
+    const u = getUserById(selectedId);
+    input.value = u ? (u.username || u.email || u.id) : '';
+  }
+
+  function filterUsers(search, excludeIds) {
+    const q = (search || '').toLowerCase().trim();
+    const exclude = new Set(excludeIds || []);
+    let list = state.users.filter((u) => !exclude.has(u.id));
+    if (q) {
+      list = list.filter((u) =>
+        (u.email || '').toLowerCase().includes(q) ||
+        (u.username || '').toLowerCase().includes(q) ||
+        (u.id || '').toLowerCase().includes(q)
+      );
+    }
+    return list.slice(0, 30);
+  }
+
+  function showOwnerDropdown() {
+    const input = byId('project-owner-search');
+    const dd = byId('project-owner-dropdown');
+    if (!input || !dd) return;
+    const q = input.value.trim();
+    const list = filterUsers(q);
+    if (list.length === 0 && !state.users.length) {
+      dd.innerHTML = '<div class="user-dropdown-item user-dropdown-empty">No users loaded yet.</div>';
+      dd.classList.remove('hidden');
+    } else {
+      dd.innerHTML = list.map((u) => `<div class="user-dropdown-item" data-uid="${escapeHtml(u.id)}">${escapeHtml(u.username || u.email || u.id)}${u.email ? ` <span class="user-email">(${escapeHtml(u.email)})</span>` : ''}</div>`).join('');
+      dd.classList.toggle('hidden', list.length === 0);
+    }
+    dd.querySelectorAll('.user-dropdown-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const uid = el.getAttribute('data-uid');
+        const u = getUserById(uid);
+        if (u) {
+          byId('project-owner').value = uid;
+          input.value = u.username || u.email || uid;
+          dd.classList.add('hidden');
+          const ownerId = uid;
+          const others = getProjectMemberIds().filter((id) => id !== ownerId);
+          renderProjectMembers(ownerId ? [ownerId, ...others] : others, ownerId || undefined);
+          showAddUserDropdown();
+        }
+      });
+    });
+  }
+
+  function showAddUserDropdown() {
+    const input = byId('project-add-user-search');
+    const dd = byId('project-add-user-dropdown');
+    if (!input || !dd) return;
+    const exclude = getProjectMemberIds();
+    const list = filterUsers(input.value.trim(), exclude);
+    if (list.length === 0 && !state.users.length) {
+      dd.innerHTML = '<div class="user-dropdown-item user-dropdown-empty">No users loaded yet.</div>';
+      dd.classList.remove('hidden');
+    } else if (list.length === 0) {
+      dd.innerHTML = '<div class="user-dropdown-item user-dropdown-empty">No matching users or all already added.</div>';
+      dd.classList.remove('hidden');
+    } else {
+      dd.innerHTML = list.map((u) => `<div class="user-dropdown-item" data-uid="${escapeHtml(u.id)}">${escapeHtml(u.username || u.email || u.id)}${u.email ? ` <span class="user-email">(${escapeHtml(u.email)})</span>` : ''}</div>`).join('');
+      dd.classList.remove('hidden');
+    }
+    dd.querySelectorAll('.user-dropdown-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const uid = el.getAttribute('data-uid');
+        addProjectMember(uid);
+        input.value = '';
+        dd.classList.add('hidden');
+        showAddUserDropdown();
+      });
+    });
   }
 
   function getUserById(uid) {
@@ -88,11 +167,10 @@
   }
 
   function renderAddUserSelect(excludeIds) {
-    const sel = byId('project-add-user');
-    if (!sel) return;
-    const exclude = new Set(excludeIds || []);
-    const opts = state.users.filter((u) => !exclude.has(u.id)).map((u) => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.username || u.email || u.id)}</option>`);
-    sel.innerHTML = '<option value="">-- Add user --</option>' + opts.join('');
+    const input = byId('project-add-user-search');
+    if (input) input.value = '';
+    const dd = byId('project-add-user-dropdown');
+    if (dd) dd.classList.add('hidden');
   }
 
   function getProjectMemberIds() {
@@ -136,12 +214,12 @@
     const me = fs.auth?.currentUser;
     if (!me) return;
     try {
-      const q = firebase.query(
-        firebase.collection(fs.db, 'projects'),
-        firebase.orderBy('updatedAt', 'desc'),
-        firebase.limit(100)
+      const q = fb().query(
+        fb().collection(fs.db, 'projects'),
+        fb().orderBy('updatedAt', 'desc'),
+        fb().limit(100)
       );
-      const snap = await firebase.getDocs(q);
+      const snap = await fb().getDocs(q);
       state.projects = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     } catch (e) {
       console.error('[Project Manager] loadProjects failed', e);
@@ -153,8 +231,8 @@
     const fs = getFirebaseService();
     if (!fs || !fs.db) return [];
     try {
-      const q = firebase.query(firebase.collection(fs.db, 'users'), firebase.where('role', '==', 'admin'), firebase.limit(20));
-      const snap = await firebase.getDocs(q);
+      const q = fb().query(fb().collection(fs.db, 'users'), fb().where('role', '==', 'admin'), fb().limit(20));
+      const snap = await fb().getDocs(q);
       return snap.docs.map((d) => d.id);
     } catch (_) {}
     return [];
@@ -166,8 +244,8 @@
     if (!me || !fs?.db) throw new Error('Not authenticated');
     const memberIds = [ownerId];
     (additionalMemberIds || []).forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
-    const connRef = firebase.collection(fs.db, 'chatConnections').doc();
-    await firebase.setDoc(connRef, {
+    const connRef = fb().collection(fs.db, 'chatConnections').doc();
+    await fb().setDoc(connRef, {
       participants: memberIds,
       memberIds,
       groupName: projectName || 'Project',
@@ -231,7 +309,7 @@
     });
   }
 
-  function showProjectForm(project) {
+  async function showProjectForm(project) {
     state.selectedProjectId = project ? project.id : null;
     byId('project-form-panel').style.display = '';
     byId('manager-main').style.display = 'none';
@@ -242,6 +320,7 @@
     byId('project-description').value = project ? (project.description || '') : '';
     byId('project-status').value = project ? (project.status || 'submitted') : 'submitted';
     byId('project-status-color').value = project ? (project.statusColor || STATUS_COLORS[project.status] || '') : '';
+    if (!state.users.length) await loadUsers();
     renderOwnerSelect(project ? project.ownerId : '');
     const memberIds = project?.memberIds ? [...project.memberIds] : (project?.ownerId ? [project.ownerId] : []);
     const ownerId = project ? project.ownerId : (byId('project-owner')?.value?.trim() || '');
@@ -275,23 +354,23 @@
       notify('Project name is required', 'error');
       return;
     }
-    if (!ownerId && !id) {
-      notify('Please select an owner for new projects', 'error');
+    if (!ownerId) {
+      notify('Please select an owner (search by email or name)', 'error');
       return;
     }
     const now = new Date().toISOString();
     try {
       if (id) {
-        const ref = firebase.doc(fs.db, 'projects', id);
-        await firebase.updateDoc(ref, { name, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
+        const ref = fb().doc(fs.db, 'projects', id);
+        await fb().updateDoc(ref, { name, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
         const proj = state.projects.find((p) => p.id === id);
         const chatConnId = proj?.chatConnId;
         if (chatConnId) {
           try {
-            const connRef = firebase.doc(fs.db, 'chatConnections', chatConnId);
-            const snap = await firebase.getDoc(connRef);
+            const connRef = fb().doc(fs.db, 'chatConnections', chatConnId);
+            const snap = await fb().getDoc(connRef);
             if (snap.exists()) {
-              await firebase.updateDoc(connRef, {
+              await fb().updateDoc(connRef, {
                 groupName: name,
                 participants: memberIds,
                 memberIds,
@@ -305,9 +384,9 @@
         const finalOwnerId = ownerId || me.uid;
         const otherMembers = memberIds.filter((uid) => uid !== finalOwnerId);
         const chatConnId = await createProjectChat(finalOwnerId, name, otherMembers);
-        const projectRef = firebase.collection(fs.db, 'projects').doc();
+        const projectRef = fb().collection(fs.db, 'projects').doc();
         const finalMemberIds = memberIds.length ? memberIds : [finalOwnerId];
-        await firebase.setDoc(projectRef, {
+        await fb().setDoc(projectRef, {
           name,
           description,
           status,
@@ -319,7 +398,7 @@
           updatedAt: now,
           requestData: null
         });
-        await firebase.updateDoc(firebase.doc(fs.db, 'chatConnections', chatConnId), { projectId: projectRef.id });
+        await fb().updateDoc(fb().doc(fs.db, 'chatConnections', chatConnId), { projectId: projectRef.id });
         notify('Project created');
       }
       hideProjectForm();
@@ -345,11 +424,11 @@
     const content = byId('library-content');
     if (!content || !state.selectedProjectId || !fs?.db) return;
     try {
-      const q = firebase.query(
-        firebase.collection(fs.db, 'projects', state.selectedProjectId, 'library'),
-        firebase.where('folderPath', '==', folder)
+      const q = fb().query(
+        fb().collection(fs.db, 'projects', state.selectedProjectId, 'library'),
+        fb().where('folderPath', '==', folder)
       );
-      const snap = await firebase.getDocs(q);
+      const snap = await fb().getDocs(q);
       const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       content.innerHTML = items
         .filter((i) => i.type === 'file')
@@ -361,8 +440,8 @@
           const path = a.getAttribute('data-path');
           if (!path) return;
           try {
-            const r = firebase.ref(fs.storage, path);
-            const url = await firebase.getDownloadURL(r);
+            const r = fb().ref(fs.storage, path);
+            const url = await fb().getDownloadURL(r);
             window.open(url, '_blank');
           } catch (err) {
             notify('Download failed', 'error');
@@ -381,10 +460,10 @@
     if (!fs?.storage || !projectId || !file) return;
     const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
-    const ref = firebase.ref(fs.storage, storagePath);
-    await firebase.uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    const libRef = firebase.collection(fs.db, 'projects', projectId, 'library').doc();
-    await firebase.setDoc(libRef, {
+    const ref = fb().ref(fs.storage, storagePath);
+    await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
+    const libRef = fb().collection(fs.db, 'projects', projectId, 'library').doc();
+    await fb().setDoc(libRef, {
       folderPath: folder,
       name: fname,
       storagePath,
@@ -400,8 +479,8 @@
     const base = byId('library-folder')?.value || 'record_in/docs';
     if (!name || !projectId || !fs?.db) return;
     const folderPath = base + '/' + name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const libRef = firebase.collection(fs.db, 'projects', projectId, 'library').doc();
-    await firebase.setDoc(libRef, {
+    const libRef = fb().collection(fs.db, 'projects', projectId, 'library').doc();
+    await fb().setDoc(libRef, {
       folderPath,
       name,
       type: 'folder',
@@ -424,19 +503,13 @@
     byId('project-add-btn')?.addEventListener('click', () => showProjectForm(null));
     byId('project-cancel')?.addEventListener('click', () => hideProjectForm());
     byId('project-form')?.addEventListener('submit', onSaveProject);
-    byId('project-add-member-btn')?.addEventListener('click', () => {
-      const sel = byId('project-add-user');
-      if (sel && sel.value) {
-        addProjectMember(sel.value);
-        sel.value = '';
-      }
-    });
-    byId('project-owner')?.addEventListener('change', () => {
-      const ownerId = byId('project-owner')?.value?.trim();
-      const others = getProjectMemberIds().filter((uid) => uid !== ownerId);
-      renderProjectMembers(ownerId ? [ownerId, ...others] : others, ownerId || undefined);
-      renderAddUserSelect(ownerId ? [ownerId, ...others] : others);
-    });
+    byId('project-add-member-btn')?.addEventListener('click', () => { byId('project-add-user-search')?.focus(); showAddUserDropdown(); });
+    byId('project-owner-search')?.addEventListener('input', () => showOwnerDropdown());
+    byId('project-owner-search')?.addEventListener('focus', () => showOwnerDropdown());
+    byId('project-owner-search')?.addEventListener('blur', () => setTimeout(() => byId('project-owner-dropdown')?.classList.add('hidden'), 150));
+    byId('project-add-user-search')?.addEventListener('input', () => showAddUserDropdown());
+    byId('project-add-user-search')?.addEventListener('focus', () => showAddUserDropdown());
+    byId('project-add-user-search')?.addEventListener('blur', () => setTimeout(() => byId('project-add-user-dropdown')?.classList.add('hidden'), 150));
 
     byId('project-search')?.addEventListener('input', () => renderProjects());
     byId('status-filter')?.addEventListener('change', () => renderProjects());
@@ -496,7 +569,7 @@
       const fs = getFirebaseService();
       const me = fs?.auth?.currentUser;
       if (!me || !fs?.db) return false;
-      const userDoc = await firebase.getDoc(firebase.doc(fs.db, 'users', me.uid));
+      const userDoc = await fb().getDoc(fb().doc(fs.db, 'users', me.uid));
       const role = userDoc?.exists ? (userDoc.data()?.role || 'user') : 'user';
       return String(role).toLowerCase() === 'admin';
     }

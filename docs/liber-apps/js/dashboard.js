@@ -6493,28 +6493,36 @@ class DashboardManager {
                     const u = JSON.parse(localStorage.getItem('liber_current_user') || '{}');
                     uid = u?.id || u?.uid;
                 } catch (_) {}
+                this._isAdminSession = false;
             }
             if (uid && window.firebaseService?.getUserData) {
                 const data = await window.firebaseService.getUserData(uid);
                 const role = String(data?.role || '').toLowerCase();
                 isAdmin = role === 'admin';
-                if (isAdmin && window.authManager) {
-                    if (!window.authManager.currentUser) window.authManager.currentUser = {};
-                    window.authManager.currentUser.role = 'admin';
-                    window.authManager.currentUser.id = window.authManager.currentUser.id || uid;
-                    try {
-                        const raw = localStorage.getItem('liber_current_user');
-                        const u = raw ? JSON.parse(raw) : {};
-                        if (u && (u.id || u.uid)) { u.role = 'admin'; localStorage.setItem('liber_current_user', JSON.stringify(u)); }
-                        const sess = localStorage.getItem('liber_session');
-                        if (sess) {
+                // Sync authManager and localStorage with current Firebase user so they match the session
+                try {
+                    const userPayload = { id: uid, uid, role, username: data?.username || '', email: data?.email || '' };
+                    if (window.authManager) {
+                        if (!window.authManager.currentUser) window.authManager.currentUser = {};
+                        window.authManager.currentUser.role = role || 'user';
+                        window.authManager.currentUser.id = window.authManager.currentUser.uid = uid;
+                        window.authManager.currentUser.username = userPayload.username;
+                        window.authManager.currentUser.email = userPayload.email;
+                    }
+                    const u = { ...userPayload, role: role || 'user' };
+                    localStorage.setItem('liber_current_user', JSON.stringify(u));
+                    const sess = localStorage.getItem('liber_session');
+                    if (sess) {
+                        try {
                             const s = JSON.parse(sess);
-                            if (s?.user) { s.user.role = 'admin'; localStorage.setItem('liber_session', JSON.stringify(s)); }
-                        }
-                    } catch (_) {}
-                }
+                            if (s?.user) { s.user = { ...s.user, ...u }; localStorage.setItem('liber_session', JSON.stringify(s)); }
+                        } catch (_) {}
+                    }
+                } catch (_) {}
             }
-            if (!isAdmin && window.authManager?.isAdmin?.()) isAdmin = true;
+            // Only trust authManager if it matches current uid (avoid stale admin after account switch)
+            const amUid = window.authManager?.currentUser?.id || window.authManager?.currentUser?.uid;
+            if (!isAdmin && amUid === uid && window.authManager?.isAdmin?.()) isAdmin = true;
         } catch (_) {}
         document.querySelectorAll('.admin-only').forEach((el) => { el.style.display = isAdmin ? '' : 'none'; });
         this._isAdminSession = isAdmin;

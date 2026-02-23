@@ -122,6 +122,7 @@ class FirebaseService {
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
             this.storage = firebase.getStorage ? firebase.getStorage(this.app) : null;
+            this.firebase = (typeof firebase !== 'undefined' ? firebase : null) || window.firebase;
             // Optional Functions (for future FCM/webhooks)
             try {
                 // Determine preferred region from secure keys if provided
