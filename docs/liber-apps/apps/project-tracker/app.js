@@ -5,8 +5,8 @@
   function getRecordInFolderByFile(file) {
     const t = String(file.type || '').toLowerCase();
     const n = String(file.name || '').toLowerCase();
-    if (t.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/.test(n)) return 'record_in/images';
-    if (t.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/.test(n)) return 'record_in/video';
+    if (t.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif|ico)$/.test(n)) return 'record_in/images';
+    if (t.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv|m4v|wmv|flv)$/.test(n)) return 'record_in/video';
     return 'record_in/docs';
   }
   const STATUS_COLORS = {
@@ -434,9 +434,19 @@
     try {
       const db = (fb.firestore && fs?.app) ? fb.firestore(fs.app) : fs.db;
       const libRef = fb.collection(db, 'projects', projectId, 'library');
-      const q = fb.query(libRef, fb.orderBy('createdAt', 'desc'));
-      const snap = await fb.getDocs(q);
-      state.library = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      let snap;
+      try {
+        const q = fb.query ? fb.query(libRef, fb.orderBy('createdAt', 'desc')) : libRef;
+        snap = await fb.getDocs(q);
+      } catch (orderErr) {
+        snap = await fb.getDocs(libRef);
+      }
+      const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      state.library = raw.sort((a, b) => {
+        const ta = a?.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const tb = b?.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return tb - ta;
+      });
     } catch (e) {
       console.warn('[Project Tracker] loadLibrary failed', e);
       state.library = [];
@@ -448,10 +458,15 @@
     const empty = byId('library-empty');
     if (!content) return;
 
-    const files = state.library.filter((f) => f.type === 'file' && f.folderPath && f.folderPath.startsWith(folderPrefix));
+    const files = state.library.filter((f) => {
+      if (f.type !== 'file') return false;
+      const fp = f.folderPath || (folderPrefix === 'record_in' ? 'record_in/docs' : 'record_out/docs');
+      return fp.startsWith(folderPrefix);
+    });
     const bySub = {};
     for (const f of files) {
-      const sub = f.folderPath.replace(folderPrefix + '/', '').split('/')[0] || 'docs';
+      const fp = f.folderPath || (folderPrefix === 'record_in' ? 'record_in/docs' : 'record_out/docs');
+      const sub = fp.replace(folderPrefix + '/', '').split('/')[0] || 'docs';
       if (!bySub[sub]) bySub[sub] = [];
       bySub[sub].push(f);
     }
