@@ -994,7 +994,7 @@ class FirebaseService {
         if (!isSelf && this.functions) {
             // Admin deleting another user: use Cloud Function (bypasses rules, removes from Auth too)
             const res = await this.callFunction('adminDeleteUser', { uid });
-            if (!res || res.ok !== true) throw new Error('delete_failed');
+            if (!res || res.ok !== true) throw new Error(res?.error || 'delete_failed');
             console.log('User deleted successfully');
             return;
         }
@@ -1249,6 +1249,12 @@ class FirebaseService {
                     if (httpRes) return httpRes;
                 } catch (e) { throw e; }
             }
+            if (name === 'adminDeleteUser' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callAdminDeleteUserHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
             // Prefer SDK callables when available
             if (this.functions) {
                 // Modular with region failover
@@ -1408,6 +1414,28 @@ class FirebaseService {
             return json;
         } catch (e) {
             console.warn('removeProjectMemberHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callAdminDeleteUserHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/adminDeleteUserHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('adminDeleteUserHttp failed:', e?.message || e);
             throw e;
         }
     }
