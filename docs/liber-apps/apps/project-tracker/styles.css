@@ -418,6 +418,56 @@
   margin-bottom: 8px;
 }
 
+.responses-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--primary-text, #e8edff);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.responses-toggle-btn:hover {
+  color: #3b82f6;
+}
+.responses-list {
+  margin-top: 12px;
+}
+.responses-list.hidden {
+  display: none !important;
+}
+.response-item {
+  padding: 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.response-meta {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+.response-message {
+  white-space: pre-wrap;
+  margin-bottom: 6px;
+}
+.response-files .response-file {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 4px;
+  margin-right: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.responses-empty {
+  opacity: 0.7;
+  font-style: italic;
+}
+
 .lib-file-row a {
   color: #3b82f6;
   text-decoration: none;

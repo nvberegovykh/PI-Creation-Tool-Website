@@ -13,7 +13,7 @@
 
   const MAX_FORM_FILES = 10;
   const MAX_FILE_SIZE = 5 * 1024 * 1024;
-  const state = { projects: [], users: [], selectedProjectId: null, projectFormFiles: [] };
+  const state = { projects: [], users: [], selectedProjectId: null, projectFormFiles: [], projectRespondFiles: [], responses: [] };
 
   function byId(id) {
     return document.getElementById(id);
@@ -302,7 +302,13 @@
         const connId = a.getAttribute('data-conn-id');
         if (!connId) return;
         const path = window.location.pathname.replace(/project-manager\/[^?]*/, 'secure-chat/index.html');
-        window.open(window.location.origin + path + '?connId=' + encodeURIComponent(connId), '_blank');
+        const full = window.location.origin + path + '?connId=' + encodeURIComponent(connId);
+        const host = window.parent && window.parent !== window ? window.parent : window.top || window;
+        if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
+          host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+        } else {
+          window.open(full, '_blank');
+        }
       });
     });
   }
@@ -340,7 +346,16 @@
     renderOwnerSelect(ownerId || '');
     renderAddUserSelect(memberIds.length ? memberIds : []);
     renderProjectFormFileList();
+    state.projectRespondFiles = [];
+    renderProjectRespondFileList();
+    byId('project-respond-message').value = '';
     updateProjectActionSections(project);
+    if (project?.id) {
+      loadResponses(project.id).then((responses) => renderResponses(responses));
+    } else {
+      byId('project-responses-list').innerHTML = '';
+      byId('project-responses-list').classList.add('hidden');
+    }
   }
 
   function updateProjectActionSections(project) {
@@ -359,6 +374,73 @@
     byId('project-form-panel').style.display = 'none';
     byId('manager-main').style.display = '';
     state.projectFormFiles = [];
+    state.projectRespondFiles = [];
+  }
+
+  function addProjectRespondFiles(newFiles) {
+    for (const f of newFiles) {
+      if (state.projectRespondFiles.length >= MAX_FORM_FILES) break;
+      if (f.size > MAX_FILE_SIZE) continue;
+      const dup = state.projectRespondFiles.some((x) => x.name === f.name && x.size === f.size);
+      if (!dup) state.projectRespondFiles.push(f);
+    }
+    renderProjectRespondFileList();
+  }
+
+  function renderProjectRespondFileList() {
+    const list = byId('project-respond-file-list');
+    if (!list) return;
+    list.innerHTML = state.projectRespondFiles.map((f, i) =>
+      `<div class="project-form-file-item"><span>${escapeHtml(f.name)} (${(f.size / 1024).toFixed(1)} KB)</span><button type="button" class="project-form-file-item-remove" data-i="${i}" title="Remove">&times;</button></div>`
+    ).join('');
+    list.querySelectorAll('.project-form-file-item-remove').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.projectRespondFiles.splice(parseInt(btn.dataset.i, 10), 1);
+        renderProjectRespondFileList();
+      });
+    });
+  }
+
+  async function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function loadResponses(projectId) {
+    const fs = getFirebaseService();
+    if (!fs?.db || !projectId) return [];
+    try {
+      const snap = await fb().getDocs(fb().collection(fs.db, 'projects', projectId, 'responses'));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    } catch (e) {
+      console.warn('[Project Manager] loadResponses failed', e);
+      return [];
+    }
+  }
+
+  function renderResponses(responses) {
+    const list = byId('project-responses-list');
+    if (!list) return;
+    if (!responses.length) {
+      list.innerHTML = '<p class="responses-empty">No responses yet.</p>';
+      list.classList.remove('hidden');
+      return;
+    }
+    list.innerHTML = responses.map((r) => {
+      const msg = (r.message || '').trim();
+      const files = (r.fileRefs || []).map((f) => `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`).join('');
+      const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+      return `<div class="response-item">
+        <div class="response-meta">${escapeHtml(date)}</div>
+        ${msg ? `<div class="response-message">${escapeHtml(msg).replace(/\n/g, '<br>')}</div>` : ''}
+        ${files ? `<div class="response-files">${files}</div>` : ''}
+      </div>`;
+    }).join('');
+    list.classList.remove('hidden');
   }
 
   function addProjectFormFiles(newFiles) {
@@ -594,29 +676,51 @@
     }
     byId('project-cancel')?.addEventListener('click', () => hideProjectForm());
     byId('project-form')?.addEventListener('submit', onSaveProject);
+    const respondUpload = byId('project-respond-upload');
+    const respondFileInput = byId('project-respond-files');
+    if (respondUpload && respondFileInput) {
+      respondUpload.addEventListener('click', () => respondFileInput.click());
+      respondFileInput.addEventListener('change', (e) => {
+        addProjectRespondFiles(Array.from(e.target.files || []));
+        e.target.value = '';
+      });
+    }
+    byId('project-responses-toggle')?.addEventListener('click', () => {
+      const list = byId('project-responses-list');
+      const icon = byId('project-responses-toggle')?.querySelector('i');
+      if (list?.classList.toggle('hidden')) {
+        if (icon) icon.className = 'fas fa-chevron-right';
+      } else {
+        if (icon) icon.className = 'fas fa-chevron-down';
+        const id = byId('project-id')?.value?.trim();
+        if (id) loadResponses(id).then((r) => renderResponses(r));
+      }
+    });
     byId('project-respond-btn')?.addEventListener('click', async () => {
       const id = byId('project-id')?.value?.trim();
       if (!id) return;
       const fs = getFirebaseService();
       const me = fs?.auth?.currentUser?.uid;
       if (!me) return;
+      const message = (byId('project-respond-message')?.value || '').trim();
+      const base64Files = [];
+      for (let i = 0; i < Math.min(state.projectRespondFiles.length, MAX_FORM_FILES); i++) {
+        const f = state.projectRespondFiles[i];
+        const b64 = await fileToBase64(f);
+        base64Files.push({ name: f.name, data: b64, type: f.type });
+      }
       try {
-        const now = new Date().toISOString();
-        await fb().updateDoc(fb().doc(fs.db, 'projects', id), {
-          status: 'initializing',
-          respondedAt: now,
-          respondedBy: me,
-          updatedAt: now
-        });
-        try {
-          await fs.callFunction('sendProjectRespondEmail', { projectId: id });
-        } catch (mailErr) {
-          console.warn('[Project Manager] send respond email failed', mailErr);
-        }
-        notify('Responded. Awaiting approval from both sides.');
+        await fs.callFunction('sendProjectRespondEmail', { projectId: id, message, base64Files });
+        notify('Response sent. Awaiting approval from both sides.');
+        state.projectRespondFiles = [];
+        renderProjectRespondFileList();
+        byId('project-respond-message').value = '';
         await loadProjects();
         const p = state.projects.find((pr) => pr.id === id);
-        if (p) showProjectForm({ ...p, status: 'initializing', respondedAt: now, respondedBy: me });
+        if (p) {
+          showProjectForm({ ...p, status: 'initializing' });
+          loadResponses(id).then((r) => renderResponses(r));
+        }
       } catch (err) { notify(err?.message || 'Failed', 'error'); }
     });
     byId('project-approve-btn')?.addEventListener('click', async () => {

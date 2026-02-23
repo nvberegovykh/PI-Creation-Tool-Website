@@ -44,8 +44,7 @@
         </div>
         <div id="tracker-respond-section" class="tracker-action-section hidden">
           <div class="action-banner action-pending">
-            <span>Pending response</span>
-            <button type="button" id="tracker-respond-btn" class="btn btn-primary"><i class="fas fa-reply"></i> Respond</button>
+            <span>Awaiting admin response. Admin will send a message from Project Manager.</span>
           </div>
         </div>
         <div id="tracker-approve-section" class="tracker-action-section hidden">
@@ -83,6 +82,10 @@
           </div>
         </div>
         <div id="detail-description" class="detail-description"></div>
+        <div id="tracker-responses-section" class="detail-section">
+          <h3><button type="button" id="tracker-responses-toggle" class="responses-toggle-btn"><i class="fas fa-chevron-right"></i> Response history</button></h3>
+          <div id="tracker-responses-list" class="responses-list hidden"></div>
+        </div>
         <div id="members-section" class="detail-section hidden">
           <h3>Team Members</h3>
           <div id="members-list" class="members-list"></div>

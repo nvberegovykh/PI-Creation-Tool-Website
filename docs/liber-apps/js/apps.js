@@ -446,7 +446,22 @@ class AppsManager {
      */
     async getSampleApps() {
         // Only include apps that actually exist in the apps folder
+        // Project Tracker first for users (userOnly) - they see it at the top
         const availableApps = [
+            {
+                id: 'project-tracker',
+                name: 'Project Tracker',
+                description: 'Track your projects, view status, access chat and project library.',
+                version: '1.0.0',
+                category: 'business',
+                icon: 'fas fa-tasks',
+                status: 'online',
+                path: 'apps/project-tracker/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2026-02-22',
+                logo: null,
+                userOnly: true
+            },
             {
                 id: 'calculator',
                 name: 'Calculator',
@@ -512,20 +527,6 @@ class AppsManager {
                 lastUpdated: '2026-02-22',
                 logo: null,
                 adminOnly: true
-            },
-            {
-                id: 'project-tracker',
-                name: 'Project Tracker',
-                description: 'Track your projects, view status, access chat and project library.',
-                version: '1.0.0',
-                category: 'business',
-                icon: 'fas fa-tasks',
-                status: 'online',
-                path: 'apps/project-tracker/index.html',
-                author: 'Liber Apps',
-                lastUpdated: '2026-02-22',
-                logo: null,
-                userOnly: true
             },
             {
                 id: 'project-manager',

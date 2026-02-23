@@ -46,8 +46,22 @@
       <h2 id="project-form-title">New Project</h2>
       <div id="project-respond-section" class="project-action-section hidden">
         <div class="action-banner action-pending">
-          <span>Pending response from admin/owner</span>
-          <button type="button" id="project-respond-btn" class="btn btn-primary"><i class="fas fa-reply"></i> Respond</button>
+          <span>Send response to project owner (status → Initializing)</span>
+          <div class="respond-form-wrap">
+            <textarea id="project-respond-message" rows="3" placeholder="Your message to the project owner..."></textarea>
+            <div class="respond-upload-zone" id="project-respond-upload" tabindex="0">
+              <input type="file" id="project-respond-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
+              <span>📎 Attach files to response</span>
+            </div>
+            <div id="project-respond-file-list" class="project-form-file-list"></div>
+            <button type="button" id="project-respond-btn" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Send Response</button>
+          </div>
+        </div>
+      </div>
+      <div id="project-responses-section" class="project-action-section">
+        <div class="detail-section">
+          <h3><button type="button" id="project-responses-toggle" class="responses-toggle-btn"><i class="fas fa-chevron-right"></i> Response history</button></h3>
+          <div id="project-responses-list" class="responses-list hidden"></div>
         </div>
       </div>
       <div id="project-approve-section" class="project-action-section hidden">

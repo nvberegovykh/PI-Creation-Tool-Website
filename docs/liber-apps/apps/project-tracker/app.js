@@ -153,6 +153,15 @@
     const chatLink = byId('detail-chat-link');
     chatLink.href = chatUrl;
     chatLink.style.display = project.chatConnId ? '' : 'none';
+    chatLink.onclick = project.chatConnId ? (e) => {
+      e.preventDefault();
+      const host = window.parent && window.parent !== window ? window.parent : window.top || window;
+      if (host?.appsManager && typeof host.appsManager.openAppInShell === 'function') {
+        host.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, chatUrl);
+      } else {
+        window.open(chatUrl, '_blank');
+      }
+    } : null;
 
     const respondSec = byId('tracker-respond-section');
     const approveSec = byId('tracker-approve-section');
@@ -196,6 +205,39 @@
     } catch (_) {
       alert(msg);
     }
+  }
+
+  async function loadTrackerResponses(projectId) {
+    const fs = getFirebaseService();
+    if (!fs?.db || !projectId) return [];
+    try {
+      const snap = await firebase.getDocs(firebase.collection(fs.db, 'projects', projectId, 'responses'));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    } catch (e) {
+      console.warn('[Project Tracker] loadResponses failed', e);
+      return [];
+    }
+  }
+
+  function renderTrackerResponses(responses) {
+    const list = byId('tracker-responses-list');
+    if (!list) return;
+    if (!responses.length) {
+      list.innerHTML = '<p class="responses-empty">No responses yet.</p>';
+      list.classList.remove('hidden');
+      return;
+    }
+    list.innerHTML = responses.map((r) => {
+      const msg = (r.message || '').trim();
+      const files = (r.fileRefs || []).map((f) => `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`).join('');
+      const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+      return `<div class="response-item">
+        <div class="response-meta">${escapeHtml(date)}</div>
+        ${msg ? `<div class="response-message">${escapeHtml(msg).replace(/\n/g, '<br>')}</div>` : ''}
+        ${files ? `<div class="response-files">${files}</div>` : ''}
+      </div>`;
+    }).join('');
+    list.classList.remove('hidden');
   }
 
   async function loadMembers(projectId) {
@@ -493,30 +535,19 @@
       });
     }
 
-    byId('tracker-respond-btn')?.addEventListener('click', async () => {
-      const projectId = state.selectedProject?.id;
-      if (!projectId) return;
-      const fs = getFirebaseService();
-      const me = fs?.auth?.currentUser?.uid;
-      if (!me) return;
-      try {
-        const now = new Date().toISOString();
-        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), {
-          status: 'initializing',
-          respondedAt: now,
-          respondedBy: me,
-          updatedAt: now
-        });
-        try {
-          if (fs.callFunction) await fs.callFunction('sendProjectRespondEmail', { projectId });
-        } catch (mailErr) {
-          console.warn('[Project Tracker] send respond email failed', mailErr);
+    byId('tracker-responses-toggle')?.addEventListener('click', async () => {
+      const list = byId('tracker-responses-list');
+      const icon = byId('tracker-responses-toggle')?.querySelector('i');
+      if (list?.classList.toggle('hidden')) {
+        if (icon) icon.className = 'fas fa-chevron-right';
+      } else {
+        if (icon) icon.className = 'fas fa-chevron-down';
+        const projectId = state.selectedProject?.id;
+        if (projectId) {
+          const responses = await loadTrackerResponses(projectId);
+          renderTrackerResponses(responses);
         }
-        notify('Responded. Awaiting approval from both sides.');
-        await loadProjects();
-        const p = state.projects.find((pr) => pr.id === projectId);
-        if (p) openProject(projectId);
-      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+      }
     });
     byId('tracker-approve-btn')?.addEventListener('click', async () => {
       const projectId = state.selectedProject?.id;
