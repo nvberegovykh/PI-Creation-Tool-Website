@@ -687,6 +687,12 @@ class ChatGPTIntegration {
         document.addEventListener('app-context-changed', (e) => {
             this.updateContext(e.detail.context);
         });
+        // When app shell opens, refresh initial guidelines (context may have changed)
+        window.addEventListener('liber:app-shell-open', () => {
+            if (this.chatHistory.length === 0) {
+                setTimeout(() => this.displayChatHistory(), 150);
+            }
+        });
     }
 
     /**
@@ -1536,11 +1542,112 @@ class ChatGPTIntegration {
     }
 
     /**
+     * Get a short friendly initial message for the current page (shown on load)
+     */
+    getInitialGuidelinesMessage() {
+        const ctx = this.getCurrentContext();
+        const hints = {
+            'project-tracker': "Hey! I'm here to help with the Project Tracker. You can ask me things like: how to add a team member, where to approve your project, how the status steps work, or how to get back to your project list. Just ask!",
+            'project-manager': "Hi there! I can guide you through the Project Manager—like how to respond to clients, send messages with attachments, or manage project status. What do you need?",
+            'secure-chat': "Hello! I'm here to help with Connections. Ask me how to start a chat, make a call, or find a contact.",
+            'calculator-app': "Hi! I can help with the Calculator or any math questions you have.",
+            'invoice-app': "Hello! I can guide you through creating and managing invoices.",
+            'liber-apps': "Hi! I'm WALL-E. I can help you find your way around—like opening Project Tracker, Connections, or any other app. Just ask what you'd like to do!"
+        };
+        return hints[ctx] || hints['liber-apps'];
+    }
+
+    /**
+     * Get page-specific guidelines for WALL-E (friendly, semi-formal)
+     */
+    getContextGuidelines() {
+        const ctx = this.getCurrentContext();
+        const guidelines = {
+            'project-tracker': `You are helping with the Project Tracker. The user is viewing their projects and project details.
+
+**What's on this page:**
+- My Projects grid: cards showing each project, status, description
+- Project detail view: when a project is open, they see status, progress bar (Submitted → Initializing → In Progress → Review → Completed), Chat button, description, response history, team members, project library (Record In / Record Out)
+- Actions vary by status: "I Approve" (initializing), "Approve (Complete)" (review), Add members by email, add files to library
+
+**How to help:**
+- Explain how to get somewhere: e.g. "Click a project card to open it" or "Use the Back button to return to the list"
+- Guide through status steps: "Your project is in Review—when you're satisfied, click Approve (Complete)"
+- Explain how to add members: "Type an email in the Team Members section and click Add"
+- For new projects: "Submit a request from the main site to create your first project"
+- Be warm and semi-formal; use "you" naturally`
+            ,
+            'project-manager': `You are helping with the Project Manager (admin view). The user manages project requests and responds to clients.
+
+**What's on this page:**
+- Projects list, filters by status
+- Project detail: status, client info, description, admin response, files
+- Send response with message and attachments to notify the client
+- Approve or manage projects
+
+**How to help:**
+- Explain how to respond: "Add your message and optionally attach files, then click Send Response"
+- Guide workflow: "Mark the project In Progress, then send a response so the client is notified"`
+            ,
+            'secure-chat': `You are helping with Connections (secure chat). The user can message contacts, start calls, or manage connections.
+
+**How to help:**
+- Explain how to start a chat: "Select a connection or create a new one"
+- For calls: "Click the call icon next to a contact to start a voice or video call"`
+            ,
+            'calculator-app': `You are helping with the Calculator app. The user can perform math operations.
+
+**How to help:**
+- Answer calculation questions or explain how to use the calculator`
+            ,
+            'invoice-app': `You are helping with the Invoice Generator. The user creates and manages invoices.
+
+**How to help:**
+- Guide through creating an invoice, adding line items, or exporting`
+            ,
+            'file-converter': `You are helping with the File Converter. The user can convert files between formats.
+
+**How to help:**
+- Explain supported formats and how to convert files`
+            ,
+            'media-enhancer': `You are helping with the Media Enhancer. The user can enhance images or media.
+
+**How to help:**
+- Guide through uploading and enhancing media`
+            ,
+            'gallery-control': `You are helping with the Gallery Control. The user manages image galleries.
+
+**How to help:**
+- Explain how to browse, organize, or manage gallery content`
+            ,
+            'liber-apps': `You are helping with the Liber Apps control panel. The user sees the main dashboard with:
+- Apps grid: Project Tracker, Connections (chat), Calculator, Invoices, File Converter, Media Enhancer, Gallery Control, Project Manager
+- Feed, WaveConnect (audio/video), and other sections depending on view
+
+**How to help:**
+- "Click Project Tracker to see your projects" or "Open Connections to chat"
+- "Use the search to find an app quickly"
+- Guide them to the app that matches what they want to do`
+        };
+        return guidelines[ctx] || guidelines['liber-apps'];
+    }
+
+    /**
+     * Build system prompt with base personality and page-specific guidelines
+     */
+    buildSystemPrompt() {
+        const base = `You are WALL-E, a friendly, straightforward, peaceful and calm part of the architectural team. You help both users and our team reach their goals using logic, research, math and actual solutions. You are patient and thoughtful—sometimes it's better to take time to think than to choose the fastest but incorrect approach. Your goal is to save everyone's time by finding correct approaches. Be warm and semi-formal; use "you" naturally.`;
+        const guidelines = this.getContextGuidelines();
+        return `${base}\n\n**Current page context:**\n${guidelines}`;
+    }
+
+    /**
      * Use Chat Completions API for text-only messages
      */
     async callChatCompletions(message) {
         try {
             console.log('Using chat completions API for text-only message');
+            const systemPrompt = this.buildSystemPrompt();
             
             const response = await this.openaiFetch('/v1/chat/completions', {
                 method: 'POST',
@@ -1550,7 +1657,7 @@ class ChatGPTIntegration {
                     messages: [
                         {
                             role: 'system',
-                            content: 'You are WALL-E, a friendly, straight forward, peaceful and calm part of architectural team, that helps both users and our worker to reach any goals using logic, research, math and actual solutions, you have to be patient and well-thinking, sometimes it\'s better to take time to think, than find fastest but incorrect approach, your goal is to save everyone\'s time finding correct approaches. You are based on GPT-4o-mini.'
+                            content: systemPrompt
                         },
                         {
                             role: 'user',
@@ -2079,14 +2186,33 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Get current context
+     * Get current context (active app in shell takes precedence over main page)
      */
     getCurrentContext() {
-        const path = window.location.pathname;
+        const shell = document.getElementById('app-shell');
+        const frame = document.getElementById('app-shell-frame');
+        if (shell && frame && document.body.classList.contains('app-shell-open')) {
+            try {
+                const src = String(frame.src || frame.getAttribute('src') || '').toLowerCase();
+                if (src && src !== 'about:blank') {
+                    if (src.includes('/apps/project-tracker/')) return 'project-tracker';
+                    if (src.includes('/apps/project-manager/')) return 'project-manager';
+                    if (src.includes('/apps/secure-chat/')) return 'secure-chat';
+                    if (src.includes('/apps/calculator/')) return 'calculator-app';
+                    if (src.includes('/apps/invoices-app/')) return 'invoice-app';
+                    if (src.includes('/apps/file-converter/')) return 'file-converter';
+                    if (src.includes('/apps/media-enhancer/')) return 'media-enhancer';
+                    if (src.includes('/apps/gallery-control/')) return 'gallery-control';
+                }
+            } catch (_) {}
+        }
+        const path = window.location.pathname.toLowerCase();
         if (path.includes('/apps/calculator/')) return 'calculator-app';
         if (path.includes('/apps/invoices-app/')) return 'invoice-app';
+        if (path.includes('/apps/project-tracker/')) return 'project-tracker';
+        if (path.includes('/apps/project-manager/')) return 'project-manager';
         if (path.includes('/control-panel') || path.includes('/liber-apps')) return 'liber-apps';
-        return 'unknown';
+        return 'liber-apps';
     }
 
     /**
@@ -2462,12 +2588,13 @@ class ChatGPTIntegration {
         if (!messagesContainer) return;
 
         if (this.chatHistory.length === 0) {
-            // Show welcome message if no history
+            const initialGuidelines = this.getInitialGuidelinesMessage();
             messagesContainer.innerHTML = `
                 <div class="chatgpt-welcome">
                     <img src="images/wall_e.svg" alt="WALL-E" class="welcome-icon">
                     <h4>Wall-eeeee!</h4>
                     <p>Any help?</p>
+                    <p class="wall-e-initial-guidelines">${this.escapeHtml(initialGuidelines)}</p>
                     ${!this.isEnabled ? '<p class="setup-notice"><strong>⚠️ Configuration Required:</strong> WALL-E configuration could not be loaded. Please check the Gist setup.</p>' : ''}
                 </div>
             `;

@@ -554,7 +554,9 @@
     state.isAdmin = await checkIsAdmin();
     const user = fs.auth?.currentUser;
     if (!user) {
-      byId('tracker-loading').innerHTML = '<p>Please log in to view your projects.</p>';
+      const base = (window.location.pathname || '').replace(/\/apps\/project-tracker\/.*$/, '').replace(/\/$/, '') || '';
+      const loginUrl = window.location.origin + (base ? base + '/' : '/') + 'index.html';
+      byId('tracker-loading').innerHTML = '<p>Please log in to view your projects.</p><p><a href="' + loginUrl + '" style="color:#3b82f6">Go to Login</a></p>';
       return;
     }
 
@@ -638,6 +640,10 @@
           try {
             if (window.parent && window.parent !== window) {
               window.parent.postMessage({ type: 'liber:close-app-shell' }, '*');
+            } else {
+              const path = window.location.pathname || '';
+              const base = path.replace(/\/apps\/project-tracker\/.*$/, '').replace(/\/$/, '') || '';
+              window.location.href = window.location.origin + base + (base ? '/' : '') + 'index.html';
             }
           } catch (_) {}
         }

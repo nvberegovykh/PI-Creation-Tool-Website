@@ -428,11 +428,15 @@ class AppsManager {
             this.updateAppsCount();
 
             const launchId = sessionStorage.getItem('liber_launch_after_verify');
+            const projectId = sessionStorage.getItem('liber_verify_project_id');
             if (launchId) {
                 sessionStorage.removeItem('liber_launch_after_verify');
+                if (projectId) sessionStorage.removeItem('liber_verify_project_id');
                 const app = this.apps.find((a) => a.id === launchId);
                 if (app && !app.adminOnly) {
-                    setTimeout(() => this.launchApp(launchId), 400);
+                    const appUrl = new URL(app.path, window.location.href).href;
+                    const urlWithProject = projectId ? `${appUrl}${appUrl.includes('?') ? '&' : '?'}projectId=${encodeURIComponent(projectId)}` : appUrl;
+                    setTimeout(() => this.openAppInShell(app, urlWithProject), 400);
                 }
             }
         } catch (error) {

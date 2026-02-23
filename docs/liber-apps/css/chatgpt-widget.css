@@ -173,6 +173,17 @@
     pointer-events: none;
 }
 
+.wall-e-initial-guidelines {
+    font-size: 13px;
+    line-height: 1.5;
+    opacity: 0.92;
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(59, 130, 246, 0.08);
+    border-radius: 8px;
+    border-left: 3px solid rgba(59, 130, 246, 0.5);
+}
+
 .setup-notice {
     background: rgba(255, 193, 7, 0.1);
     border: 1px solid rgba(255, 193, 7, 0.3);
