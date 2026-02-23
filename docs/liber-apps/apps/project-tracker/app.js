@@ -352,7 +352,7 @@
     const list = byId('members-list');
     if (!list) return;
     if (!state.members.length) {
-      list.innerHTML = '<p class="members-empty-hint">No members yet. Add by email above.</p>';
+      list.innerHTML = '<p class="members-empty-hint">No members yet. Enter an email above to add an existing user or invite a new one (they will receive an email with login details).</p>';
       return;
     }
     list.innerHTML = state.members
@@ -379,12 +379,16 @@
         addBtn.disabled = true;
         try {
           const fs = getFirebaseService();
-          const res = await fs.callFunction('addProjectMember', { projectId, email });
+          const res = await fs.callFunction('inviteProjectMemberByEmail', { projectId, email });
           if (res?.ok) {
             await loadMembers(projectId);
             renderMembers();
             emailInput.value = '';
-            notify(res.added ? 'Member added.' : 'User already a member.');
+            if (res.invited) {
+              notify('Invitation sent. They will receive an email to join the project.');
+            } else {
+              notify(res.added ? 'Member added.' : 'User already a member.');
+            }
           }
         } catch (e) {
           notify(e?.message || 'Failed to add member', 'error');
@@ -600,6 +604,20 @@
       state.projects = Array.from(projectsById.values()).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       showMain();
       renderProjects();
+      let projectToOpen = sessionStorage.getItem('liber_verify_project_id');
+      if (projectToOpen) sessionStorage.removeItem('liber_verify_project_id');
+      if (!projectToOpen) {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          projectToOpen = params.get('projectId') || null;
+        } catch (_) {}
+      }
+      if (projectToOpen) {
+        const hasProject = state.projects.some((p) => p.id === projectToOpen);
+        if (hasProject) {
+          setTimeout(() => openProject(projectToOpen), 300);
+        }
+      }
     } catch (e) {
       if (loadSeq !== _loadProjectsSeq) return;
       console.error('[Project Tracker] loadProjects failed', e);

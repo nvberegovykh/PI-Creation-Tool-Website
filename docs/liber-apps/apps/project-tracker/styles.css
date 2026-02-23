@@ -243,7 +243,7 @@
 
 .tracker-progress-bar {
   margin: 20px 0;
-  padding: 0 4px;
+  padding: 10px 4px;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
@@ -655,6 +655,9 @@
   .tracker-progress-bar .step-dot {
     width: 20px;
     height: 20px;
+  }
+  .tracker-progress-bar .progress-step.current .step-dot {
+    transform: scale(1.1);
   }
   .tracker-progress-bar .progress-track::before,
   .tracker-progress-bar .progress-track::after {

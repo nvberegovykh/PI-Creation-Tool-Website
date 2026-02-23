@@ -1208,6 +1208,24 @@ class FirebaseService {
                     if (httpRes) return httpRes;
                 } catch (e) { /* fall through to callable */ }
             }
+            if (name === 'approveProject' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callApproveProjectHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
+            if (name === 'ensureProjectChat' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callEnsureProjectChatHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
+            if (name === 'inviteProjectMemberByEmail' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callInviteProjectMemberByEmailHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
             // Prefer SDK callables when available
             if (this.functions) {
                 // Modular with region failover
@@ -1234,7 +1252,7 @@ class FirebaseService {
             return null;
         } catch (e) {
             console.warn('Callable function failed:', name, e?.message || e);
-            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat') throw e;
+            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail') throw e;
             return null;
         }
     }
@@ -1279,6 +1297,72 @@ class FirebaseService {
             return json;
         } catch (e) {
             console.warn('getProjectMembersHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callApproveProjectHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/approveProjectHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('approveProjectHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callEnsureProjectChatHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/ensureProjectChatHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('ensureProjectChatHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callInviteProjectMemberByEmailHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/inviteProjectMemberByEmailHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('inviteProjectMemberByEmailHttp failed:', e?.message || e);
             throw e;
         }
     }
