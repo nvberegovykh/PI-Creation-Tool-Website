@@ -64,18 +64,20 @@
             <label>Status color (hex)</label>
             <input type="text" id="project-status-color" placeholder="#2196F3" />
           </div>
-          <div class="form-group">
-            <label>Owner (user) *</label>
-            <div class="user-search-wrap">
-              <input type="text" id="project-owner-search" placeholder="Search by email or name..." autocomplete="off" />
-              <input type="hidden" id="project-owner" value="" />
-              <div id="project-owner-dropdown" class="user-dropdown hidden"></div>
-            </div>
-          </div>
         </div>
         <div class="form-group">
           <label>Description</label>
           <textarea id="project-description" rows="4" placeholder="Project description"></textarea>
+        </div>
+        <div class="form-group" id="project-attachments-wrap">
+          <label>Attachments (new project)</label>
+          <div class="project-form-upload-zone" id="project-form-upload-zone" tabindex="0">
+            <input type="file" id="project-form-file-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
+            <div class="project-form-upload-icon">📁</div>
+            <div>Drag & drop files here or click to browse</div>
+            <div class="project-form-upload-hint">Paste (Ctrl+V) to add images</div>
+          </div>
+          <div class="project-form-file-list" id="project-form-file-list"></div>
         </div>
         <div class="form-group" id="project-members-wrap">
           <label>Project members</label>
@@ -86,6 +88,10 @@
               <div id="project-add-user-dropdown" class="user-dropdown hidden"></div>
             </div>
             <button type="button" id="project-add-member-btn" class="btn btn-secondary"><i class="fas fa-user-plus"></i> Add</button>
+          </div>
+          <div class="form-group" style="margin-top:12px">
+            <label>Owner (choose from members above) *</label>
+            <select id="project-owner"></select>
           </div>
         </div>
         <div class="form-actions">

@@ -4,7 +4,9 @@
   const STATUS_COLORS = { submitted: '#2196F3', in_progress: '#FF9800', review: '#9C27B0', completed: '#4CAF50', on_hold: '#607D8B' };
   const BASE_FOLDERS = ['record_in/docs', 'record_in/images', 'record_in/video', 'record_out/docs', 'record_out/images', 'record_out/video'];
 
-  const state = { projects: [], users: [], selectedProjectId: null };
+  const MAX_FORM_FILES = 10;
+  const MAX_FILE_SIZE = 5 * 1024 * 1024;
+  const state = { projects: [], users: [], selectedProjectId: null, projectFormFiles: [] };
 
   function byId(id) {
     return document.getElementById(id);
@@ -52,12 +54,15 @@
   }
 
   function renderOwnerSelect(selectedId) {
-    const input = byId('project-owner-search');
-    const hidden = byId('project-owner');
-    if (!input || !hidden) return;
-    hidden.value = selectedId || '';
-    const u = getUserById(selectedId);
-    input.value = u ? (u.username || u.email || u.id) : '';
+    const sel = byId('project-owner');
+    if (!sel) return;
+    const memberIds = getProjectMemberIds();
+    sel.innerHTML = '<option value="">-- Choose owner (add members first) --</option>' +
+      memberIds.map((uid) => {
+        const u = getUserById(uid);
+        const label = u ? (u.username || u.email || uid) : uid;
+        return `<option value="${escapeHtml(uid)}" ${uid === selectedId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
   }
 
   function filterUsers(search, excludeIds) {
@@ -72,36 +77,6 @@
       );
     }
     return list.slice(0, 30);
-  }
-
-  function showOwnerDropdown() {
-    const input = byId('project-owner-search');
-    const dd = byId('project-owner-dropdown');
-    if (!input || !dd) return;
-    const q = input.value.trim();
-    const list = filterUsers(q);
-    if (list.length === 0 && !state.users.length) {
-      dd.innerHTML = '<div class="user-dropdown-item user-dropdown-empty">No users loaded yet.</div>';
-      dd.classList.remove('hidden');
-    } else {
-      dd.innerHTML = list.map((u) => `<div class="user-dropdown-item" data-uid="${escapeHtml(u.id)}">${escapeHtml(u.username || u.email || u.id)}${u.email ? ` <span class="user-email">(${escapeHtml(u.email)})</span>` : ''}</div>`).join('');
-      dd.classList.toggle('hidden', list.length === 0);
-    }
-    dd.querySelectorAll('.user-dropdown-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const uid = el.getAttribute('data-uid');
-        const u = getUserById(uid);
-        if (u) {
-          byId('project-owner').value = uid;
-          input.value = u.username || u.email || uid;
-          dd.classList.add('hidden');
-          const ownerId = uid;
-          const others = getProjectMemberIds().filter((id) => id !== ownerId);
-          renderProjectMembers(ownerId ? [ownerId, ...others] : others, ownerId || undefined);
-          showAddUserDropdown();
-        }
-      });
-    });
   }
 
   function showAddUserDropdown() {
@@ -184,6 +159,9 @@
     if (!rows) return;
     const row = Array.from(rows).find((r) => r.dataset.uid === uid);
     if (row) row.remove();
+    const ownerId = byId('project-owner')?.value?.trim();
+    if (ownerId === uid) byId('project-owner').value = '';
+    renderOwnerSelect(byId('project-owner')?.value || '');
     renderAddUserSelect(getProjectMemberIds());
   }
 
@@ -205,6 +183,13 @@
     `;
     div.querySelector('.member-remove').addEventListener('click', () => removeProjectMember(uid));
     list.appendChild(div);
+    const sel = byId('project-owner');
+    if (sel && !sel.value) sel.value = uid;
+    const ownerId = sel?.value?.trim() || uid;
+    const ids = getProjectMemberIds();
+    const ordered = ownerId ? [ownerId, ...ids.filter((id) => id !== ownerId)] : ids;
+    renderProjectMembers(ordered, ownerId || undefined);
+    renderOwnerSelect(ownerId || '');
     renderAddUserSelect(getProjectMemberIds());
   }
 
@@ -244,7 +229,7 @@
     if (!me || !fs?.db) throw new Error('Not authenticated');
     const memberIds = [ownerId];
     (additionalMemberIds || []).forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
-    const connRef = fb().collection(fs.db, 'chatConnections').doc();
+    const connRef = fb().doc(fb().collection(fs.db, 'chatConnections'));
     await fb().setDoc(connRef, {
       participants: memberIds,
       memberIds,
@@ -311,6 +296,7 @@
 
   async function showProjectForm(project) {
     state.selectedProjectId = project ? project.id : null;
+    state.projectFormFiles = [];
     byId('project-form-panel').style.display = '';
     byId('manager-main').style.display = 'none';
     byId('library-panel').style.display = 'none';
@@ -320,17 +306,45 @@
     byId('project-description').value = project ? (project.description || '') : '';
     byId('project-status').value = project ? (project.status || 'submitted') : 'submitted';
     byId('project-status-color').value = project ? (project.statusColor || STATUS_COLORS[project.status] || '') : '';
+    const attWrap = byId('project-attachments-wrap');
+    if (attWrap) attWrap.style.display = project ? 'none' : '';
     if (!state.users.length) await loadUsers();
-    renderOwnerSelect(project ? project.ownerId : '');
     const memberIds = project?.memberIds ? [...project.memberIds] : (project?.ownerId ? [project.ownerId] : []);
-    const ownerId = project ? project.ownerId : (byId('project-owner')?.value?.trim() || '');
-    renderProjectMembers(memberIds.length ? memberIds : (ownerId ? [ownerId] : []), ownerId || undefined);
+    const ownerId = project ? project.ownerId : '';
+    renderProjectMembers(memberIds.length ? memberIds : [], ownerId || undefined);
+    renderOwnerSelect(ownerId || '');
     renderAddUserSelect(memberIds.length ? memberIds : []);
+    renderProjectFormFileList();
   }
 
   function hideProjectForm() {
     byId('project-form-panel').style.display = 'none';
     byId('manager-main').style.display = '';
+    state.projectFormFiles = [];
+  }
+
+  function addProjectFormFiles(newFiles) {
+    for (const f of newFiles) {
+      if (state.projectFormFiles.length >= MAX_FORM_FILES) break;
+      if (f.size > MAX_FILE_SIZE) continue;
+      const dup = state.projectFormFiles.some((x) => x.name === f.name && x.size === f.size);
+      if (!dup) state.projectFormFiles.push(f);
+    }
+    renderProjectFormFileList();
+  }
+
+  function renderProjectFormFileList() {
+    const list = byId('project-form-file-list');
+    if (!list) return;
+    list.innerHTML = state.projectFormFiles.map((f, i) =>
+      `<div class="project-form-file-item"><span>${escapeHtml(f.name)} (${(f.size / 1024).toFixed(1)} KB)</span><button type="button" class="project-form-file-item-remove" data-i="${i}" title="Remove">&times;</button></div>`
+    ).join('');
+    list.querySelectorAll('.project-form-file-item-remove').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.projectFormFiles.splice(parseInt(btn.dataset.i, 10), 1);
+        renderProjectFormFileList();
+      });
+    });
   }
 
   async function onSaveProject(e) {
@@ -355,7 +369,7 @@
       return;
     }
     if (!ownerId) {
-      notify('Please select an owner (search by email or name)', 'error');
+      notify('Please add members and select an owner', 'error');
       return;
     }
     const now = new Date().toISOString();
@@ -384,7 +398,7 @@
         const finalOwnerId = ownerId || me.uid;
         const otherMembers = memberIds.filter((uid) => uid !== finalOwnerId);
         const chatConnId = await createProjectChat(finalOwnerId, name, otherMembers);
-        const projectRef = fb().collection(fs.db, 'projects').doc();
+        const projectRef = fb().doc(fb().collection(fs.db, 'projects'));
         const finalMemberIds = memberIds.length ? memberIds : [finalOwnerId];
         await fb().setDoc(projectRef, {
           name,
@@ -399,6 +413,29 @@
           requestData: null
         });
         await fb().updateDoc(fb().doc(fs.db, 'chatConnections', chatConnId), { projectId: projectRef.id });
+        const projectId = projectRef.id;
+        const folder = 'record_in/docs';
+        for (let i = 0; i < Math.min(state.projectFormFiles.length, MAX_FORM_FILES); i++) {
+          const file = state.projectFormFiles[i];
+          try {
+            const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'file';
+            const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
+            const ref = fb().ref(fs.storage, storagePath);
+            await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
+            const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
+            await fb().setDoc(libRef, {
+              folderPath: folder,
+              name: fname,
+              storagePath,
+              type: 'file',
+              createdAt: now,
+              createdBy: me.uid
+            });
+          } catch (upErr) {
+            console.warn('[Project Manager] attachment upload failed', file.name, upErr);
+          }
+        }
+        state.projectFormFiles = [];
         notify('Project created');
       }
       hideProjectForm();
@@ -462,7 +499,7 @@
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
     const ref = fb().ref(fs.storage, storagePath);
     await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    const libRef = fb().collection(fs.db, 'projects', projectId, 'library').doc();
+    const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
     await fb().setDoc(libRef, {
       folderPath: folder,
       name: fname,
@@ -479,7 +516,7 @@
     const base = byId('library-folder')?.value || 'record_in/docs';
     if (!name || !projectId || !fs?.db) return;
     const folderPath = base + '/' + name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const libRef = fb().collection(fs.db, 'projects', projectId, 'library').doc();
+    const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
     await fb().setDoc(libRef, {
       folderPath,
       name,
@@ -503,10 +540,42 @@
     byId('project-add-btn')?.addEventListener('click', () => showProjectForm(null));
     byId('project-cancel')?.addEventListener('click', () => hideProjectForm());
     byId('project-form')?.addEventListener('submit', onSaveProject);
+    const formUploadZone = byId('project-form-upload-zone');
+    const formFileInput = byId('project-form-file-input');
+    if (formUploadZone && formFileInput) {
+      formUploadZone.addEventListener('click', () => formFileInput.click());
+      formUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); formUploadZone.classList.add('dragover'); });
+      formUploadZone.addEventListener('dragleave', () => formUploadZone.classList.remove('dragover'));
+      formUploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        formUploadZone.classList.remove('dragover');
+        addProjectFormFiles(Array.from(e.dataTransfer?.files || []));
+      });
+      formFileInput.addEventListener('change', (e) => {
+        addProjectFormFiles(Array.from(e.target.files || []));
+        e.target.value = '';
+      });
+      document.addEventListener('paste', (e) => {
+        if (!byId('project-attachments-wrap')?.offsetParent) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        const toAdd = [];
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type?.indexOf('image') !== -1) {
+            const f = items[i].getAsFile();
+            if (f) toAdd.push(f);
+          }
+        }
+        if (toAdd.length) { e.preventDefault(); addProjectFormFiles(toAdd); }
+      });
+    }
+
     byId('project-add-member-btn')?.addEventListener('click', () => { byId('project-add-user-search')?.focus(); showAddUserDropdown(); });
-    byId('project-owner-search')?.addEventListener('input', () => showOwnerDropdown());
-    byId('project-owner-search')?.addEventListener('focus', () => showOwnerDropdown());
-    byId('project-owner-search')?.addEventListener('blur', () => setTimeout(() => byId('project-owner-dropdown')?.classList.add('hidden'), 150));
+    byId('project-owner')?.addEventListener('change', () => {
+      const ownerId = byId('project-owner')?.value?.trim();
+      const others = getProjectMemberIds().filter((id) => id !== ownerId);
+      renderProjectMembers(ownerId ? [ownerId, ...others] : others, ownerId || undefined);
+    });
     byId('project-add-user-search')?.addEventListener('input', () => showAddUserDropdown());
     byId('project-add-user-search')?.addEventListener('focus', () => showAddUserDropdown());
     byId('project-add-user-search')?.addEventListener('blur', () => setTimeout(() => byId('project-add-user-dropdown')?.classList.add('hidden'), 150));

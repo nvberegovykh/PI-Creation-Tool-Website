@@ -219,6 +219,61 @@
   min-width: 200px;
 }
 
+.project-form-upload-zone {
+  border: 2px dashed #2b3854;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.project-form-upload-zone:hover,
+.project-form-upload-zone.dragover {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.project-form-upload-zone input[type="file"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.project-form-upload-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.8;
+}
+
+.project-form-upload-hint {
+  font-size: 12px;
+  margin-top: 6px;
+  opacity: 0.7;
+}
+
+.project-form-file-list {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.project-form-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.project-form-file-item-remove {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
 .form-actions {
   display: flex;
   gap: 8px;
