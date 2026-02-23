@@ -424,7 +424,6 @@
         }
         const ref = fb().doc(fs.db, 'projects', id);
         await fb().updateDoc(ref, { name, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
-        const proj = state.projects.find((p) => p.id === id);
         const chatConnId = proj?.chatConnId;
         if (chatConnId) {
           try {
