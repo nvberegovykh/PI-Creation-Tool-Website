@@ -28,12 +28,12 @@
 .space-post-file-row{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border-color);border-radius:8px;padding:6px 8px;background:#0f1116}
 .space-post-file-remove{border:none;background:transparent;color:#cdd8ea;cursor:pointer}
 #space-compose-card.dragover{
-  border-color:#4da3ff !important;
-  box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 2px rgba(140, 0, 15, 0.22) inset;
 }
 #wave-upload-card.dragover{
-  border-color:#4da3ff !important;
-  box-shadow:0 0 0 2px rgba(77,163,255,.22) inset;
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 2px rgba(140, 0, 15, 0.22) inset;
 }
 .post-media-block{margin-top:8px}
 .post-media-visual-shell{display:block}
@@ -164,8 +164,8 @@
     --tertiary-bg: #1a1a1a;
     --primary-text: #ffffff;
     --secondary-text: #cccccc;
-    --accent-color: #00d4ff;
-    --accent-hover: #00b8e6;
+    --accent-color: #8C000F;
+    --accent-hover: #a30012;
     --border-color: #333333;
     --success-color: #00ff88;
     --error-color: #ff4444;

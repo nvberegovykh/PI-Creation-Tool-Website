@@ -37,7 +37,7 @@
   height: 40px;
   margin: 0 auto 16px;
   border: 3px solid var(--border-color, #283246);
-  border-top-color: #3b82f6;
+  border-top-color: #8C000F;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -215,7 +215,7 @@
 
 .tracker-action-section .action-banner.action-pending {
   background: rgba(33, 150, 243, 0.1);
-  border-color: #2196F3;
+  border-color: #8C000F;
 }
 
 .tracker-action-section .action-banner.action-initializing {
@@ -258,7 +258,7 @@
 }
 
 .add-comment-upload:hover {
-  border-color: #3b82f6;
+  border-color: #8C000F;
   background: rgba(59, 130, 246, 0.05);
 }
 
@@ -302,7 +302,7 @@
   left: 8px;
   height: 3px;
   width: var(--progress-fill, 0%);
-  background: linear-gradient(90deg, #22c55e, #3b82f6);
+  background: linear-gradient(90deg, #22c55e, #8C000F);
   border-radius: 2px;
   z-index: 0;
   transition: width 0.4s ease;
@@ -339,8 +339,8 @@
 }
 
 .tracker-progress-bar .progress-step.current .step-dot {
-  background: #3b82f6;
-  border-color: #3b82f6;
+  background: #8C000F;
+  border-color: #8C000F;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35);
   transform: scale(1.15);
 }
@@ -400,12 +400,12 @@
 
 .lib-tab:hover {
   background: #1e3a5f;
-  border-color: #3b82f6;
+  border-color: #8C000F;
 }
 
 .lib-tab.active {
   background: #1e3a5f;
-  border-color: #3b82f6;
+  border-color: #8C000F;
 }
 
 .library-upload-wrap {
@@ -433,7 +433,7 @@
 
 .library-upload-zone:hover,
 .library-upload-zone.dragover {
-  border-color: #3b82f6;
+  border-color: #8C000F;
   background: rgba(59, 130, 246, 0.05);
 }
 
@@ -500,7 +500,7 @@
   gap: 8px;
 }
 .responses-toggle-btn:hover {
-  color: #3b82f6;
+  color: #8C000F;
 }
 .responses-list {
   margin-top: 12px;
@@ -541,7 +541,7 @@
   background: rgba(59, 130, 246, 0.2);
   border-radius: 4px;
   font-size: 12px;
-  color: #3b82f6;
+  color: #8C000F;
   text-decoration: none;
   cursor: pointer;
   max-width: 100%;
@@ -559,7 +559,7 @@
 }
 
 .lib-file-row a {
-  color: #3b82f6;
+  color: #8C000F;
   text-decoration: none;
   flex: 1;
   overflow: hidden;
