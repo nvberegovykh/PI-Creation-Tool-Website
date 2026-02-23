@@ -1140,6 +1140,30 @@
   align-items: flex-start;
   flex-direction: column;
 }
+
+/* Contact page Request button – matches main page: round edges, white border/text, invert on hover */
+.contact-request-btn {
+  align-self: flex-start;
+  padding: 0.75rem 2rem;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--dl-color-theme-neutral-light, #f5f5f5);
+  background: transparent;
+  border: 2px solid var(--dl-color-theme-neutral-light, #f5f5f5);
+  border-radius: 9999px;
+  cursor: pointer;
+  margin: 0;
+  transition: color 0.35s ease, background 0.35s ease, border-color 0.35s ease;
+}
+
+.contact-request-btn:hover {
+  color: var(--dl-color-theme-neutral-dark, #0a0a0a);
+  background: var(--dl-color-theme-neutral-light, #f5f5f5);
+  border-color: transparent;
+}
 .contact6-content4 {
   gap: var(--dl-space-space-unit);
   display: flex;
