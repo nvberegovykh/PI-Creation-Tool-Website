@@ -2,21 +2,31 @@
   'use strict';
 
   const BASE_FOLDERS = ['docs', 'images', 'video'];
+  function getRecordInFolderByFile(file) {
+    const t = String(file.type || '').toLowerCase();
+    const n = String(file.name || '').toLowerCase();
+    if (t.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/.test(n)) return 'record_in/images';
+    if (t.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/.test(n)) return 'record_in/video';
+    return 'record_in/docs';
+  }
   const STATUS_COLORS = {
     submitted: '#2196F3',
+    initializing: '#9C27B0',
     in_progress: '#FF9800',
     review: '#9C27B0',
     completed: '#4CAF50',
     on_hold: '#607D8B'
   };
 
-  const state = { projects: [], selectedProject: null, library: [], members: [] };
+  const state = { projects: [], selectedProject: null, library: [], members: [], isAdmin: false };
 
   function byId(id) {
     return document.getElementById(id);
   }
 
   function getFirebaseService() {
+    if (window.firebaseService && window.firebaseService.isInitialized)
+      return window.firebaseService;
     try {
       for (const w of [window.parent, window.top].filter(Boolean)) {
         if (w !== window && w.firebaseService && w.firebaseService.isInitialized)
@@ -59,9 +69,39 @@
     byId('tracker-loading').classList.remove('hidden');
   }
 
+  const STATUS_TIMELINE = ['submitted', 'initializing', 'in_progress', 'review', 'completed'];
+
   function renderStatusBadge(status, color) {
     const c = color || STATUS_COLORS[status] || '#6b7280';
     return `<span class="status-badge" style="background:${c}33;border:1px solid ${c}"><span style="background:${c};width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0"></span> ${escapeHtml(String(status || 'unknown').replace(/_/g, ' '))}</span>`;
+  }
+
+  function renderProgressBar(currentStatus) {
+    const container = byId('tracker-progress-bar');
+    const track = byId('progress-track');
+    if (!container || !track) return;
+    const steps = container.querySelectorAll('.progress-step');
+    const currentIndex = STATUS_TIMELINE.indexOf(currentStatus);
+    const isOnHold = currentStatus === 'on_hold';
+    const fillPct = isOnHold || currentIndex < 0 ? 0 : ((currentIndex + 0.5) / STATUS_TIMELINE.length) * 100;
+    track.style.setProperty('--progress-fill', fillPct + '%');
+    steps.forEach((step) => {
+      const stepStatus = step.dataset.step;
+      const stepIndex = STATUS_TIMELINE.indexOf(stepStatus);
+      const isPast = !isOnHold && stepIndex < currentIndex;
+      const isCurrent = !isOnHold && stepIndex === currentIndex;
+      step.classList.remove('past', 'current', 'future');
+      if (isOnHold) {
+        step.classList.add('future');
+      } else if (isPast) {
+        step.classList.add('past');
+      } else if (isCurrent) {
+        step.classList.add('current');
+      } else {
+        step.classList.add('future');
+      }
+    });
+    container.classList.toggle('is-on-hold', isOnHold);
   }
 
   function renderProjects() {
@@ -114,6 +154,15 @@
     chatLink.href = chatUrl;
     chatLink.style.display = project.chatConnId ? '' : 'none';
 
+    const respondSec = byId('tracker-respond-section');
+    const approveSec = byId('tracker-approve-section');
+    const reviewSec = byId('tracker-review-section');
+    if (respondSec) respondSec.classList.toggle('hidden', project.status !== 'submitted');
+    if (approveSec) approveSec.classList.toggle('hidden', project.status !== 'initializing');
+    if (reviewSec) reviewSec.classList.toggle('hidden', project.status !== 'completed');
+
+    renderProgressBar(project.status);
+
     const fs = getFirebaseService();
     const isOwner = fs?.auth?.currentUser?.uid === project.ownerId;
     const membersSection = byId('members-section');
@@ -129,7 +178,12 @@
     }
 
     await loadLibrary(projectId);
-    renderLibrary(state.selectedProject ? byId('library-tabs').querySelector('.lib-tab.active')?.dataset?.folder || 'record_in' : 'record_in');
+    const activeFolder = byId('library-tabs')?.querySelector('.lib-tab.active')?.dataset?.folder || 'record_in';
+    renderLibrary(activeFolder);
+    const uploadWrap = byId('library-upload-wrap');
+    if (uploadWrap) {
+      uploadWrap.classList.toggle('hidden', state.isAdmin || activeFolder !== 'record_in');
+    }
   }
 
   function notify(msg, type) {
@@ -300,6 +354,36 @@
     });
   }
 
+  async function checkIsAdmin() {
+    const fs = getFirebaseService();
+    const me = fs?.auth?.currentUser;
+    if (!me || !fs?.db) return false;
+    try {
+      const userDoc = await firebase.getDoc(firebase.doc(fs.db, 'users', me.uid));
+      return (userDoc?.data?.()?.role || '').toLowerCase() === 'admin';
+    } catch (_) {}
+    return false;
+  }
+
+  async function uploadToRecordIn(projectId, file) {
+    const fs = getFirebaseService();
+    if (!fs?.storage || !fs?.db || !projectId || !file) return;
+    const folder = getRecordInFolderByFile(file);
+    const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'file';
+    const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
+    const r = firebase.ref(fs.storage, storagePath);
+    await firebase.uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+    const libData = JSON.parse(JSON.stringify({
+      folderPath: folder,
+      name: fname,
+      storagePath,
+      type: 'file',
+      createdAt: new Date().toISOString(),
+      createdBy: fs.auth?.currentUser?.uid
+    }));
+    await firebase.addDoc(firebase.collection(fs.db, 'projects', projectId, 'library'), libData);
+  }
+
   async function loadProjects() {
     const fs = getFirebaseService();
     if (!fs || !fs.isInitialized) {
@@ -308,6 +392,7 @@
       return;
     }
 
+    state.isAdmin = await checkIsAdmin();
     const user = fs.auth?.currentUser;
     if (!user) {
       byId('tracker-loading').innerHTML = '<p>Please log in to view your projects.</p>';
@@ -363,6 +448,121 @@
       tab.classList.add('active');
       const folder = tab.dataset.folder;
       renderLibrary(folder);
+      const uploadWrap = byId('library-upload-wrap');
+      if (uploadWrap) uploadWrap.classList.toggle('hidden', state.isAdmin || folder !== 'record_in');
+    });
+
+    const libUploadZone = byId('library-upload-zone');
+    const libUploadInput = byId('library-upload-input');
+    if (libUploadZone && libUploadInput) {
+      libUploadZone.addEventListener('click', () => libUploadInput.click());
+      libUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); libUploadZone.classList.add('dragover'); });
+      libUploadZone.addEventListener('dragleave', () => libUploadZone.classList.remove('dragover'));
+      libUploadZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        libUploadZone.classList.remove('dragover');
+        const projectId = state.selectedProject?.id;
+        if (!projectId || state.isAdmin) return;
+        const flist = Array.from(e.dataTransfer?.files || []);
+        for (const f of flist.slice(0, 10)) {
+          try {
+            await uploadToRecordIn(projectId, f);
+            notify('Added ' + f.name);
+          } catch (err) {
+            notify('Failed: ' + f.name, 'error');
+          }
+        }
+        await loadLibrary(projectId);
+        renderLibrary(byId('library-tabs')?.querySelector('.lib-tab.active')?.dataset?.folder || 'record_in');
+      });
+      libUploadInput.addEventListener('change', async (e) => {
+        const projectId = state.selectedProject?.id;
+        if (!projectId || state.isAdmin) return;
+        const flist = Array.from(e.target.files || []);
+        e.target.value = '';
+        for (const f of flist.slice(0, 10)) {
+          try {
+            await uploadToRecordIn(projectId, f);
+            notify('Added ' + f.name);
+          } catch (err) {
+            notify('Failed: ' + f.name, 'error');
+          }
+        }
+        await loadLibrary(projectId);
+        renderLibrary(byId('library-tabs')?.querySelector('.lib-tab.active')?.dataset?.folder || 'record_in');
+      });
+    }
+
+    byId('tracker-respond-btn')?.addEventListener('click', async () => {
+      const projectId = state.selectedProject?.id;
+      if (!projectId) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      if (!me) return;
+      try {
+        const now = new Date().toISOString();
+        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), {
+          status: 'initializing',
+          respondedAt: now,
+          respondedBy: me,
+          updatedAt: now
+        });
+        try {
+          if (fs.callFunction) await fs.callFunction('sendProjectRespondEmail', { projectId });
+        } catch (mailErr) {
+          console.warn('[Project Tracker] send respond email failed', mailErr);
+        }
+        notify('Responded. Awaiting approval from both sides.');
+        await loadProjects();
+        const p = state.projects.find((pr) => pr.id === projectId);
+        if (p) openProject(projectId);
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    byId('tracker-approve-btn')?.addEventListener('click', async () => {
+      const projectId = state.selectedProject?.id;
+      if (!projectId) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      const proj = state.selectedProject;
+      if (!me || !proj) return;
+      try {
+        const now = new Date().toISOString();
+        const update = { updatedAt: now };
+        if (proj.ownerId === me) update.ownerApprovedResponse = true;
+        else if (state.isAdmin) update.adminApprovedResponse = true;
+        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), update);
+        const snap = await firebase.getDoc(firebase.doc(fs.db, 'projects', projectId));
+        const d = snap?.data?.() || {};
+        const bothApproved = !!(d.ownerApprovedResponse && d.adminApprovedResponse);
+        if (bothApproved) {
+          await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), { status: 'in_progress', updatedAt: now });
+          notify('Both approved. Project now in progress.');
+        } else {
+          notify('Approval recorded. Waiting for the other side.');
+        }
+        await loadProjects();
+        openProject(projectId);
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    byId('tracker-review-submit')?.addEventListener('click', async () => {
+      const projectId = state.selectedProject?.id;
+      if (!projectId) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      const text = (byId('tracker-review-input')?.value || '').trim();
+      if (!me) return;
+      try {
+        const reviewData = JSON.parse(JSON.stringify({
+          projectId,
+          userId: me,
+          text,
+          createdAt: new Date().toISOString()
+        }));
+        await firebase.addDoc(firebase.collection(fs.db, 'projects', projectId, 'reviews'), reviewData);
+        notify('Thank you for your review!');
+        const inp = byId('tracker-review-input');
+        if (inp) inp.value = '';
+      } catch (err) { notify(err?.message || 'Failed to submit', 'error'); }
     });
 
     const tryLoad = () => {

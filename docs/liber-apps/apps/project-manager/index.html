@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
   <title>Project Manager</title>
   <link rel="stylesheet" href="../../css/style.css" />
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260222r2" />
+  <link rel="stylesheet" href="styles.css?v=20260222r4" />
 </head>
 <body>
   <div class="manager-app">
@@ -29,6 +31,7 @@
           <select id="status-filter">
             <option value="">All statuses</option>
             <option value="submitted">Submitted</option>
+            <option value="initializing">Initializing</option>
             <option value="in_progress">In progress</option>
             <option value="review">Review</option>
             <option value="completed">Completed</option>
@@ -41,6 +44,30 @@
 
     <section id="project-form-panel" class="panel project-form-panel" style="display:none">
       <h2 id="project-form-title">New Project</h2>
+      <div id="project-respond-section" class="project-action-section hidden">
+        <div class="action-banner action-pending">
+          <span>Pending response from admin/owner</span>
+          <button type="button" id="project-respond-btn" class="btn btn-primary"><i class="fas fa-reply"></i> Respond</button>
+        </div>
+      </div>
+      <div id="project-approve-section" class="project-action-section hidden">
+        <div class="action-banner action-initializing">
+          <span>Awaiting approval from both sides</span>
+          <button type="button" id="project-approve-btn" class="btn btn-primary"><i class="fas fa-check"></i> I Approve</button>
+        </div>
+      </div>
+      <div id="project-request-review-section" class="project-action-section hidden">
+        <div class="action-banner action-review">
+          <span>Ready for client review</span>
+          <button type="button" id="project-request-review-btn" class="btn btn-primary"><i class="fas fa-search"></i> Request Review</button>
+        </div>
+      </div>
+      <div id="project-approve-review-section" class="project-action-section hidden">
+        <div class="action-banner action-review">
+          <span>Under review – approve when no comments</span>
+          <button type="button" id="project-approve-review-btn" class="btn btn-primary"><i class="fas fa-check-circle"></i> Approve (Complete)</button>
+        </div>
+      </div>
       <form id="project-form">
         <input type="hidden" id="project-id" />
         <div class="form-row">
@@ -52,6 +79,7 @@
             <label>Status</label>
             <select id="project-status">
               <option value="submitted">Submitted</option>
+              <option value="initializing">Initializing</option>
               <option value="in_progress">In progress</option>
               <option value="review">Review</option>
               <option value="completed">Completed</option>
@@ -107,12 +135,12 @@
       <h2>Library: <span id="library-project-name"></span></h2>
       <div class="library-toolbar">
         <select id="library-folder">
-          <option value="record_in/docs">Record In / Docs</option>
-          <option value="record_in/images">Record In / Images</option>
-          <option value="record_in/video">Record In / Video</option>
           <option value="record_out/docs">Record Out / Docs</option>
           <option value="record_out/images">Record Out / Images</option>
           <option value="record_out/video">Record Out / Video</option>
+          <option value="record_in/docs">Record In / Docs</option>
+          <option value="record_in/images">Record In / Images</option>
+          <option value="record_in/video">Record In / Video</option>
         </select>
         <button id="library-create-folder" class="btn btn-secondary"><i class="fas fa-folder-plus"></i> New subfolder</button>
         <div class="upload-zone" id="library-upload-zone" tabindex="0">
@@ -125,10 +153,10 @@
     </section>
   </div>
 
-  <script>window._pmV='20260222r3';</script>
+  <script>window._pmV='20260222r4';</script>
   <script src="../../js/secure-keys.js"></script>
   <script src="../../js/firebase-loader.js"></script>
   <script src="../../js/firebase-service.js"></script>
-  <script src="app.js?v=20260222r3"></script>
+  <script src="app.js?v=20260222r4"></script>
 </body>
 </html>

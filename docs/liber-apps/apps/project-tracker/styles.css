@@ -173,6 +173,140 @@
   margin-top: 20px;
 }
 
+.tracker-action-section {
+  margin-bottom: 16px;
+}
+
+.tracker-action-section.hidden {
+  display: none !important;
+}
+
+.tracker-action-section .action-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.tracker-action-section .action-banner.action-pending {
+  background: rgba(33, 150, 243, 0.1);
+  border-color: #2196F3;
+}
+
+.tracker-action-section .action-banner.action-initializing {
+  background: rgba(156, 39, 176, 0.1);
+  border-color: #9C27B0;
+}
+
+.tracker-progress-bar {
+  margin: 20px 0;
+  padding: 0 8px;
+}
+
+.tracker-progress-bar .progress-track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  gap: 0;
+}
+
+.tracker-progress-bar .progress-track {
+  --progress-fill: 0%;
+}
+
+.tracker-progress-bar .progress-track::before {
+  content: '';
+  position: absolute;
+  top: 11px;
+  left: 8px;
+  right: 8px;
+  height: 3px;
+  background: rgba(43, 56, 84, 0.6);
+  border-radius: 2px;
+  z-index: 0;
+}
+
+.tracker-progress-bar .progress-track::after {
+  content: '';
+  position: absolute;
+  top: 11px;
+  left: 8px;
+  height: 3px;
+  width: var(--progress-fill, 0%);
+  background: linear-gradient(90deg, #22c55e, #3b82f6);
+  border-radius: 2px;
+  z-index: 0;
+  transition: width 0.4s ease;
+}
+
+.tracker-progress-bar .progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  max-width: 100px;
+  position: relative;
+  z-index: 1;
+}
+
+.tracker-progress-bar .step-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1e293b;
+  border: 3px solid #334155;
+  transition: all 0.25s ease;
+}
+
+.tracker-progress-bar .progress-step.past .step-dot {
+  background: #22c55e;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+}
+
+.tracker-progress-bar .progress-step.current .step-dot {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35);
+  transform: scale(1.15);
+}
+
+.tracker-progress-bar .progress-step.future .step-dot {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.tracker-progress-bar .step-label {
+  font-size: 11px;
+  margin-top: 8px;
+  text-align: center;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.tracker-progress-bar .progress-step.past .step-label {
+  color: #86efac;
+}
+
+.tracker-progress-bar .progress-step.current .step-label {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.tracker-progress-bar.is-on-hold .progress-step .step-dot {
+  background: #475569 !important;
+  border-color: #64748b !important;
+}
+
+.tracker-progress-bar.is-on-hold .progress-step .step-label {
+  color: #94a3b8 !important;
+}
+
 .detail-section h3 {
   margin: 0 0 12px 0;
   font-size: 1rem;
@@ -204,6 +338,48 @@
   border-color: #3b82f6;
 }
 
+.library-upload-wrap {
+  margin-bottom: 12px;
+}
+
+.library-upload-wrap.hidden {
+  display: none !important;
+}
+
+.library-upload-wrap label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.library-upload-zone {
+  border: 2px dashed #2b3854;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.library-upload-zone:hover,
+.library-upload-zone.dragover {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.library-upload-zone input[type="file"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.library-upload-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.8;
+}
+
 .library-content {
   display: flex;
   flex-direction: column;
@@ -223,6 +399,23 @@
 .lib-file-row i {
   color: #6b7280;
   width: 20px;
+}
+
+#tracker-review-section textarea {
+  width: 100%;
+  padding: 10px;
+  background: #111827;
+  border: 1px solid #2b3854;
+  color: #e8edff;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+
+.review-hint {
+  font-size: 13px;
+  opacity: 0.9;
+  margin-bottom: 8px;
 }
 
 .lib-file-row a {

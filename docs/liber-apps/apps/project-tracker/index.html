@@ -42,9 +42,45 @@
             </a>
           </div>
         </div>
+        <div id="tracker-respond-section" class="tracker-action-section hidden">
+          <div class="action-banner action-pending">
+            <span>Pending response</span>
+            <button type="button" id="tracker-respond-btn" class="btn btn-primary"><i class="fas fa-reply"></i> Respond</button>
+          </div>
+        </div>
+        <div id="tracker-approve-section" class="tracker-action-section hidden">
+          <div class="action-banner action-initializing">
+            <span>Awaiting your approval</span>
+            <button type="button" id="tracker-approve-btn" class="btn btn-primary"><i class="fas fa-check"></i> I Approve</button>
+          </div>
+        </div>
         <div class="detail-meta">
           <span id="detail-status" class="status-badge"></span>
           <span id="detail-updated"></span>
+        </div>
+        <div id="tracker-progress-bar" class="tracker-progress-bar">
+          <div class="progress-track" id="progress-track">
+            <div class="progress-step" data-step="submitted">
+              <span class="step-dot"></span>
+              <span class="step-label">Submitted</span>
+            </div>
+            <div class="progress-step" data-step="initializing">
+              <span class="step-dot"></span>
+              <span class="step-label">Initializing</span>
+            </div>
+            <div class="progress-step" data-step="in_progress">
+              <span class="step-dot"></span>
+              <span class="step-label">In Progress</span>
+            </div>
+            <div class="progress-step" data-step="review">
+              <span class="step-dot"></span>
+              <span class="step-label">Review</span>
+            </div>
+            <div class="progress-step" data-step="completed">
+              <span class="step-dot"></span>
+              <span class="step-label">Completed</span>
+            </div>
+          </div>
         </div>
         <div id="detail-description" class="detail-description"></div>
         <div id="members-section" class="detail-section hidden">
@@ -61,11 +97,25 @@
             <button class="lib-tab active" data-folder="record_in">Record In</button>
             <button class="lib-tab" data-folder="record_out">Record Out</button>
           </div>
+          <div id="library-upload-wrap" class="library-upload-wrap hidden">
+            <label>Add files (goes to Record In by type)</label>
+            <div class="library-upload-zone" id="library-upload-zone" tabindex="0">
+              <input type="file" id="library-upload-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv,video/*" />
+              <div class="library-upload-icon">📁</div>
+              <div>Drop files or click to add to Record In</div>
+            </div>
+          </div>
           <div id="library-content" class="library-content"></div>
           <div id="library-empty" class="tracker-empty hidden">
             <i class="fas fa-files-o"></i>
             <p>No files in this folder.</p>
           </div>
+        </div>
+        <div id="tracker-review-section" class="detail-section hidden">
+          <h3>Leave a Review</h3>
+          <p class="review-hint">This project is completed. Share your feedback.</p>
+          <textarea id="tracker-review-input" rows="4" placeholder="Write your review..."></textarea>
+          <button type="button" id="tracker-review-submit" class="btn btn-primary"><i class="fas fa-star"></i> Submit Review</button>
         </div>
       </section>
     </div>

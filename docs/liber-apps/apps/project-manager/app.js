@@ -1,8 +1,15 @@
 (function () {
   'use strict';
 
-  const STATUS_COLORS = { submitted: '#2196F3', in_progress: '#FF9800', review: '#9C27B0', completed: '#4CAF50', on_hold: '#607D8B' };
+  const STATUS_COLORS = { submitted: '#2196F3', initializing: '#9C27B0', in_progress: '#FF9800', review: '#9C27B0', completed: '#4CAF50', on_hold: '#607D8B' };
   const BASE_FOLDERS = ['record_in/docs', 'record_in/images', 'record_in/video', 'record_out/docs', 'record_out/images', 'record_out/video'];
+  function getRecordInFolderByFile(file) {
+    const t = String(file.type || '').toLowerCase();
+    const n = String(file.name || '').toLowerCase();
+    if (t.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/.test(n)) return 'record_in/images';
+    if (t.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/.test(n)) return 'record_in/video';
+    return 'record_in/docs';
+  }
 
   const MAX_FORM_FILES = 10;
   const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -13,6 +20,10 @@
   }
 
   function getFirebaseService() {
+    // Use our own Firebase when in iframe to avoid "custom Object" addDoc/setDoc errors
+    // (parent's Firestore rejects objects from iframe's realm)
+    if (window.firebaseService && window.firebaseService.isInitialized)
+      return window.firebaseService;
     try {
       for (const w of [window.parent, window.top].filter(Boolean)) {
         if (w !== window && w.firebaseService && w.firebaseService.isInitialized)
@@ -319,6 +330,19 @@
     renderOwnerSelect(ownerId || '');
     renderAddUserSelect(memberIds.length ? memberIds : []);
     renderProjectFormFileList();
+    updateProjectActionSections(project);
+  }
+
+  function updateProjectActionSections(project) {
+    const status = project?.status || 'submitted';
+    const respondSec = byId('project-respond-section');
+    const approveSec = byId('project-approve-section');
+    const requestReviewSec = byId('project-request-review-section');
+    const approveReviewSec = byId('project-approve-review-section');
+    if (respondSec) respondSec.classList.toggle('hidden', !project || status !== 'submitted');
+    if (approveSec) approveSec.classList.toggle('hidden', !project || status !== 'initializing');
+    if (requestReviewSec) requestReviewSec.classList.toggle('hidden', !project || status !== 'in_progress');
+    if (approveReviewSec) approveReviewSec.classList.toggle('hidden', !project || status !== 'review');
   }
 
   function hideProjectForm() {
@@ -379,6 +403,15 @@
     const now = new Date().toISOString();
     try {
       if (id) {
+        const proj = state.projects.find((p) => p.id === id);
+        if (status === 'on_hold' || proj?.status === 'on_hold') {
+          const userDoc = await fb().getDoc(fb().doc(fs.db, 'users', me.uid));
+          const role = (userDoc?.data?.()?.role || '').toLowerCase();
+          if (role !== 'admin') {
+            notify('Only admins can set or change On hold status.', 'error');
+            return;
+          }
+        }
         const ref = fb().doc(fs.db, 'projects', id);
         await fb().updateDoc(ref, { name, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
         const proj = state.projects.find((p) => p.id === id);
@@ -418,10 +451,10 @@
         const projectRef = await fb().addDoc(fb().collection(fs.db, 'projects'), projectData);
         await fb().updateDoc(fb().doc(fs.db, 'chatConnections', chatConnId), { projectId: projectRef.id });
         const projectId = projectRef.id;
-        const folder = 'record_in/docs';
         for (let i = 0; i < Math.min(state.projectFormFiles.length, MAX_FORM_FILES); i++) {
           const file = state.projectFormFiles[i];
           try {
+            const folder = getRecordInFolderByFile(file);
             const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'file';
             const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
             const ref = fb().ref(fs.storage, storagePath);
@@ -461,7 +494,7 @@
 
   async function loadLibraryContent() {
     const fs = getFirebaseService();
-    const folder = byId('library-folder')?.value || 'record_in/docs';
+    const folder = byId('library-folder')?.value || 'record_out/docs';
     const content = byId('library-content');
     if (!content || !state.selectedProjectId || !fs?.db) return;
     try {
@@ -497,7 +530,7 @@
   async function uploadToLibrary(file) {
     const fs = getFirebaseService();
     const projectId = state.selectedProjectId;
-    const folder = byId('library-folder')?.value || 'record_in/docs';
+    const folder = byId('library-folder')?.value || 'record_out/docs';
     if (!fs?.storage || !projectId || !file) return;
     const fname = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
@@ -544,6 +577,99 @@
     byId('project-add-btn')?.addEventListener('click', () => showProjectForm(null));
     byId('project-cancel')?.addEventListener('click', () => hideProjectForm());
     byId('project-form')?.addEventListener('submit', onSaveProject);
+    byId('project-respond-btn')?.addEventListener('click', async () => {
+      const id = byId('project-id')?.value?.trim();
+      if (!id) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      if (!me) return;
+      try {
+        const now = new Date().toISOString();
+        await fb().updateDoc(fb().doc(fs.db, 'projects', id), {
+          status: 'initializing',
+          respondedAt: now,
+          respondedBy: me,
+          updatedAt: now
+        });
+        try {
+          await fs.callFunction('sendProjectRespondEmail', { projectId: id });
+        } catch (mailErr) {
+          console.warn('[Project Manager] send respond email failed', mailErr);
+        }
+        notify('Responded. Awaiting approval from both sides.');
+        await loadProjects();
+        const p = state.projects.find((pr) => pr.id === id);
+        if (p) showProjectForm({ ...p, status: 'initializing', respondedAt: now, respondedBy: me });
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    byId('project-approve-btn')?.addEventListener('click', async () => {
+      const id = byId('project-id')?.value?.trim();
+      if (!id) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      if (!me) return;
+      const proj = state.projects.find((p) => p.id === id);
+      if (!proj) return;
+      const isAdmin = await (async () => {
+        try {
+          const userDoc = await fb().getDoc(fb().doc(fs.db, 'users', me));
+          return (userDoc?.data?.()?.role || '').toLowerCase() === 'admin';
+        } catch (_) { return false; }
+      })();
+      try {
+        const now = new Date().toISOString();
+        const update = { updatedAt: now };
+        if (isAdmin) update.adminApprovedResponse = true;
+        else if (proj.ownerId === me) update.ownerApprovedResponse = true;
+        await fb().updateDoc(fb().doc(fs.db, 'projects', id), update);
+        const snap = await fb().getDoc(fb().doc(fs.db, 'projects', id));
+        const d = snap.data() || {};
+        const bothApproved = !!(d.ownerApprovedResponse && d.adminApprovedResponse);
+        if (bothApproved) {
+          await fb().updateDoc(fb().doc(fs.db, 'projects', id), { status: 'in_progress', updatedAt: now });
+          notify('Both approved. Project now in progress.');
+        } else {
+          notify('Approval recorded. Waiting for the other side.');
+        }
+        await loadProjects();
+        const p = state.projects.find((pr) => pr.id === id);
+        if (p) showProjectForm(p);
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    byId('project-request-review-btn')?.addEventListener('click', async () => {
+      const id = byId('project-id')?.value?.trim();
+      if (!id) return;
+      const fs = getFirebaseService();
+      try {
+        const now = new Date().toISOString();
+        await fb().updateDoc(fb().doc(fs.db, 'projects', id), {
+          status: 'review',
+          reviewRequestedAt: now,
+          updatedAt: now
+        });
+        notify('Review requested. Project under review.');
+        await loadProjects();
+        const p = state.projects.find((pr) => pr.id === id);
+        if (p) showProjectForm({ ...p, status: 'review' });
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    byId('project-approve-review-btn')?.addEventListener('click', async () => {
+      const id = byId('project-id')?.value?.trim();
+      if (!id) return;
+      const fs = getFirebaseService();
+      try {
+        const now = new Date().toISOString();
+        await fb().updateDoc(fb().doc(fs.db, 'projects', id), {
+          status: 'completed',
+          completedAt: now,
+          updatedAt: now
+        });
+        notify('Project completed.');
+        await loadProjects();
+        const p = state.projects.find((pr) => pr.id === id);
+        if (p) showProjectForm({ ...p, status: 'completed' });
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
     const formUploadZone = byId('project-form-upload-zone');
     const formFileInput = byId('project-form-file-input');
     if (formUploadZone && formFileInput) {
