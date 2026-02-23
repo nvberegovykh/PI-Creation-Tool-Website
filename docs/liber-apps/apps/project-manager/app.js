@@ -231,13 +231,14 @@
     if (!me || !fs?.db) throw new Error('Not authenticated');
     const memberIds = [ownerId];
     (additionalMemberIds || []).forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
-    const connRef = await fb().addDoc(fb().collection(fs.db, 'chatConnections'), {
+    const data = JSON.parse(JSON.stringify({
       participants: memberIds,
       memberIds,
       groupName: projectName || 'Project',
       updatedAt: new Date().toISOString(),
       participantUsernames: []
-    });
+    }));
+    const connRef = await fb().addDoc(fb().collection(fs.db, 'chatConnections'), data);
     return connRef.id;
   }
 
@@ -306,7 +307,9 @@
     byId('project-name').value = project ? (project.name || '') : '';
     byId('project-description').value = project ? (project.description || '') : '';
     byId('project-status').value = project ? (project.status || 'submitted') : 'submitted';
-    byId('project-status-color').value = project ? (project.statusColor || STATUS_COLORS[project.status] || '') : '';
+    const colorOpts = ['#ef4444', '#f97316', '#22c55e'];
+    const savedColor = project?.statusColor || STATUS_COLORS[project?.status] || '#f97316';
+    byId('project-status-color').value = colorOpts.includes(savedColor) ? savedColor : '#f97316';
     const attWrap = byId('project-attachments-wrap');
     if (attWrap) attWrap.style.display = project ? 'none' : '';
     if (!state.users.length) await loadUsers();
@@ -400,7 +403,7 @@
         const otherMembers = memberIds.filter((uid) => uid !== finalOwnerId);
         const chatConnId = await createProjectChat(finalOwnerId, name, otherMembers);
         const finalMemberIds = memberIds.length ? memberIds : [finalOwnerId];
-        const projectRef = await fb().addDoc(fb().collection(fs.db, 'projects'), {
+        const projectData = JSON.parse(JSON.stringify({
           name,
           description,
           status,
@@ -411,7 +414,8 @@
           createdAt: now,
           updatedAt: now,
           requestData: null
-        });
+        }));
+        const projectRef = await fb().addDoc(fb().collection(fs.db, 'projects'), projectData);
         await fb().updateDoc(fb().doc(fs.db, 'chatConnections', chatConnId), { projectId: projectRef.id });
         const projectId = projectRef.id;
         const folder = 'record_in/docs';
@@ -422,14 +426,15 @@
             const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
             const ref = fb().ref(fs.storage, storagePath);
             await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-            await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
+            const libData = JSON.parse(JSON.stringify({
               folderPath: folder,
               name: fname,
               storagePath,
               type: 'file',
               createdAt: now,
               createdBy: me.uid
-            });
+            }));
+            await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), libData);
           } catch (upErr) {
             console.warn('[Project Manager] attachment upload failed', file.name, upErr);
           }
@@ -498,14 +503,15 @@
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
     const ref = fb().ref(fs.storage, storagePath);
     await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
+    const libData = JSON.parse(JSON.stringify({
       folderPath: folder,
       name: fname,
       storagePath,
       type: 'file',
       createdAt: new Date().toISOString(),
       createdBy: fs.auth?.currentUser?.uid
-    });
+    }));
+    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), libData);
   }
 
   async function createSubfolder(name) {
@@ -514,13 +520,14 @@
     const base = byId('library-folder')?.value || 'record_in/docs';
     if (!name || !projectId || !fs?.db) return;
     const folderPath = base + '/' + name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
+    const folderData = JSON.parse(JSON.stringify({
       folderPath,
       name,
       type: 'folder',
       createdAt: new Date().toISOString(),
       createdBy: fs.auth?.currentUser?.uid
-    });
+    }));
+    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), folderData);
     notify('Folder created');
     loadLibraryContent();
   }
