@@ -53,6 +53,23 @@
             <button type="button" id="tracker-approve-btn" class="btn btn-primary"><i class="fas fa-check"></i> I Approve</button>
           </div>
         </div>
+        <div id="tracker-approve-review-section" class="tracker-action-section hidden">
+          <div class="action-banner action-review">
+            <span>Approval awaited from you</span>
+            <div class="approve-review-actions">
+              <button type="button" id="tracker-approve-review-btn" class="btn btn-primary"><i class="fas fa-check-circle"></i> Approve (Complete)</button>
+              <div class="add-comment-wrap">
+                <textarea id="tracker-add-comment-message" rows="3" placeholder="Add a comment (admin will respond)..." class="add-comment-textarea"></textarea>
+                <div class="add-comment-upload" id="tracker-add-comment-upload" tabindex="0">
+                  <input type="file" id="tracker-add-comment-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
+                  <span>📎 Attach files</span>
+                </div>
+                <div id="tracker-add-comment-file-list" class="project-form-file-list"></div>
+                <button type="button" id="tracker-add-comment-btn" class="btn btn-secondary"><i class="fas fa-comment"></i> Add Comment</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="detail-meta">
           <span id="detail-status" class="status-badge"></span>
           <span id="detail-updated"></span>

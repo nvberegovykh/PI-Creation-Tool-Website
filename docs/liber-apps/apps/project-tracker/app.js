@@ -18,7 +18,9 @@
     on_hold: '#607D8B'
   };
 
-  const state = { projects: [], selectedProject: null, library: [], members: [], isAdmin: false };
+  const MAX_FORM_FILES = 10;
+  const MAX_FILE_SIZE = 5 * 1024 * 1024;
+  const state = { projects: [], selectedProject: null, library: [], members: [], isAdmin: false, trackerAddCommentFiles: [] };
 
   function byId(id) {
     return document.getElementById(id);
@@ -165,15 +167,18 @@
 
     const respondSec = byId('tracker-respond-section');
     const approveSec = byId('tracker-approve-section');
+    const approveReviewSec = byId('tracker-approve-review-section');
     const reviewSec = byId('tracker-review-section');
     if (respondSec) respondSec.classList.toggle('hidden', project.status !== 'submitted');
-    if (approveSec) approveSec.classList.toggle('hidden', project.status !== 'initializing');
+    if (approveSec) approveSec.classList.add('hidden');
     if (reviewSec) reviewSec.classList.toggle('hidden', project.status !== 'completed');
 
     renderProgressBar(project.status);
 
     const fs = getFirebaseService();
     const isOwner = fs?.auth?.currentUser?.uid === project.ownerId;
+    const approveReviewSec = byId('tracker-approve-review-section');
+    if (approveReviewSec) approveReviewSec.classList.toggle('hidden', project.status !== 'review' || !isOwner);
     const membersSection = byId('members-section');
     if (membersSection) {
       if (isOwner) {
@@ -207,6 +212,29 @@
     }
   }
 
+  async function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  function renderTrackerAddCommentFileList() {
+    const list = byId('tracker-add-comment-file-list');
+    if (!list) return;
+    list.innerHTML = state.trackerAddCommentFiles.map((f, i) =>
+      `<div class="project-form-file-item"><span>${escapeHtml(f.name)} (${(f.size / 1024).toFixed(1)} KB)</span><button type="button" class="project-form-file-item-remove" data-i="${i}" title="Remove">&times;</button></div>`
+    ).join('');
+    list.querySelectorAll('.project-form-file-item-remove').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.trackerAddCommentFiles.splice(parseInt(btn.dataset.i, 10), 1);
+        renderTrackerAddCommentFileList();
+      });
+    });
+  }
+
   async function loadTrackerResponses(projectId) {
     const fs = getFirebaseService();
     if (!fs?.db || !projectId) return [];
@@ -229,7 +257,11 @@
     }
     list.innerHTML = responses.map((r) => {
       const msg = (r.message || '').trim();
-      const files = (r.fileRefs || []).map((f) => `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`).join('');
+      const files = (r.fileRefs || []).map((f) =>
+        f.storagePath
+          ? `<a href="#" class="response-file" data-path="${escapeHtml(f.storagePath)}" title="Download">${escapeHtml(f.name || 'file')}</a>`
+          : `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`
+      ).join('');
       const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
       return `<div class="response-item">
         <div class="response-meta">${escapeHtml(date)}</div>
@@ -237,6 +269,20 @@
         ${files ? `<div class="response-files">${files}</div>` : ''}
       </div>`;
     }).join('');
+    list.querySelectorAll('.response-file[data-path]').forEach((a) => {
+      a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const path = a.getAttribute('data-path');
+        if (!path) return;
+        const fs = getFirebaseService();
+        if (!fs?.storage) { notify('Storage not available', 'error'); return; }
+        try {
+          const r = firebase.ref(fs.storage, path);
+          const url = await firebase.getDownloadURL(r);
+          window.open(url, '_blank');
+        } catch (err) { notify(err?.message || 'Download failed', 'error'); }
+      });
+    });
     list.classList.remove('hidden');
   }
 
@@ -548,6 +594,69 @@
           renderTrackerResponses(responses);
         }
       }
+    });
+    byId('tracker-approve-review-btn')?.addEventListener('click', async () => {
+      const projectId = state.selectedProject?.id;
+      if (!projectId) return;
+      const fs = getFirebaseService();
+      try {
+        const now = new Date().toISOString();
+        await firebase.updateDoc(firebase.doc(fs.db, 'projects', projectId), {
+          status: 'completed',
+          completedAt: now,
+          updatedAt: now
+        });
+        notify('Project completed.');
+        await loadProjects();
+        openProject(projectId);
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
+    });
+    const addCommentUpload = byId('tracker-add-comment-upload');
+    const addCommentFileInput = byId('tracker-add-comment-files');
+    if (addCommentUpload && addCommentFileInput) {
+      addCommentUpload.addEventListener('click', () => addCommentFileInput.click());
+      addCommentFileInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        for (const f of files) {
+          if (state.trackerAddCommentFiles.length >= MAX_FORM_FILES) break;
+          if (f.size > MAX_FILE_SIZE) continue;
+          const dup = state.trackerAddCommentFiles.some((x) => x.name === f.name && x.size === f.size);
+          if (!dup) state.trackerAddCommentFiles.push(f);
+        }
+        renderTrackerAddCommentFileList();
+      });
+    }
+    byId('tracker-add-comment-btn')?.addEventListener('click', async () => {
+      const projectId = state.selectedProject?.id;
+      if (!projectId) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      if (!me) return;
+      const message = (byId('tracker-add-comment-message')?.value || '').trim();
+      const base64Files = [];
+      for (let i = 0; i < Math.min(state.trackerAddCommentFiles.length, MAX_FORM_FILES); i++) {
+        const f = state.trackerAddCommentFiles[i];
+        const b64 = await fileToBase64(f);
+        base64Files.push({ name: f.name, data: b64, type: f.type });
+      }
+      if (!message && base64Files.length === 0) {
+        notify('Enter a message or attach files', 'error');
+        return;
+      }
+      try {
+        const res = await fs.callFunction('sendProjectRespondEmail', { projectId, message, base64Files });
+        if (res === null) throw new Error('Failed to add comment (401 or network error). Are you logged in?');
+        if (res && res.ok !== true) throw new Error(res?.message || 'Add comment failed');
+        notify('Comment added. Admin will respond.');
+        state.trackerAddCommentFiles = [];
+        renderTrackerAddCommentFileList();
+        byId('tracker-add-comment-message').value = '';
+        await loadProjects();
+        openProject(projectId);
+        const responses = await loadTrackerResponses(projectId);
+        renderTrackerResponses(responses);
+      } catch (err) { notify(err?.message || 'Failed', 'error'); }
     });
     byId('tracker-approve-btn')?.addEventListener('click', async () => {
       const projectId = state.selectedProject?.id;

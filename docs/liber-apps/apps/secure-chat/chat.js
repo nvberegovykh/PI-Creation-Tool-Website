@@ -3652,12 +3652,17 @@
       }
       listEl.classList.remove('loading');
       listEl.innerHTML = '';
-      this.connections.forEach(c=>{
+      const projectConns = this.connections.filter((c) => c && (c.projectId || c.type === 'project'));
+      const otherConns = this.connections.filter((c) => !c || (!c.projectId && c.type !== 'project'));
+      const renderConn = (c) => {
         if (connSeq !== this._connLoadSeq) return;
-        const key = c.key || this.computeConnKey(c.participants||[]);
-        if (seen.has(key)) return; seen.add(key);
+        const isProject = !!(c.projectId || c.type === 'project');
+        const key = isProject ? c.id : (c.key || this.computeConnKey(c.participants || []));
+        if (seen.has(key)) return;
+        seen.add(key);
         const li = document.createElement('li');
         li.setAttribute('data-id', c.id);
+        if (isProject) li.classList.add('conn-project');
         let label = 'Chat';
         const myNameLower = ((this.me && this.me.username) || '').toLowerCase();
         if (Array.isArray(c.participantUsernames) && c.participantUsernames.length){
@@ -3711,8 +3716,30 @@
           await this.setActive(targetId || c.id);
           this.setMobileMenuOpen(false);
         });
-        listEl.appendChild(li);
-      });
+        return li;
+      };
+      if (projectConns.length > 0) {
+        const sec = document.createElement('li');
+        sec.className = 'conn-section-header';
+        sec.textContent = 'Projects';
+        sec.setAttribute('data-section', 'projects');
+        listEl.appendChild(sec);
+        projectConns.forEach((c) => {
+          const li = renderConn(c);
+          if (li) listEl.appendChild(li);
+        });
+      }
+      if (otherConns.length > 0) {
+        const sec = document.createElement('li');
+        sec.className = 'conn-section-header';
+        sec.textContent = 'Connections';
+        sec.setAttribute('data-section', 'connections');
+        listEl.appendChild(sec);
+        otherConns.forEach((c) => {
+          const li = renderConn(c);
+          if (li) listEl.appendChild(li);
+        });
+      }
       // Subscribe to participant username changes for live label updates
       try{
         if (connSeq !== this._connLoadSeq) return;

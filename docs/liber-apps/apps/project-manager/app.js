@@ -242,12 +242,19 @@
     if (!me || !fs?.db) throw new Error('Not authenticated');
     const memberIds = [ownerId];
     (additionalMemberIds || []).forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
+    const adminUids = await getAdminUids();
+    adminUids.forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
+    const ownerGenericCount = state.projects.filter(
+      (p) => p.ownerId === ownerId && (!(p.name || '').trim() || /^Project\s*#\d+$/i.test((p.name || '').trim()))
+    ).length;
+    const groupNameResolved = (projectName && projectName.trim()) ? projectName.trim() : `Project #${ownerGenericCount + 1}`;
     const data = JSON.parse(JSON.stringify({
       participants: memberIds,
       memberIds,
-      groupName: projectName || 'Project',
+      groupName: groupNameResolved,
       updatedAt: new Date().toISOString(),
-      participantUsernames: []
+      participantUsernames: [],
+      type: 'project'
     }));
     const connRef = await fb().addDoc(fb().collection(fs.db, 'chatConnections'), data);
     return connRef.id;
@@ -364,8 +371,8 @@
     const approveSec = byId('project-approve-section');
     const requestReviewSec = byId('project-request-review-section');
     const approveReviewSec = byId('project-approve-review-section');
-    if (respondSec) respondSec.classList.toggle('hidden', !project || status !== 'submitted');
-    if (approveSec) approveSec.classList.toggle('hidden', !project || status !== 'initializing');
+    if (respondSec) respondSec.classList.toggle('hidden', !project || status !== 'in_progress');
+    if (approveSec) approveSec.classList.add('hidden');
     if (requestReviewSec) requestReviewSec.classList.toggle('hidden', !project || status !== 'in_progress');
     if (approveReviewSec) approveReviewSec.classList.toggle('hidden', !project || status !== 'review');
   }
@@ -432,7 +439,11 @@
     }
     list.innerHTML = responses.map((r) => {
       const msg = (r.message || '').trim();
-      const files = (r.fileRefs || []).map((f) => `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`).join('');
+      const files = (r.fileRefs || []).map((f) =>
+        f.storagePath
+          ? `<a href="#" class="response-file" data-path="${escapeHtml(f.storagePath)}" title="Download">${escapeHtml(f.name || 'file')}</a>`
+          : `<span class="response-file">${escapeHtml(f.name || 'file')}</span>`
+      ).join('');
       const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
       return `<div class="response-item">
         <div class="response-meta">${escapeHtml(date)}</div>
@@ -440,6 +451,20 @@
         ${files ? `<div class="response-files">${files}</div>` : ''}
       </div>`;
     }).join('');
+    list.querySelectorAll('.response-file[data-path]').forEach((a) => {
+      a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const path = a.getAttribute('data-path');
+        if (!path) return;
+        const fs = getFirebaseService();
+        if (!fs?.storage) { notify('Storage not available', 'error'); return; }
+        try {
+          const r = fb().ref(fs.storage, path);
+          const url = await fb().getDownloadURL(r);
+          window.open(url, '_blank');
+        } catch (err) { notify(err?.message || 'Download failed', 'error'); }
+      });
+    });
     list.classList.remove('hidden');
   }
 
@@ -484,10 +509,11 @@
     const allMemberIds = getProjectMemberIds();
     const memberIds = [ownerId].filter(Boolean);
     allMemberIds.forEach((uid) => { if (uid !== ownerId && !memberIds.includes(uid)) memberIds.push(uid); });
-    if (!name) {
-      notify('Project name is required', 'error');
-      return;
-    }
+    const projectForDisplayName = (oId, excludeId) => {
+      const matches = state.projects.filter((p) => p.ownerId === oId && p.id !== excludeId && (!(p.name || '').trim() || /^Project\s*#\d+$/i.test((p.name || '').trim())));
+      return `Project #${matches.length + 1}`;
+    };
+    const displayName = name.trim() || projectForDisplayName(ownerId, id || '');
     if (!ownerId) {
       notify('Please add members and select an owner', 'error');
       return;
@@ -505,17 +531,23 @@
           }
         }
         const ref = fb().doc(fs.db, 'projects', id);
-        await fb().updateDoc(ref, { name, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
+        await fb().updateDoc(ref, { name: displayName, description, status, statusColor: statusColor || null, memberIds, updatedAt: now });
         const chatConnId = proj?.chatConnId;
         if (chatConnId) {
           try {
             const connRef = fb().doc(fs.db, 'chatConnections', chatConnId);
             const snap = await fb().getDoc(connRef);
             if (snap.exists()) {
+              const adminUids = await getAdminUids();
+              const fullMemberIds = [...memberIds];
+              adminUids.forEach((id) => { if (!fullMemberIds.includes(id)) fullMemberIds.push(id); });
+              const connDisplayName = name.trim() || projectForDisplayName(proj?.ownerId || '', id);
               await fb().updateDoc(connRef, {
-                groupName: name,
-                participants: memberIds,
-                memberIds,
+                groupName: connDisplayName,
+                participants: fullMemberIds,
+                memberIds: fullMemberIds,
+                projectId: id,
+                type: 'project',
                 updatedAt: now
               });
             }
@@ -525,10 +557,10 @@
       } else {
         const finalOwnerId = ownerId || me.uid;
         const otherMembers = memberIds.filter((uid) => uid !== finalOwnerId);
-        const chatConnId = await createProjectChat(finalOwnerId, name, otherMembers);
+        const chatConnId = await createProjectChat(finalOwnerId, displayName, otherMembers);
         const finalMemberIds = memberIds.length ? memberIds : [finalOwnerId];
         const projectData = JSON.parse(JSON.stringify({
-          name,
+          name: displayName,
           description,
           status,
           statusColor: statusColor || STATUS_COLORS[status] || null,
@@ -713,14 +745,14 @@
         const res = await fs.callFunction('sendProjectRespondEmail', { projectId: id, message, base64Files });
         if (res === null) throw new Error('Failed to send response (401 or network error). Are you logged in?');
         if (res && res.ok !== true && res.sent !== true) throw new Error(res?.message || 'Response failed');
-        notify('Response sent. Awaiting approval from both sides.');
+        notify('Response sent.');
         state.projectRespondFiles = [];
         renderProjectRespondFileList();
         byId('project-respond-message').value = '';
         await loadProjects();
         const p = state.projects.find((pr) => pr.id === id);
         if (p) {
-          showProjectForm({ ...p, status: 'initializing' });
+          showProjectForm({ ...p, status: 'in_progress' });
           loadResponses(id).then((r) => renderResponses(r));
         }
       } catch (err) { notify(err?.message || 'Failed', 'error'); }

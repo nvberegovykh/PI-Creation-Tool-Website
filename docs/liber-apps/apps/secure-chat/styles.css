@@ -50,6 +50,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   .connections-panel .connections-list{max-height:unset}
 }
 .connections-list li{padding:12px 16px;border-bottom:1px solid var(--border-color,#1f222a);cursor:pointer;transition:background .2s ease, opacity .2s ease}
+.connections-list li.conn-section-header{padding:8px 16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-color,#8899aa);cursor:default;border-bottom-color:rgba(31,34,42,.6)}
+.connections-list li.conn-section-header:hover{background:transparent}
 .connections-list li{animation:conn-item-in .25s ease-out}
 @keyframes conn-item-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .connections-list.loading li{animation:none}

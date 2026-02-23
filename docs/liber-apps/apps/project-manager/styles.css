@@ -375,6 +375,13 @@
   margin-right: 6px;
   margin-top: 4px;
   font-size: 12px;
+  color: #3b82f6;
+  text-decoration: none;
+  cursor: pointer;
+}
+.response-files .response-file:hover {
+  text-decoration: underline;
+  background: #2563eb33;
 }
 .responses-empty {
   opacity: 0.7;
