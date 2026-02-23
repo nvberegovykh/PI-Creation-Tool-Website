@@ -308,19 +308,29 @@
   }
 
   async function showProjectForm(project) {
+    const formPanel = byId('project-form-panel');
+    const mainPanel = byId('manager-main');
+    const libPanel = byId('library-panel');
+    if (!formPanel || !mainPanel) return;
     state.selectedProjectId = project ? project.id : null;
     state.projectFormFiles = [];
-    byId('project-form-panel').style.display = '';
-    byId('manager-main').style.display = 'none';
-    byId('library-panel').style.display = 'none';
-    byId('project-form-title').textContent = project ? 'Edit Project' : 'New Project';
-    byId('project-id').value = project ? project.id : '';
-    byId('project-name').value = project ? (project.name || '') : '';
-    byId('project-description').value = project ? (project.description || '') : '';
-    byId('project-status').value = project ? (project.status || 'submitted') : 'submitted';
+    formPanel.style.display = '';
+    mainPanel.style.display = 'none';
+    if (libPanel) libPanel.style.display = 'none';
+    const formTitle = byId('project-form-title');
+    const projId = byId('project-id');
+    const projName = byId('project-name');
+    const projDesc = byId('project-description');
+    const projStatus = byId('project-status');
+    const projColor = byId('project-status-color');
+    if (formTitle) formTitle.textContent = project ? 'Edit Project' : 'New Project';
+    if (projId) projId.value = project ? project.id : '';
+    if (projName) projName.value = project ? (project.name || '') : '';
+    if (projDesc) projDesc.value = project ? (project.description || '') : '';
+    if (projStatus) projStatus.value = project ? (project.status || 'submitted') : 'submitted';
     const colorOpts = ['#ef4444', '#f97316', '#22c55e'];
     const savedColor = project?.statusColor || STATUS_COLORS[project?.status] || '#f97316';
-    byId('project-status-color').value = colorOpts.includes(savedColor) ? savedColor : '#f97316';
+    if (projColor) projColor.value = colorOpts.includes(savedColor) ? savedColor : '#f97316';
     const attWrap = byId('project-attachments-wrap');
     if (attWrap) attWrap.style.display = project ? 'none' : '';
     if (!state.users.length) await loadUsers();
@@ -574,7 +584,15 @@
       } catch (_) {}
     });
 
-    byId('project-add-btn')?.addEventListener('click', () => showProjectForm(null));
+    const appRoot = document.querySelector('.manager-app');
+    if (appRoot) {
+      appRoot.addEventListener('click', (e) => {
+        if (e.target?.closest?.('#project-add-btn')) {
+          e.preventDefault();
+          try { showProjectForm(null); } catch (err) { console.error('[Project Manager] showProjectForm', err); }
+        }
+      });
+    }
     byId('project-cancel')?.addEventListener('click', () => hideProjectForm());
     byId('project-form')?.addEventListener('submit', onSaveProject);
     byId('project-respond-btn')?.addEventListener('click', async () => {
