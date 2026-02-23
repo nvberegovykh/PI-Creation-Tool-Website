@@ -18,6 +18,12 @@
   font-size: 1.25rem;
 }
 
+.tracker-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .tracker-loading {
   text-align: center;
   padding: 48px 16px;

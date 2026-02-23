@@ -653,6 +653,19 @@
   }
 
   function init() {
+    const makeRequestBtn = byId('make-request-btn');
+    if (makeRequestBtn) {
+      makeRequestBtn.addEventListener('click', () => {
+        if (typeof window.openRequestQuiz === 'function') {
+          window.openRequestQuiz({ existingUser: true });
+        } else {
+          console.warn('[Project Tracker] openRequestQuiz not loaded');
+        }
+      });
+    }
+    window.addEventListener('requestQuizSuccess', () => {
+      if (state.projects !== null) loadProjects(0);
+    });
     const backBtn = byId('back-btn');
     if (backBtn) {
       backBtn.addEventListener('click', () => {

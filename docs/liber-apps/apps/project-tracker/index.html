@@ -12,7 +12,10 @@
   <div class="tracker-app">
     <header class="tracker-header">
       <h1><i class="fas fa-tasks"></i> Project Tracker</h1>
-      <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+      <div class="tracker-header-actions">
+        <button type="button" id="make-request-btn" class="btn btn-primary"><i class="fas fa-plus"></i> Make Request</button>
+        <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+      </div>
     </header>
 
     <div id="tracker-loading" class="tracker-loading">
@@ -141,11 +144,13 @@
     </div>
   </div>
 
+  <link rel="stylesheet" href="../../../components/request-quiz.css" />
   <script>window._ptV='20260222r1';</script>
   <script src="../../js/secure-keys.js"></script>
   <script src="../../js/firebase-loader.js"></script>
   <script src="../../js/firebase-service.js"></script>
   <script src="../../js/chat-iframe-bridge.js"></script>
+  <script src="../../../components/request-quiz.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
