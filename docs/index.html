@@ -309,10 +309,10 @@
         if (!btn || !text) return;
         setTimeout(function () {
           text.classList.add('is-visible');
-        }, 3000);
+        }, 1500);
         setTimeout(function () {
           btn.classList.add('is-visible');
-        }, 8000);
+        }, 2000);
         btn.addEventListener('click', function () {
           if (typeof window.openRequestQuiz === 'function') {
             window.openRequestQuiz();

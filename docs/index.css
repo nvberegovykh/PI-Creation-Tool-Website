@@ -1,3 +1,13 @@
+/* Text selection – ensure #8C000F overrides external styles */
+::selection {
+  background: #8C000F !important;
+  color: #fff !important;
+}
+::-moz-selection {
+  background: #8C000F !important;
+  color: #fff !important;
+}
+
 .navbar-interactive-wrapper {
   display: contents;
   position: sticky;
