@@ -67,6 +67,9 @@
           }
 
           const fs = window.firebaseService;
+          if (fs?.auth) {
+            try { await firebase.signOut(fs.auth); } catch (_) {}
+          }
           const firebaseProjectId = (fs?.app?.options?.projectId) || 'liber-apps-cca20';
           const region = (fs?.functionsByRegion && Object.keys(fs.functionsByRegion)[0]) || 'europe-west1';
           const verifyUrl = `https://${region}-${firebaseProjectId}.cloudfunctions.net/verifyRequestTokenHttp`;

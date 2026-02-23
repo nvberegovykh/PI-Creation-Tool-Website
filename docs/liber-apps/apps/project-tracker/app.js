@@ -555,7 +555,15 @@
     const user = fs.auth?.currentUser;
     if (!user) {
       const base = (window.location.pathname || '').replace(/\/apps\/project-tracker\/.*$/, '').replace(/\/$/, '') || '';
-      const loginUrl = window.location.origin + (base ? base + '/' : '/') + 'index.html';
+      let loginUrl = window.location.origin + (base ? base + '/' : '/') + 'index.html';
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const pid = params.get('projectId');
+        if (pid) {
+          sessionStorage.setItem('liber_return_project_id', pid);
+          loginUrl += '?returnTo=tracker';
+        }
+      } catch (_) {}
       byId('tracker-loading').innerHTML = '<p>Please log in to view your projects.</p><p><a href="' + loginUrl + '" style="color:#3b82f6">Go to Login</a></p>';
       return;
     }

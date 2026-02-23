@@ -440,8 +440,11 @@
         text-decoration: none;
     }
     
-    /* Hide regular launch button on mobile to avoid confusion */
-    .launch-btn {
+    /* Hide regular launch button on mobile for most apps; keep visible for primary user apps like Project Tracker */
+    .app-card:not([data-app-primary="1"]) .launch-btn {
+        display: none !important;
+    }
+    .app-card[data-app-primary="1"] .mobile-launch-link {
         display: none !important;
     }
 }

@@ -427,8 +427,18 @@ class AppsManager {
             this.renderApps();
             this.updateAppsCount();
 
-            const launchId = sessionStorage.getItem('liber_launch_after_verify');
-            const projectId = sessionStorage.getItem('liber_verify_project_id');
+            let launchId = sessionStorage.getItem('liber_launch_after_verify');
+            let projectId = sessionStorage.getItem('liber_verify_project_id');
+            if (!launchId && (typeof URLSearchParams !== 'undefined')) {
+                try {
+                    const params = new URLSearchParams(window.location.search);
+                    if (params.get('returnTo') === 'tracker' && window.firebaseService?.auth?.currentUser) {
+                        launchId = 'project-tracker';
+                        projectId = sessionStorage.getItem('liber_return_project_id') || projectId;
+                        sessionStorage.removeItem('liber_return_project_id');
+                    }
+                } catch (_) {}
+            }
             if (launchId) {
                 sessionStorage.removeItem('liber_launch_after_verify');
                 if (projectId) sessionStorage.removeItem('liber_verify_project_id');
@@ -608,7 +618,7 @@ class AppsManager {
         const appUrl = new URL(app.path, window.location.href).href;
         
         return `
-            <div class="app-card" data-app-id="${app.id}">
+            <div class="app-card" data-app-id="${app.id}" data-app-primary="${app.userOnly ? '1' : '0'}">
                 <div class="app-header">
                     <div class="app-icon">
                         ${app.logo ? `<img src="${app.logo}" alt="${app.name}" class="app-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">` : ''}
