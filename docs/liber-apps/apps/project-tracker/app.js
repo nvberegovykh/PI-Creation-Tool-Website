@@ -291,17 +291,32 @@
         const fs = getFirebaseService();
         const fb = getFirebaseApi();
         if (!fs?.storage || !fb?.ref) { notify('Storage not available', 'error'); return; }
+        const fileName = (a.textContent || '').trim() || 'file';
         try {
           const r = fb.ref(fs.storage, path);
           const url = await fb.getDownloadURL(r);
-          const link = document.createElement('a');
-          link.href = url;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.download = (a.textContent || '').trim() || 'file';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          try {
+            const res = await fetch(url, { mode: 'cors' });
+            if (!res.ok) throw new Error('Fetch failed');
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          } catch (_) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
         } catch (err) { notify(err?.message || 'Download failed', 'error'); }
       });
     });
@@ -401,8 +416,9 @@
     }
 
     try {
-      const libRef = fb.collection(fs.db, 'projects', projectId, 'library');
-      const q = fb.query(libRef);
+      const db = (fb.firestore && fs?.app) ? fb.firestore(fs.app) : fs.db;
+      const libRef = fb.collection(db, 'projects', projectId, 'library');
+      const q = fb.query(libRef, fb.orderBy('createdAt', 'desc'));
       const snap = await fb.getDocs(q);
       state.library = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     } catch (e) {
@@ -433,10 +449,14 @@
 
     if (empty) empty.classList.add('hidden');
     let html = '';
+    const sortByCreatedAt = (a, b) => {
+      const ts = (x) => x?.createdAt?.toMillis ? x.createdAt.toMillis() : (x.createdAt ? new Date(x.createdAt).getTime() : 0);
+      return ts(b) - ts(a);
+    };
     for (const sub of BASE_FOLDERS) {
-      const list = bySub[sub] || [];
+      const list = (bySub[sub] || []).sort(sortByCreatedAt);
       const other = Object.entries(bySub).filter(([k]) => !BASE_FOLDERS.includes(k));
-      const extras = sub === 'docs' ? other.flatMap(([, v]) => v) : [];
+      const extras = sub === 'docs' ? other.flatMap(([, v]) => v).sort(sortByCreatedAt) : [];
       const all = [...list, ...extras];
       if (all.length === 0) continue;
       html += `<div class="lib-subfolder"><div class="lib-folder-label">${escapeHtml(sub)}</div>`;
@@ -608,7 +628,7 @@
     const libUploadZone = byId('library-upload-zone');
     const libUploadInput = byId('library-upload-input');
     if (libUploadZone && libUploadInput) {
-      libUploadZone.addEventListener('click', () => libUploadInput.click());
+      libUploadZone.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => libUploadInput.click(), 0); });
       libUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); libUploadZone.classList.add('dragover'); });
       libUploadZone.addEventListener('dragleave', () => libUploadZone.classList.remove('dragover'));
       libUploadZone.addEventListener('drop', async (e) => {
@@ -664,15 +684,14 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
-      const fb = getFirebaseApi();
+      const fb = getFirebaseApi(fs);
       if (!fs?.db || !fb?.updateDoc) return;
+      const db = (fb.firestore && fs?.app) ? fb.firestore(fs.app) : fs.db;
+      if (!db) return;
       try {
         const now = new Date().toISOString();
-        await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), {
-          status: 'completed',
-          completedAt: now,
-          updatedAt: now
-        });
+        const updateData = { status: 'completed', completedAt: now, updatedAt: now };
+        await fb.updateDoc(fb.doc(db, 'projects', projectId), updateData);
         notify('Project completed.');
         await loadProjects();
         openProject(projectId);
@@ -681,7 +700,7 @@
     const addCommentUpload = byId('tracker-add-comment-upload');
     const addCommentFileInput = byId('tracker-add-comment-files');
     if (addCommentUpload && addCommentFileInput) {
-      addCommentUpload.addEventListener('click', () => addCommentFileInput.click());
+      addCommentUpload.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => addCommentFileInput.click(), 0); });
       addCommentFileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files || []);
         e.target.value = '';

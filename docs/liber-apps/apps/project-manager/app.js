@@ -522,17 +522,32 @@
         if (!path) return;
         const fs = getFirebaseService();
         if (!fs?.storage) { notify('Storage not available', 'error'); return; }
+        const fileName = (a.textContent || '').trim() || 'file';
         try {
           const r = fb().ref(fs.storage, path);
           const url = await fb().getDownloadURL(r);
-          const link = document.createElement('a');
-          link.href = url;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.download = (a.textContent || '').trim() || 'file';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          try {
+            const res = await fetch(url, { mode: 'cors' });
+            if (!res.ok) throw new Error('Fetch failed');
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          } catch (_) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
         } catch (err) { notify(err?.message || 'Download failed', 'error'); }
       });
     });
@@ -782,7 +797,7 @@
     const respondUpload = byId('project-respond-upload');
     const respondFileInput = byId('project-respond-files');
     if (respondUpload && respondFileInput) {
-      respondUpload.addEventListener('click', () => respondFileInput.click());
+      respondUpload.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => respondFileInput.click(), 0); });
       respondFileInput.addEventListener('change', (e) => {
         addProjectRespondFiles(Array.from(e.target.files || []));
         e.target.value = '';
@@ -865,7 +880,7 @@
     const formUploadZone = byId('project-form-upload-zone');
     const formFileInput = byId('project-form-file-input');
     if (formUploadZone && formFileInput) {
-      formUploadZone.addEventListener('click', () => formFileInput.click());
+      formUploadZone.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => formFileInput.click(), 0); });
       formUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); formUploadZone.classList.add('dragover'); });
       formUploadZone.addEventListener('dragleave', () => formUploadZone.classList.remove('dragover'));
       formUploadZone.addEventListener('drop', (e) => {
@@ -919,7 +934,7 @@
     const uploadZone = byId('library-upload-zone');
     const uploadInput = byId('library-upload-input');
     if (uploadZone && uploadInput) {
-      uploadZone.addEventListener('click', () => uploadInput.click());
+      uploadZone.addEventListener('click', (e) => { e.preventDefault(); setTimeout(() => uploadInput.click(), 0); });
       uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
       uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
       uploadZone.addEventListener('drop', async (e) => {

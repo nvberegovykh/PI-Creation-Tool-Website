@@ -1195,12 +1195,18 @@ class FirebaseService {
     async callFunction(name, payload = {}) {
         try {
             await this.waitForInit();
-            // HTTP endpoint for sendProjectRespondEmail (callable often 401) - use first
+            // HTTP endpoints for callables that often 401 in iframe - use first
             if (name === 'sendProjectRespondEmail' && this.auth?.currentUser) {
                 try {
                     const httpRes = await this._callSendProjectRespondHttp(payload);
                     if (httpRes) return httpRes;
                 } catch (e) { throw e; }
+            }
+            if (name === 'getProjectMembers' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callGetProjectMembersHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { /* fall through to callable */ }
             }
             // Prefer SDK callables when available
             if (this.functions) {
@@ -1251,6 +1257,28 @@ class FirebaseService {
             return json;
         } catch (e) {
             console.warn('sendProjectRespondHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callGetProjectMembersHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/getProjectMembersHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('getProjectMembersHttp failed:', e?.message || e);
             throw e;
         }
     }

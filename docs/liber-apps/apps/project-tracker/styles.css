@@ -243,7 +243,10 @@
 
 .tracker-progress-bar {
   margin: 20px 0;
-  padding: 0 8px;
+  padding: 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tracker-progress-bar .progress-track {
@@ -251,7 +254,8 @@
   align-items: flex-start;
   justify-content: space-between;
   position: relative;
-  gap: 0;
+  gap: 2px;
+  min-width: 0;
 }
 
 .tracker-progress-bar .progress-track {
@@ -287,8 +291,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
-  max-width: 100px;
+  flex: 1 1 0;
+  min-width: 48px;
+  max-width: 90px;
   position: relative;
   z-index: 1;
 }
@@ -326,6 +331,7 @@
   text-align: center;
   color: #64748b;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .tracker-progress-bar .progress-step.past .step-label {
@@ -473,6 +479,8 @@
 }
 .responses-list {
   margin-top: 12px;
+  overflow-x: hidden;
+  max-width: 100%;
 }
 .responses-list.hidden {
   display: none !important;
@@ -483,6 +491,8 @@
   border-radius: 8px;
   margin-bottom: 8px;
   font-size: 14px;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 .response-meta {
   font-size: 12px;
@@ -493,17 +503,26 @@
   white-space: pre-wrap;
   margin-bottom: 6px;
 }
+.response-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-top: 4px;
+  max-width: 100%;
+}
 .response-files .response-file {
   display: inline-block;
   padding: 2px 8px;
   background: rgba(59, 130, 246, 0.2);
   border-radius: 4px;
-  margin-right: 6px;
-  margin-top: 4px;
   font-size: 12px;
   color: #3b82f6;
   text-decoration: none;
   cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .response-files a.response-file:hover {
   text-decoration: underline;
@@ -625,5 +644,20 @@
 @media (max-width: 600px) {
   .projects-grid {
     grid-template-columns: 1fr;
+  }
+  .tracker-progress-bar .progress-step {
+    min-width: 40px;
+    max-width: 72px;
+  }
+  .tracker-progress-bar .step-label {
+    font-size: 10px;
+  }
+  .tracker-progress-bar .step-dot {
+    width: 20px;
+    height: 20px;
+  }
+  .tracker-progress-bar .progress-track::before,
+  .tracker-progress-bar .progress-track::after {
+    top: 9px;
   }
 }

@@ -879,11 +879,10 @@
       browseDevice.className = 'btn secondary';
       browseDevice.textContent = 'Browse device';
       browseDevice.style.marginBottom = '8px';
-      browseDevice.onclick = ()=>{
-        panel.remove();
-        backdrop.remove();
+      browseDevice.onclick = (e)=>{
+        e.preventDefault();
         const fileInput = document.getElementById('file-input');
-        if (fileInput) fileInput.click();
+        if (fileInput) setTimeout(() => fileInput.click(), 0);
       };
       panel.appendChild(browseDevice);
       const mineTitle = document.createElement('div');
@@ -2612,6 +2611,10 @@
       document.getElementById('file-input').addEventListener('change', (e)=>{
         this.queueAttachments(e.target.files);
         try{ e.target.value = ''; }catch(_){ }
+        const quickPanel = document.getElementById('attachment-quick-actions');
+        const quickBackdrop = document.getElementById('attachment-quick-actions-backdrop');
+        if (quickPanel) quickPanel.remove();
+        if (quickBackdrop) quickBackdrop.remove();
       });
       const stickerBtn = document.getElementById('sticker-btn');
       if (stickerBtn){ stickerBtn.addEventListener('click', ()=> this.toggleStickers()); }
