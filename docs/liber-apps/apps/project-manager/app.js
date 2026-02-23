@@ -710,7 +710,9 @@
         base64Files.push({ name: f.name, data: b64, type: f.type });
       }
       try {
-        await fs.callFunction('sendProjectRespondEmail', { projectId: id, message, base64Files });
+        const res = await fs.callFunction('sendProjectRespondEmail', { projectId: id, message, base64Files });
+        if (res === null) throw new Error('Failed to send response (401 or network error). Are you logged in?');
+        if (res && res.ok !== true && res.sent !== true) throw new Error(res?.message || 'Response failed');
         notify('Response sent. Awaiting approval from both sides.');
         state.projectRespondFiles = [];
         renderProjectRespondFileList();
