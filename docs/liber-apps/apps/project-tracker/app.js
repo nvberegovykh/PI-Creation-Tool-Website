@@ -190,7 +190,8 @@
     const fs = getFirebaseService();
     const isOwner = fs?.auth?.currentUser?.uid === project.ownerId;
     const approveReviewEl = byId('tracker-approve-review-section');
-    if (approveReviewEl) approveReviewEl.classList.toggle('hidden', project.status !== 'review' || !isOwner);
+    const awaitingOwner = project.status === 'in_progress' || project.status === 'review' || project.status === 'initializing';
+    if (approveReviewEl) approveReviewEl.classList.toggle('hidden', !awaitingOwner || !isOwner);
     const membersSection = byId('members-section');
     if (membersSection) {
       if (isOwner) {
@@ -722,33 +723,6 @@
         openProject(projectId);
         const responses = await loadTrackerResponses(projectId);
         renderTrackerResponses(responses);
-      } catch (err) { notify(err?.message || 'Failed', 'error'); }
-    });
-    byId('tracker-approve-btn')?.addEventListener('click', async () => {
-      const projectId = state.selectedProject?.id;
-      if (!projectId) return;
-      const fs = getFirebaseService();
-      const fb = getFirebaseApi();
-      const me = fs?.auth?.currentUser?.uid;
-      const proj = state.selectedProject;
-      if (!me || !proj || !fs?.db || !fb?.updateDoc) return;
-      try {
-        const now = new Date().toISOString();
-        const update = { updatedAt: now };
-        if (proj.ownerId === me) update.ownerApprovedResponse = true;
-        else if (state.isAdmin) update.adminApprovedResponse = true;
-        await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), update);
-        const snap = await fb.getDoc(fb.doc(fs.db, 'projects', projectId));
-        const d = snap?.data?.() || {};
-        const bothApproved = !!(d.ownerApprovedResponse && d.adminApprovedResponse);
-        if (bothApproved) {
-          await fb.updateDoc(fb.doc(fs.db, 'projects', projectId), { status: 'in_progress', updatedAt: now });
-          notify('Both approved. Project now in progress.');
-        } else {
-          notify('Approval recorded. Waiting for the other side.');
-        }
-        await loadProjects();
-        openProject(projectId);
       } catch (err) { notify(err?.message || 'Failed', 'error'); }
     });
     byId('tracker-review-submit')?.addEventListener('click', async () => {
