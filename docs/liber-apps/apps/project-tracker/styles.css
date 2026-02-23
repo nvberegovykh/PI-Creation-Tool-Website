@@ -11,6 +11,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .tracker-header h1 {
@@ -22,6 +23,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .tracker-loading {
@@ -60,6 +62,19 @@
 .panel h2 {
   margin-top: 0;
   margin-bottom: 12px;
+}
+
+.tracker-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.tracker-panel-header h2 {
+  margin-bottom: 0;
 }
 
 .projects-grid {

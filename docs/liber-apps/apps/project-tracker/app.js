@@ -653,16 +653,17 @@
   }
 
   function init() {
+    const openQuiz = () => {
+      if (typeof window.openRequestQuiz === 'function') {
+        window.openRequestQuiz({ existingUser: true });
+      } else {
+        console.warn('[Project Tracker] openRequestQuiz not loaded');
+      }
+    };
     const makeRequestBtn = byId('make-request-btn');
-    if (makeRequestBtn) {
-      makeRequestBtn.addEventListener('click', () => {
-        if (typeof window.openRequestQuiz === 'function') {
-          window.openRequestQuiz({ existingUser: true });
-        } else {
-          console.warn('[Project Tracker] openRequestQuiz not loaded');
-        }
-      });
-    }
+    if (makeRequestBtn) makeRequestBtn.addEventListener('click', openQuiz);
+    const makeRequestPanelBtn = byId('make-request-panel-btn');
+    if (makeRequestPanelBtn) makeRequestPanelBtn.addEventListener('click', openQuiz);
     window.addEventListener('requestQuizSuccess', () => {
       if (state.projects !== null) loadProjects(0);
     });
