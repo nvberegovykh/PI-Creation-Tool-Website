@@ -98,7 +98,8 @@
     const steps = container.querySelectorAll('.progress-step');
     const currentIndex = STATUS_TIMELINE.indexOf(currentStatus);
     const isOnHold = currentStatus === 'on_hold';
-    const fillPct = isOnHold || currentIndex < 0 ? 0 : ((currentIndex + 0.5) / STATUS_TIMELINE.length) * 100;
+    const isLastStep = currentIndex === STATUS_TIMELINE.length - 1;
+    const fillPct = isOnHold || currentIndex < 0 ? 0 : isLastStep ? 100 : ((currentIndex + 0.5) / STATUS_TIMELINE.length) * 100;
     track.style.setProperty('--progress-fill', fillPct + '%');
     steps.forEach((step) => {
       const stepStatus = step.dataset.step;
