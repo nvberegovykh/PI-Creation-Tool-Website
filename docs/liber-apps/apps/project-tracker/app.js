@@ -277,9 +277,17 @@
         const fs = getFirebaseService();
         if (!fs?.storage) { notify('Storage not available', 'error'); return; }
         try {
-          const r = firebase.ref(fs.storage, path);
-          const url = await firebase.getDownloadURL(r);
-          window.open(url, '_blank');
+          const firebaseApi = typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase));
+          const r = firebaseApi.ref(fs.storage, path);
+          const url = await firebaseApi.getDownloadURL(r);
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.download = (a.textContent || '').trim() || 'file';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
         } catch (err) { notify(err?.message || 'Download failed', 'error'); }
       });
     });
@@ -472,11 +480,18 @@
     await firebase.addDoc(firebase.collection(fs.db, 'projects', projectId, 'library'), libData);
   }
 
-  async function loadProjects() {
+  const LOAD_RETRY_MAX = 50;
+
+  async function loadProjects(retryCount = 0) {
     const fs = getFirebaseService();
     if (!fs || !fs.isInitialized) {
       showLoading();
-      setTimeout(loadProjects, 300);
+      if (retryCount >= LOAD_RETRY_MAX) {
+        const el = byId('tracker-loading');
+        if (el) el.innerHTML = '<p>Firebase not ready. Please refresh the page or check your connection.</p>';
+        return;
+      }
+      setTimeout(() => loadProjects(retryCount + 1), 300);
       return;
     }
 
@@ -487,28 +502,39 @@
       return;
     }
 
+    const firebaseApi = typeof firebase !== 'undefined' ? firebase : (window.firebase || (window.parent && window.parent.firebase));
+    const projectsById = new Map();
     try {
-      const qOwner = firebase.query(
-        firebase.collection(fs.db, 'projects'),
-        firebase.where('ownerId', '==', user.uid),
-        firebase.orderBy('updatedAt', 'desc'),
-        firebase.limit(50)
-      );
-      const qMember = firebase.query(
-        firebase.collection(fs.db, 'projects'),
-        firebase.where('memberIds', 'array-contains', user.uid),
-        firebase.orderBy('updatedAt', 'desc'),
-        firebase.limit(50)
-      );
-      const [snapOwner, snapMember] = await Promise.all([firebase.getDocs(qOwner), firebase.getDocs(qMember)]);
-      const byId = new Map();
-      [...snapOwner.docs, ...snapMember.docs].forEach((d) => { byId.set(d.id, { id: d.id, ...d.data() }); });
-      state.projects = Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+      try {
+        const qOwner = firebaseApi.query(
+          firebaseApi.collection(fs.db, 'projects'),
+          firebaseApi.where('ownerId', '==', user.uid),
+          firebaseApi.orderBy('updatedAt', 'desc'),
+          firebaseApi.limit(50)
+        );
+        const snapOwner = await firebaseApi.getDocs(qOwner);
+        snapOwner.docs.forEach((d) => projectsById.set(d.id, { id: d.id, ...d.data() }));
+      } catch (e1) {
+        console.warn('[Project Tracker] owner query failed', e1?.message || e1);
+      }
+      try {
+        const qMember = firebaseApi.query(
+          firebaseApi.collection(fs.db, 'projects'),
+          firebaseApi.where('memberIds', 'array-contains', user.uid),
+          firebaseApi.orderBy('updatedAt', 'desc'),
+          firebaseApi.limit(50)
+        );
+        const snapMember = await firebaseApi.getDocs(qMember);
+        snapMember.docs.forEach((d) => projectsById.set(d.id, { id: d.id, ...d.data() }));
+      } catch (e2) {
+        console.warn('[Project Tracker] memberIds query failed', e2?.message || e2);
+      }
+      state.projects = Array.from(projectsById.values()).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       showMain();
       renderProjects();
     } catch (e) {
       console.error('[Project Tracker] loadProjects failed', e);
-      byId('tracker-loading').innerHTML = '<p>Failed to load projects.</p>';
+      byId('tracker-loading').innerHTML = '<p>Failed to load projects. ' + (e?.message || '') + '</p>';
     }
   }
 
@@ -705,10 +731,17 @@
       } catch (err) { notify(err?.message || 'Failed to submit', 'error'); }
     });
 
+    const TRYLOAD_MAX = 100;
+    let tryLoadCount = 0;
     const tryLoad = () => {
-      if (window.firebase && window.firebaseService && window.firebaseService.isInitialized) {
+      const fs = getFirebaseService();
+      if (fs && fs.isInitialized) {
         loadProjects();
+      } else if (tryLoadCount >= TRYLOAD_MAX) {
+        const el = byId('tracker-loading');
+        if (el) el.innerHTML = '<p>Firebase not ready. Please refresh the page or check your connection.</p>';
       } else {
+        tryLoadCount++;
         setTimeout(tryLoad, 200);
       }
     };

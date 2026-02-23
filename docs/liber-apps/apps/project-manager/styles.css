@@ -314,15 +314,39 @@
   margin-bottom: 8px;
   resize: vertical;
 }
+.respond-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
 .respond-upload-zone {
   padding: 10px 16px;
   border: 2px dashed #2b3854;
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
-  margin-bottom: 8px;
 }
 .respond-upload-zone:hover {
+  border-color: #3b82f6;
+}
+.respond-invoice-attach {
+  flex: 1;
+  min-width: 180px;
+}
+.invoice-attach-select {
+  width: 100%;
+  padding: 8px 12px;
+  background: #111827;
+  border: 1px solid #2b3854;
+  color: #e8edff;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.invoice-attach-select:focus {
+  outline: none;
   border-color: #3b82f6;
 }
 .respond-upload-zone input[type="file"] {

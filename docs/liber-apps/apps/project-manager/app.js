@@ -357,6 +357,10 @@
     renderProjectRespondFileList();
     byId('project-respond-message').value = '';
     updateProjectActionSections(project);
+    if (project && (project.status === 'submitted' || project.status === 'in_progress')) {
+      const me = getFirebaseService()?.auth?.currentUser?.uid;
+      if (me) loadMyInvoices(me).then((inv) => renderInvoiceAttachSelect(inv));
+    }
     if (project?.id) {
       loadResponses(project.id).then((responses) => renderResponses(responses));
     } else {
@@ -365,13 +369,72 @@
     }
   }
 
+  async function loadMyInvoices(uid) {
+    const fs = getFirebaseService();
+    if (!fs?.db || !uid) return [];
+    try {
+      const snap = await fb().getDocs(fb().collection(fs.db, 'users', uid, 'invoices'));
+      const invoices = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return invoices.filter((inv) => inv.pdfPath || inv.pdfUrl).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    } catch (e) {
+      console.warn('[Project Manager] loadMyInvoices failed', e);
+      return [];
+    }
+  }
+
+  async function addInvoiceAsAttachment(invoice) {
+    const fs = getFirebaseService();
+    const me = fs?.auth?.currentUser?.uid;
+    if (!fs?.storage || !me || !invoice) return;
+    let url = invoice.pdfUrl;
+    if (!url && invoice.pdfPath) {
+      try {
+        const r = fb().ref(fs.storage, invoice.pdfPath);
+        url = await fb().getDownloadURL(r);
+      } catch (e) {
+        console.warn('[Project Manager] getDownloadURL for invoice failed', e);
+        notify('Could not load invoice PDF', 'error');
+        return;
+      }
+    }
+    if (!url) {
+      notify('Invoice has no PDF attached', 'error');
+      return;
+    }
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('Fetch failed');
+      const blob = await resp.blob();
+      const fileName = (invoice.invoiceId || invoice.id || 'invoice') + '.pdf';
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      addProjectRespondFiles([file]);
+      notify(`Attached ${fileName}`);
+    } catch (e) {
+      console.warn('[Project Manager] fetch invoice PDF failed', e);
+      notify('Could not attach invoice', 'error');
+    }
+  }
+
+  function renderInvoiceAttachSelect(invoices) {
+    const sel = byId('project-respond-invoice');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Attach from my invoices —</option>' +
+      invoices.slice(0, 30).map((inv) => {
+        const label = inv.invoiceId || inv.id || inv.clientName || 'Invoice';
+        const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '';
+        return `<option value="${escapeHtml(inv.id)}" data-invoice-id="${escapeHtml(inv.id)}">${escapeHtml(label)}${date ? ' (' + date + ')' : ''}</option>`;
+      }).join('');
+    sel.value = '';
+  }
+
   function updateProjectActionSections(project) {
     const status = project?.status || 'submitted';
     const respondSec = byId('project-respond-section');
     const approveSec = byId('project-approve-section');
     const requestReviewSec = byId('project-request-review-section');
     const approveReviewSec = byId('project-approve-review-section');
-    if (respondSec) respondSec.classList.toggle('hidden', !project || status !== 'in_progress');
+    if (respondSec) respondSec.classList.toggle('hidden', !project || (status !== 'in_progress' && status !== 'submitted'));
     if (approveSec) approveSec.classList.add('hidden');
     if (requestReviewSec) requestReviewSec.classList.toggle('hidden', !project || status !== 'in_progress');
     if (approveReviewSec) approveReviewSec.classList.toggle('hidden', !project || status !== 'review');
@@ -461,7 +524,14 @@
         try {
           const r = fb().ref(fs.storage, path);
           const url = await fb().getDownloadURL(r);
-          window.open(url, '_blank');
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.download = (a.textContent || '').trim() || 'file';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
         } catch (err) { notify(err?.message || 'Download failed', 'error'); }
       });
     });
@@ -717,6 +787,23 @@
         e.target.value = '';
       });
     }
+    byId('project-respond-invoice')?.addEventListener('change', async (e) => {
+      const sel = e.target;
+      const val = sel?.value?.trim();
+      if (!val) return;
+      const fs = getFirebaseService();
+      const me = fs?.auth?.currentUser?.uid;
+      if (!me) return;
+      try {
+        const invSnap = await fb().getDoc(fb().doc(fs.db, 'users', me, 'invoices', val));
+        const inv = invSnap.exists ? { id: invSnap.id, ...invSnap.data() } : null;
+        sel.value = '';
+        if (inv) await addInvoiceAsAttachment(inv);
+      } catch (err) {
+        console.warn('[Project Manager] addInvoiceAsAttachment failed', err);
+        sel.value = '';
+      }
+    });
     byId('project-responses-toggle')?.addEventListener('click', () => {
       const list = byId('project-responses-list');
       const icon = byId('project-responses-toggle')?.querySelector('i');

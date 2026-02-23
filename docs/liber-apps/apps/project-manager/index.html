@@ -49,9 +49,16 @@
           <span>Send response to project owner</span>
           <div class="respond-form-wrap">
             <textarea id="project-respond-message" rows="3" placeholder="Your message to the project owner..."></textarea>
-            <div class="respond-upload-zone" id="project-respond-upload" tabindex="0">
-              <input type="file" id="project-respond-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
-              <span>📎 Attach files to response</span>
+            <div class="respond-attach-row">
+              <div class="respond-upload-zone" id="project-respond-upload" tabindex="0">
+                <input type="file" id="project-respond-files" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
+                <span>📎 Attach files</span>
+              </div>
+              <div class="respond-invoice-attach">
+                <select id="project-respond-invoice" class="invoice-attach-select" title="Attach from my invoices">
+                  <option value="">— Attach from my invoices —</option>
+                </select>
+              </div>
             </div>
             <div id="project-respond-file-list" class="project-form-file-list"></div>
             <button type="button" id="project-respond-btn" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Send Response</button>
