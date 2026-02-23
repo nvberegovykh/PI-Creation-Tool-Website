@@ -101,6 +101,7 @@
     const isLastStep = currentIndex === STATUS_TIMELINE.length - 1;
     const fillPct = isOnHold || currentIndex < 0 ? 0 : isLastStep ? 100 : ((currentIndex + 0.5) / STATUS_TIMELINE.length) * 100;
     track.style.setProperty('--progress-fill', fillPct + '%');
+    track.classList.toggle('is-completed', !isOnHold && isLastStep);
     steps.forEach((step) => {
       const stepStatus = step.dataset.step;
       const stepIndex = STATUS_TIMELINE.indexOf(stepStatus);

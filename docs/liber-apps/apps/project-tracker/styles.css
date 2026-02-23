@@ -287,6 +287,10 @@
   transition: width 0.4s ease;
 }
 
+.tracker-progress-bar .progress-track.is-completed::after {
+  width: calc(100% + 16px);
+}
+
 .tracker-progress-bar .progress-step {
   display: flex;
   flex-direction: column;
