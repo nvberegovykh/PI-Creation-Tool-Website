@@ -177,7 +177,6 @@
 
     const fs = getFirebaseService();
     const isOwner = fs?.auth?.currentUser?.uid === project.ownerId;
-    const approveReviewSec = byId('tracker-approve-review-section');
     if (approveReviewSec) approveReviewSec.classList.toggle('hidden', project.status !== 'review' || !isOwner);
     const membersSection = byId('members-section');
     if (membersSection) {
