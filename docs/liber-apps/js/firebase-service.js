@@ -1232,6 +1232,12 @@ class FirebaseService {
                     if (httpRes) return httpRes;
                 } catch (e) { throw e; }
             }
+            if (name === 'submitProjectRequest') {
+                try {
+                    const httpRes = await this._callSubmitProjectRequestHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
             // Prefer SDK callables when available
             if (this.functions) {
                 // Modular with region failover
@@ -1258,7 +1264,7 @@ class FirebaseService {
             return null;
         } catch (e) {
             console.warn('Callable function failed:', name, e?.message || e);
-            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember') throw e;
+            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest') throw e;
             return null;
         }
     }
@@ -1391,6 +1397,25 @@ class FirebaseService {
             return json;
         } catch (e) {
             console.warn('removeProjectMemberHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callSubmitProjectRequestHttp(payload) {
+        try {
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/submitProjectRequestHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'Submission failed');
+            return json;
+        } catch (e) {
+            console.warn('submitProjectRequestHttp failed:', e?.message || e);
             throw e;
         }
     }
