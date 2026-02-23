@@ -185,10 +185,8 @@
         const successEl = overlay.querySelector('#rq-success');
         const successP = successEl?.querySelector('p:last-of-type');
         if (data.existingUser) {
-          if (successP) successP.textContent = 'Opening your project tracker...';
+          if (successP) successP.textContent = 'Check your email for a link to sign in and open your project tracker.';
           successEl.style.display = '';
-          const url = data.trackerUrl || (window.location.origin + '/liber-apps/apps/project-tracker/index.html');
-          window.location.href = url;
         } else {
           if (successP) successP.textContent = 'Check your email for a link to log in and access your project tracker.';
           successEl.style.display = '';

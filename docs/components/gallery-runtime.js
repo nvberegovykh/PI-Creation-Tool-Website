@@ -113,7 +113,7 @@
 
   const INTRO_MS = 3000;
   function wireCardIntro(container) {
-    const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]'));
+    const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]:not([data-gc-intro-done])'));
     if (!cards.length || !('IntersectionObserver' in window)) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -121,6 +121,7 @@
           if (!entry.isIntersecting) return;
           const card = entry.target;
           observer.unobserve(card);
+          card.dataset.gcIntroDone = '1';
           card.classList.add('gc-intro');
           window.setTimeout(() => card.classList.remove('gc-intro'), INTRO_MS);
         });
@@ -131,8 +132,9 @@
   }
 
   function wireRotations(container, projectById) {
-    const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]'));
+    const cards = Array.from(container.querySelectorAll('.gc-card[data-project-id]:not([data-gc-rotation-wired])'));
     cards.forEach((card) => {
+      card.dataset.gcRotationWired = '1';
       const id = card.getAttribute('data-project-id');
       const project = projectById.get(id);
       if (!project) return;
@@ -322,28 +324,39 @@
     wirePopupOpener(host, projectById);
   }
 
+  const SINGLE_SLIDER_AUTO_MS = 30000;
+
   function mountSingleSlider(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 9);
-    const selected = pickProjects(projects, count);
+    let selected = pickProjects(projects, count);
     if (!selected.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
-    const slides = selected.map((p) => `<div class="gc-slide"><div class="gc-slide-inner">${buildCard(p, 'gc-card--slider')}</div></div>`);
-    const dotsHtml = Array.from({ length: selected.length }, (_, i) => `<button type="button" class="gc-dot" data-gc-page="${i}" aria-label="Slide ${i + 1} of ${selected.length}"></button>`).join('');
+    const renderTrack = (projs) => projs.map((p) => `<div class="gc-slide"><div class="gc-slide-inner">${buildCard(p, 'gc-card--slider')}</div></div>`).join('');
     host.innerHTML =
       `<div class="gc-template gc-single-slider">` +
-      `<div class="gc-slider-shell gc-single-shell"><div class="gc-slider-track gc-single-track">${slides.join('')}</div></div>` +
-      `<div class="gc-slider-dots" role="tablist" aria-label="Slides">${dotsHtml}</div>` +
+      `<div class="gc-slider-shell gc-single-shell"><div class="gc-slider-track gc-single-track">${renderTrack(selected)}</div></div>` +
       `</div>`;
     const shell = host.querySelector('.gc-single-shell');
     const track = host.querySelector('.gc-single-track');
-    const dots = host.querySelectorAll('.gc-dot');
     let page = 0;
     let startX = 0;
     let startPage = 0;
     let didDrag = false;
+    let autoTimer = null;
     const MAX_SLIDE_WIDTH = 2200;
+    const appendQueue = () => {
+      const more = pickProjects(projects, count);
+      if (!more.length) return;
+      selected = selected.concat(more);
+      track.insertAdjacentHTML('beforeend', renderTrack(more));
+      wireRotations(host, projectById);
+      wireCardIntro(host);
+    };
+    const ensureQueueAhead = () => {
+      if (page >= selected.length - 2) appendQueue();
+    };
     const update = () => {
       page = Math.max(0, Math.min(page, selected.length - 1));
       const rawWidth = shell && shell.offsetWidth > 0 ? shell.offsetWidth : (typeof window !== 'undefined' ? Math.min(900, window.innerWidth || 900) : 600);
@@ -351,9 +364,8 @@
       track.style.width = `${selected.length * slideWidth}px`;
       track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${slideWidth}px`; s.style.minWidth = `${slideWidth}px`; s.style.maxWidth = `${slideWidth}px`; });
       track.style.transform = `translateX(-${page * slideWidth}px)`;
-      dots.forEach((d, i) => { d.classList.toggle('active', i === page); d.setAttribute('aria-selected', i === page); });
     };
-    const onStart = (x) => { didDrag = false; startX = x; startPage = page; };
+    const onStart = (x) => { didDrag = false; startX = x; startPage = page; stopAutoAdvance(); };
     const onMove = (x) => {
       if (Math.abs(x - startX) > 5) { didDrag = true; window.__gcSuppressNextClick = true; }
       const slideWidth = shell ? shell.offsetWidth : 400;
@@ -362,12 +374,31 @@
       track.style.transition = 'none';
       track.style.transform = `translateX(-${(startPage + pageOffset) * slideWidth}px)`;
     };
+    const startAutoAdvance = () => {
+      stopAutoAdvance();
+      autoTimer = setInterval(() => {
+        ensureQueueAhead();
+        page = Math.min(page + 1, selected.length - 1);
+        update();
+      }, SINGLE_SLIDER_AUTO_MS);
+    };
+    const stopAutoAdvance = () => {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    };
     const onEnd = (x) => {
       track.style.transition = '';
       const slideWidth = shell ? shell.offsetWidth : 400;
       const delta = startX - x;
-      if (Math.abs(delta) > slideWidth * 0.2) page = delta > 0 ? Math.min(page + 1, selected.length - 1) : Math.max(page - 1, 0);
+      if (Math.abs(delta) > slideWidth * 0.2) {
+        if (delta > 0) {
+          ensureQueueAhead();
+          page = Math.min(page + 1, selected.length - 1);
+        } else {
+          page = Math.max(page - 1, 0);
+        }
+      }
       update();
+      startAutoAdvance();
     };
     let isHorizontalSwipe = null;
     const SLOPE = 0.5; /* vertical scroll wins over horizontal swipe */
@@ -395,17 +426,18 @@
       el.addEventListener('touchend', (e) => {
         if (touched && e.changedTouches && e.changedTouches[0]) {
           if (isHorizontalSwipe) onEnd(e.changedTouches[0].clientX);
+          else startAutoAdvance();
           touched = false;
         }
       }, { passive: true });
       el.addEventListener('touchcancel', () => { touched = false; }, { passive: true });
     };
     addDrag(shell);
-    dots.forEach((dot) => dot.addEventListener('click', (e) => { e.preventDefault(); page = Number(dot.getAttribute('data-gc-page')) || 0; update(); }));
     const ro = new ResizeObserver(update);
     if (shell) ro.observe(shell);
     update();
     requestAnimationFrame(() => requestAnimationFrame(update));
+    startAutoAdvance();
     wireRotations(host, projectById);
     wireCardIntro(host);
     wirePopupOpener(host, projectById);
