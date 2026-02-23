@@ -427,6 +427,14 @@ class AppsManager {
             this.renderApps();
             this.updateAppsCount();
 
+            const launchId = sessionStorage.getItem('liber_launch_after_verify');
+            if (launchId) {
+                sessionStorage.removeItem('liber_launch_after_verify');
+                const app = this.apps.find((a) => a.id === launchId);
+                if (app && !app.adminOnly) {
+                    setTimeout(() => this.launchApp(launchId), 400);
+                }
+            }
         } catch (error) {
             console.error('Error loading apps:', error);
             this.showError('Failed to load apps');
@@ -504,6 +512,34 @@ class AppsManager {
                 lastUpdated: '2026-02-22',
                 logo: null,
                 adminOnly: true
+            },
+            {
+                id: 'project-tracker',
+                name: 'Project Tracker',
+                description: 'Track your projects, view status, access chat and project library.',
+                version: '1.0.0',
+                category: 'business',
+                icon: 'fas fa-tasks',
+                status: 'online',
+                path: 'apps/project-tracker/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2026-02-22',
+                logo: null,
+                userOnly: true
+            },
+            {
+                id: 'project-manager',
+                name: 'Project Manager',
+                description: 'Admin app to manage projects, library, status and chat.',
+                version: '1.0.0',
+                category: 'business',
+                icon: 'fas fa-cogs',
+                status: 'online',
+                path: 'apps/project-manager/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2026-02-22',
+                logo: null,
+                adminOnly: true
             }
         ];
 
@@ -524,6 +560,7 @@ class AppsManager {
         const isAdmin = this._isAdmin();
         this.filteredApps = this.apps.filter(app => {
             if (app.adminOnly && !isAdmin) return false;
+            if (app.userOnly && isAdmin) return false;
             const matchesSearch = this.searchTerm === '' || 
                                 app.name.toLowerCase().includes(this.searchTerm) ||
                                 app.description.toLowerCase().includes(this.searchTerm) ||

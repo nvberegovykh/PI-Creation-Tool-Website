@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Project Manager</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="manager-app">
+    <header class="manager-header">
+      <h1><i class="fas fa-cogs"></i> Project Manager</h1>
+      <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+    </header>
+
+    <div id="manager-main" class="manager-main">
+      <section class="panel">
+        <h2>
+          Projects
+          <button id="project-add-btn" class="btn btn-primary"><i class="fas fa-plus"></i> Add Project</button>
+        </h2>
+        <div class="manager-toolbar">
+          <div class="search-container">
+            <input type="text" id="project-search" placeholder="Search projects..." />
+            <i class="fas fa-search"></i>
+          </div>
+          <select id="status-filter">
+            <option value="">All statuses</option>
+            <option value="submitted">Submitted</option>
+            <option value="in_progress">In progress</option>
+            <option value="review">Review</option>
+            <option value="completed">Completed</option>
+            <option value="on_hold">On hold</option>
+          </select>
+        </div>
+        <div id="projects-list" class="projects-list"></div>
+      </section>
+    </div>
+
+    <section id="project-form-panel" class="panel project-form-panel" style="display:none">
+      <h2 id="project-form-title">New Project</h2>
+      <form id="project-form">
+        <input type="hidden" id="project-id" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>Name *</label>
+            <input type="text" id="project-name" required placeholder="Project name" />
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="project-status">
+              <option value="submitted">Submitted</option>
+              <option value="in_progress">In progress</option>
+              <option value="review">Review</option>
+              <option value="completed">Completed</option>
+              <option value="on_hold">On hold</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status color (hex)</label>
+            <input type="text" id="project-status-color" placeholder="#2196F3" />
+          </div>
+          <div class="form-group">
+            <label>Owner (user)</label>
+            <select id="project-owner"></select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="project-description" rows="4" placeholder="Project description"></textarea>
+        </div>
+        <div class="form-group" id="project-members-wrap">
+          <label>Project members</label>
+          <div id="project-members-list" class="members-list"></div>
+          <div class="members-add">
+            <select id="project-add-user"></select>
+            <button type="button" id="project-add-member-btn" class="btn btn-secondary"><i class="fas fa-user-plus"></i> Add</button>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" id="project-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="library-panel" class="panel library-panel" style="display:none">
+      <h2>Library: <span id="library-project-name"></span></h2>
+      <div class="library-toolbar">
+        <select id="library-folder">
+          <option value="record_in/docs">Record In / Docs</option>
+          <option value="record_in/images">Record In / Images</option>
+          <option value="record_in/video">Record In / Video</option>
+          <option value="record_out/docs">Record Out / Docs</option>
+          <option value="record_out/images">Record Out / Images</option>
+          <option value="record_out/video">Record Out / Video</option>
+        </select>
+        <button id="library-create-folder" class="btn btn-secondary"><i class="fas fa-folder-plus"></i> New subfolder</button>
+        <div class="upload-zone" id="library-upload-zone" tabindex="0">
+          <input type="file" id="library-upload-input" multiple />
+          <span><i class="fas fa-cloud-upload-alt"></i> Drop files or click</span>
+        </div>
+      </div>
+      <div id="library-content" class="library-content"></div>
+      <button id="library-back" class="btn btn-secondary">Back to projects</button>
+    </section>
+  </div>
+
+  <script>window._pmV='20260222r1';</script>
+  <script src="../../js/secure-keys.js"></script>
+  <script src="../../js/firebase-loader.js"></script>
+  <script src="../../js/firebase-service.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

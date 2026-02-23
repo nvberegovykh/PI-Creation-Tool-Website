@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Project Tracker</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="tracker-app">
+    <header class="tracker-header">
+      <h1><i class="fas fa-tasks"></i> Project Tracker</h1>
+      <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+    </header>
+
+    <div id="tracker-loading" class="tracker-loading">
+      <div class="loading-spinner"></div>
+      <p>Loading projects...</p>
+    </div>
+
+    <div id="tracker-main" class="tracker-main hidden">
+      <section class="panel">
+        <h2>My Projects</h2>
+        <div id="projects-grid" class="projects-grid"></div>
+        <div id="projects-empty" class="tracker-empty hidden">
+          <i class="fas fa-folder-open"></i>
+          <p>No projects yet.</p>
+          <p class="tracker-empty-hint">Submit a request from the main site to create your first project.</p>
+        </div>
+      </section>
+    </div>
+
+    <div id="tracker-detail" class="tracker-detail hidden">
+      <section class="panel">
+        <div class="detail-header">
+          <h2 id="detail-title">Project</h2>
+          <div class="detail-actions">
+            <a id="detail-chat-link" href="#" class="btn btn-primary" target="_blank" rel="noopener">
+              <i class="fas fa-comments"></i> Chat
+            </a>
+          </div>
+        </div>
+        <div class="detail-meta">
+          <span id="detail-status" class="status-badge"></span>
+          <span id="detail-updated"></span>
+        </div>
+        <div id="detail-description" class="detail-description"></div>
+        <div id="members-section" class="detail-section hidden">
+          <h3>Team Members</h3>
+          <div id="members-list" class="members-list"></div>
+          <div id="members-add" class="members-add">
+            <input type="email" id="member-email" placeholder="Email to add" class="member-email-input" />
+            <button type="button" id="add-member-btn" class="btn btn-secondary">Add</button>
+          </div>
+        </div>
+        <div class="detail-section">
+          <h3>Project Library</h3>
+          <div id="library-tabs" class="library-tabs">
+            <button class="lib-tab active" data-folder="record_in">Record In</button>
+            <button class="lib-tab" data-folder="record_out">Record Out</button>
+          </div>
+          <div id="library-content" class="library-content"></div>
+          <div id="library-empty" class="tracker-empty hidden">
+            <i class="fas fa-files-o"></i>
+            <p>No files in this folder.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>window._ptV='20260222r1';</script>
+  <script src="../../js/secure-keys.js"></script>
+  <script src="../../js/firebase-loader.js"></script>
+  <script src="../../js/firebase-service.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
