@@ -164,8 +164,8 @@
     --tertiary-bg: #1a1a1a;
     --primary-text: #ffffff;
     --secondary-text: #cccccc;
-    --accent-color: #8C000F;
-    --accent-hover: #a30012;
+    --accent-color: #00d4ff;
+    --accent-hover: #00a8cc;
     --border-color: #333333;
     --success-color: #00ff88;
     --error-color: #ff4444;
@@ -792,10 +792,14 @@ textarea::placeholder {
     background: var(--accent-color);
 }
 
-/* Selection */
+/* Text selection – custom color (highlights stay cyan via --accent-color) */
 ::selection {
-    background: var(--accent-color);
-    color: var(--primary-bg);
+    background: #8C000F;
+    color: #fff;
+}
+::-moz-selection {
+    background: #8C000F;
+    color: #fff;
 }
 
 /* Focus styles for accessibility */
