@@ -308,10 +308,10 @@
         var text = document.getElementById('home-hero-text');
         if (!btn || !text) return;
         setTimeout(function () {
-          btn.classList.add('is-visible');
+          text.classList.add('is-visible');
         }, 3000);
         setTimeout(function () {
-          text.classList.add('is-visible');
+          btn.classList.add('is-visible');
         }, 8000);
         btn.addEventListener('click', function () {
           if (typeof window.openRequestQuiz === 'function') {
