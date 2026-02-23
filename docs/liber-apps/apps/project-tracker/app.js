@@ -27,13 +27,15 @@
   }
 
   function getFirebaseService() {
-    if (window.firebaseService && window.firebaseService.isInitialized)
-      return window.firebaseService;
     try {
-      for (const w of [window.parent, window.top].filter(Boolean)) {
-        if (w !== window && w.firebaseService && w.firebaseService.isInitialized)
-          return w.firebaseService;
+      if (window.self !== window.top) {
+        for (const w of [window.parent, window.top].filter(Boolean)) {
+          if (w !== window && w.firebaseService && w.firebaseService.isInitialized)
+            return w.firebaseService;
+        }
       }
+      if (window.firebaseService && window.firebaseService.isInitialized)
+        return window.firebaseService;
     } catch (_) {}
     return window.firebaseService;
   }
@@ -167,7 +169,6 @@
 
     const respondSec = byId('tracker-respond-section');
     const approveSec = byId('tracker-approve-section');
-    const approveReviewSec = byId('tracker-approve-review-section');
     const reviewSec = byId('tracker-review-section');
     if (respondSec) respondSec.classList.toggle('hidden', project.status !== 'submitted');
     if (approveSec) approveSec.classList.add('hidden');
@@ -177,7 +178,8 @@
 
     const fs = getFirebaseService();
     const isOwner = fs?.auth?.currentUser?.uid === project.ownerId;
-    if (approveReviewSec) approveReviewSec.classList.toggle('hidden', project.status !== 'review' || !isOwner);
+    const approveReviewEl = byId('tracker-approve-review-section');
+    if (approveReviewEl) approveReviewEl.classList.toggle('hidden', project.status !== 'review' || !isOwner);
     const membersSection = byId('members-section');
     if (membersSection) {
       if (isOwner) {
