@@ -57,8 +57,10 @@
     const sel = byId('project-owner');
     if (!sel) return;
     const memberIds = getProjectMemberIds();
-    sel.innerHTML = '<option value="">-- Choose owner (add members first) --</option>' +
-      memberIds.map((uid) => {
+    const isNewProject = !byId('project-id')?.value?.trim();
+    const ids = isNewProject && memberIds.length === 0 ? state.users.map((u) => u.id) : memberIds;
+    sel.innerHTML = '<option value="">-- Choose owner --</option>' +
+      ids.map((uid) => {
         const u = getUserById(uid);
         const label = u ? (u.username || u.email || uid) : uid;
         return `<option value="${escapeHtml(uid)}" ${uid === selectedId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
@@ -229,8 +231,7 @@
     if (!me || !fs?.db) throw new Error('Not authenticated');
     const memberIds = [ownerId];
     (additionalMemberIds || []).forEach((id) => { if (!memberIds.includes(id)) memberIds.push(id); });
-    const connRef = fb().doc(fb().collection(fs.db, 'chatConnections'));
-    await fb().setDoc(connRef, {
+    const connRef = await fb().addDoc(fb().collection(fs.db, 'chatConnections'), {
       participants: memberIds,
       memberIds,
       groupName: projectName || 'Project',
@@ -398,9 +399,8 @@
         const finalOwnerId = ownerId || me.uid;
         const otherMembers = memberIds.filter((uid) => uid !== finalOwnerId);
         const chatConnId = await createProjectChat(finalOwnerId, name, otherMembers);
-        const projectRef = fb().doc(fb().collection(fs.db, 'projects'));
         const finalMemberIds = memberIds.length ? memberIds : [finalOwnerId];
-        await fb().setDoc(projectRef, {
+        const projectRef = await fb().addDoc(fb().collection(fs.db, 'projects'), {
           name,
           description,
           status,
@@ -422,8 +422,7 @@
             const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
             const ref = fb().ref(fs.storage, storagePath);
             await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-            const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
-            await fb().setDoc(libRef, {
+            await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
               folderPath: folder,
               name: fname,
               storagePath,
@@ -499,8 +498,7 @@
     const storagePath = `projects/${projectId}/library/${folder}/${Date.now()}_${fname}`;
     const ref = fb().ref(fs.storage, storagePath);
     await fb().uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-    const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
-    await fb().setDoc(libRef, {
+    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
       folderPath: folder,
       name: fname,
       storagePath,
@@ -516,8 +514,7 @@
     const base = byId('library-folder')?.value || 'record_in/docs';
     if (!name || !projectId || !fs?.db) return;
     const folderPath = base + '/' + name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const libRef = fb().doc(fb().collection(fs.db, 'projects', projectId, 'library'));
-    await fb().setDoc(libRef, {
+    await fb().addDoc(fb().collection(fs.db, 'projects', projectId, 'library'), {
       folderPath,
       name,
       type: 'folder',

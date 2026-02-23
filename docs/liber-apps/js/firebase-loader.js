@@ -51,6 +51,7 @@ async function loadFirebaseVersion(version) {
 		serverTimestamp,
 		collection,
 		doc,
+		addDoc,
 		setDoc,
 		getDoc,
 		getDocs,
@@ -114,6 +115,7 @@ async function loadFirebaseVersion(version) {
 		// Firestore
 		collection,
 		doc,
+		addDoc,
 		setDoc,
 		getDoc,
 		getDocs,

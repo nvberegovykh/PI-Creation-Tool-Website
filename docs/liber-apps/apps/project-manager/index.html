@@ -6,7 +6,7 @@
   <title>Project Manager</title>
   <link rel="stylesheet" href="../../css/style.css" />
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260222r2" />
 </head>
 <body>
   <div class="manager-app">
@@ -74,10 +74,14 @@
           <div class="project-form-upload-zone" id="project-form-upload-zone" tabindex="0">
             <input type="file" id="project-form-file-input" multiple accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv" />
             <div class="project-form-upload-icon">📁</div>
-            <div>Drag & drop files here or click to browse</div>
+            <div>Drag &amp; drop files here or click to browse</div>
             <div class="project-form-upload-hint">Paste (Ctrl+V) to add images</div>
           </div>
           <div class="project-form-file-list" id="project-form-file-list"></div>
+        </div>
+        <div class="form-group">
+          <label>Owner (user) *</label>
+          <select id="project-owner" title="Choose project owner from dropdown"></select>
         </div>
         <div class="form-group" id="project-members-wrap">
           <label>Project members</label>
@@ -88,10 +92,6 @@
               <div id="project-add-user-dropdown" class="user-dropdown hidden"></div>
             </div>
             <button type="button" id="project-add-member-btn" class="btn btn-secondary"><i class="fas fa-user-plus"></i> Add</button>
-          </div>
-          <div class="form-group" style="margin-top:12px">
-            <label>Owner (choose from members above) *</label>
-            <select id="project-owner"></select>
           </div>
         </div>
         <div class="form-actions">
@@ -123,10 +123,10 @@
     </section>
   </div>
 
-  <script>window._pmV='20260222r1';</script>
+  <script>window._pmV='20260222r2';</script>
   <script src="../../js/secure-keys.js"></script>
   <script src="../../js/firebase-loader.js"></script>
   <script src="../../js/firebase-service.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260222r2"></script>
 </body>
 </html>
