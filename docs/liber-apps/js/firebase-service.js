@@ -982,18 +982,29 @@ class FirebaseService {
 
     /**
      * Delete user
+     * When deleting another user: uses adminDeleteUser Cloud Function (works for project participants, bypasses Firestore rules).
+     * When deleting self: client-side deleteDoc + user.delete().
      */
     async deleteUser(uid) {
         await this.waitForInit();
         
+        const user = this.auth.currentUser;
+        const isSelf = user && user.uid === uid;
+        
+        if (!isSelf && this.functions) {
+            // Admin deleting another user: use Cloud Function (bypasses rules, removes from Auth too)
+            const res = await this.callFunction('adminDeleteUser', { uid });
+            if (!res || res.ok !== true) throw new Error('delete_failed');
+            console.log('User deleted successfully');
+            return;
+        }
+        
         try {
-            // Delete from Firestore
+            // Self-delete: Firestore allow when request.auth.uid == userId
             const userDocRef = firebase.doc(this.db, 'users', uid);
             await firebase.deleteDoc(userDocRef);
             
-            // Delete from Auth (requires re-authentication)
-            const user = this.auth.currentUser;
-            if (user && user.uid === uid) {
+            if (isSelf) {
                 await user.delete();
             }
             
