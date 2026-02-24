@@ -1911,36 +1911,17 @@
         const by = Math.max(0, Math.min(1, Number(seg.by || 0)));
         const size = Math.max(1, Math.min(24, Number(seg.size || 4)));
         const color = String(seg.color || '#ffffff');
-        const drawAr = Number(seg.aspectRatio) || 0;
-        let x = 0, y = 0, w = cw, h = ch;
-        const tile = canvas.closest('.call-tile');
-        let video = tile?.querySelector?.('video');
-        const fsHost = document.getElementById('call-fullscreen-media');
-        if (!video && canvas.id === 'call-draw-canvas') video = fsHost?.querySelector?.('video');
-        const useVideoRect = (canvas.id === 'call-draw-canvas') || tile?.classList?.contains?.('screen');
-        if (useVideoRect && video && video.videoWidth > 0 && video.videoHeight > 0){
-          const vAr = video.videoWidth / video.videoHeight;
-          const cAr = cw / ch;
-          if (vAr > cAr){ w = cw; h = cw / vAr; y = (ch - h) / 2; }
-          else { h = ch; w = ch * vAr; x = (cw - w) / 2; }
-        } else if (drawAr > 0){
-          const canvasAr = cw / ch;
-          if (drawAr > canvasAr){ w = cw; h = cw / drawAr; y = (ch - h) / 2; }
-          else { h = ch; w = ch * drawAr; x = (cw - w) / 2; }
-        }
-        const lineW = Math.max(0.5, size / Math.max(w, h, 1));
+        const scale = (canvas.clientWidth && canvas.width) ? Math.min(2, canvas.width / canvas.clientWidth) : 1;
+        const lineW = Math.max(1, Math.min(24, Math.round(size * scale)));
         ctx.save();
         ctx.strokeStyle = color;
-        ctx.lineWidth = lineW;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.setLineDash([]);
-        ctx.lineDashOffset = 0;
-        ctx.translate(x, y);
-        ctx.scale(w, h);
+        ctx.lineWidth = lineW;
         ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
+        ctx.moveTo(ax * cw, ay * ch);
+        ctx.lineTo(bx * cw, by * ch);
         ctx.stroke();
         ctx.restore();
       }catch(_){ }
@@ -1975,8 +1956,7 @@
             by: Number(seg.by || 0),
             color: String(seg.color || '#ffffff'),
             size: Math.max(1, Math.min(24, Number(seg.size || 4))),
-            cardKey,
-            aspectRatio: Number(seg.aspectRatio) || 0
+            cardKey
           });
           if (this._drawSegments.length > 1400){
             this._drawSegments.splice(0, this._drawSegments.length - 1400);
@@ -2033,7 +2013,6 @@
           payload.color = String(evt.color || '#ffffff');
           payload.size = Math.max(1, Math.min(24, Number(evt.size || 4)));
           payload.cardKey = String(evt.cardKey || '');
-          payload.aspectRatio = Number(evt.aspectRatio) || 0;
         }
         if (payload.type === 'clear'){
           payload.cardKey = String(evt.cardKey || '');
@@ -2124,6 +2103,28 @@
         const p = (e.touches && e.touches[0]) ? e.touches[0] : e;
         return { x: p.clientX - r.left, y: p.clientY - r.top };
       };
+      const _drawSendQueue = [];
+      let _drawSendTimer = null;
+      const flushDrawQueue = ()=>{
+        const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
+        while (_drawSendQueue.length && connId){
+          const seg = _drawSendQueue.shift();
+          if (seg) this._sendDrawEvent(connId, seg);
+        }
+      };
+      const pumpDrawQueue = ()=>{
+        if (!_drawSendQueue.length){ _drawSendTimer = null; return; }
+        const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
+        if (connId && _drawSendQueue.length){
+          const seg = _drawSendQueue.shift();
+          if (seg) this._sendDrawEvent(connId, seg);
+        }
+        _drawSendTimer = setTimeout(pumpDrawQueue, 25);
+      };
+      const scheduleSend = (seg)=>{
+        _drawSendQueue.push(seg);
+        if (!_drawSendTimer) _drawSendTimer = setTimeout(pumpDrawQueue, 0);
+      };
       const drawLine = (a, b)=>{
         if (!ctx || !a || !b) return;
         const r = canvas.getBoundingClientRect();
@@ -2137,12 +2138,10 @@
           by: Math.max(0, Math.min(1, b.y / h)),
           color: this._drawColor,
           size: this._drawSize,
-          cardKey: this._drawActiveCardKey || '',
-          aspectRatio: w / h
+          cardKey: this._drawActiveCardKey || ''
         };
         this._drawSegmentOnAllCanvases(seg);
-        const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
-        if (connId) this._sendDrawEvent(connId, seg);
+        scheduleSend(seg);
       };
       const startDraw = (e)=>{
         if (fs.classList.contains('hidden')) return;
@@ -2157,6 +2156,8 @@
         try{ e.preventDefault(); }catch(_){}
       };
       const stopDraw = ()=>{
+        if (_drawSendTimer){ clearTimeout(_drawSendTimer); _drawSendTimer = null; }
+        flushDrawQueue();
         this._drawActive = false;
         this._drawLastPoint = null;
       };
@@ -2179,8 +2180,7 @@
       if (size){
         this._drawSize = Math.max(1, Math.min(24, Number(size.value) || 4));
         size.addEventListener('input', ()=>{
-          const v = Number(size.value || 4);
-          this._drawSize = Math.max(1, Math.min(24, v));
+          this._drawSize = Math.max(1, Math.min(24, Number(size.value) || 4));
         });
       }
       if (clearBtn && ctx){
@@ -2460,7 +2460,7 @@
           dynacast: true,
           stopLocalTrackOnUnpublish: true,
           videoCaptureDefaults: isMobile
-            ? { resolution: { width: 320, height: 240 }, frameRate: 10 }
+            ? { resolution: { width: 640, height: 480 }, frameRate: 20 }
             : { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
           audioCaptureDefaults: {
             echoCancellation: true,
@@ -3623,9 +3623,9 @@
 
     getCallVideoConstraints(){
       if (this._isMobileDevice()){
-        return { width: { ideal: 320, max: 480 }, height: { ideal: 240, max: 360 }, frameRate: { ideal: 10, max: 15 } };
+        return { width: { ideal: 640, max: 960 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 20, max: 24 } };
       }
-      return true;
+      return { width: { ideal: 1280, max: 1920 }, height: { ideal: 720, max: 1080 }, frameRate: { ideal: 30, max: 30 } };
     }
 
     getPreferredMediaRecorderOptions(kind = 'audio'){
@@ -9918,7 +9918,9 @@
         status: 'connecting',
         activeCallId: cid,
         startedBy: this.currentUser.uid,
-        startedAt: new Date().toISOString()
+        startedAt: new Date().toISOString(),
+        drawClearAt: new Date().toISOString(),
+        drawClearCardKey: ''
       });
       return true;
     }).catch(err => {
