@@ -1865,7 +1865,7 @@
 
     _resizeTileDrawCanvases(){
       try{
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const dpr = this._isMobileDevice?.() ? 1 : Math.min(2, window.devicePixelRatio || 1);
         document.querySelectorAll('.call-tile-draw-canvas').forEach((canvas)=>{
           const tile = canvas.closest('.call-tile');
           if (!tile) return;
@@ -1915,7 +1915,17 @@
         const scale = (canvas.clientWidth && canvas.width) ? canvas.width / canvas.clientWidth : 1;
         size = Math.max(1, size * scale);
         let x = 0, y = 0, w = cw, h = ch;
-        if (drawAr > 0){
+        const tile = canvas.closest('.call-tile');
+        let video = tile?.querySelector?.('video');
+        const fsHost = document.getElementById('call-fullscreen-media');
+        if (!video && canvas.id === 'call-draw-canvas') video = fsHost?.querySelector?.('video');
+        const useVideoRect = (canvas.id === 'call-draw-canvas') || tile?.classList?.contains?.('screen');
+        if (useVideoRect && video && video.videoWidth > 0 && video.videoHeight > 0){
+          const vAr = video.videoWidth / video.videoHeight;
+          const cAr = cw / ch;
+          if (vAr > cAr){ w = cw; h = cw / vAr; y = (ch - h) / 2; }
+          else { h = ch; w = ch * vAr; x = (cw - w) / 2; }
+        } else if (drawAr > 0){
           const canvasAr = cw / ch;
           if (drawAr > canvasAr){ w = cw; h = cw / drawAr; y = (ch - h) / 2; }
           else { h = ch; w = ch * drawAr; x = (cw - w) / 2; }
@@ -2100,7 +2110,7 @@
       const resizeCanvas = ()=>{
         const w = Math.max(1, fs.clientWidth || 1);
         const h = Math.max(1, fs.clientHeight || 1);
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const dpr = this._isMobileDevice?.() ? 1 : Math.min(2, window.devicePixelRatio || 1);
         canvas.width = Math.round(w * dpr);
         canvas.height = Math.round(h * dpr);
         canvas.style.width = w + 'px';
@@ -2447,7 +2457,7 @@
           dynacast: true,
           stopLocalTrackOnUnpublish: true,
           videoCaptureDefaults: isMobile
-            ? { resolution: { width: 640, height: 480 }, frameRate: 15 }
+            ? { resolution: { width: 320, height: 240 }, frameRate: 10 }
             : { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
           audioCaptureDefaults: {
             echoCancellation: true,
@@ -3610,7 +3620,7 @@
 
     getCallVideoConstraints(){
       if (this._isMobileDevice()){
-        return { width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 20 } };
+        return { width: { ideal: 320, max: 480 }, height: { ideal: 240, max: 360 }, frameRate: { ideal: 10, max: 15 } };
       }
       return true;
     }
@@ -9741,10 +9751,14 @@
       this._layoutCallOverlay();
       this._syncCallFab();
     };
-    // Mobile: audio output switch (speaker / earpiece)
+    // Mobile: audio output switch (speaker / earpiece) — hidden when setSinkId unavailable (e.g. iOS Safari)
     const audioOutBtn = document.getElementById('audio-output-btn');
+    const hasSinkApi = !!(document.createElement('video').setSinkId);
+    const showAudioBtn = this._isMobileDevice() && hasSinkApi;
     if (audioOutBtn && this._isMobileDevice()){
-      audioOutBtn.style.display = '';
+      audioOutBtn.style.display = showAudioBtn ? '' : 'none';
+      const iosHint = document.getElementById('call-ios-audio-hint');
+      if (iosHint) iosHint.classList.toggle('hidden', showAudioBtn);
       this._audioOutputEarpiece = this._audioOutputEarpiece ?? true;
       this._applyAudioOutputSink();
       this._syncAudioOutputIcon(audioOutBtn);
