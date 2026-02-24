@@ -11082,7 +11082,25 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         p.addEventListener('play', onTime);
         p.addEventListener('pause', onTime);
         p.addEventListener('ended', ()=>{ self.updateVoiceWidgets(); });
-        self._overlayVoiceCleanup = ()=>{ p.removeEventListener('timeupdate', onTime); p.removeEventListener('play', onTime); p.removeEventListener('pause', onTime); p.removeEventListener('ended', onTime); };
+        let ticker = null;
+        const startTicker = ()=>{
+          if (ticker) return;
+          ticker = setInterval(()=>{
+            const ov = document.getElementById('recording-preview-overlay');
+            if (!ov || !ov.classList.contains('show') || ov.classList.contains('hidden')){ clearInterval(ticker); ticker = null; return; }
+            self.updateVoiceWidgets();
+          }, 150);
+        };
+        p.addEventListener('play', startTicker);
+        p.addEventListener('pause', ()=>{ if (ticker){ clearInterval(ticker); ticker = null; } });
+        self._overlayVoiceCleanup = ()=>{
+          p.removeEventListener('timeupdate', onTime);
+          p.removeEventListener('play', onTime);
+          p.removeEventListener('pause', onTime);
+          p.removeEventListener('ended', onTime);
+          p.removeEventListener('play', startTicker);
+          if (ticker){ clearInterval(ticker); ticker = null; }
+        };
       }
       self.updateVoiceWidgets();
     }

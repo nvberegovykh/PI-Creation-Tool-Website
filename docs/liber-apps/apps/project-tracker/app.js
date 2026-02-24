@@ -828,24 +828,19 @@
           } catch (_) {}
         }
         const createdAt = new Date().toISOString();
-        const reviewData = JSON.parse(JSON.stringify({
-          projectId: String(projectId),
-          userId: String(me),
-          userName: String(userName),
-          text: String(text),
-          createdAt: createdAt
-        }));
-        const publicReview = JSON.parse(JSON.stringify({
-          projectId: String(projectId),
-          userId: String(me),
-          userName: String(userName),
-          text: String(text),
-          createdAt: createdAt
-        }));
+        const raw = { projectId: String(projectId), userId: String(me), userName: String(userName), text: String(text), createdAt: createdAt };
+        const win = (typeof window !== 'undefined' && window.self !== window.top && window.parent) ? window.parent : window;
+        const reviewData = win.Object.assign({}, raw);
+        const publicReview = win.Object.assign({}, raw);
         const reviewsCol = fb.collection(fs.db, 'projects', projectId, 'reviews');
         const projectReviewsCol = fb.collection(fs.db, 'projectReviews');
-        await fb.addDoc(reviewsCol, reviewData);
-        await fb.addDoc(projectReviewsCol, publicReview);
+        if (fb.setDoc && fb.doc) {
+          await fb.setDoc(fb.doc(reviewsCol), reviewData);
+          await fb.setDoc(fb.doc(projectReviewsCol), publicReview);
+        } else {
+          await fb.addDoc(reviewsCol, reviewData);
+          await fb.addDoc(projectReviewsCol, publicReview);
+        }
         notify('Thank you for your review!');
         const inp = byId('tracker-review-input');
         if (inp) inp.value = '';
