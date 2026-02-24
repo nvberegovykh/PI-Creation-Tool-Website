@@ -7318,22 +7318,6 @@
 
     updateVoiceWidgets(){
       const p = this.ensureChatBgPlayer();
-      const overlay = document.getElementById('recording-preview-overlay');
-      if (overlay && overlay.classList.contains('show') && !overlay.classList.contains('hidden') && overlay.classList.contains('recording-audio-only')){
-        const d = Number(p?.duration || 0);
-        const c = Number(p?.currentTime || 0);
-        if (Number.isFinite(d) && d > 0 && Number.isFinite(c)){
-          const ratio = Math.min(1, Math.max(0, c / d));
-          const wave = overlay.querySelector('.voice-wave-player .wave');
-          if (wave){
-            const bars = wave.querySelectorAll('.bar');
-            const playedBars = Math.round(bars.length * ratio);
-            bars.forEach((b, i)=> b.classList.toggle('played', i < playedBars));
-          }
-          const timeEl = overlay.querySelector('.voice-wave-player .time');
-          if (timeEl) timeEl.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
-        }
-      }
       if (this._voiceWidgets.size === 0){ this.stopVoiceWidgetTicker(); }
       const stale = [];
       this._voiceWidgets.forEach((w, k)=>{ if (!w.wave || !w.wave.isConnected) stale.push(k); });
@@ -11078,44 +11062,57 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       overlay.classList.add('recording-audio-only');
       const waveWrap = document.createElement('div');
       waveWrap.className = 'voice-wave-player';
-      self.renderWaveAttachment(waveWrap, url, 'You');
+      const playBtn = document.createElement('button');
+      playBtn.className = 'play';
+      playBtn.innerHTML = '<i class="fas fa-play"></i>';
+      const wave = document.createElement('div');
+      wave.className = 'wave';
+      const timeEl = document.createElement('div');
+      timeEl.className = 'time';
+      timeEl.textContent = '0:00 / 0:00';
+      self.paintSeedWaveBars(wave, 54, 'You');
+      waveWrap.appendChild(playBtn);
+      waveWrap.appendChild(wave);
+      waveWrap.appendChild(timeEl);
       overlayPlayer.appendChild(waveWrap);
-      const p = self.ensureChatBgPlayer();
-      if (p && url){
-        self._voiceCurrentSrc = url;
-        self._voiceCurrentAttachmentKey = '';
-        self._voiceCurrentTitle = 'You';
-        p.src = url;
-        p.load();
-        const onMeta = ()=>{ self.updateVoiceWidgets(); p.removeEventListener('loadedmetadata', onMeta); };
-        p.addEventListener('loadedmetadata', onMeta);
-        const onTime = ()=>{ self.updateVoiceWidgets(); };
-        p.addEventListener('timeupdate', onTime);
-        p.addEventListener('play', onTime);
-        p.addEventListener('pause', onTime);
-        p.addEventListener('ended', ()=>{ self.updateVoiceWidgets(); });
-        let ticker = null;
-        const startTicker = ()=>{
-          if (ticker) return;
-          ticker = setInterval(()=>{
-            const ov = document.getElementById('recording-preview-overlay');
-            if (!ov || !ov.classList.contains('show') || ov.classList.contains('hidden')){ clearInterval(ticker); ticker = null; return; }
-            self.updateVoiceWidgets();
-          }, 33);
-        };
-        p.addEventListener('play', startTicker);
-        p.addEventListener('pause', ()=>{ if (ticker){ clearInterval(ticker); ticker = null; } });
-        startTicker();
-        self._overlayVoiceCleanup = ()=>{
-          p.removeEventListener('timeupdate', onTime);
-          p.removeEventListener('play', onTime);
-          p.removeEventListener('pause', onTime);
-          p.removeEventListener('ended', onTime);
-          p.removeEventListener('play', startTicker);
-          if (ticker){ clearInterval(ticker); ticker = null; }
-        };
-      }
-      self.updateVoiceWidgets();
+      const overlayAudio = document.createElement('audio');
+      overlayAudio.src = url;
+      overlayAudio.preload = 'metadata';
+      overlayAudio.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none';
+      overlayPlayer.appendChild(overlayAudio);
+      const updateOverlayProgress = ()=>{
+        const d = overlayAudio.duration;
+        const c = overlayAudio.currentTime;
+        const dur = Number.isFinite(d) && d > 0 ? d : 0;
+        const cur = Number.isFinite(c) ? c : 0;
+        const ratio = dur > 0 ? Math.min(1, Math.max(0, cur / dur)) : 0;
+        const bars = wave.querySelectorAll('.bar');
+        const playedBars = Math.round(bars.length * ratio);
+        bars.forEach((b, i)=> b.classList.toggle('played', i < playedBars));
+        timeEl.textContent = `${self.formatDuration(cur)} / ${self.formatDuration(dur)}`;
+      };
+      overlayAudio.addEventListener('loadedmetadata', updateOverlayProgress);
+      overlayAudio.addEventListener('timeupdate', updateOverlayProgress);
+      overlayAudio.addEventListener('play', updateOverlayProgress);
+      overlayAudio.addEventListener('pause', updateOverlayProgress);
+      overlayAudio.addEventListener('ended', ()=> { updateOverlayProgress(); });
+      playBtn.addEventListener('click', ()=>{
+        if (overlayAudio.paused){
+          overlayAudio.play().catch(()=>{});
+          playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        } else {
+          overlayAudio.pause();
+          playBtn.innerHTML = '<i class="fas fa-play"></i>';
+        }
+      });
+      overlayAudio.addEventListener('play', ()=> { playBtn.innerHTML = '<i class="fas fa-pause"></i>'; });
+      overlayAudio.addEventListener('pause', ()=> { playBtn.innerHTML = '<i class="fas fa-play"></i>'; });
+      overlayAudio.addEventListener('ended', ()=> { playBtn.innerHTML = '<i class="fas fa-play"></i>'; });
+      overlayAudio.load();
+      updateOverlayProgress();
+      self._overlayVoiceCleanup = ()=>{
+        try{ overlayAudio.pause(); overlayAudio.src = ''; overlayAudio.load(); }catch(_){}
+      };
     }
     overlay.classList.remove('hidden');
     overlay.classList.add('show');
@@ -11129,7 +11126,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     if (recordBtn){ recordBtn.classList.remove('recording', 'locked'); recordBtn.classList.add('hidden'); }
     if (slideHint) slideHint.classList.add('hidden');
     sendBtn.classList.remove('hidden');
-    if (discardBtn) discardBtn.classList.add('hidden');
+    if (discardBtn){ discardBtn.classList.remove('hidden'); discardBtn.querySelector('i').className = 'fas fa-xmark'; discardBtn.title = 'Discard'; }
     self._recordingSendInFlight = false;
     const doHide = ()=>{
       if (self._overlayVoiceCleanup){ try{ self._overlayVoiceCleanup(); }catch(_){ } self._overlayVoiceCleanup = null; }

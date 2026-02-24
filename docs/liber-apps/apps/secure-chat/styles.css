@@ -744,8 +744,6 @@ button.call-status-badge:hover{
 }
 .recording-send-btn.hidden,
 .recording-discard-btn.hidden{ display:none !important }
-/* Permanently hide discard button in recording preview - only dynamic (green padlock) stop stays */
-.recording-preview-overlay.show .recording-discard-btn{ display:none !important }
 .recording-slide-to-lock{
   position:absolute;
   bottom:100px;
