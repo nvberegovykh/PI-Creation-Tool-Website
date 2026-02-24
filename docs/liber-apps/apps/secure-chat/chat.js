@@ -1567,7 +1567,7 @@
                     return urls.some((u)=> String(u || '').startsWith('turn'));
                   });
                   if (!hasTurn){
-                    console.warn('[call] TURN fetch returned no TURN urls from', url);
+                    this._showErrorOnScreen('TURN fetch: no TURN urls from ' + (url || 'config'), false);
                     continue;
                   }
                   if (this._forceRelay){
@@ -1576,12 +1576,12 @@
                     return filtered;
                   }
                 }
-                console.warn('[call] TURN fetch response had no iceServers from', url);
+                this._showErrorOnScreen('TURN fetch: no iceServers from ' + (url || 'config'), false);
               } else {
                 const body = await resp.text().catch(()=> '');
-                console.warn('[call] TURN fetch failed', url, resp.status, body.slice(0, 120));
+                this._showErrorOnScreen('TURN fetch failed: ' + (resp?.status || '') + ' ' + (body?.slice(0, 80) || ''), false);
               }
-            }catch(e){ console.warn('[call] TURN fetch error', url, e?.message || e); }
+            }catch(e){ this._showErrorOnScreen('TURN fetch error: ' + (e?.message || e), false); }
           }
         }
         // 3) Static TURN fallback (if present)
@@ -1617,6 +1617,41 @@
     _isSfuConnected(){
       const st = String(this._sfuRoom?.state || '').toLowerCase();
       return !!this._sfuRoom && (st === 'connected');
+    }
+
+    _showCallError(msg){
+      const el = document.getElementById('call-error');
+      if (el){ el.textContent = msg ? String(msg).slice(0, 600) : ''; el.style.display = msg ? 'block' : 'none'; }
+      if (msg) this._showErrorToast(msg);
+    }
+    _showError(msg){
+      const el = document.getElementById('app-error');
+      if (el){ el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+      if (msg) this._showErrorToast(msg);
+    }
+    _showErrorToast(msg){
+      const toast = document.getElementById('error-toast');
+      const text = document.getElementById('error-toast-text');
+      if (!toast || !text) return;
+      text.textContent = String(msg || '').slice(0, 500);
+      toast.classList.remove('hidden');
+      if (!toast._dismissBound){
+        toast._dismissBound = true;
+        const dismiss = document.getElementById('error-toast-dismiss');
+        if (dismiss) dismiss.onclick = ()=>{ toast.classList.add('hidden'); };
+        toast.onclick = (e)=>{ if (e.target === toast || e.target === text) toast.classList.add('hidden'); };
+      }
+    }
+    _showErrorOnScreen(msg, inCall = null){
+      const inCallOverlay = inCall ?? (document.getElementById('call-overlay') && !document.getElementById('call-overlay').classList.contains('hidden'));
+      if (inCallOverlay) this._showCallError(msg);
+      else this._showError(msg);
+    }
+    _showUserError(msg, inCall = false){
+      if (inCall || (document.getElementById('call-overlay') && !document.getElementById('call-overlay').classList.contains('hidden')))
+        this._showCallError(msg);
+      else
+        this._showError(msg);
     }
 
     _avatarFromUser(user, fallback = '../../images/default-bird.png'){
@@ -1758,6 +1793,7 @@
         this._lastCallMarkerAtByConn.set(key, now);
         await this.saveMessage({ text: `[call:room:${key}_latest]`, connId: key });
       }catch(e){
+        this._showCallError('Join-call marker failed: ' + (e?.message || e));
         console.warn('Join-call marker send failed', e?.message || e);
       }
     }
@@ -1772,6 +1808,7 @@
         this._lastCallEndedMarkerAtByConn.set(key, now);
         await this.saveMessage({ text: `[call:ended:${key}]`, connId: key });
       }catch(e){
+        this._showCallError('End-call marker failed: ' + (e?.message || e));
         console.warn('End-call marker send failed', e?.message || e);
       }
     }
@@ -1854,8 +1891,9 @@
           ok = true;
         }
         const cs = document.getElementById('call-status');
-        if (!ok && cs) cs.textContent = 'Join call failed. Tap badge again.';
+        if (!ok && cs){ cs.textContent = 'Join call failed. Tap badge again.'; this._showCallError('Join call failed. Tap badge again.'); }
       }catch(e){
+        this._showCallError('Join call failed: ' + (e?.message || e));
         console.warn('Join-call badge action failed', e?.message || e);
       }finally{
         this._callBadgeJoinInFlight = false;
@@ -2452,12 +2490,14 @@
         const token = String(tokenResp?.token || '').trim();
         if (!wsUrl || !token){
           if (cs) cs.textContent = 'SFU unavailable. Configure getSfuToken.';
+          this._showCallError('SFU unavailable. Configure getSfuToken.');
           return false;
         }
         const mod = await this._ensureSfuClient();
         const Room = mod?.Room;
         if (!Room){
           if (cs) cs.textContent = 'SFU client load failed.';
+          this._showCallError('SFU client load failed.');
           return false;
         }
         if (this._sfuRoom){
@@ -2556,16 +2596,18 @@
         }catch(_){ }
         const startBtn = document.getElementById('start-call-btn');
         if (startBtn) startBtn.style.display = 'none';
+        this._showCallError('');
         return true;
       }catch(e){
-        console.warn('SFU connect failed', e?.message || e);
+        const errMsg = e?.message || String(e);
         const cs = document.getElementById('call-status');
-        const msg = (e?.message || '').toLowerCase();
-        if (msg.includes('timeout') || msg.includes('timed out')) {
-          if (cs) cs.textContent = 'Connection timed out. Please check your network and try again.';
-        } else {
-          if (cs) cs.textContent = 'SFU connection failed.';
-        }
+        const lower = (errMsg || '').toLowerCase();
+        const display = lower.includes('timeout') || lower.includes('timed out')
+          ? 'Connection timed out. Check your network.'
+          : `SFU failed: ${errMsg}`;
+        if (cs) cs.textContent = display;
+        this._showCallError(display);
+        console.warn('SFU connect failed', e?.message || e);
         return false;
       }
     }
@@ -2582,6 +2624,7 @@
           if (connected) return;
           const cs = document.getElementById('call-status');
           if (cs) cs.textContent = 'Connection failed (TURN/permissions).';
+          this._showCallError('Connection failed (TURN/permissions).');
           await this.cleanupActiveCall(false, 'connect_timeout_fail');
           try{
             const roomRef = firebase.doc(this.db,'callRooms', callConnId);
@@ -9542,7 +9585,10 @@
         await firebase.updateDoc(roomRef, updates);
       }
       return roomRef;
-    }catch(_){ return roomRef; }
+    }catch(e){
+      if (e?.code === 'permission-denied'){ this._showCallError('Permission denied creating call room. User-user chat may need isParticipant. Admin works.'); console.warn('[call] ensureRoom permission-denied', e?.message || e); }
+      return roomRef;
+    }
   }
 
   async enterRoom(video = false){
@@ -9551,11 +9597,12 @@
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log('Mic permission granted');
-    } catch (err) {
-      console.error('Mic permission denied', err);
-      alert('Microphone access is required for voice detection in calls.');
-      return;
-    }
+      } catch (err) {
+        const msg = 'Microphone access is required for calls.';
+        this._showError(msg);
+        alert(msg);
+        return;
+      }
     this._videoEnabled = !!video;
     this._disableCallFab = false;
     await this.ensureRoom();
@@ -9570,7 +9617,9 @@
       const callConnId = this.getCallConnId();
       const roomRef = firebase.doc(this.db,'callRooms', callConnId);
       const peersRef = firebase.collection(this.db,'callRooms', callConnId, 'peers');
-      const onSnapErr = ()=>{};
+      const onSnapErr = (err)=>{
+        if (err){ this._showCallError('Call room error: ' + (err?.code || '') + ' ' + (err?.message || err)); console.warn('[SFU] callRooms/peers error', err?.code, err?.message || err); }
+      };
       this._roomUnsub = firebase.onSnapshot(roomRef, (snap)=>{
         this._roomState = snap.exists() ? (snap.data() || { status: 'idle', activeCallId: null }) : { status: 'idle', activeCallId: null };
         this.updateRoomUI();
@@ -9589,7 +9638,7 @@
             try{
               const ok = await this._startOrJoinSfuCall(this._videoEnabled);
               if (ok) await this._emitJoinCallMessage(callConnId);
-            }catch(_){}
+            }catch(e){ this._showCallError('Auto-join failed: ' + (e?.message || e)); console.warn('SFU auto-join failed', e?.message || e); }
             finally{ this._joiningCall = false; }
           }
         }
@@ -9599,7 +9648,10 @@
       try{ const snap = await firebase.getDoc(roomRef); if (snap.exists()) this._roomState = snap.data() || this._roomState; }catch(_){}
       this._inRoom = true;
       this._syncCallFab();
-      await this.updatePresence('idle', false);
+      try{ await this.updatePresence('idle', false); }catch(e){
+        this._showCallError('Presence error: ' + (e?.code || '') + ' ' + (e?.message || e));
+        console.warn('[SFU] updatePresence failed', e?.code, e?.message || e);
+      }
       return;
     }
     const ov = document.getElementById('call-overlay');
@@ -9611,7 +9663,9 @@
     if (this._peersUnsub) this._peersUnsub();
     const callConnId = this.getCallConnId();
     const roomRef = firebase.doc(this.db,'callRooms', callConnId);
-    const onSnapErr = ()=>{};
+    const onSnapErr = (err)=>{
+      if (err){ this._showCallError('Call room error: ' + (err?.code || '') + ' ' + (err?.message || err)); console.warn('[call] callRooms error', err?.code, err?.message || err); }
+    };
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
       const activeCid = this._roomState.activeCallId;
@@ -9748,6 +9802,7 @@
             if (this._activeCid) await this.renegotiateCall(this._activeCid, true);
           }
         }catch(e){
+          this._showCallError('Enable camera failed: ' + (e?.message || e));
           console.warn('Enable camera failed', e?.message || e);
           this._videoEnabled = false;
         }
@@ -9785,8 +9840,8 @@
           this._attachSfuLocalPreview();
           shareBtn.classList.toggle('active', next);
         }catch(e){
+          this._showCallError('Screen share failed: ' + (e?.message || e));
           console.warn('SFU screen share failed', e?.message || e);
-          alert('Screen sharing failed on this device/browser. Try updating browser or using desktop.');
         }
         return;
       }
@@ -9816,8 +9871,8 @@
         const lv = document.getElementById('localVideo');
         if (lv) lv.srcObject = screenStream;
         shareBtn.classList.add('active');
-        if (replaced === 0) console.warn('Screen share: no video sender found (voice-only call?)');
-      } catch (e) { console.warn('Screen share failed', e); }
+        if (replaced === 0){ this._showCallError('Screen share: no video sender found (voice-only call?)'); console.warn('Screen share: no video sender found'); }
+      } catch (e) { this._showCallError('Screen share failed: ' + (e?.message || e)); console.warn('Screen share failed', e); }
     };
     if (hideBtn) hideBtn.onclick = () => { 
       console.log('Hide clicked'); 
@@ -9935,7 +9990,7 @@
 
   async attemptStartRoomCall(video){
     console.log('Attempting to start room call');
-    if (this._startingCall || this._joiningCall) { console.warn('Call start suppressed (busy)'); return; }
+    if (this._startingCall || this._joiningCall) { this._showCallError('Call start suppressed (busy). Wait and try again.'); console.warn('Call start suppressed (busy)'); return; }
     const callConnId = this.getCallConnId();
     if (!callConnId) return;
     if (!this._roomState) {
@@ -9959,8 +10014,9 @@
     this._startingCall = true;
     this._connectingCid = cid;
     const success = await this.runStartTransaction(roomRef, cid).catch(err => {
+      const msg = err?.code === 'permission-denied' ? 'Permission denied starting call. Check Firestore rules for /callRooms.' : 'Transaction failed: ' + (err?.message || err);
+      this._showCallError(msg);
       console.error('Transaction failed:', err);
-      if (err.code === 'permission-denied') alert('Permission denied starting call. Check Firestore rules for /callRooms.');
       return false;
     });
     if (success) {
@@ -9979,6 +10035,7 @@
         try { await this.joinMultiCall(joinCid, video); }
         finally { this._joiningCall = false; }
       } else {
+        this._showCallError('No valid active call to join');
         console.warn('No valid active call to join');
       }
       this._startingCall = false;
@@ -10000,6 +10057,7 @@
       });
       return true;
     }).catch(err => {
+      this._showCallError('Start call transaction failed: ' + (err?.message || err));
       console.error('Transaction failed:', err);
       return false;
     });
@@ -10034,6 +10092,7 @@
     try {
       stream = await navigator.mediaDevices.getUserMedia(config);
     } catch (err) {
+      this._showCallError('Microphone/camera failed: ' + (err?.message || err));
       console.error('getUserMedia failed:', err);
       const se = document.getElementById('call-status');
       if (se) se.textContent = 'Microphone/camera access denied.';
@@ -10068,7 +10127,8 @@
       try{
         requiredIceServers = await this.getRequiredIceServers();
       }catch(e){
-        console.warn('[call] TURN unavailable for startMultiCall', e?.message || e);
+        const msg = `TURN unavailable: ${e?.message || e}. Deploy getTurnConfig and Twilio.`;
+        this._showCallError(msg);
         if (statusEl) statusEl.textContent = 'Call network unavailable (TURN). Deploy getTurnConfig and Twilio secrets.';
         return;
       }
@@ -10097,6 +10157,7 @@
       };
       pc.onicecandidateerror = (e)=>{
         try{
+          this._showCallError('ICE error ' + (e?.errorCode || '') + ': ' + (e?.errorText || e?.message || ''));
           console.warn('ICE candidate error', peerUid, e?.errorCode, e?.errorText || '');
           const code = Number(e?.errorCode || 0);
           if (code === 701 && !this._forceRelay && !this._relayRetryForCall.has(callId)){
@@ -10117,8 +10178,8 @@
       // ICE watchdogs
       const wdKey = callId+':'+peerUid;
       try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog: restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog: renegotiate for '+peerUid); if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
+      const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ pc.restartIce && pc.restartIce(); } }catch(e){ this._showCallError('Watchdog restartIce: ' + (e?.message || e)); console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
+      const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ if (pc.signalingState !== 'stable') return; const offer = await pc.createOffer({ iceRestart:true }); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(offer); const offersRef = firebase.collection(this.db,'calls',callId,'offers'); await firebase.setDoc(firebase.doc(offersRef, peerUid), { sdp: offer.sdp, type: offer.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; this._showCallError('Watchdog renegotiate: ' + (e?.message || e)); console.warn('watchdog renegotiate error', e?.message||e); } }, 25000);
       this._pcWatchdogs.set(wdKey, { t1, t2 });
       // Prepare transceivers first to lock m-line order
       const txAudio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -10221,9 +10282,11 @@
           }
           // Do not mark room active until we have an actually connected PeerConnection.
         } catch (err) {
+          this._showCallError('setRemote failed: ' + (err?.message || err));
           console.error('setRemote failed for ' + peerUid, err);
         }
       }, (err)=>{
+        this._showCallError(`Call error (answers): ${err?.code || ''} ${err?.message || err}`);
         console.warn('answers listener error', peerUid, err?.code || '', err?.message || err);
         const cs = document.getElementById('call-status');
         if (cs) cs.textContent = 'Call permissions error (answers listener).';
@@ -10241,6 +10304,7 @@
           pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
         });
       }, (err)=>{
+        this._showCallError(`Call error (candidates): ${err?.code || ''} ${err?.message || err}`);
         console.warn('candidates listener error', peerUid, err?.code || '', err?.message || err);
         const cs = document.getElementById('call-status');
         if (cs) cs.textContent = 'Call permissions error (candidates listener).';
@@ -10295,6 +10359,7 @@
     try {
       localStream = await navigator.mediaDevices.getUserMedia(localCfg);
     } catch (err) {
+      this._showCallError('Microphone/camera failed: ' + (err?.message || err));
       console.error('getUserMedia failed:', err);
       const se = document.getElementById('call-status');
       if (se) se.textContent = 'Microphone/camera access denied.';
@@ -10335,6 +10400,7 @@
         if (offerDoc.exists()) break;
       }
       if (!offerDoc.exists()){
+        this._showCallError('No offer found. Room may not be active yet.');
         console.warn('No offer for current user found; room may not be active yet');
         const se = document.getElementById('call-status');
         if (se) se.textContent = 'Room open. Waiting for offer...';
@@ -10349,7 +10415,8 @@
     try{
       requiredIceServers = await this.getRequiredIceServers();
     }catch(e){
-      console.warn('[call] TURN unavailable for joinMultiCall', e?.message || e);
+      const msg = `TURN unavailable: ${e?.message || e}`;
+      this._showCallError(msg);
       const cs = document.getElementById('call-status');
       if (cs) cs.textContent = 'Call network unavailable (TURN).';
       this._joiningCall = false;
@@ -10379,6 +10446,7 @@
     };
     pc.onicecandidateerror = (e)=>{
       try{
+        this._showCallError('ICE error(join) ' + (e?.errorCode || '') + ': ' + (e?.errorText || e?.message || ''));
         console.warn('ICE candidate error(join)', peerUid, e?.errorCode, e?.errorText || '');
         const code = Number(e?.errorCode || 0);
         if (code === 701 && !this._forceRelay && !this._relayRetryForCall.has(callId)){
@@ -10504,6 +10572,7 @@
         pc.addIceCandidate(new RTCIceCandidate(v.candidate)).catch(()=>{});
       });
     }, (err)=>{
+      this._showCallError(`Call error (join candidates): ${err?.code || ''} ${err?.message || err}`);
       console.warn('join candidates listener error', peerUid, err?.code || '', err?.message || err);
       const cs = document.getElementById('call-status');
       if (cs) cs.textContent = 'Call permissions error (join candidates listener).';
@@ -10525,8 +10594,9 @@
         const ans2 = await pc.createAnswer();
         await pc.setLocalDescription(ans2);
         await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans2.sdp, type: ans2.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken });
-      }catch(e){ console.warn('offer update handling failed', e?.message||e); }
+      }catch(e){ this._showCallError('Offer update failed: ' + (e?.message || e)); console.warn('offer update handling failed', e?.message||e); }
     }, (err)=>{
+      this._showCallError(`Call error (join offers): ${err?.code || ''} ${err?.message || err}`);
       console.warn('join offers listener error', peerUid, err?.code || '', err?.message || err);
       const cs = document.getElementById('call-status');
       if (cs) cs.textContent = 'Call permissions error (join offers listener).';
@@ -10538,8 +10608,8 @@
     // Add watchdogs on joiner too
     const wdKey = callId+':'+peerUid;
     try { const old = this._pcWatchdogs.get(wdKey); if (old){ clearTimeout(old.t1); clearTimeout(old.t2); } } catch(_){ }
-    const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ console.log('ICE watchdog (join): restartIce for '+peerUid); pc.restartIce && pc.restartIce(); } }catch(e){ console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
-    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ console.log('ICE watchdog (join): resend answer for '+peerUid); if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } else { console.log('Skip resend answer, signalingState=', pc.signalingState); } } }catch(e){ console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
+    const t1 = setTimeout(()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed'){ pc.restartIce && pc.restartIce(); } }catch(e){ this._showCallError('Watchdog restartIce: ' + (e?.message || e)); console.warn('watchdog restartIce error', e?.message||e); } }, 15000);
+    const t2 = setTimeout(async()=>{ try{ if (pc.connectionState!=='connected' && pc.connectionState!=='completed' && pc.signalingState !== 'closed'){ if (pc.signalingState === 'have-remote-offer'){ const ans = await pc.createAnswer({}); if (pc.signalingState === 'closed') return; await pc.setLocalDescription(ans); await firebase.setDoc(firebase.doc(answersRef, peerUid), { sdp: ans.sdp, type: ans.type, createdAt: new Date().toISOString(), connId: callConnId, fromUid: this.currentUser.uid, toUid: peerUid, offerToken }); } } }catch(e){ const msg = String(e?.message || e || '').toLowerCase(); if (msg.includes('signalingstate') && msg.includes('closed')) return; this._showCallError('Watchdog resend answer: ' + (e?.message || e)); console.warn('watchdog resend answer error', e?.message||e); } }, 25000);
     this._pcWatchdogs.set(wdKey, { t1, t2 });
 
       await this.updatePresence('connecting', video);
@@ -10717,7 +10787,7 @@
         }
         this.initCallControls(video);
         this._layoutCallOverlay();
-      }catch(e){ console.warn('Call start failed', e); }
+      }catch(e){ this._showCallError('Call start failed: ' + (e?.message || e)); console.warn('Call start failed', e); }
     }
 
     async answerCall(callId, { video }){
@@ -10795,7 +10865,7 @@
         }
         this.initCallControls(video);
         this._layoutCallOverlay();
-      }catch(e){ console.warn('Answer call failed', e); }
+      }catch(e){ this._showCallError('Answer call failed: ' + (e?.message || e)); console.warn('Answer call failed', e); }
     }
 
     async _renderParticipants(){
@@ -10938,7 +11008,7 @@
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         }
         await this.captureMedia(stream, this.getPreferredMediaRecorderOptions('audio'), 60_000, 'voice.webm');
-      }catch(e){ console.warn('Voice record unavailable', e); }
+      }catch(e){ this._showCallError('Voice record unavailable: ' + (e?.message || e)); console.warn('Voice record unavailable', e); }
     }
     async recordVideoMessage(){
       try{
@@ -10959,7 +11029,7 @@
         const ext = String(opts?.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
         await this.captureMedia(stream, opts, 30_000, `video.${ext}`);
         if (indicator){ indicator.classList.add('hidden'); }
-      }catch(e){ console.warn('Video record unavailable', e); }
+      }catch(e){ this._showCallError('Video record unavailable: ' + (e?.message || e)); console.warn('Video record unavailable', e); }
     }
 
     async captureMedia(stream, options, maxMs, filename){
@@ -11074,7 +11144,7 @@
         } else {
           newStream.getTracks().forEach(t => t.stop());
         }
-      }catch(e){ console.warn('Switch camera failed', e); }
+      }catch(e){ this._showCallError('Switch camera failed: ' + (e?.message || e)); console.warn('Switch camera failed', e); }
     }
 
     _startRecordingWaveform(stream, audioWaveEl){
@@ -11169,7 +11239,7 @@
         if (this._activeCid) await this.renegotiateCall(this._activeCid, !!this._videoEnabled);
         const lv = document.getElementById('localVideo');
         if (lv && localStream) lv.srcObject = localStream;
-      } catch (e) { console.warn('Stop screen share error', e); }
+      } catch (e) { this._showCallError('Stop screen share: ' + (e?.message || e)); console.warn('Stop screen share error', e); }
     }
 
     async cleanupActiveCall(endRoom = false, reason = 'unknown'){
@@ -11352,6 +11422,7 @@
             cont.appendChild(av);
             // Video tile logic...
           } catch (err) {
+            this._showCallError('Render participant error: ' + (err?.message || err));
             console.error('Error rendering remote participant:', err);
           }
         });
@@ -11381,6 +11452,7 @@
         selfAv.innerHTML = `<img src="${selfCached.avatarUrl || '../../images/default-bird.png'}" alt="${selfCached.username}"/>`;
         cont.appendChild(selfAv);
       } catch (err) {
+        this._showCallError('UI update error: ' + (err?.message || err));
         console.error('UI update error:', err);
       }
       const inCall = !!((this._activePCs && this._activePCs.size > 0) || this._isSfuConnected());
