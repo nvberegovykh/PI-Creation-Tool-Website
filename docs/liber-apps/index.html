@@ -786,20 +786,10 @@
       window.LIBER_APP_VERSION = '20260222r18';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
-        const scripts = [
-          'js/crypto.js',
-          'js/secure-keys.js',
-          'js/email-service.js',
-          'js/firebase-service.js',
-          'js/migration-helper.js',
-          'js/auth.js',
-          'js/dashboard.js',
-          'js/apps.js',
-          'js/users.js',
-          'js/main.js',
-          'js/chatgpt-integration.js'
-        ];
-        document.write(scripts.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
+        const critical = ['js/crypto.js', 'js/secure-keys.js', 'js/email-service.js', 'js/firebase-service.js', 'js/auth.js', 'js/dashboard.js', 'js/apps.js', 'js/users.js', 'js/main.js'];
+        const deferred = ['js/migration-helper.js', 'js/chatgpt-integration.js'];
+        document.write(critical.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
+        document.write(deferred.map((src) => `<script defer src="${src}?v=${v}"><\/script>`).join(''));
       })();
     </script>
     <script>

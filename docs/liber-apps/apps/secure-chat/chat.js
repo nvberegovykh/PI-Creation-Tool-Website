@@ -84,7 +84,7 @@
       this._setActiveSeq = 0;
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
-      this._attachmentPreviewMax = 4;
+      this._attachmentPreviewMax = 7;
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -1960,8 +1960,10 @@
 
     _bindDrawSyncForRoom(connId){
       try{
-        const id = String(connId || '').trim();
+        const id = String(connId || this.getCallConnId() || this.activeConnection || '').trim();
         if (!id || !this.db) return;
+        if (this._drawSyncBoundConnId === id) return;
+        this._drawSyncBoundConnId = id;
         if (this._drawSyncUnsub){
           try{ this._drawSyncUnsub(); }catch(_){ }
           this._drawSyncUnsub = null;
@@ -2120,7 +2122,8 @@
         if (!fs || !host) return;
         if (this._tileFullscreenState && this._tileFullscreenState.tile === tile) return;
         this._bindCallDrawTools();
-        this._bindDrawSyncForRoom(this.getCallConnId() || this.activeConnection || '');
+        const drawConnId = this.getCallConnId() || this.activeConnection || '';
+        this._bindDrawSyncForRoom(drawConnId);
         if (this._tileFullscreenState) this._closeCallTileFullscreen();
         const parent = tile.parentElement;
         const next = tile.nextSibling;
@@ -2507,6 +2510,8 @@
             const inRoom = !!data.inRoom;
             if (typeof data.connId === 'string' && data.connId.trim()) this._callConnectionId = data.connId.trim();
             this._inRoom = inRoom;
+            const fs = document.getElementById('call-fullscreen');
+            if (fs && !fs.classList.contains('hidden')) this._bindDrawSyncForRoom(this.getCallConnId() || this.activeConnection || '');
             const status = document.getElementById('call-status');
             if (status){
               if (String(data.error || '').trim()) status.textContent = String(data.error).trim();
@@ -3596,7 +3601,31 @@
       listEl.classList.add('loading');
       listEl.innerHTML = '';
       let permissionDenied = false;
-      try{
+      let usedPrefetchCache = false;
+      const parent = typeof window !== 'undefined' && window.parent && window.parent !== window ? window.parent : window;
+      const cache = parent.__chatConnectionsPrefetchCache;
+      if (cache && cache.uid === this.currentUser?.uid && cache.connections && (Date.now() - (cache.ts || 0)) < 30000) {
+        try {
+          const temp = cache.connections;
+          temp.forEach((c)=>{
+            const fallbackParts = this.getConnParticipants(c);
+            if (!Array.isArray(c.participants) && fallbackParts.length) c.participants = fallbackParts;
+            if (Array.isArray(c.participants) && c.participants.length === 2){
+              const peer = c.participants.find((u)=> u && u !== this.currentUser.uid);
+              if (peer) this._peerUidByConn.set(c.id, peer);
+            }
+          });
+          this.connections = temp;
+          if (this.activeConnection){
+            const active = temp.find((c)=> c && c.id === this.activeConnection);
+            if (active && typeof active.readBy === 'object'){
+              this._activeConnReadBy = active.readBy;
+            }
+          }
+          usedPrefetchCache = true;
+        } catch (_) {}
+      }
+      if (!usedPrefetchCache) try{
         const fields = ['participants', 'users', 'memberIds'];
         const byId = new Map();
         for (const field of fields){
@@ -4083,7 +4112,7 @@
         return;
       }
       const activeConnId = this.activeConnection;
-      const visibleLimit = 500;
+      const visibleLimit = 180;
       const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
       const readMarkerMs = this.getEffectiveReadMarkerForConn(activeConnId, activeConnData);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
@@ -4172,7 +4201,7 @@
             const d = olderAsDocs[i];
             if (loadSeq !== this._msgLoadSeq || this.activeConnection !== connId) break;
             try{ await renderOne(d, connId, { forceAppend: true, appendContext }); }catch(_){}
-            if ((olderAsDocs.length - 1 - i) % 3 === 2) await this.yieldToUi();
+            if (olderAsDocs.length > 50 || (olderAsDocs.length - 1 - i) % 3 === 2) await this.yieldToUi();
           }
           const heightAdded = box.scrollHeight - prevScrollHeight;
           box.scrollTop = prevScrollTop + heightAdded;
@@ -4482,36 +4511,27 @@
               }
               lastRenderedDay = '';
             }
+            const decryptMessageText = async (m, cid)=>{
+              if (typeof m.text === 'string' && !m.cipher) return m.text;
+              const aesKey = await getKeyForConn(cid);
+              try{ return await chatCrypto.decryptWithKey(m.cipher, aesKey); }catch(_){}
+              try{
+                const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+                for (const k of candidates){ try{ return await chatCrypto.decryptWithKey(m.cipher, k); }catch(_){ } }
+              }catch(_){}
+              try{ const ecdh = await this.getOrCreateSharedAesKey(); return await chatCrypto.decryptWithKey(m.cipher, ecdh); }catch(_){}
+              return '[unable to decrypt]';
+            };
             const renderOne = async (d, sourceConnId = activeConnId, opts = {})=>{
               const forceInsertBefore = !!opts.forceInsertBefore;
               const forceAppend = !!opts.forceAppend;
               const replaceEl = opts.replaceEl || null;
+              const preDecryptedText = opts.preDecryptedText;
               if (loadSeq !== this._msgLoadSeq || this.activeConnection !== activeConnId) return;
               const m=(typeof d.data === 'function' ? d.data() : d.data) || {};
-              const aesKey = await getKeyForConn(sourceConnId);
-              let text='';
-              if (typeof m.text === 'string' && !m.cipher){
-                text = m.text;
-              } else {
-                try{
-                  text = await chatCrypto.decryptWithKey(m.cipher, aesKey);
-                }catch(_){
-                  let ok = false;
-                  try{
-                    const candidates = await this.getFallbackKeyCandidatesForConn(sourceConnId);
-                    for (const k of candidates){
-                      try{
-                        text = await chatCrypto.decryptWithKey(m.cipher, k);
-                        ok = true;
-                        break;
-                      }catch(_){ }
-                    }
-                  }catch(_){ }
-                  if (!ok){
-                    try { const ecdh = await this.getOrCreateSharedAesKey(); text = await chatCrypto.decryptWithKey(m.cipher, ecdh);}
-                    catch(_){ text='[unable to decrypt]'; }
-                  }
-                }
+              let text = preDecryptedText;
+              if (text === undefined){
+                text = await decryptMessageText(m, sourceConnId);
               }
               const el = document.createElement('div');
               el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
@@ -4764,11 +4784,19 @@
             : docs;
           // column-reverse: first child = bottom. Non-append: iterate newest-first. AppendOnly: prepend oldest-first so newest ends up first.
           const iter = appendOnly ? Array.from({length: docsToRender.length}, (_, j)=> j) : Array.from({length: docsToRender.length}, (_, j)=> docsToRender.length - 1 - j);
-          for (let idx = 0; idx < docsToRender.length; idx++) {
-            const i = iter[idx];
-            const d = docsToRender[i];
-            try{ await renderOne(d, d.sourceConnId || activeConnId); }catch(_){ }
-            if (idx % 2 === 1) await this.yieldToUi();
+          const DECRYPT_BATCH = 6;
+          for (let batchStart = 0; batchStart < docsToRender.length; batchStart += DECRYPT_BATCH) {
+            const batchIndices = iter.slice(batchStart, Math.min(batchStart + DECRYPT_BATCH, docsToRender.length));
+            const batchDocs = batchIndices.map((i)=> docsToRender[i]);
+            const decryptedTexts = await Promise.all(batchDocs.map((d)=>{
+              const m = (typeof d.data === 'function' ? d.data() : d.data) || {};
+              return decryptMessageText(m, d.sourceConnId || activeConnId);
+            }));
+            for (let j = 0; j < batchDocs.length; j++) {
+              const d = batchDocs[j];
+              try{ await renderOne(d, d.sourceConnId || activeConnId, { preDecryptedText: decryptedTexts[j] }); }catch(_){ }
+              if (docsToRender.length > 50 ? true : j % 2 === 1) await this.yieldToUi();
+            }
           }
           if (!appendOnly && renderTarget !== box && lastRenderedDay){
             const topSep = document.createElement('div');
@@ -4782,7 +4810,7 @@
               box.appendChild(renderTarget.firstChild);
             }
           }
-          while (box.childElementCount > 2000){
+          while (box.childElementCount > 1400){
             const last = box.lastElementChild;
             if (last) box.removeChild(last);
           }
@@ -5069,7 +5097,7 @@
             if (shareBtn){
               shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
             }
-            if ((i % 2) === 1){
+            if (fallbackDocs.length > 50 || (i % 2) === 1){
               await this.yieldToUi();
             }
           }
@@ -8333,12 +8361,12 @@
               }
             }catch(_){ }
           }
-          // Keep chat switching smooth: do not fan out decrypt attempts across all chats.
+          // Keep chat switching smooth: try reduced candidate set before full scan.
           if (!decrypted && (isVideoRecording || this.isVideoFilename(fileName))){
             const recentConnIds = (this.connections || [])
               .map((c)=> c && c.id)
               .filter((cid)=> cid && !candidateConnIds.includes(cid))
-              .slice(0, 200);
+              .slice(0, 25);
             for (const cid of recentConnIds){
               if (decrypted) break;
               try{
@@ -8355,9 +8383,9 @@
             if (!decrypted){
               try{
                 const allConnIds = await this.getAllMyConnectionIdsForDecrypt(1500);
-                for (const cid of allConnIds){
+                const reducedSet = allConnIds.filter((cid)=> cid && !candidateConnIds.includes(cid)).slice(0, 25);
+                for (const cid of reducedSet){
                   if (decrypted) break;
-                  if (!cid || candidateConnIds.includes(cid)) continue;
                   try{
                     const candidates = await this.getFallbackKeyCandidatesForConn(cid);
                     for (const k of (candidates || [])){
@@ -8368,6 +8396,22 @@
                       }catch(_){ }
                     }
                   }catch(_){ }
+                }
+                if (!decrypted){
+                  for (const cid of allConnIds){
+                    if (decrypted) break;
+                    if (!cid || candidateConnIds.includes(cid) || reducedSet.includes(cid)) continue;
+                    try{
+                      const candidates = await this.getFallbackKeyCandidatesForConn(cid);
+                      for (const k of (candidates || [])){
+                        try{
+                          b64 = await chatCrypto.decryptWithKey(payload, k);
+                          decrypted = true;
+                          break;
+                        }catch(_){ }
+                      }
+                    }catch(_){ }
+                  }
                 }
               }catch(_){ }
             }
@@ -8391,10 +8435,12 @@
                   (ks || []).forEach((k)=> pushKey(k));
                 }
               }catch(_){ }
+              let allConnIdsForKeys = [];
               try{
                 if (isVideoRecording || this.isVideoFilename(fileName)){
-                  const allConnIds = await this.getAllMyConnectionIdsForDecrypt(1500);
-                  for (const cid of allConnIds){
+                  allConnIdsForKeys = await this.getAllMyConnectionIdsForDecrypt(1500);
+                  const reduced = allConnIdsForKeys.slice(0, 30);
+                  for (const cid of reduced){
                     const ks = await this.getFallbackKeyCandidatesForConn(cid);
                     (ks || []).forEach((k)=> pushKey(k));
                   }
@@ -8410,6 +8456,24 @@
                     break;
                   }catch(_){ }
                 }
+              }
+              if (!decrypted && allConnIdsForKeys.length > 30){
+                try{
+                  for (const cid of allConnIdsForKeys.slice(30)){
+                    const ks = await this.getFallbackKeyCandidatesForConn(cid);
+                    (ks || []).forEach((k)=> pushKey(k));
+                  }
+                  for (const cand of payloadCandidates){
+                    if (decrypted) break;
+                    for (const key of keyCandidates){
+                      try{
+                        b64 = await chatCrypto.decryptWithKey(cand, key);
+                        decrypted = true;
+                        break;
+                      }catch(_){ }
+                    }
+                  }
+                }catch(_){ }
               }
             }catch(_){ }
           }
@@ -10848,6 +10912,7 @@
         this._drawEventsUnsub = null;
       }
       this._drawEventsSeen = new Set();
+      this._drawSyncBoundConnId = null;
       this._callConnectionId = null;
     }
 

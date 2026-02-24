@@ -76,7 +76,7 @@ class LiberAppsControlPanel {
         const startTime = Date.now();
 
         while (!this.areModulesReady() && (Date.now() - startTime) < maxWaitTime) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
 
         if (!this.areModulesReady()) {
@@ -100,7 +100,7 @@ class LiberAppsControlPanel {
                 // Also poll as a fallback
                 (async () => {
                     while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < maxAttempts) {
-                        await new Promise(r => setTimeout(r, 100));
+                        await new Promise(r => setTimeout(r, 50));
                         attempts++;
                     }
                     resolve();

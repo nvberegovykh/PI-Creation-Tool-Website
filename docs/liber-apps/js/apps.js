@@ -687,6 +687,11 @@ class AppsManager {
      * Setup app card event listeners
      */
     setupAppCardEventListeners() {
+        // Prefetch chat connections when hovering chat tile
+        const chatCard = document.querySelector('.app-card[data-app-id="secure-chat"]');
+        if (chatCard && window.firebaseService?.prefetchChatConnections) {
+            chatCard.addEventListener('mouseenter', () => window.firebaseService.prefetchChatConnections().catch(()=>{}), { once: false });
+        }
         // Launch buttons
         const launchBtns = document.querySelectorAll('.launch-btn');
         launchBtns.forEach(btn => {

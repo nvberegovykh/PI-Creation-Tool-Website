@@ -298,7 +298,7 @@ class FirebaseService {
         const maxAttempts = 100; // 10 seconds
         
         while (typeof firebase === 'undefined' && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
             attempts++;
         }
         
@@ -315,7 +315,7 @@ class FirebaseService {
         const maxAttempts = 100; // 10 seconds
         
         while (!window.secureKeyManager && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
             attempts++;
         }
         
@@ -377,7 +377,7 @@ class FirebaseService {
         const maxAttempts = 150; // up to 15 seconds to accommodate CDN + Gist fetch
         
         while (!this.isInitialized && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
             attempts++;
         }
         
@@ -557,6 +557,45 @@ class FirebaseService {
     async getCurrentUser() {
         await this.waitForInit();
         return this.auth.currentUser;
+    }
+
+    /**
+     * Prefetch chat connections for faster chat load. Call on Apps section hover or chat tile focus.
+     * Cache valid for 30s; chat init reuses if fresh.
+     */
+    async prefetchChatConnections() {
+        await this.waitForInit();
+        const user = this.auth?.currentUser;
+        if (!user?.uid) return;
+        const cache = window.__chatConnectionsPrefetchCache;
+        if (cache && cache.uid === user.uid && (Date.now() - (cache.ts || 0)) < 30000) return;
+        try {
+            const byId = new Map();
+            const fields = ['participants', 'users', 'memberIds'];
+            for (const field of fields) {
+                try {
+                    const q = firebase.query(
+                        firebase.collection(this.db, 'chatConnections'),
+                        firebase.where(field, 'array-contains', user.uid),
+                        firebase.orderBy('updatedAt', 'desc')
+                    );
+                    const s = await firebase.getDocs(q);
+                    s.forEach(d => byId.set(d.id, { id: d.id, ...d.data() }));
+                } catch (_) {
+                    try {
+                        const q2 = firebase.query(
+                            firebase.collection(this.db, 'chatConnections'),
+                            firebase.where(field, 'array-contains', user.uid)
+                        );
+                        const s2 = await firebase.getDocs(q2);
+                        s2.forEach(d => byId.set(d.id, { id: d.id, ...d.data() }));
+                    } catch (_2) {}
+                }
+            }
+            const temp = Array.from(byId.values());
+            temp.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+            window.__chatConnectionsPrefetchCache = { connections: temp, ts: Date.now(), uid: user.uid };
+        } catch (_) {}
     }
 
     /**
@@ -1828,7 +1867,7 @@ window.testCompleteSetup = async function() {
         let attempts = 0;
         const maxAttempts = 50;
         while (!window.firebaseService.isInitialized && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
             attempts++;
         }
         
@@ -1889,7 +1928,7 @@ window.testFirebaseSimple = async function() {
             console.log('Waiting for Firebase to initialize...');
             let attempts = 0;
             while ((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 50) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => setTimeout(resolve, 50));
                 attempts++;
             }
         }

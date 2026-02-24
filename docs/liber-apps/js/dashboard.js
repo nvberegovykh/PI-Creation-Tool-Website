@@ -3687,6 +3687,9 @@ class DashboardManager {
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
             newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
+            if (newBtn.dataset.section === 'apps' && window.firebaseService?.prefetchChatConnections) {
+                newBtn.addEventListener('mouseenter', () => window.firebaseService.prefetchChatConnections().catch(()=>{}), { once: false });
+            }
         });
 
         const chatBtn = document.getElementById('dashboard-chat-btn');
@@ -5393,6 +5396,19 @@ class DashboardManager {
         }catch(_){ }
     }
 
+    _deferNonVisiblePreload(sectionToPreload) {
+        const schedule = typeof requestIdleCallback !== 'undefined'
+            ? (cb) => requestIdleCallback(cb, { timeout: 2000 })
+            : (cb) => setTimeout(cb, 100);
+        schedule(() => {
+            if (this._dashboardSuspended || this.currentSection === sectionToPreload) return;
+            try {
+                if (sectionToPreload === 'feed') this.loadGlobalFeed(this._wallSearchTerm || '');
+                else if (sectionToPreload === 'apps' && window.appsManager) window.appsManager.loadApps();
+            } catch (_) {}
+        });
+    }
+
     /**
      * Switch between dashboard sections
      */
@@ -5429,13 +5445,17 @@ class DashboardManager {
         // Persist last section and sync hash
         try{ localStorage.setItem('liber_last_section', section); if (window.location.hash !== `#${section}`) window.location.hash = section; }catch(_){ }
 
-        // Load section-specific content
+        // Load section-specific content (visible section immediately)
         switch (section) {
             
             case 'apps':
                 if (window.appsManager) {
                     window.appsManager.loadApps();
                 }
+                if (window.firebaseService?.prefetchChatConnections) {
+                    window.firebaseService.prefetchChatConnections().catch(()=>{});
+                }
+                this._deferNonVisiblePreload('feed');
                 break;
             case 'space':
                 this.loadSpace();
@@ -5444,6 +5464,7 @@ class DashboardManager {
                 this.loadGlobalFeed();
                 // Ensure players activate after section switch
                 setTimeout(()=> this.activatePlayers(document.getElementById('global-feed')), 50);
+                this._deferNonVisiblePreload('apps');
                 break;
             case 'waveconnect':
                 this.loadWaveConnect();
