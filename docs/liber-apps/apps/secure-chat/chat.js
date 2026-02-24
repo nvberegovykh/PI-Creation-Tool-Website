@@ -10638,12 +10638,18 @@
         }
         if (recordBtn){
           recordBtn.classList.add('recording');
+          recordBtn.classList.remove('hidden');
           recordBtn.querySelector('i').className = 'fas fa-stop';
           recordBtn.title = 'Stop';
           recordBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
         }
         if (sendBtn) sendBtn.classList.add('hidden');
-        if (discardBtn) discardBtn.classList.add('hidden');
+        if (discardBtn){
+          discardBtn.classList.remove('hidden');
+          discardBtn.querySelector('i').className = 'fas fa-stop';
+          discardBtn.title = 'Stop';
+          discardBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
+        }
         if (slideHint) slideHint.classList.remove('hidden');
       }catch(_){ }
     }

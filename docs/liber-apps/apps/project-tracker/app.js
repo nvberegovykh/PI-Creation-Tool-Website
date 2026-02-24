@@ -837,7 +837,7 @@
           await fb.addDoc(reviewsCol, reviewData);
           await fb.addDoc(projectReviewsCol, reviewData);
         }
-        notify('Thank you for your review!');
+        notify('Thank you for your review! Refresh the main page to see it.');
         const inp = byId('tracker-review-input');
         if (inp) inp.value = '';
       } catch (err) { notify(err?.message || 'Failed to submit', 'error'); }

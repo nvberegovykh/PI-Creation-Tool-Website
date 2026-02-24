@@ -1249,6 +1249,12 @@ class FirebaseService {
                     if (httpRes) return httpRes;
                 } catch (e) { throw e; }
             }
+            if (name === 'submitProjectReview' && this.auth?.currentUser) {
+                try {
+                    const httpRes = await this._callSubmitProjectReviewHttp(payload);
+                    if (httpRes) return httpRes;
+                } catch (e) { throw e; }
+            }
             if (name === 'adminDeleteUser' && this.auth?.currentUser) {
                 try {
                     const httpRes = await this._callAdminDeleteUserHttp(payload);
@@ -1281,7 +1287,7 @@ class FirebaseService {
             return null;
         } catch (e) {
             console.warn('Callable function failed:', name, e?.message || e);
-            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest' || name === 'adminDeleteUser') throw e;
+            if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest' || name === 'submitProjectReview' || name === 'adminDeleteUser') throw e;
             return null;
         }
     }
@@ -1414,6 +1420,28 @@ class FirebaseService {
             return json;
         } catch (e) {
             console.warn('removeProjectMemberHttp failed:', e?.message || e);
+            throw e;
+        }
+    }
+
+    async _callSubmitProjectReviewHttp(payload) {
+        try {
+            const user = this.auth?.currentUser;
+            if (!user) return null;
+            const token = await user.getIdToken();
+            const projectId = this.app?.options?.projectId || 'liber-apps-cca20';
+            const region = Object.keys(this.functionsByRegion || {})[0] || 'europe-west1';
+            const url = `https://${region}-${projectId}.cloudfunctions.net/submitProjectReviewHttp`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json?.error || json?.message || 'HTTP ' + res.status);
+            return json;
+        } catch (e) {
+            console.warn('submitProjectReviewHttp failed:', e?.message || e);
             throw e;
         }
     }
