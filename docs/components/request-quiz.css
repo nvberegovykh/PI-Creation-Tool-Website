@@ -95,7 +95,7 @@
 
 .request-quiz-modal .rq-upload-zone:hover,
 .request-quiz-modal .rq-upload-zone.dragover {
-  border-color: #8C000F;
+  border-color: var(--accent-color, #00d4ff);
   background: rgba(59, 130, 246, 0.05);
 }
 
