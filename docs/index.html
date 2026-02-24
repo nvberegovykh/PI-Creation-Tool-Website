@@ -212,6 +212,11 @@
             <p class="home-hero-body">Network of architects, engineers, modelers, expeditors, software programmers and research specialists ready to find implementation for your ideas. We emphasize BIM and parametric design, adaptive solutions, and the importance of harmony, coziness and preserving warmth. Professional result for a fair and affordable price.</p>
           </div>
           <button type="button" id="home-request-btn" class="home-request-btn" aria-label="Make a request">Request</button>
+          <div id="home-reviews-slider" class="home-reviews-slider hidden">
+            <div class="home-reviews-track" id="home-reviews-track"></div>
+            <button type="button" id="home-reviews-prev" class="home-reviews-nav" aria-label="Previous review">&lsaquo;</button>
+            <button type="button" id="home-reviews-next" class="home-reviews-nav" aria-label="Next review">&rsaquo;</button>
+          </div>
         </div>
         <footer15-wrapper
           class="footer15-wrapper"
@@ -297,6 +302,7 @@
     <script src="./liber-apps/js/secure-keys.js"></script>
     <script type="module" src="./liber-apps/js/firebase-loader.js"></script>
     <script src="./liber-apps/js/firebase-service.js"></script>
+    <script src="./components/reviews-slider.js"></script>
     <script src="./components/gallery-runtime.js"></script>
     <script src="./components/navbar-scroll.js"></script>
     <script src="./components/navbar-submenu.js"></script>
@@ -313,6 +319,12 @@
         setTimeout(function () {
           btn.classList.add('is-visible');
         }, 2000);
+        setTimeout(function () {
+          var slider = document.getElementById('home-reviews-slider');
+          if (slider && !slider.classList.contains('hidden')) {
+            slider.classList.add('is-visible');
+          }
+        }, 2500);
         btn.addEventListener('click', function () {
           if (typeof window.openRequestQuiz === 'function') {
             window.openRequestQuiz();
