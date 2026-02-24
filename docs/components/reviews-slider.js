@@ -65,14 +65,13 @@
 
   function loadReviews() {
     const fs = window.firebaseService;
-    if (!fs || !fs.db) return;
+    const fb = (fs && fs.firebase) || window.firebase;
+    if (!fs || !fs.db || !fb || !fb.collection || !fb.getDocs) return;
 
     try {
-      const col = fs.db.collection('projectReviews');
-      col
-        .orderBy('createdAt', 'desc')
-        .limit(MAX_REVIEWS)
-        .get()
+      const col = fb.collection(fs.db, 'projectReviews');
+      const q = fb.query(col, fb.orderBy('createdAt', 'desc'), fb.limit(MAX_REVIEWS));
+      fb.getDocs(q)
         .then(function (snap) {
           const reviews = [];
           snap.forEach(function (doc) {
