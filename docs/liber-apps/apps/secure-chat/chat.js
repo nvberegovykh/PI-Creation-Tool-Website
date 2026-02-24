@@ -44,6 +44,7 @@
       this._joiningCall = false;
       this._cleanupIdleTimer = null;
       this._lastJoinedCallId = null;
+      this._lastSfuAutoJoinAttempt = 0;
       this._connectingCid = null;
       this._activeCid = null;
       this._joinRetryTimer = null;
@@ -9566,6 +9567,36 @@
       this.initCallControls(video);
       if (this._roomUnsub) this._roomUnsub();
       if (this._peersUnsub) this._peersUnsub();
+      const callConnId = this.getCallConnId();
+      const roomRef = firebase.doc(this.db,'callRooms', callConnId);
+      const peersRef = firebase.collection(this.db,'callRooms', callConnId, 'peers');
+      const onSnapErr = ()=>{};
+      this._roomUnsub = firebase.onSnapshot(roomRef, (snap)=>{
+        this._roomState = snap.exists() ? (snap.data() || { status: 'idle', activeCallId: null }) : { status: 'idle', activeCallId: null };
+        this.updateRoomUI();
+        this._syncCallFab();
+      });
+      this._peersUnsub = firebase.onSnapshot(peersRef, async snap => {
+        this._peersPresence = {};
+        snap.forEach(d => this._peersPresence[d.id] = d.data());
+        await this.updateRoomUI();
+        if (!this._isSfuConnected()){
+          const otherConnected = Object.entries(this._peersPresence || {}).some(([uid, p]) => uid !== this.currentUser?.uid && String(p?.state || '') === 'connected');
+          const throttleMs = 15000;
+          if (otherConnected && !this._joiningCall && !this._startingCall && (Date.now() - this._lastSfuAutoJoinAttempt) > throttleMs){
+            this._lastSfuAutoJoinAttempt = Date.now();
+            this._joiningCall = true;
+            try{
+              const ok = await this._startOrJoinSfuCall(this._videoEnabled);
+              if (ok) await this._emitJoinCallMessage(callConnId);
+            }catch(_){}
+            finally{ this._joiningCall = false; }
+          }
+        }
+        this._syncCallFab();
+      }, onSnapErr);
+      this._roomState = { status: 'idle', activeCallId: null };
+      try{ const snap = await firebase.getDoc(roomRef); if (snap.exists()) this._roomState = snap.data() || this._roomState; }catch(_){}
       this._inRoom = true;
       this._syncCallFab();
       await this.updatePresence('idle', false);
