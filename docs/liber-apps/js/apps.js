@@ -811,15 +811,22 @@ class AppsManager {
             window.dispatchEvent(new Event('liber:app-shell-close'));
             // iOS/mobile: reset overflow and restore scroll capability after closing shell
             if (this.isMobileDevice()){
-                document.body.style.overflow = '';
-                document.documentElement.style.overflow = '';
                 try { frame.contentWindow?.blur(); } catch (_){}
-                const activeSection = document.querySelector('.content-section.active');
-                if (activeSection && activeSection.scrollHeight > activeSection.clientHeight){
-                    const y = activeSection.scrollTop;
-                    activeSection.scrollTop = y + 1;
-                    requestAnimationFrame(()=>{ activeSection.scrollTop = y; });
-                }
+                const doit = ()=>{
+                    document.body.style.overflow = '';
+                    document.body.style.touchAction = '';
+                    document.documentElement.style.overflow = '';
+                    document.documentElement.style.touchAction = '';
+                    const activeSection = document.querySelector('.content-section.active');
+                    if (activeSection && activeSection.scrollHeight > activeSection.clientHeight){
+                        const y = activeSection.scrollTop;
+                        activeSection.scrollTop = y + 1;
+                        requestAnimationFrame(()=>{
+                            activeSection.scrollTop = y;
+                        });
+                    }
+                };
+                requestAnimationFrame(()=> requestAnimationFrame(doit));
             }
             // Ensure control panel view is visible and has an active section.
             const dashboard = document.getElementById('dashboard');

@@ -810,6 +810,8 @@
       if (/^\[file\]/i.test(raw)) return '';
       if (/^\[sticker\]/i.test(raw)) return '';
       if (/^\[(voice|video) message\]/i.test(raw)) return '';
+      if (/^\[call:(?:room|voice|video):[A-Za-z0-9_\-|.]+\]$/.test(raw)) return '';
+      if (/^\[call:ended:[A-Za-z0-9_\-|.]+\]$/.test(raw)) return '';
       return raw;
     }
 
@@ -1776,9 +1778,10 @@
     _parseCallBadgeToken(text){
       try{
         const raw = String(text || '').trim();
-        const join = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-]+)\]$/.exec(raw);
+        /* callId can be connId (e.g. uid1|uid2 for DMs) – allow pipes and common id chars */
+        const join = /^\[call:(?:room|voice|video):([A-Za-z0-9_\-|.]+)\]$/.exec(raw);
         if (join) return { kind: 'join', callId: String(join[1] || '') };
-        const ended = /^\[call:ended:([A-Za-z0-9_\-]+)\]$/.exec(raw);
+        const ended = /^\[call:ended:([A-Za-z0-9_\-|.]+)\]$/.exec(raw);
         if (ended) return { kind: 'ended', callId: String(ended[1] || '') };
       }catch(_){ }
       return null;
@@ -2432,12 +2435,18 @@
       if (!this._useSfuCalls) return false;
       const callConnId = this.getCallConnId() || this.activeConnection;
       if (!callConnId) return false;
+      this._sfuConnectAborted = false;
       try{
         if (this._isSfuConnected()) return true;
         const cs = document.getElementById('call-status');
         if (cs) cs.textContent = 'Connecting SFU...';
         await this.updatePresence('connecting', !!video);
-        const tokenResp = await window.firebaseService.callFunction('getSfuToken', { connId: callConnId });
+        const TOKEN_TIMEOUT_MS = 20000;
+        const tokenPromise = window.firebaseService.callFunction('getSfuToken', { connId: callConnId });
+        const tokenTimeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Token request timed out')), TOKEN_TIMEOUT_MS);
+        });
+        const tokenResp = await Promise.race([tokenPromise, tokenTimeoutPromise]);
         const wsUrl = String(tokenResp?.wsUrl || '').trim();
         const token = String(tokenResp?.token || '').trim();
         if (!wsUrl || !token){
@@ -2480,9 +2489,40 @@
             };
           }
         }catch(_){ }
-        const room = new Room(roomOpts);
-        this._bindSfuRoom(room, callConnId);
-        await room.connect(wsUrl, token);
+        const CONNECT_TIMEOUT_MS = 45000;
+        const connectOpts = {
+          websocketTimeout: 25000,
+          peerConnectionTimeout: 25000,
+          maxRetries: 2,
+          rtcConfig: { iceTransportPolicy: 'relay' }
+        };
+        const urlsToTry = [wsUrl].concat(tokenResp?.wsUrlFallbacks || []).filter(Boolean);
+        let room = null;
+        let lastErr = null;
+        for (const url of urlsToTry){
+          if (this._sfuConnectAborted) return false;
+          room = new Room(roomOpts);
+          this._bindSfuRoom(room, callConnId);
+          try{
+            const connectPromise = room.connect(url, token, connectOpts);
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Connection timed out')), CONNECT_TIMEOUT_MS);
+            });
+            await Promise.race([connectPromise, timeoutPromise]);
+            lastErr = null;
+            break;
+          }catch(e){
+            lastErr = e;
+            if (cs) cs.textContent = urlsToTry.indexOf(url) < urlsToTry.length - 1 ? 'Retrying via alternate region...' : '';
+            try{ room.disconnect(); }catch(_){}
+            room = null;
+          }
+        }
+        if (lastErr || !room) throw (lastErr || new Error('Connection failed'));
+        if (this._sfuConnectAborted) {
+          try{ room.disconnect(); }catch(_){}
+          return false;
+        }
         this._sfuRoom = room;
         this._micEnabled = true;
         this._videoEnabled = !!video;
@@ -2519,7 +2559,12 @@
       }catch(e){
         console.warn('SFU connect failed', e?.message || e);
         const cs = document.getElementById('call-status');
-        if (cs) cs.textContent = 'SFU connection failed.';
+        const msg = (e?.message || '').toLowerCase();
+        if (msg.includes('timeout') || msg.includes('timed out')) {
+          if (cs) cs.textContent = 'Connection timed out. Please check your network and try again.';
+        } else {
+          if (cs) cs.textContent = 'SFU connection failed.';
+        }
         return false;
       }
     }
@@ -11100,6 +11145,7 @@
     const endedConnId = String(this.getCallConnId() || this.activeConnection || '').trim();
     this._startingCall = false;
     this._joiningCall = false;
+    this._sfuConnectAborted = true;
     this._lastJoinedCallId = null;
     if (this._screenSharing) await this._stopScreenShare();
       this._closeCallTileFullscreen();
