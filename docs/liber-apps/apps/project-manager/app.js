@@ -521,6 +521,7 @@
 
   function renderReviews(reviews, projectId) {
     const list = byId('project-reviews-list');
+    const toggleBtn = byId('project-reviews-toggle');
     if (!list) return;
     const pid = projectId || state.selectedProjectId || byId('project-id')?.value?.trim() || '';
     if (!reviews.length) {
@@ -528,6 +529,8 @@
       list.classList.remove('hidden');
       return;
     }
+    list.classList.remove('hidden');
+    if (toggleBtn && toggleBtn.querySelector('i')) toggleBtn.querySelector('i').className = 'fas fa-chevron-down';
     list.innerHTML = reviews.map((r) => {
       const text = (r.text || '').trim();
       const userName = (r.userName || 'User').trim();

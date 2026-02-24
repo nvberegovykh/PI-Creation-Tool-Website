@@ -386,6 +386,12 @@
   overflow-wrap: break-word;
   min-width: 0;
 }
+.reviews-hint {
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.7;
+  margin-left: 6px;
+}
 .review-item {
   position: relative;
   padding-right: 44px;

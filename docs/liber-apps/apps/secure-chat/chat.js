@@ -10633,7 +10633,7 @@
         if (stickerBtn) stickerBtn.style.display = 'none';
         if (actionBtn) actionBtn.style.display = 'none';
         if (switchBtn){
-          switchBtn.style.display = hasVideo ? 'flex' : 'none';
+          switchBtn.style.display = 'none';
           switchBtn.onclick = ()=>{ this._switchCameraDuringRecording(); };
         }
         if (recordBtn){
@@ -11085,7 +11085,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
             const ov = document.getElementById('recording-preview-overlay');
             if (!ov || !ov.classList.contains('show') || ov.classList.contains('hidden')){ clearInterval(ticker); ticker = null; return; }
             self.updateVoiceWidgets();
-          }, 50);
+          }, 33);
         };
         p.addEventListener('play', startTicker);
         p.addEventListener('pause', ()=>{ if (ticker){ clearInterval(ticker); ticker = null; } });
