@@ -1909,11 +1909,9 @@
         const ay = Math.max(0, Math.min(1, Number(seg.ay || 0)));
         const bx = Math.max(0, Math.min(1, Number(seg.bx || 0)));
         const by = Math.max(0, Math.min(1, Number(seg.by || 0)));
-        let size = Math.max(1, Math.min(24, Number(seg.size || 4)));
+        const size = Math.max(1, Math.min(24, Number(seg.size || 4)));
         const color = String(seg.color || '#ffffff');
         const drawAr = Number(seg.aspectRatio) || 0;
-        const scale = (canvas.clientWidth && canvas.width) ? canvas.width / canvas.clientWidth : 1;
-        size = Math.max(1, size * scale);
         let x = 0, y = 0, w = cw, h = ch;
         const tile = canvas.closest('.call-tile');
         let video = tile?.querySelector?.('video');
@@ -1930,9 +1928,10 @@
           if (drawAr > canvasAr){ w = cw; h = cw / drawAr; y = (ch - h) / 2; }
           else { h = ch; w = ch * drawAr; x = (cw - w) / 2; }
         }
+        const lineW = Math.max(0.5, size / Math.max(w, h, 1));
         ctx.save();
         ctx.strokeStyle = color;
-        ctx.lineWidth = size;
+        ctx.lineWidth = lineW;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.setLineDash([]);
@@ -2017,9 +2016,9 @@
 
     async _sendDrawEvent(connId, evt){
       try{
-        const id = String(connId || '').trim();
+        const id = String(connId || this.getCallConnId() || this.activeConnection || '').trim();
         if (!id || !this.db || !evt) return;
-        const docRef = firebase.doc(firebase.collection(this.db,'callRooms', id, 'drawEvents'));
+        const collRef = firebase.collection(this.db,'callRooms', id, 'drawEvents');
         const payload = {
           type: String(evt.type || ''),
           from: String(this.currentUser?.uid || ''),
@@ -2039,7 +2038,7 @@
         if (payload.type === 'clear'){
           payload.cardKey = String(evt.cardKey || '');
         }
-        await firebase.setDoc(docRef, payload);
+        await firebase.addDoc(collRef, payload);
       }catch(_){ }
     }
 
@@ -2049,6 +2048,8 @@
         if (!id || !this.db) return;
         if (this._drawSyncBoundConnId === id) return;
         this._drawSyncBoundConnId = id;
+        this._drawSegments = [];
+        this._clearAllDrawCanvases({ keepHistory: false });
         if (this._drawSyncUnsub){
           try{ this._drawSyncUnsub(); }catch(_){ }
           this._drawSyncUnsub = null;
@@ -2176,9 +2177,10 @@
         });
       }
       if (size){
+        this._drawSize = Math.max(1, Math.min(24, Number(size.value) || 4));
         size.addEventListener('input', ()=>{
           const v = Number(size.value || 4);
-          this._drawSize = Math.max(1, Math.min(24, v || 4));
+          this._drawSize = Math.max(1, Math.min(24, v));
         });
       }
       if (clearBtn && ctx){
@@ -2188,7 +2190,8 @@
             const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
             if (!connId) return;
             await this._sendDrawEvent(connId, { type: 'clear', cardKey: this._drawActiveCardKey || '' });
-            await firebase.updateDoc(firebase.doc(this.db,'callRooms', connId), {
+            const roomRef = firebase.doc(this.db,'callRooms', connId);
+            await firebase.updateDoc(roomRef, {
               drawClearAt: new Date().toISOString(),
               drawClearedBy: this.currentUser?.uid || '',
               drawClearCardKey: this._drawActiveCardKey || ''
@@ -9751,14 +9754,12 @@
       this._layoutCallOverlay();
       this._syncCallFab();
     };
-    // Mobile: audio output switch (speaker / earpiece) — hidden when setSinkId unavailable (e.g. iOS Safari)
+    // Mobile: audio output switch — hidden on phones (setSinkId doesn't work on Android or iOS Safari)
     const audioOutBtn = document.getElementById('audio-output-btn');
     const hasSinkApi = !!(document.createElement('video').setSinkId);
-    const showAudioBtn = this._isMobileDevice() && hasSinkApi;
+    const showAudioBtn = !this._isMobileDevice();
     if (audioOutBtn && this._isMobileDevice()){
       audioOutBtn.style.display = showAudioBtn ? '' : 'none';
-      const iosHint = document.getElementById('call-ios-audio-hint');
-      if (iosHint) iosHint.classList.toggle('hidden', showAudioBtn);
       this._audioOutputEarpiece = this._audioOutputEarpiece ?? true;
       this._applyAudioOutputSink();
       this._syncAudioOutputIcon(audioOutBtn);
@@ -9827,10 +9828,9 @@
     const isEarpiece = !!this._audioOutputEarpiece;
     btn.innerHTML = isEarpiece ? '<i class="fas fa-phone-volume"></i>' : '<i class="fas fa-volume-high"></i>';
     const hasSinkApi = !!(document.createElement('video').setSinkId);
-    const iosNote = this._isIOSDevice?.() ? ' (iOS: use Control Center)' : '';
     btn.title = hasSinkApi
       ? (isEarpiece ? 'Earpiece (tap for speaker)' : 'Speaker (tap for earpiece)')
-      : 'Audio output' + iosNote;
+      : 'Audio output';
     btn.classList.toggle('active', !isEarpiece);
   }
 

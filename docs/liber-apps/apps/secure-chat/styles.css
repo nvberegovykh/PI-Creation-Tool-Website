@@ -106,9 +106,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-tile.call-tile-enter{opacity:0;transform:translateY(6px) scale(.985)}
 .call-tile-expand{position:absolute;right:6px;top:6px;z-index:2;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .call-videos video.connecting{opacity:.6}
-.call-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;justify-content:center;align-items:center}
-.call-ios-hint{font-size:12px;color:#9ca3af;margin-right:4px}
-.call-ios-hint.hidden{display:none !important}
+.call-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;justify-content:center}
 #call-overlay .call-controls .btn{background:transparent !important;border:0 !important;box-shadow:none !important;color:#e5e7eb;padding:8px;min-width:38px;min-height:38px}
 .call-controls .btn:hover{color:#fff;transform:translateY(-1px)}
 .call-controls .btn.muted{opacity:.5}
