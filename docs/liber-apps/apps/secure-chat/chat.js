@@ -7317,8 +7317,24 @@
     }
 
     updateVoiceWidgets(){
-      if (this._voiceWidgets.size === 0){ this.stopVoiceWidgetTicker(); }
       const p = this.ensureChatBgPlayer();
+      const overlay = document.getElementById('recording-preview-overlay');
+      if (overlay && overlay.classList.contains('show') && !overlay.classList.contains('hidden') && overlay.classList.contains('recording-audio-only')){
+        const d = Number(p?.duration || 0);
+        const c = Number(p?.currentTime || 0);
+        if (Number.isFinite(d) && d > 0 && Number.isFinite(c)){
+          const ratio = Math.min(1, Math.max(0, c / d));
+          const wave = overlay.querySelector('.voice-wave-player .wave');
+          if (wave){
+            const bars = wave.querySelectorAll('.bar');
+            const playedBars = Math.round(bars.length * ratio);
+            bars.forEach((b, i)=> b.classList.toggle('played', i < playedBars));
+          }
+          const timeEl = overlay.querySelector('.voice-wave-player .time');
+          if (timeEl) timeEl.textContent = `${this.formatDuration(c)} / ${this.formatDuration(d)}`;
+        }
+      }
+      if (this._voiceWidgets.size === 0){ this.stopVoiceWidgetTicker(); }
       const stale = [];
       this._voiceWidgets.forEach((w, k)=>{ if (!w.wave || !w.wave.isConnected) stale.push(k); });
       stale.forEach((k)=> this._voiceWidgets.delete(k));
