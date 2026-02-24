@@ -55,6 +55,22 @@
   gap: 24px;
 }
 
+/* Year separator in tile gallery – spans full row */
+.gc-year-sep {
+  grid-column: 1 / -1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 24px 0 8px;
+  margin-top: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.gc-year-sep:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* Gallery page: flexible tile grid, bigger cards – never single column */
 .gallery-container [data-gallery-template="tile"] .gc-grid {
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
@@ -84,17 +100,18 @@
   }
 }
 
-/* Main page (index): single slider 3x higher on desktop */
+/* Main page (index): single slider on desktop – 75% of viewport height */
 @media (min-width: 769px) {
   .home-container [data-gallery-template="single-slider"] .gc-single-shell {
-    max-width: 2200px;
-    min-width: 1000px;
-    min-height: 840px;
+    max-width: 1760px;
+    min-width: 800px;
+    height: 75vh;
   }
 
   .home-container [data-gallery-template="single-slider"] .gc-slide-inner .gc-card,
   .home-container [data-gallery-template="single-slider"] .gc-card--slider {
-    min-height: 800px;
+    height: 75vh;
+    min-height: 0;
   }
 }
 

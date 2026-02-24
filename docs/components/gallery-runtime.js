@@ -315,14 +315,47 @@
     return shuffle([...byId.values()]).slice(0, count);
   }
 
+  function projectsByYear(projects) {
+    const withMedia = projects.filter((p) => visualItems(p.items || []).length > 0);
+    withMedia.sort((a, b) => {
+      const ay = Number(a.year) || 0;
+      const by = Number(b.year) || 0;
+      return by - ay;
+    });
+    const groups = [];
+    let lastYear = null;
+    for (const p of withMedia) {
+      const y = p.year != null && p.year !== '' ? String(p.year) : null;
+      if (y !== lastYear) {
+        lastYear = y;
+        groups.push({ year: y || '—', projects: [] });
+      }
+      groups[groups.length - 1].projects.push(p);
+    }
+    return groups;
+  }
+
   function mountTiles(host, projects, projectById) {
-    const count = Number(host.dataset.cardCount || 9);
-    const selected = pickProjects(projects, count);
+    const count = Number(host.dataset.cardCount || 999);
+    const groups = projectsByYear(projects);
+    const allProjects = groups.flatMap((g) => g.projects);
+    const selected = allProjects.slice(0, count);
     if (!selected.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
-    host.innerHTML = `<div class="gc-template"><div class="gc-grid">${selected.map((p) => buildCard(p, '')).join('')}</div></div>`;
+    const selectedIds = new Set(selected.map((p) => p.id));
+    const groupsLimited = groups
+      .map((g) => ({ year: g.year, projects: g.projects.filter((p) => selectedIds.has(p.id)) }))
+      .filter((g) => g.projects.length > 0);
+    const html = groupsLimited
+      .map(
+        (g) =>
+          `<div class="gc-year-sep" aria-hidden="true">${g.year}</div>` +
+          g.projects.map((p) => buildCard(p, '')).join('')
+      )
+      .join('');
+    host.innerHTML = `<div class="gc-template"><div class="gc-grid">${html}</div></div>`;
     wireRotations(host, projectById);
     wireCardIntro(host);
     wirePopupOpener(host, projectById);
