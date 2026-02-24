@@ -10643,12 +10643,7 @@
           recordBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
         }
         if (sendBtn) sendBtn.classList.add('hidden');
-        if (discardBtn){
-          discardBtn.classList.remove('hidden');
-          discardBtn.querySelector('i').className = 'fas fa-stop';
-          discardBtn.title = 'Stop';
-          discardBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
-        }
+        if (discardBtn) discardBtn.classList.add('hidden');
         if (slideHint) slideHint.classList.remove('hidden');
       }catch(_){ }
     }
@@ -11093,6 +11088,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         };
         p.addEventListener('play', startTicker);
         p.addEventListener('pause', ()=>{ if (ticker){ clearInterval(ticker); ticker = null; } });
+        startTicker();
         self._overlayVoiceCleanup = ()=>{
           p.removeEventListener('timeupdate', onTime);
           p.removeEventListener('play', onTime);

@@ -815,10 +815,9 @@
       const projectId = state.selectedProject?.id;
       if (!projectId) return;
       const fs = getFirebaseService();
-      const fb = getFirebaseApi();
       const me = fs?.auth?.currentUser?.uid;
       const text = (byId('tracker-review-input')?.value || '').trim();
-      if (!me || !fs?.db || !fb?.addDoc) return;
+      if (!me || !text) return;
       try {
         let userName = 'User';
         if (fs.getUserData) {
@@ -827,19 +826,16 @@
             userName = String(ud?.username || ud?.email || '').trim() || 'User';
           } catch (_) {}
         }
-        const createdAt = new Date().toISOString();
-        const raw = { projectId: String(projectId), userId: String(me), userName: String(userName), text: String(text), createdAt: createdAt };
-        const win = (typeof window !== 'undefined' && window.self !== window.top && window.parent) ? window.parent : window;
-        const reviewData = win.Object.assign({}, raw);
-        const publicReview = win.Object.assign({}, raw);
-        const reviewsCol = fb.collection(fs.db, 'projects', projectId, 'reviews');
-        const projectReviewsCol = fb.collection(fs.db, 'projectReviews');
-        if (fb.setDoc && fb.doc) {
-          await fb.setDoc(fb.doc(reviewsCol), reviewData);
-          await fb.setDoc(fb.doc(projectReviewsCol), publicReview);
+        if (typeof fs.callFunction === 'function') {
+          await fs.callFunction('submitProjectReview', { projectId, text, userName });
         } else {
+          const fb = getFirebaseApi();
+          if (!fb?.addDoc) return;
+          const reviewData = { projectId: String(projectId), userId: String(me), userName: String(userName), text: String(text), createdAt: new Date().toISOString() };
+          const reviewsCol = fb.collection(fs.db, 'projects', projectId, 'reviews');
+          const projectReviewsCol = fb.collection(fs.db, 'projectReviews');
           await fb.addDoc(reviewsCol, reviewData);
-          await fb.addDoc(projectReviewsCol, publicReview);
+          await fb.addDoc(projectReviewsCol, reviewData);
         }
         notify('Thank you for your review!');
         const inp = byId('tracker-review-input');

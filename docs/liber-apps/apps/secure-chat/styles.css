@@ -532,6 +532,11 @@ button.call-status-badge:hover{
 .message .msg-media-slider .file-preview .circular-video-progress-wrap video{
   width:100%;
   height:100%;
+  position:relative;
+  z-index:0;
+  /* Remove clip-path so video doesn't create stacking context that blocks ::after progress ring */
+  clip-path:none;
+  -webkit-clip-path:none;
 }
 
 /* Circular video progress border (shows playback progress, no gap, edge-aligned) */
