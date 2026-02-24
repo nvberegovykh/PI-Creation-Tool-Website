@@ -1648,12 +1648,15 @@
     }
 
     _wrapVideoInCallTile(videoEl, isScreen = false){
+      const cardKey = videoEl?.id ? `vid-${videoEl.id}` : `tile-${Date.now()}`;
       const tile = document.createElement('div');
       tile.className = `call-tile${isScreen ? ' screen' : ''}`;
+      tile.setAttribute('data-card-key', cardKey);
       const drawLayer = document.createElement('div');
       drawLayer.className = 'call-draw-layer';
       const drawCanvas = document.createElement('canvas');
       drawCanvas.className = 'call-tile-draw-canvas';
+      drawCanvas.setAttribute('data-card-key', cardKey);
       drawLayer.appendChild(drawCanvas);
       const expandBtn = document.createElement('button');
       expandBtn.className = 'call-tile-expand';
@@ -1676,10 +1679,12 @@
         tile.className = `call-tile${isScreen ? ' screen' : ''}`;
         tile.classList.add('call-tile-enter');
         tile.setAttribute('data-sfu-track-key', key);
+        tile.setAttribute('data-card-key', key);
         const drawLayer = document.createElement('div');
         drawLayer.className = 'call-draw-layer';
         const drawCanvas = document.createElement('canvas');
         drawCanvas.className = 'call-tile-draw-canvas';
+        drawCanvas.setAttribute('data-card-key', key);
         drawLayer.appendChild(drawCanvas);
         const expandBtn = document.createElement('button');
         expandBtn.className = 'call-tile-expand';
@@ -1860,15 +1865,19 @@
 
     _resizeTileDrawCanvases(){
       try{
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
         document.querySelectorAll('.call-tile-draw-canvas').forEach((canvas)=>{
-          const layer = canvas.closest('.call-draw-layer');
           const tile = canvas.closest('.call-tile');
           if (!tile) return;
           const w = Math.max(1, tile.clientWidth || 1);
           const h = Math.max(1, tile.clientHeight || 1);
-          if (canvas.width !== w || canvas.height !== h){
-            canvas.width = w;
-            canvas.height = h;
+          const bw = Math.round(w * dpr);
+          const bh = Math.round(h * dpr);
+          if (canvas.width !== bw || canvas.height !== bh){
+            canvas.width = bw;
+            canvas.height = bh;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
           }
         });
       }catch(_){}
@@ -1889,16 +1898,28 @@
     _drawSegmentOnCanvas(canvas, seg){
       try{
         if (!canvas || !seg) return;
+        const segCard = String(seg.cardKey || '');
+        const canvasCard = String(canvas.getAttribute('data-card-key') || '');
+        if (segCard && canvasCard && segCard !== canvasCard) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        const w = Math.max(1, canvas.width || 1);
-        const h = Math.max(1, canvas.height || 1);
+        const cw = Math.max(1, canvas.width || 1);
+        const ch = Math.max(1, canvas.height || 1);
         const ax = Math.max(0, Math.min(1, Number(seg.ax || 0)));
         const ay = Math.max(0, Math.min(1, Number(seg.ay || 0)));
         const bx = Math.max(0, Math.min(1, Number(seg.bx || 0)));
         const by = Math.max(0, Math.min(1, Number(seg.by || 0)));
-        const size = Math.max(1, Math.min(24, Number(seg.size || 4)));
+        let size = Math.max(1, Math.min(24, Number(seg.size || 4)));
         const color = String(seg.color || '#ffffff');
+        const drawAr = Number(seg.aspectRatio) || 0;
+        const scale = (canvas.clientWidth && canvas.width) ? canvas.width / canvas.clientWidth : 1;
+        size = Math.max(1, size * scale);
+        let x = 0, y = 0, w = cw, h = ch;
+        if (drawAr > 0){
+          const canvasAr = cw / ch;
+          if (drawAr > canvasAr){ w = cw; h = cw / drawAr; y = (ch - h) / 2; }
+          else { h = ch; w = ch * drawAr; x = (cw - w) / 2; }
+        }
         ctx.save();
         ctx.strokeStyle = color;
         ctx.lineWidth = size;
@@ -1906,9 +1927,11 @@
         ctx.lineJoin = 'round';
         ctx.setLineDash([]);
         ctx.lineDashOffset = 0;
+        ctx.translate(x, y);
+        ctx.scale(w, h);
         ctx.beginPath();
-        ctx.moveTo(ax * w, ay * h);
-        ctx.lineTo(bx * w, by * h);
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
         ctx.stroke();
         ctx.restore();
       }catch(_){ }
@@ -1932,6 +1955,7 @@
     _drawSegmentOnAllCanvases(seg, opts = {}){
       try{
         if (!seg || String(seg.type || '') !== 'line') return;
+        const cardKey = String(seg.cardKey || '');
         if (!opts.skipStore){
           if (!Array.isArray(this._drawSegments)) this._drawSegments = [];
           this._drawSegments.push({
@@ -1941,7 +1965,9 @@
             bx: Number(seg.bx || 0),
             by: Number(seg.by || 0),
             color: String(seg.color || '#ffffff'),
-            size: Math.max(1, Math.min(24, Number(seg.size || 4)))
+            size: Math.max(1, Math.min(24, Number(seg.size || 4))),
+            cardKey,
+            aspectRatio: Number(seg.aspectRatio) || 0
           });
           if (this._drawSegments.length > 1400){
             this._drawSegments.splice(0, this._drawSegments.length - 1400);
@@ -1963,6 +1989,22 @@
       }catch(_){ }
     }
 
+    _clearDrawCanvasesForCard(cardKey){
+      try{
+        const key = String(cardKey || '');
+        this._getDrawCanvases().forEach((canvas)=>{
+          const canvasKey = String(canvas.getAttribute('data-card-key') || '');
+          if (key && canvasKey && key !== canvasKey) return;
+          try{
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+          }catch(_){ }
+        });
+        if (!key) this._drawSegments = [];
+        else this._drawSegments = (this._drawSegments || []).filter(s => String(s.cardKey || '') !== key);
+      }catch(_){ }
+    }
+
     async _sendDrawEvent(connId, evt){
       try{
         const id = String(connId || '').trim();
@@ -1981,6 +2023,11 @@
           payload.by = Number(evt.by || 0);
           payload.color = String(evt.color || '#ffffff');
           payload.size = Math.max(1, Math.min(24, Number(evt.size || 4)));
+          payload.cardKey = String(evt.cardKey || '');
+          payload.aspectRatio = Number(evt.aspectRatio) || 0;
+        }
+        if (payload.type === 'clear'){
+          payload.cardKey = String(evt.cardKey || '');
         }
         await firebase.setDoc(docRef, payload);
       }catch(_){ }
@@ -2008,7 +2055,7 @@
             const clearAt = Number(new Date(data.drawClearAt || 0).getTime() || 0);
             if (!clearAt || clearAt <= this._lastDrawClearAtMs) return;
             this._lastDrawClearAtMs = clearAt;
-            this._clearAllDrawCanvases();
+            this._clearDrawCanvasesForCard(data.drawClearCardKey || '');
           }catch(_){ }
         }, ()=>{});
         const eventsQ = firebase.query(
@@ -2026,7 +2073,7 @@
               const evt = chg.doc?.data?.() || {};
               if (String(evt.from || '') === String(this.currentUser?.uid || '')) return;
               if (String(evt.type || '') === 'clear'){
-                this._clearAllDrawCanvases();
+                this._clearDrawCanvasesForCard(evt.cardKey || '');
                 return;
               }
               if (String(evt.type || '') === 'line'){
@@ -2053,8 +2100,11 @@
       const resizeCanvas = ()=>{
         const w = Math.max(1, fs.clientWidth || 1);
         const h = Math.max(1, fs.clientHeight || 1);
-        canvas.width = w;
-        canvas.height = h;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
         this._resizeTileDrawCanvases();
         this._redrawDrawCanvases();
       };
@@ -2065,8 +2115,9 @@
       };
       const drawLine = (a, b)=>{
         if (!ctx || !a || !b) return;
-        const w = Math.max(1, canvas.width || 1);
-        const h = Math.max(1, canvas.height || 1);
+        const r = canvas.getBoundingClientRect();
+        const w = Math.max(1, r.width || 1);
+        const h = Math.max(1, r.height || 1);
         const seg = {
           type: 'line',
           ax: Math.max(0, Math.min(1, a.x / w)),
@@ -2074,15 +2125,13 @@
           bx: Math.max(0, Math.min(1, b.x / w)),
           by: Math.max(0, Math.min(1, b.y / h)),
           color: this._drawColor,
-          size: this._drawSize
+          size: this._drawSize,
+          cardKey: this._drawActiveCardKey || '',
+          aspectRatio: w / h
         };
         this._drawSegmentOnAllCanvases(seg);
         const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
-        const now = Date.now();
-        if (connId && (now - Number(this._drawLastSentAt || 0)) >= 55){
-          this._drawLastSentAt = now;
-          this._sendDrawEvent(connId, seg);
-        }
+        if (connId) this._sendDrawEvent(connId, seg);
       };
       const startDraw = (e)=>{
         if (fs.classList.contains('hidden')) return;
@@ -2124,14 +2173,15 @@
       }
       if (clearBtn && ctx){
         clearBtn.addEventListener('click', async ()=>{
-          try{ this._clearAllDrawCanvases(); }catch(_){ }
+          try{ this._clearDrawCanvasesForCard(this._drawActiveCardKey); }catch(_){ }
           try{
             const connId = String(this.getCallConnId() || this.activeConnection || '').trim();
             if (!connId) return;
-            await this._sendDrawEvent(connId, { type: 'clear' });
+            await this._sendDrawEvent(connId, { type: 'clear', cardKey: this._drawActiveCardKey || '' });
             await firebase.updateDoc(firebase.doc(this.db,'callRooms', connId), {
               drawClearAt: new Date().toISOString(),
-              drawClearedBy: this.currentUser?.uid || ''
+              drawClearedBy: this.currentUser?.uid || '',
+              drawClearCardKey: this._drawActiveCardKey || ''
             });
           }catch(_){ }
         });
@@ -2147,12 +2197,16 @@
         if (!tile) return;
         const fs = document.getElementById('call-fullscreen');
         const host = document.getElementById('call-fullscreen-media');
+        const drawCanvas = document.getElementById('call-draw-canvas');
         if (!fs || !host) return;
         if (this._tileFullscreenState && this._tileFullscreenState.tile === tile) return;
         this._bindCallDrawTools();
         const drawConnId = this.getCallConnId() || this.activeConnection || '';
         this._bindDrawSyncForRoom(drawConnId);
         if (this._tileFullscreenState) this._closeCallTileFullscreen();
+        const cardKey = tile.getAttribute('data-card-key') || tile.getAttribute('data-sfu-track-key') || '';
+        this._drawActiveCardKey = cardKey;
+        if (drawCanvas) drawCanvas.setAttribute('data-card-key', cardKey);
         const parent = tile.parentElement;
         const next = tile.nextSibling;
         this._tileFullscreenState = { tile, parent, next };
@@ -2172,8 +2226,10 @@
           else st.parent.appendChild(st.tile);
         }
         this._tileFullscreenState = null;
+        this._drawActiveCardKey = '';
         if (fs) fs.classList.add('hidden');
         if (canvas){
+          canvas.removeAttribute('data-card-key');
           const ctx = canvas.getContext('2d');
           try{ ctx && ctx.clearRect(0, 0, canvas.width, canvas.height); }catch(_){}
         }
@@ -9756,7 +9812,11 @@
     if (!btn) return;
     const isEarpiece = !!this._audioOutputEarpiece;
     btn.innerHTML = isEarpiece ? '<i class="fas fa-phone-volume"></i>' : '<i class="fas fa-volume-high"></i>';
-    btn.title = isEarpiece ? 'Earpiece (tap for speaker)' : 'Speaker (tap for earpiece)';
+    const hasSinkApi = !!(document.createElement('video').setSinkId);
+    const iosNote = this._isIOSDevice?.() ? ' (iOS: use Control Center)' : '';
+    btn.title = hasSinkApi
+      ? (isEarpiece ? 'Earpiece (tap for speaker)' : 'Speaker (tap for earpiece)')
+      : 'Audio output' + iosNote;
     btn.classList.toggle('active', !isEarpiece);
   }
 
