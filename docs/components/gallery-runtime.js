@@ -17,6 +17,10 @@
     return (items || []).filter((item) => item && (item.type === 'image' || item.type === 'video') && item.url);
   }
 
+  function visualItemsForRotation(items) {
+    return visualItems(items).filter((item) => !item.hideInPreview);
+  }
+
   function textItems(items) {
     return (items || []).filter((item) => item && item.type === 'text' && item.text);
   }
@@ -100,8 +104,8 @@
   }
 
   function buildCard(project, modeClass) {
-    const visuals = visualItems(project.items);
-    const first = visuals[0];
+    const forRotation = visualItemsForRotation(project.items);
+    const first = forRotation[0] || visualItems(project.items)[0];
     if (!first) return '';
     return (
       `<article class="gc-card ${modeClass}" data-project-id="${project.id}" tabindex="0">` +
@@ -138,7 +142,7 @@
       const id = card.getAttribute('data-project-id');
       const project = projectById.get(id);
       if (!project) return;
-      const visuals = visualItems(project.items);
+      const visuals = visualItemsForRotation(project.items);
       if (visuals.length < 2 || reducedMotion) return;
       let idx = 0;
       let timer = null;

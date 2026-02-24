@@ -718,6 +718,69 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Partners section – before reviews */
+.home-partners-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  max-width: 640px;
+  padding: var(--dl-space-space-twounits) 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+.home-partners-section.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+.home-partners-title {
+  margin: 0;
+  font-size: clamp(0.75rem, 1.5vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+.home-partners-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem 2.5rem;
+}
+.home-partner-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: none;
+  transition: color 0.2s, transform 0.2s;
+}
+.home-partner-link:hover {
+  color: #fff;
+  transform: translateY(-2px);
+}
+.home-partner-logo {
+  height: 48px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+.home-partner-link:hover .home-partner-logo {
+  opacity: 1;
+}
+.home-partner-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
+
 /* Reviews slider below request button */
 .home-reviews-slider {
   position: relative;
