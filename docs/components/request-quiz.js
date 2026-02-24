@@ -182,11 +182,13 @@
     submitBtn.textContent = 'Submitting...';
 
     try {
-      const base64Files = [];
-      for (let i = 0; i < Math.min(files.length, MAX_FILES); i++) {
-        const b64 = await fileToBase64(files[i]);
-        base64Files.push({ name: files[i].name, data: b64, type: files[i].type });
-      }
+      const filesToConvert = Array.from(files).slice(0, MAX_FILES);
+      const base64Results = await Promise.all(filesToConvert.map((f) => fileToBase64(f)));
+      const base64Files = base64Results.map((b64, i) => ({
+        name: filesToConvert[i].name,
+        data: b64,
+        type: filesToConvert[i].type
+      }));
 
       const callFn = (window.firebaseService || window.parent?.firebaseService)?.callFunction?.bind(window.firebaseService || window.parent?.firebaseService);
       if (!callFn) throw new Error('Please open this page from liberpict.com to submit your request, or email us directly.');
