@@ -48,18 +48,23 @@
   gap: 24px;
 }
 
-/* Landing page: bigger tiles (like feed but larger) */
-.home-container .home-gallery-tiles .gc-grid {
-  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-  gap: 28px;
+/* Gallery page: ensure tile grid (not single column) on desktop and tablet */
+.gallery-container [data-gallery-template="tile"] .gc-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
 }
-.home-container .home-gallery-tiles .gc-grid .gc-card {
-  min-height: 380px;
+@media (min-width: 769px) {
+  .gallery-container [data-gallery-template="tile"] .gc-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 28px;
+  }
 }
 
 .gc-single-shell {
   width: 90%;
   min-width: 280px;
+  overflow-x: hidden;
+  position: relative;
   max-width: 1100px;
   margin: 0 auto;
   overflow: hidden;
@@ -99,13 +104,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: row;
   padding: 0 8px;
 }
+  position: relative;
 
 .gc-single-track .gc-slide-inner {
   width: 100%;
 }
 
+  flex-shrink: 0;
 .gc-slider-shell {
   position: relative;
   overflow: hidden;
@@ -119,6 +127,7 @@
 .gc-slide {
   flex: 0 0 100%;
   min-width: 100%;
+  overflow-x: hidden;
   display: flex;
   gap: 14px;
   padding: 0 4px;
@@ -418,12 +427,9 @@ body.gc-popup-open {
 }
 
 @media (max-width: 768px) {
-  .home-container .home-gallery-tiles .gc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  .gallery-container [data-gallery-template="tile"] .gc-grid {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 20px;
-  }
-  .home-container .home-gallery-tiles .gc-grid .gc-card {
-    min-height: 340px;
   }
 }
 
@@ -435,12 +441,10 @@ body.gc-popup-open {
     grid-template-columns: 1fr;
     gap: 16px;
   }
-  .home-container .home-gallery-tiles .gc-grid {
-    grid-template-columns: 1fr;
+  /* Gallery page: keep 2-column tiles on small screens when width allows */
+  .gallery-container [data-gallery-template="tile"] .gc-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
     gap: 16px;
-  }
-  .home-container .home-gallery-tiles .gc-grid .gc-card {
-    min-height: 300px;
   }
   .gc-card--slider {
     flex: 1 1 100%;
