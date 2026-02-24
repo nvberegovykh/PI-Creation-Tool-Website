@@ -2408,6 +2408,21 @@
       }, 35000);
     }
 
+    _redirectToLoginWithReturn(returnTo = 'chat'){
+      try{
+        const connId = this.activeConnection || '';
+        if (connId) sessionStorage.setItem('liber_return_chat_conn_id', connId);
+        const base = (location.pathname || '').replace(/\/apps\/secure-chat\/[^?]*$/, '').replace(/\/$/, '') || '';
+        let loginUrl = location.origin + (base ? base + '/' : '/') + 'index.html?returnTo=' + encodeURIComponent(returnTo);
+        if (connId) loginUrl += '&connId=' + encodeURIComponent(connId);
+        const target = (window.top !== window) ? window.top : window;
+        target.location.href = loginUrl;
+      }catch(_){
+        const target = (window.top !== window) ? window.top : window;
+        target.location.href = 'index.html?returnTo=chat';
+      }
+    }
+
     async init() {
       // Wait for firebase (parent's when in iframe, or our own)
       let attempts = 0; while((!window.firebaseService || !window.firebaseService.isInitialized) && attempts < 150){ await new Promise(r=>setTimeout(r,100)); attempts++; }
@@ -2433,7 +2448,20 @@
         attempts++;
       }
       if (!this.currentUser) {
-        console.error('Firebase auth not ready after retries');
+        console.warn('Firebase auth not ready - redirecting to login');
+        try {
+          const params = new URLSearchParams(location.search);
+          const connId = params.get('connId') || '';
+          if (connId) sessionStorage.setItem('liber_return_chat_conn_id', connId);
+          const base = (location.pathname || '').replace(/\/apps\/secure-chat\/[^?]*$/, '').replace(/\/$/, '') || '';
+          let loginUrl = location.origin + (base ? base + '/' : '/') + 'index.html?returnTo=chat';
+          if (connId) loginUrl += '&connId=' + encodeURIComponent(connId);
+          const target = (window.top !== window) ? window.top : window;
+          target.location.href = loginUrl;
+        } catch (_) {
+          if (window.top && window.top !== window) window.top.location.href = 'index.html?returnTo=chat';
+          else window.location.href = 'index.html?returnTo=chat';
+        }
         return;
       }
 
@@ -6253,7 +6281,7 @@
         if (!firebase.auth().currentUser) throw new Error('Auth lost - please re-login');
       } catch (err) {
         console.error('Auth refresh failed before sendFiles:', err);
-        if (!silent) alert('Auth error - please reload and re-login');
+        if (!silent) this._redirectToLoginWithReturn('chat');
         return result;
       }
       for (const f of files){
@@ -10584,7 +10612,9 @@
         if (hasVideo){
           mediaEl.classList.add('video-recording-circular');
           this.applyCircularMask(mediaEl);
+          overlay.classList.remove('recording-audio-only');
         } else {
+          overlay.classList.add('recording-audio-only');
           for (let i = 0; i < 12; i++){
             const bar = document.createElement('div');
             bar.className = 'wave-bar';
@@ -10705,7 +10735,7 @@
         const stickerBtn = document.getElementById('sticker-btn');
         const input = document.getElementById('message-input');
         const actionBtn = document.getElementById('action-btn');
-        if (overlay){ overlay.classList.add('hidden'); overlay.classList.remove('show'); }
+        if (overlay){ overlay.classList.add('hidden'); overlay.classList.remove('show'); overlay.classList.remove('recording-audio-only'); }
         if (overlayPlayer){
           const mediaEl = overlayPlayer.querySelector('video, audio');
           if (mediaEl){ mediaEl.srcObject = null; mediaEl.src = ''; }
@@ -11002,6 +11032,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     const url = URL.createObjectURL(blob);
     const isVideo = (blob.type||'').startsWith('video');
     if (isVideo){
+      overlay.classList.remove('recording-audio-only');
       const mediaEl = document.createElement('video');
       mediaEl.controls = true;
       mediaEl.src = url;
@@ -11029,6 +11060,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       mediaEl.addEventListener('pause', updateProgress);
       mediaEl.load();
     } else {
+      overlay.classList.add('recording-audio-only');
       const waveWrap = document.createElement('div');
       waveWrap.className = 'voice-wave-player';
       self.renderWaveAttachment(waveWrap, url, 'You');
@@ -11041,20 +11073,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     if (stickerBtn) stickerBtn.style.display = 'none';
     if (actionBtn) actionBtn.style.display = 'none';
     if (switchBtn){
-      switchBtn.style.display = isVideo ? 'flex' : 'none';
-      switchBtn.classList.remove('hidden');
-      if (isVideo){
-        switchBtn.onclick = async ()=>{
-          try{
-            self._pendingRecording = null;
-            try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
-            doHide();
-            self.refreshActionButton();
-            self._recFacing = (self._recFacing || 'user') === 'user' ? 'environment' : 'user';
-            await self.recordVideoMessage();
-          }catch(_){ }
-        };
-      }
+      switchBtn.style.display = 'none';
     }
     if (recordBtn){ recordBtn.classList.remove('recording', 'locked'); recordBtn.classList.add('hidden'); }
     if (slideHint) slideHint.classList.add('hidden');
@@ -11066,6 +11085,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     const doHide = ()=>{
       overlay.classList.add('hidden');
       overlay.classList.remove('show');
+      overlay.classList.remove('recording-audio-only');
       overlayPlayer.innerHTML = '';
       if (input) input.style.display = '';
       if (attachBtn) attachBtn.style.display = '';
@@ -11116,7 +11136,11 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         if (!window.firebaseService?.auth?.currentUser) throw new Error('Auth lost - please re-login');
       } catch (err) {
         console.error('Auth refresh failed before recording send:', err);
-        alert('Auth error - please reload and re-login');
+        if (window.secureChatApp && typeof window.secureChatApp._redirectToLoginWithReturn === 'function') {
+          window.secureChatApp._redirectToLoginWithReturn('chat');
+        } else {
+          alert('Auth error - please log in to send.');
+        }
         self._recordingSendInFlight = false;
         sendBtn.disabled = false;
         discardBtn.disabled = false;

@@ -429,17 +429,35 @@ class AppsManager {
 
             let launchId = sessionStorage.getItem('liber_launch_after_verify');
             let projectId = sessionStorage.getItem('liber_verify_project_id');
+            let chatConnId = sessionStorage.getItem('liber_return_chat_conn_id');
             if (!launchId && (typeof URLSearchParams !== 'undefined')) {
                 try {
                     const params = new URLSearchParams(window.location.search);
-                    if (params.get('returnTo') === 'tracker' && window.firebaseService?.auth?.currentUser) {
+                    const returnTo = params.get('returnTo');
+                    if (returnTo === 'tracker' && window.firebaseService?.auth?.currentUser) {
                         launchId = 'project-tracker';
                         projectId = sessionStorage.getItem('liber_return_project_id') || projectId;
                         sessionStorage.removeItem('liber_return_project_id');
+                        try { const u = new URL(window.location.href); u.searchParams.delete('returnTo'); u.searchParams.delete('projectId'); window.history.replaceState({}, '', u.toString()); } catch (_) {}
+                    } else if (returnTo === 'chat' && window.firebaseService?.auth?.currentUser) {
+                        launchId = 'chat';
+                        chatConnId = chatConnId || params.get('connId');
+                        sessionStorage.removeItem('liber_return_chat_conn_id');
                     }
                 } catch (_) {}
             }
-            if (launchId) {
+            if (launchId === 'chat') {
+                const chatPath = 'apps/secure-chat/index.html';
+                let chatUrl = new URL(chatPath, window.location.href).href;
+                if (chatConnId) chatUrl += (chatUrl.includes('?') ? '&' : '?') + 'connId=' + encodeURIComponent(chatConnId);
+                try {
+                    const u = new URL(window.location.href);
+                    u.searchParams.delete('returnTo');
+                    u.searchParams.delete('connId');
+                    window.history.replaceState({}, '', u.toString());
+                } catch (_) {}
+                setTimeout(() => this.openAppInShell({ id: 'secure-chat', name: 'Connections' }, chatUrl), 400);
+            } else if (launchId) {
                 sessionStorage.removeItem('liber_launch_after_verify');
                 if (projectId) sessionStorage.removeItem('liber_verify_project_id');
                 const app = this.apps.find((a) => a.id === launchId);

@@ -3590,6 +3590,10 @@ class DashboardManager {
             if (preferred === 'feed'){
                 setTimeout(()=> this.loadGlobalFeed(this._wallSearchTerm || ''), 120);
             }
+            const returnTo = (typeof URLSearchParams !== 'undefined' && new URLSearchParams(window.location.search).get('returnTo')) || '';
+            if ((returnTo === 'chat' || returnTo === 'tracker') && window.appsManager && typeof window.appsManager.loadApps === 'function'){
+                setTimeout(()=> window.appsManager.loadApps(), 300);
+            }
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         // Mobile Chrome/PWA can hydrate auth state slightly later; retry nav role gate.

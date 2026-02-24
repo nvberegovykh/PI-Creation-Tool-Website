@@ -820,13 +820,30 @@
       const text = (byId('tracker-review-input')?.value || '').trim();
       if (!me || !fs?.db || !fb?.addDoc) return;
       try {
+        let userName = '';
+        if (fs.getUserData) {
+          try {
+            const ud = await fs.getUserData(me);
+            userName = String(ud?.username || ud?.email || '').trim() || 'User';
+          } catch (_) {}
+        }
+        if (!userName) userName = 'User';
         const reviewData = JSON.parse(JSON.stringify({
           projectId,
           userId: me,
+          userName,
           text,
           createdAt: new Date().toISOString()
         }));
         await fb.addDoc(fb.collection(fs.db, 'projects', projectId, 'reviews'), reviewData);
+        const publicReview = JSON.parse(JSON.stringify({
+          projectId,
+          userId: me,
+          userName,
+          text,
+          createdAt: new Date().toISOString()
+        }));
+        await fb.addDoc(fb.collection(fs.db, 'projectReviews'), publicReview);
         notify('Thank you for your review!');
         const inp = byId('tracker-review-input');
         if (inp) inp.value = '';
