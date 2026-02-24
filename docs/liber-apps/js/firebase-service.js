@@ -876,6 +876,7 @@ class FirebaseService {
             caption: String(data.caption || ''),
             sortOrder: Number.isFinite(Number(data.sortOrder)) ? Number(data.sortOrder) : 0,
             isPublished: !!data.isPublished,
+            hideInPreview: !!data.hideInPreview,
             ownerId: String(data.ownerId || this.auth?.currentUser?.uid || ''),
             createdAt: now,
             updatedAt: now,

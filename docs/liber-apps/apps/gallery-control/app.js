@@ -112,19 +112,20 @@
     byId('item-text').value = '';
     byId('item-sort-order').value = '0';
     byId('item-published').checked = false;
+    byId('item-hide-in-preview').checked = false;
     byId('item-file').value = '';
     state.selectedItemId = '';
     syncItemTypeFields();
   }
 
   function fillProjectForm(project) {
+    state.selectedProjectId = project.id || '';
     byId('project-id').value = project.id || '';
     byId('project-title').value = project.title || '';
     byId('project-year').value = project.year || '';
     byId('project-description').value = project.description || '';
     byId('project-cover-policy').value = project.coverPolicy || 'first';
     byId('project-published').checked = !!project.isPublished;
-    state.selectedProjectId = project.id || '';
     state.editingProjectItems = Array.from(project.items || []);
     state.projectMediaFiles = [];
     state.projectItemsToRemove = [];
@@ -138,6 +139,7 @@
     byId('item-text').value = item.text || '';
     byId('item-sort-order').value = String(item.sortOrder || 0);
     byId('item-published').checked = !!item.isPublished;
+    byId('item-hide-in-preview').checked = !!item.hideInPreview;
     byId('item-file').value = '';
     syncItemTypeFields();
   }
@@ -157,7 +159,7 @@
     const toRemove = state.projectItemsToRemove || [];
     (state.editingProjectItems || []).filter((it) => !toRemove.includes(it.id)).forEach((item) => {
       const wrap = document.createElement('div');
-      wrap.className = 'media-preview-item';
+      wrap.className = 'media-preview-item' + (item.hideInPreview ? ' hide-in-rotation' : '');
       const url = item.thumbUrl || item.url || '';
       if (item.type === 'video' || /\.(mp4|webm|ogg)$/i.test(url)) {
         const vid = document.createElement('video');
@@ -184,6 +186,26 @@
         renderProjectMediaPreviews();
       };
       wrap.appendChild(rm);
+      if ((item.type === 'image' || item.type === 'video') && url) {
+        const hideBtn = document.createElement('button');
+        hideBtn.type = 'button';
+        hideBtn.className = 'media-hide-btn';
+        hideBtn.innerHTML = item.hideInPreview ? '<i class="fas fa-eye-slash" title="Hidden in rotation"></i>' : '<i class="fas fa-eye" title="Hide in rotation"></i>';
+        hideBtn.title = item.hideInPreview ? 'Show in rotation' : 'Hide in rotation';
+        hideBtn.onclick = async () => {
+          const proj = getSelectedProject();
+          if (!proj) return;
+          try {
+            await getFirebaseService().updateGalleryItem(proj.id, item.id, { hideInPreview: !item.hideInPreview });
+            item.hideInPreview = !item.hideInPreview;
+            renderProjectMediaPreviews();
+            notify(item.hideInPreview ? 'Hidden from rotation' : 'Shown in rotation');
+          } catch (e) {
+            notify(e.message || 'Failed to update', 'error');
+          }
+        };
+        wrap.appendChild(hideBtn);
+      }
       previews.appendChild(wrap);
     });
     (state.projectMediaFiles || []).forEach((f) => {
@@ -221,7 +243,9 @@
   function syncItemTypeFields() {
     const type = byId('item-type').value;
     const wrap = byId('item-file-wrap');
+    const hideWrap = byId('item-hide-wrap');
     wrap.style.display = type === 'text' ? 'none' : '';
+    if (hideWrap) hideWrap.style.display = type === 'text' ? 'none' : '';
   }
 
   function firstVisualUrl(project) {
@@ -289,14 +313,20 @@
       } else {
         preview = '<div class="gc-item-placeholder"><i class="fas fa-file"></i></div>';
       }
+      const hideTitle = item.hideInPreview ? 'Show in rotation' : 'Hide in rotation';
+      const hideIcon = item.hideInPreview ? 'fa-eye-slash' : 'fa-eye';
+      const hideBtn = (item.type === 'image' || item.type === 'video') && item.url
+        ? `<button class="gc-btn-hide" data-item-id="${item.id}" title="${hideTitle}" aria-label="${hideTitle}"><i class="fas ${hideIcon}"></i></button>`
+        : '';
       return (
-        `<div class="gc-item-card" data-item-id="${item.id}">` +
+        `<div class="gc-item-card ${item.hideInPreview ? 'gc-item-hidden-rotation' : ''}" data-item-id="${item.id}">` +
         `<div class="gc-card-preview">${preview}</div>` +
         `<div class="gc-card-info">` +
         `<strong>${item.caption || item.type || 'Item'}</strong>` +
-        `<span>${item.type} • ${item.isPublished ? 'Published' : 'Draft'}</span>` +
+        `<span>${item.type} • ${item.isPublished ? 'Published' : 'Draft'}${item.hideInPreview ? ' • Hidden in rotation' : ''}</span>` +
         `</div>` +
         `<div class="gc-card-actions">` +
+        hideBtn +
         `<button class="gc-btn-edit" data-item-id="${item.id}" title="Edit"><i class="fas fa-pencil-alt"></i></button>` +
         `<button class="gc-btn-delete" data-item-id="${item.id}" title="Delete"><i class="fas fa-trash"></i></button>` +
         `</div>` +
@@ -321,6 +351,24 @@
         const id = btn.getAttribute('data-item-id');
         const item = state.items.find((i) => i.id === id);
         if (item) onDeleteItem(item);
+      });
+    });
+    host.querySelectorAll('.gc-btn-hide[data-item-id]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-item-id');
+        const item = state.items.find((i) => i.id === id);
+        if (!item || !state.selectedProjectId) return;
+        try {
+          const svc = getFirebaseService();
+          const next = !item.hideInPreview;
+          await svc.updateGalleryItem(state.selectedProjectId, item.id, { hideInPreview: next });
+          item.hideInPreview = next;
+          renderItemCards();
+          notify(next ? 'Hidden from rotation' : 'Shown in rotation');
+        } catch (err) {
+          notify(err.message || 'Failed to update', 'error');
+        }
       });
     });
   }
@@ -508,6 +556,7 @@
       text: byId('item-text').value.trim(),
       sortOrder: Number(byId('item-sort-order').value || 0),
       isPublished: byId('item-published').checked,
+      hideInPreview: byId('item-hide-in-preview').checked,
       ownerId: svc.auth.currentUser?.uid || ''
     };
     const file = byId('item-file').files[0];

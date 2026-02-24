@@ -163,6 +163,32 @@
   justify-content: center;
 }
 
+.media-hide-btn {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #e8edff;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.media-hide-btn:hover {
+  background: rgba(59, 130, 246, 0.5);
+  color: #fff;
+}
+.media-preview-item.hide-in-rotation img,
+.media-preview-item.hide-in-rotation video {
+  opacity: 0.5;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -296,6 +322,25 @@ textarea {
 .gc-btn-delete:hover {
   background: #3d1a1a;
   border-color: #dc2626;
+}
+
+.gc-btn-hide {
+  padding: 6px 10px;
+  border: 1px solid #2b3854;
+  background: #161a22;
+  color: #e8edff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.gc-btn-hide:hover {
+  background: #1e3a5f;
+  border-color: var(--accent-color, #00d4ff);
+  color: var(--accent-color, #00d4ff);
+}
+.gc-item-card.gc-item-hidden-rotation .gc-card-preview img,
+.gc-item-card.gc-item-hidden-rotation .gc-card-preview video {
+  opacity: 0.5;
 }
 
 .actions .danger:hover {

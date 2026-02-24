@@ -809,6 +809,18 @@ class AppsManager {
             shell.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('app-shell-open');
             window.dispatchEvent(new Event('liber:app-shell-close'));
+            // iOS/mobile: reset overflow and restore scroll capability after closing shell
+            if (this.isMobileDevice()){
+                document.body.style.overflow = '';
+                document.documentElement.style.overflow = '';
+                try { frame.contentWindow?.blur(); } catch (_){}
+                const activeSection = document.querySelector('.content-section.active');
+                if (activeSection && activeSection.scrollHeight > activeSection.clientHeight){
+                    const y = activeSection.scrollTop;
+                    activeSection.scrollTop = y + 1;
+                    requestAnimationFrame(()=>{ activeSection.scrollTop = y; });
+                }
+            }
             // Ensure control panel view is visible and has an active section.
             const dashboard = document.getElementById('dashboard');
             const authScreen = document.getElementById('auth-screen');
