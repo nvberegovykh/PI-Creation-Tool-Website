@@ -1647,6 +1647,27 @@
       return videosCont;
     }
 
+    _wrapVideoInCallTile(videoEl, isScreen = false){
+      const tile = document.createElement('div');
+      tile.className = `call-tile${isScreen ? ' screen' : ''}`;
+      const drawLayer = document.createElement('div');
+      drawLayer.className = 'call-draw-layer';
+      const drawCanvas = document.createElement('canvas');
+      drawCanvas.className = 'call-tile-draw-canvas';
+      drawLayer.appendChild(drawCanvas);
+      const expandBtn = document.createElement('button');
+      expandBtn.className = 'call-tile-expand';
+      expandBtn.type = 'button';
+      expandBtn.title = 'Fullscreen';
+      expandBtn.innerHTML = '<i class="fas fa-expand"></i>';
+      expandBtn.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation(); }catch(_){ } this._openCallTileFullscreen(tile); });
+      tile.appendChild(videoEl);
+      tile.appendChild(drawLayer);
+      tile.appendChild(expandBtn);
+      tile.addEventListener('click', ()=> this._openCallTileFullscreen(tile));
+      return tile;
+    }
+
     _createCallTileForVideo(el, key, isScreen = false){
       try{
         const videosCont = this._ensureCallVideosContainer();
@@ -1655,6 +1676,11 @@
         tile.className = `call-tile${isScreen ? ' screen' : ''}`;
         tile.classList.add('call-tile-enter');
         tile.setAttribute('data-sfu-track-key', key);
+        const drawLayer = document.createElement('div');
+        drawLayer.className = 'call-draw-layer';
+        const drawCanvas = document.createElement('canvas');
+        drawCanvas.className = 'call-tile-draw-canvas';
+        drawLayer.appendChild(drawCanvas);
         const expandBtn = document.createElement('button');
         expandBtn.className = 'call-tile-expand';
         expandBtn.type = 'button';
@@ -1665,6 +1691,7 @@
           this._openCallTileFullscreen(tile);
         });
         tile.appendChild(el);
+        tile.appendChild(drawLayer);
         tile.appendChild(expandBtn);
         videosCont.appendChild(tile);
         try{
@@ -1831,39 +1858,31 @@
       }
     }
 
-    _ensurePreviewDrawCanvas(){
+    _resizeTileDrawCanvases(){
       try{
-        const host = document.getElementById('call-videos');
-        if (!host) return null;
-        let canvas = document.getElementById('call-preview-draw-canvas');
-        if (!canvas){
-          canvas = document.createElement('canvas');
-          canvas.id = 'call-preview-draw-canvas';
-          canvas.className = 'call-preview-draw-canvas';
-          host.appendChild(canvas);
-        }
-        const w = Math.max(1, host.clientWidth || 1);
-        const h = Math.max(1, host.clientHeight || 1);
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w;
-          canvas.height = h;
-          canvas.style.width = w + 'px';
-          canvas.style.height = h + 'px';
-        }
-        return canvas;
-      }catch(_){ return null; }
+        document.querySelectorAll('.call-tile-draw-canvas').forEach((canvas)=>{
+          const layer = canvas.closest('.call-draw-layer');
+          const tile = canvas.closest('.call-tile');
+          if (!tile) return;
+          const w = Math.max(1, tile.clientWidth || 1);
+          const h = Math.max(1, tile.clientHeight || 1);
+          if (canvas.width !== w || canvas.height !== h){
+            canvas.width = w;
+            canvas.height = h;
+          }
+        });
+      }catch(_){}
     }
 
     _getDrawCanvases(){
       const canvases = [];
       try{
-        const preview = this._ensurePreviewDrawCanvas();
-        if (preview) canvases.push(preview);
-      }catch(_){ }
+        document.querySelectorAll('.call-tile-draw-canvas').forEach((c)=> canvases.push(c));
+      }catch(_){}
       try{
         const fs = document.getElementById('call-draw-canvas');
         if (fs) canvases.push(fs);
-      }catch(_){ }
+      }catch(_){}
       return canvases;
     }
 
@@ -1897,6 +1916,7 @@
 
     _redrawDrawCanvases(){
       try{
+        this._resizeTileDrawCanvases();
         const all = this._getDrawCanvases();
         all.forEach((canvas)=>{
           try{
@@ -2035,7 +2055,7 @@
         const h = Math.max(1, fs.clientHeight || 1);
         canvas.width = w;
         canvas.height = h;
-        this._ensurePreviewDrawCanvas();
+        this._resizeTileDrawCanvases();
         this._redrawDrawCanvases();
       };
       const pointFromEvt = (e)=>{
@@ -2218,6 +2238,24 @@
       try{
         const room = this._sfuRoom;
         if (!room?.localParticipant) return;
+        const currentKeys = new Set();
+        room.localParticipant.trackPublications.forEach((pub)=>{
+          const tr = pub?.track;
+          if (!tr || String(tr.kind) !== 'video') return;
+          currentKeys.add(`local:${String(pub.trackSid || tr.sid || 'video')}`);
+        });
+        const toRemove = [];
+        this._sfuTrackEls.forEach((el, key)=>{
+          if (key.startsWith('local:') && !currentKeys.has(key)) toRemove.push({ el, key });
+        });
+        toRemove.forEach(({ el, key })=>{
+          try{
+            const tile = el.closest('.call-tile');
+            if (tile) tile.remove();
+            else el.remove();
+          }catch(_){}
+          this._sfuTrackEls.delete(key);
+        });
         let videosCont = document.getElementById('call-videos');
         if (!videosCont){
           videosCont = document.createElement('div');
@@ -2288,6 +2326,21 @@
       room.on('trackUnsubscribed', (track, publication, participant)=>{
         this._detachSfuTrack(track, publication, participant);
       });
+      room.on('localTrackUnpublished', (publication, participant)=>{
+        try{
+          const tid = String(publication?.trackSid || publication?.track?.sid || '');
+          const key = `local:${tid}`;
+          const el = this._sfuTrackEls.get(key);
+          if (el){
+            try{
+              const tile = el.closest('.call-tile');
+              if (tile) tile.remove();
+              else el.remove();
+            }catch(_){}
+            this._sfuTrackEls.delete(key);
+          }
+        }catch(_){}
+      });
       room.on('participantConnected', ()=>{
         this.updateRoomUI();
       });
@@ -2332,11 +2385,14 @@
           try{ this._sfuRoom.disconnect(); }catch(_){}
           this._sfuRoom = null;
         }
+        const isMobile = this._isMobileDevice?.();
         const roomOpts = {
           adaptiveStream: true,
           dynacast: true,
           stopLocalTrackOnUnpublish: true,
-          videoCaptureDefaults: { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
+          videoCaptureDefaults: isMobile
+            ? { resolution: { width: 640, height: 480 }, frameRate: 15 }
+            : { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
           audioCaptureDefaults: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -3494,6 +3550,13 @@
     }
     getCallAudioConstraints(){
       return this.getRecordingAudioConstraints();
+    }
+
+    getCallVideoConstraints(){
+      if (this._isMobileDevice()){
+        return { width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 20 } };
+      }
+      return true;
     }
 
     getPreferredMediaRecorderOptions(kind = 'audio'){
@@ -8981,7 +9044,7 @@
         const free = Math.max(180, Math.min(680, totalH - used));
         videos.style.height = `${free}px`;
         videos.style.maxHeight = `${free}px`;
-        this._ensurePreviewDrawCanvas();
+        this._resizeTileDrawCanvases();
         this._redrawDrawCanvases();
         // Safety migration: wrap any legacy direct <video> nodes into tiles.
         videos.querySelectorAll(':scope > video').forEach((v, idx)=>{
@@ -9631,25 +9694,57 @@
       this._syncAudioOutputIcon(audioOutBtn);
       audioOutBtn.onclick = async () => {
         this._audioOutputEarpiece = !this._audioOutputEarpiece;
+        if (!this._audioOutputEarpiece && !this._cachedSpeakerId && typeof navigator.mediaDevices?.selectAudioOutput === 'function'){
+          try {
+            const sel = await navigator.mediaDevices.selectAudioOutput({ suppressLocalPlayback: true });
+            this._cachedSpeakerId = sel?.deviceId || '';
+          }catch(_){}
+        }
         await this._applyAudioOutputSink();
         this._syncAudioOutputIcon(audioOutBtn);
       };
-      // Proximity: switch to earpiece when phone near ear (no headphones)
+      // Proximity: switch to earpiece when phone near ear, black screen when near
       try {
-        if ('onuserproximity' in window || 'ondeviceproximity' in window){
-          const onProx = (e) => {
-            const near = e?.near ?? (e?.value !== undefined ? e.value < 5 : false);
-            if (typeof near === 'boolean' && this._audioOutputEarpiece !== near){
-              this._audioOutputEarpiece = near;
-              this._applyAudioOutputSink();
-              this._syncAudioOutputIcon(audioOutBtn);
-            }
-          };
-          window.addEventListener('userproximity', onProx);
-          window.addEventListener('deviceproximity', onProx);
+        const blankEl = document.getElementById('call-proximity-blank');
+        const applyProx = (near) => {
+          if (typeof near !== 'boolean') return;
+          if (blankEl){
+            blankEl.classList.toggle('hidden', !near);
+            blankEl.setAttribute('aria-hidden', near ? 'false' : 'true');
+          }
+          if (this._audioOutputEarpiece !== near){
+            this._audioOutputEarpiece = near;
+            this._applyAudioOutputSink();
+            this._syncAudioOutputIcon(audioOutBtn);
+          }
+        };
+        const onLegacyProx = (e) => {
+          const near = e?.near ?? (typeof e?.value === 'number' ? e.value < 5 : false);
+          applyProx(near);
+        };
+        let proximitySensor = null;
+        if (typeof window.ProximitySensor === 'function'){
+          try {
+            proximitySensor = new window.ProximitySensor();
+            proximitySensor.onreading = () => {
+              const near = proximitySensor.near ?? (proximitySensor.distance != null && proximitySensor.distance < 5);
+              applyProx(!!near);
+            };
+            proximitySensor.onerror = () => { proximitySensor = null; };
+            proximitySensor.start();
+            this._proximityCleanup = () => {
+              if (blankEl) blankEl.classList.add('hidden');
+              try{ proximitySensor?.stop?.(); }catch(_){}
+            };
+          }catch(_){ proximitySensor = null; }
+        }
+        if (!this._proximityCleanup && ('onuserproximity' in window || 'ondeviceproximity' in window)){
+          window.addEventListener('userproximity', onLegacyProx);
+          window.addEventListener('deviceproximity', onLegacyProx);
           this._proximityCleanup = () => {
-            window.removeEventListener('userproximity', onProx);
-            window.removeEventListener('deviceproximity', onProx);
+            if (blankEl) blankEl.classList.add('hidden');
+            window.removeEventListener('userproximity', onLegacyProx);
+            window.removeEventListener('deviceproximity', onLegacyProx);
           };
         }
       }catch(_){}
@@ -9781,7 +9876,8 @@
     await this.updatePresence('connecting', video);
     this._activePCs = new Map();
     const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-    const config = { audio: audioCfg, video: !!video };
+    const videoCfg = video ? (this.getCallVideoConstraints?.() || true) : false;
+    const config = { audio: audioCfg, video: videoCfg };
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia(config);
@@ -9809,7 +9905,8 @@
       lv.playsInline = true;
       lv.muted = true;
       lv.style.display = 'none';
-      videosCont.appendChild(lv);
+      const localTile = this._wrapVideoInCallTile(lv, false);
+      videosCont.appendChild(localTile);
     }
     lv.srcObject = stream;
     lv.style.display = (video && stream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
@@ -9896,7 +9993,8 @@
         rv.autoplay = true;
         rv.playsInline = true;
         rv.style.display = 'none';
-        videosCont.appendChild(rv);
+        const tile = this._wrapVideoInCallTile(rv, false);
+        videosCont.appendChild(tile);
       }
       pc.ontrack = e => {
         console.log('Received remote track for ' + peerUid, e.track.kind);
@@ -10039,7 +10137,8 @@
     this._activePCs = new Map();
     // Prepare local media
     const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-    const localCfg = { audio: audioCfg, video: !!video };
+    const videoCfg = video ? (this.getCallVideoConstraints?.() || true) : false;
+    const localCfg = { audio: audioCfg, video: videoCfg };
     let localStream;
     try {
       localStream = await navigator.mediaDevices.getUserMedia(localCfg);
@@ -10068,7 +10167,8 @@
       lv.playsInline = true;
       lv.muted = true;
       lv.style.display = 'none';
-      videosCont.appendChild(lv);
+      const localTile = this._wrapVideoInCallTile(lv, false);
+      videosCont.appendChild(localTile);
     }
     lv.srcObject = localStream;
     lv.style.display = (video && localStream.getVideoTracks().some(t=>t.enabled)) ? 'block' : 'none';
@@ -10153,7 +10253,8 @@
       rv.autoplay = true;
       rv.playsInline = true;
       rv.style.display = 'none';
-      videosCont.appendChild(rv);
+      const tile = this._wrapVideoInCallTile(rv, false);
+      videosCont.appendChild(tile);
     }
     pc.ontrack = e => {
       console.log('Received remote track for ' + peerUid, e.track.kind);
@@ -10378,7 +10479,8 @@
         try{ this._activeCall && this._activeCall.pc && this._activeCall.pc.close(); }catch(_){ }
         callId = callId || `${this.activeConnection}_${Date.now()}`;
         const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-        const config = { audio: audioCfg, video: !!video };
+        const videoCfg = video ? (this.getCallVideoConstraints?.() || true) : false;
+        const config = { audio: audioCfg, video: videoCfg };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getRequiredIceServers(),
@@ -10469,7 +10571,8 @@
     async answerCall(callId, { video }){
       try{
         const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-        const config = { audio: audioCfg, video: !!video };
+        const videoCfg = video ? (this.getCallVideoConstraints?.() || true) : false;
+        const config = { audio: audioCfg, video: videoCfg };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getRequiredIceServers(),
@@ -10964,7 +11067,7 @@
         this._monitorStream = null;
         this._monitoring = false;
       }
-      document.querySelectorAll('#call-videos video').forEach(v => v.remove());
+      document.querySelectorAll('#call-videos > *').forEach(el => el.remove());
       if (!endRoom) this._inRoom = false;
       try {
         await navigator.mediaDevices.getUserMedia({audio: false});

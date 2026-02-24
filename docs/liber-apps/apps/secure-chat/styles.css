@@ -100,7 +100,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-tile{position:relative;background:#0d1017;border:1px solid rgba(255,255,255,.12);border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;width:100%;height:100%;max-height:300px;min-height:140px;aspect-ratio:1 / 1;opacity:1;transform:translateY(0);transition:opacity .22s ease,transform .22s ease,box-shadow .22s ease}
 .call-tile video{background:#111;width:100%;height:100%;object-fit:cover;object-position:center center;box-shadow:none;transition:opacity .2s;cursor:pointer}
 .call-tile .call-draw-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
-.call-preview-draw-canvas{position:absolute;inset:0;z-index:4;pointer-events:none}
+.call-tile-draw-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 .call-tile.screen{grid-column:span 2;aspect-ratio:16 / 9}
 .call-tile.screen video{object-fit:contain;background:#000}
 .call-tile.call-tile-enter{opacity:0;transform:translateY(6px) scale(.985)}
@@ -124,6 +124,8 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-participants .avatar .name, .call-participants .avatar .state{ display:none !important }
 .call-fullscreen{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;z-index:130;background:rgba(0,0,0,.94);contain:layout style paint}
 .call-fullscreen.hidden{display:none}
+.call-proximity-blank{position:fixed;inset:0;width:100%;height:100%;background:#000;z-index:200;pointer-events:auto;touch-action:none}
+.call-proximity-blank.hidden{display:none !important}
 .call-fullscreen-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .call-fullscreen-media .call-tile{width:100%;height:100%;max-width:none;max-height:none;border:0;border-radius:0;aspect-ratio:auto}
 .call-fullscreen-media .call-tile video{width:100%;height:100%;object-fit:contain;object-position:center center}
