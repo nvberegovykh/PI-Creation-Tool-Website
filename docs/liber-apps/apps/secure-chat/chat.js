@@ -8474,11 +8474,11 @@
             video.controls = false;
             video.classList.add('video-recording-circular');
             this.applyCircularMask(video);
-            this.bindInlineVideoPlayback(video, fileName || 'Video message');
           } else {
             video.controls = true;
           }
           containerEl.appendChild(video);
+          if (isVideoRecording) this.bindInlineVideoPlayback(video, fileName || 'Video message');
         } else if (this.isAudioFilename(fileName)){
           const mime = this.detectMimeFromBase64(resolvedB64, this.inferAudioMime(fileName));
           const blob = this.base64ToBlob(resolvedB64, mime);
@@ -10644,12 +10644,7 @@
           recordBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
         }
         if (sendBtn) sendBtn.classList.add('hidden');
-        if (discardBtn){
-          discardBtn.classList.remove('hidden');
-          discardBtn.querySelector('i').className = 'fas fa-stop';
-          discardBtn.title = 'Stop';
-          discardBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
-        }
+        if (discardBtn) discardBtn.classList.add('hidden');
         if (slideHint) slideHint.classList.remove('hidden');
       }catch(_){ }
     }
@@ -11028,7 +11023,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     const actionBtn = document.getElementById('action-btn');
     const attachBtn = document.getElementById('attach-btn');
     const stickerBtn = document.getElementById('sticker-btn');
-    if (!overlay || !overlayPlayer || !sendBtn || !discardBtn) return;
+    if (!overlay || !overlayPlayer || !sendBtn) return;
     const self = window.secureChatApp;
     overlayPlayer.innerHTML = '';
     if (audioWave){ audioWave.innerHTML = ''; audioWave.classList.add('hidden'); }
@@ -11090,7 +11085,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
             const ov = document.getElementById('recording-preview-overlay');
             if (!ov || !ov.classList.contains('show') || ov.classList.contains('hidden')){ clearInterval(ticker); ticker = null; return; }
             self.updateVoiceWidgets();
-          }, 150);
+          }, 50);
         };
         p.addEventListener('play', startTicker);
         p.addEventListener('pause', ()=>{ if (ticker){ clearInterval(ticker); ticker = null; } });
@@ -11118,9 +11113,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     if (recordBtn){ recordBtn.classList.remove('recording', 'locked'); recordBtn.classList.add('hidden'); }
     if (slideHint) slideHint.classList.add('hidden');
     sendBtn.classList.remove('hidden');
-    discardBtn.classList.remove('hidden');
-    discardBtn.querySelector('i').className = 'fas fa-xmark';
-    discardBtn.title = 'Discard';
+    if (discardBtn) discardBtn.classList.add('hidden');
     self._recordingSendInFlight = false;
     const doHide = ()=>{
       if (self._overlayVoiceCleanup){ try{ self._overlayVoiceCleanup(); }catch(_){ } self._overlayVoiceCleanup = null; }
@@ -11149,24 +11142,21 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         if (self._recordingSendInFlight){
           self._recordingSendInFlight = false;
           sendBtn.disabled = false;
-          discardBtn.disabled = false;
+          if (discardBtn){ discardBtn.disabled = false; discardBtn.style.opacity = ''; }
           sendBtn.style.opacity = '';
-          discardBtn.style.opacity = '';
         }
       }, 5000);
       sendBtn.disabled = true;
-      discardBtn.disabled = true;
+      if (discardBtn){ discardBtn.disabled = true; discardBtn.style.opacity = '0.65'; }
       sendBtn.style.opacity = '0.65';
-      discardBtn.style.opacity = '0.65';
       doHide();
       if (!self.storage) {
         console.error('Storage not available for recording');
         alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
         self._recordingSendInFlight = false;
         sendBtn.disabled = false;
-        discardBtn.disabled = false;
+        if (discardBtn){ discardBtn.disabled = false; discardBtn.style.opacity = ''; }
         sendBtn.style.opacity = '';
-        discardBtn.style.opacity = '';
         return;
       }
 
@@ -11184,9 +11174,8 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         }
         self._recordingSendInFlight = false;
         sendBtn.disabled = false;
-        discardBtn.disabled = false;
+        if (discardBtn){ discardBtn.disabled = false; discardBtn.style.opacity = ''; }
         sendBtn.style.opacity = '';
-        discardBtn.style.opacity = '';
         return;
       }
       try {
@@ -11234,15 +11223,14 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         clearTimeout(sendInFlightTimer);
         self._recordingSendInFlight = false;
         sendBtn.disabled = false;
-        discardBtn.disabled = false;
+        if (discardBtn){ discardBtn.disabled = false; discardBtn.style.opacity = ''; }
         sendBtn.style.opacity = '';
-        discardBtn.style.opacity = '';
         try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
         doHide();
         self.refreshActionButton();
       }
     };
-    discardBtn.onclick = ()=>{
+    if (discardBtn) discardBtn.onclick = ()=>{
       if (self._recordingSendInFlight) return;
       self._pendingRecording = null;
       try{ if (url) URL.revokeObjectURL(url); }catch(_){ }

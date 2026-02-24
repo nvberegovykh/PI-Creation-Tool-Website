@@ -374,9 +374,12 @@
     }
     if (project?.id) {
       loadResponses(project.id).then((responses) => renderResponses(responses));
+      loadReviews(project.id).then((reviews) => renderReviews(reviews, project.id));
     } else {
       byId('project-responses-list').innerHTML = '';
       byId('project-responses-list').classList.add('hidden');
+      byId('project-reviews-list').innerHTML = '';
+      byId('project-reviews-list').classList.add('hidden');
     }
   }
 
@@ -502,6 +505,57 @@
       console.warn('[Project Manager] loadResponses failed', e);
       return [];
     }
+  }
+
+  async function loadReviews(projectId) {
+    const fs = getFirebaseService();
+    if (!fs?.db || !projectId) return [];
+    try {
+      const snap = await fb().getDocs(fb().collection(fs.db, 'projects', projectId, 'reviews'));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    } catch (e) {
+      console.warn('[Project Manager] loadReviews failed', e);
+      return [];
+    }
+  }
+
+  function renderReviews(reviews, projectId) {
+    const list = byId('project-reviews-list');
+    if (!list) return;
+    const pid = projectId || state.selectedProjectId || byId('project-id')?.value?.trim() || '';
+    if (!reviews.length) {
+      list.innerHTML = '<p class="responses-empty">No reviews yet.</p>';
+      list.classList.remove('hidden');
+      return;
+    }
+    list.innerHTML = reviews.map((r) => {
+      const text = (r.text || '').trim();
+      const userName = (r.userName || 'User').trim();
+      const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+      return `<div class="response-item review-item" data-review-id="${escapeHtml(r.id)}">
+        <div class="response-meta">${escapeHtml(userName)} · ${escapeHtml(date)}</div>
+        <div class="response-message">${escapeHtml(text).replace(/\n/g, '<br>')}</div>
+        <button type="button" class="btn-icon review-remove" data-project-id="${escapeHtml(pid)}" data-review-id="${escapeHtml(r.id)}" title="Remove review"><i class="fas fa-trash"></i></button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.review-remove').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const projectId = btn.getAttribute('data-project-id');
+        const reviewId = btn.getAttribute('data-review-id');
+        if (!projectId || !reviewId) return;
+        if (!confirm('Remove this review? It will also be removed from the main page.')) return;
+        const fs = getFirebaseService();
+        try {
+          await fs.callFunction('deleteProjectReview', { projectId, reviewId });
+          notify('Review removed');
+          const reviews = await loadReviews(projectId);
+          renderReviews(reviews, projectId);
+        } catch (err) {
+          notify(err?.message || 'Failed to remove review', 'error');
+        }
+      });
+    });
+    list.classList.remove('hidden');
   }
 
   function renderResponses(responses) {
@@ -839,6 +893,17 @@
         if (icon) icon.className = 'fas fa-chevron-down';
         const id = byId('project-id')?.value?.trim();
         if (id) loadResponses(id).then((r) => renderResponses(r));
+      }
+    });
+    byId('project-reviews-toggle')?.addEventListener('click', () => {
+      const list = byId('project-reviews-list');
+      const icon = byId('project-reviews-toggle')?.querySelector('i');
+      if (list?.classList.toggle('hidden')) {
+        if (icon) icon.className = 'fas fa-chevron-right';
+      } else {
+        if (icon) icon.className = 'fas fa-chevron-down';
+        const id = byId('project-id')?.value?.trim();
+        if (id) loadReviews(id).then((r) => renderReviews(r, id));
       }
     });
     byId('project-respond-btn')?.addEventListener('click', async () => {

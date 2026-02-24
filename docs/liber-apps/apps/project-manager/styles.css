@@ -386,6 +386,26 @@
   overflow-wrap: break-word;
   min-width: 0;
 }
+.review-item {
+  position: relative;
+  padding-right: 44px;
+}
+.review-item .review-remove {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #2b3854;
+  background: #161a22;
+  color: #e8edff;
+  cursor: pointer;
+}
+.review-item .review-remove:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
 .response-meta {
   font-size: 12px;
   opacity: 0.8;

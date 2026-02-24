@@ -504,7 +504,7 @@ button.call-status-badge:hover{
   touch-action:none;
   overflow:hidden;
 }
-.voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .08s linear}
+.voice-wave-player .wave .bar{width:2px;border-radius:2px;background:#6e798b;opacity:.95;transition:background-color .15s ease-out}
 .voice-wave-player .wave .bar.played{background:#ffffff}
 .voice-wave-player .time{font-size:11px;color:#9da8bc;min-width:52px;max-width:72px;flex:0 0 auto;text-align:right;cursor:pointer;white-space:nowrap}
 /* Slider in chat: fit media bounds like WhatsApp */
