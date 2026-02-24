@@ -820,30 +820,32 @@
       const text = (byId('tracker-review-input')?.value || '').trim();
       if (!me || !fs?.db || !fb?.addDoc) return;
       try {
-        let userName = '';
+        let userName = 'User';
         if (fs.getUserData) {
           try {
             const ud = await fs.getUserData(me);
             userName = String(ud?.username || ud?.email || '').trim() || 'User';
           } catch (_) {}
         }
-        if (!userName) userName = 'User';
+        const createdAt = new Date().toISOString();
         const reviewData = JSON.parse(JSON.stringify({
-          projectId,
-          userId: me,
-          userName,
-          text,
-          createdAt: new Date().toISOString()
+          projectId: String(projectId),
+          userId: String(me),
+          userName: String(userName),
+          text: String(text),
+          createdAt: createdAt
         }));
-        await fb.addDoc(fb.collection(fs.db, 'projects', projectId, 'reviews'), reviewData);
         const publicReview = JSON.parse(JSON.stringify({
-          projectId,
-          userId: me,
-          userName,
-          text,
-          createdAt: new Date().toISOString()
+          projectId: String(projectId),
+          userId: String(me),
+          userName: String(userName),
+          text: String(text),
+          createdAt: createdAt
         }));
-        await fb.addDoc(fb.collection(fs.db, 'projectReviews'), publicReview);
+        const reviewsCol = fb.collection(fs.db, 'projects', projectId, 'reviews');
+        const projectReviewsCol = fb.collection(fs.db, 'projectReviews');
+        await fb.addDoc(reviewsCol, reviewData);
+        await fb.addDoc(projectReviewsCol, publicReview);
         notify('Thank you for your review!');
         const inp = byId('tracker-review-input');
         if (inp) inp.value = '';

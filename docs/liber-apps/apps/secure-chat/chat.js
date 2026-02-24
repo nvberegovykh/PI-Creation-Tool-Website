@@ -7155,6 +7155,7 @@
         }
       };
       if (wrap){
+        updateProgress();
         videoEl.addEventListener('loadedmetadata', updateProgress);
         videoEl.addEventListener('timeupdate', updateProgress);
         videoEl.addEventListener('ended', ()=>{ if (wrap) wrap.style.setProperty('--progress', '1'); });
@@ -10736,6 +10737,7 @@
         const input = document.getElementById('message-input');
         const actionBtn = document.getElementById('action-btn');
         if (overlay){ overlay.classList.add('hidden'); overlay.classList.remove('show'); overlay.classList.remove('recording-audio-only'); }
+        if (this._overlayVoiceCleanup){ try{ this._overlayVoiceCleanup(); }catch(_){ } this._overlayVoiceCleanup = null; }
         if (overlayPlayer){
           const mediaEl = overlayPlayer.querySelector('video, audio');
           if (mediaEl){ mediaEl.srcObject = null; mediaEl.src = ''; }
@@ -11059,12 +11061,30 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       mediaEl.addEventListener('ended', ()=>{ progressWrap.style.setProperty('--progress', '1'); });
       mediaEl.addEventListener('pause', updateProgress);
       mediaEl.load();
+      updateProgress();
     } else {
       overlay.classList.add('recording-audio-only');
       const waveWrap = document.createElement('div');
       waveWrap.className = 'voice-wave-player';
       self.renderWaveAttachment(waveWrap, url, 'You');
       overlayPlayer.appendChild(waveWrap);
+      const p = self.ensureChatBgPlayer();
+      if (p && url){
+        self._voiceCurrentSrc = url;
+        self._voiceCurrentAttachmentKey = '';
+        self._voiceCurrentTitle = 'You';
+        p.src = url;
+        p.load();
+        const onMeta = ()=>{ self.updateVoiceWidgets(); p.removeEventListener('loadedmetadata', onMeta); };
+        p.addEventListener('loadedmetadata', onMeta);
+        const onTime = ()=>{ self.updateVoiceWidgets(); };
+        p.addEventListener('timeupdate', onTime);
+        p.addEventListener('play', onTime);
+        p.addEventListener('pause', onTime);
+        p.addEventListener('ended', ()=>{ self.updateVoiceWidgets(); });
+        self._overlayVoiceCleanup = ()=>{ p.removeEventListener('timeupdate', onTime); p.removeEventListener('play', onTime); p.removeEventListener('pause', onTime); p.removeEventListener('ended', onTime); };
+      }
+      self.updateVoiceWidgets();
     }
     overlay.classList.remove('hidden');
     overlay.classList.add('show');
@@ -11083,6 +11103,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
     discardBtn.title = 'Discard';
     self._recordingSendInFlight = false;
     const doHide = ()=>{
+      if (self._overlayVoiceCleanup){ try{ self._overlayVoiceCleanup(); }catch(_){ } self._overlayVoiceCleanup = null; }
       overlay.classList.add('hidden');
       overlay.classList.remove('show');
       overlay.classList.remove('recording-audio-only');

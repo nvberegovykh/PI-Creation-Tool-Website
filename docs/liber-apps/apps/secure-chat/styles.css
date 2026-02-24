@@ -547,9 +547,9 @@ button.call-status-badge:hover{
   position:absolute;
   inset:0;
   border-radius:50%;
-  background:conic-gradient(from 0deg, #2563eb 0deg, #2563eb calc(var(--progress) * 360deg), rgba(255,255,255,.15) calc(var(--progress) * 360deg), rgba(255,255,255,.15) 360deg);
-  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), black 100%);
-  mask:radial-gradient(farthest-side, transparent calc(100% - 3px), black 100%);
+  background:conic-gradient(#3b82f6 0deg, #3b82f6 calc(var(--progress, 0) * 360deg), rgba(255,255,255,.25) calc(var(--progress, 0) * 360deg));
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 5px), black 100%);
+  mask:radial-gradient(farthest-side, transparent calc(100% - 5px), black 100%);
   pointer-events:none;
   z-index:1;
 }
@@ -630,17 +630,27 @@ button.call-status-badge:hover{
   justify-content:center;
   position:relative;
 }
-/* Voice recording: no circular bg, just the player */
+/* Voice recording: no circular bg, just the player; keep wave visible during live */
 .recording-preview-overlay.recording-audio-only .recording-preview-circle{
   width:auto;
+  min-width:260px;
+  min-height:90px;
   aspect-ratio:auto;
   border-radius:0;
   overflow:visible;
   background:transparent;
+  flex-direction:column;
+  gap:12px;
 }
 .recording-preview-overlay.recording-audio-only .recording-overlay-player{
   width:auto;
   height:auto;
+}
+.recording-preview-overlay.recording-audio-only .recording-audio-wave{
+  position:relative;
+  inset:auto;
+  min-height:48px;
+  flex-shrink:0;
 }
 .recording-overlay-player{
   width:100%;
