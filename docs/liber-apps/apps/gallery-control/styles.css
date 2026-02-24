@@ -144,44 +144,44 @@
   display: block;
 }
 
-.media-remove-btn {
+.media-remove-btn,
+.media-hide-btn {
   position: absolute;
   top: 2px;
-  right: 2px;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
-  border-radius: 50%;
-  background: rgba(220, 38, 38, 0.9);
-  color: #fff;
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
 }
-
+.media-remove-btn {
+  right: 2px;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.95);
+  color: #fff;
+}
 .media-hide-btn {
-  position: absolute;
-  bottom: 2px;
   left: 2px;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #e8edff;
-  font-size: 11px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: rgba(245, 158, 11, 0.95);
+  color: #1a1a1a;
 }
 .media-hide-btn:hover {
-  background: rgba(59, 130, 246, 0.5);
+  background: rgba(251, 191, 36, 1);
+  color: #000;
+}
+.media-hide-btn[title*="Show"] {
+  background: rgba(75, 85, 99, 0.95);
+  color: #e8edff;
+}
+.media-hide-btn[title*="Show"]:hover {
+  background: rgba(107, 114, 128, 1);
   color: #fff;
 }
 .media-preview-item.hide-in-rotation img,

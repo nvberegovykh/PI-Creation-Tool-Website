@@ -186,13 +186,14 @@
         renderProjectMediaPreviews();
       };
       wrap.appendChild(rm);
-      if ((item.type === 'image' || item.type === 'video') && url) {
+      if (url && item.type !== 'text') {
         const hideBtn = document.createElement('button');
         hideBtn.type = 'button';
         hideBtn.className = 'media-hide-btn';
-        hideBtn.innerHTML = item.hideInPreview ? '<i class="fas fa-eye-slash" title="Hidden in rotation"></i>' : '<i class="fas fa-eye" title="Hide in rotation"></i>';
+        hideBtn.innerHTML = item.hideInPreview ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
         hideBtn.title = item.hideInPreview ? 'Show in rotation' : 'Hide in rotation';
-        hideBtn.onclick = async () => {
+        hideBtn.onclick = async (e) => {
+          e.stopPropagation();
           const proj = getSelectedProject();
           if (!proj) return;
           try {
@@ -200,11 +201,11 @@
             item.hideInPreview = !item.hideInPreview;
             renderProjectMediaPreviews();
             notify(item.hideInPreview ? 'Hidden from rotation' : 'Shown in rotation');
-          } catch (e) {
-            notify(e.message || 'Failed to update', 'error');
+          } catch (err) {
+            notify(err.message || 'Failed to update', 'error');
           }
         };
-        wrap.appendChild(hideBtn);
+        wrap.insertBefore(hideBtn, rm);
       }
       previews.appendChild(wrap);
     });
