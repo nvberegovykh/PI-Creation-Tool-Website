@@ -4,6 +4,13 @@
   overflow-x: hidden;
 }
 
+/* Gallery sections must take full width – parent has align-items:center which otherwise shrinks them */
+.home-container section[data-gallery-template="single-slider"],
+.gallery-container section[data-gallery-template="tile"] {
+  width: 100%;
+  align-self: stretch;
+}
+
 [data-gallery-template] .swiper-button-prev,
 [data-gallery-template] .swiper-button-next,
 [data-gallery-template] .home--button-prev,
@@ -48,26 +55,25 @@
   gap: 24px;
 }
 
-/* Gallery page: ensure tile grid (not single column) on desktop and tablet */
+/* Gallery page: flexible tile grid, bigger cards – never single column */
 .gallery-container [data-gallery-template="tile"] .gc-grid {
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 28px;
 }
-@media (min-width: 769px) {
+@media (min-width: 1200px) {
   .gallery-container [data-gallery-template="tile"] .gc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 28px;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 32px;
   }
 }
 
 .gc-single-shell {
   width: 90%;
   min-width: 280px;
-  overflow-x: hidden;
-  position: relative;
   max-width: 1100px;
   margin: 0 auto;
   overflow: hidden;
+  min-height: 320px;
 }
 
 @media (min-width: 769px) {
@@ -94,6 +100,7 @@
 
 .gc-single-track {
   display: flex;
+  flex-direction: row;
   flex-wrap: nowrap;
   transition: transform 320ms ease;
 }
@@ -101,19 +108,17 @@
 .gc-single-track .gc-slide {
   flex: 0 0 100%;
   min-width: 0;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: row;
   padding: 0 8px;
 }
-  position: relative;
 
 .gc-single-track .gc-slide-inner {
   width: 100%;
 }
 
-  flex-shrink: 0;
 .gc-slider-shell {
   position: relative;
   overflow: hidden;
@@ -127,7 +132,6 @@
 .gc-slide {
   flex: 0 0 100%;
   min-width: 100%;
-  overflow-x: hidden;
   display: flex;
   gap: 14px;
   padding: 0 4px;
@@ -196,6 +200,9 @@
 
 .gc-grid .gc-card {
   min-height: 320px;
+}
+.gallery-container [data-gallery-template="tile"] .gc-grid .gc-card {
+  min-height: 380px;
 }
 
 .gc-card--slider {
@@ -316,17 +323,18 @@ body.gc-popup-open {
   position: relative;
   background: #070b14;
   overflow: hidden;
-  min-height: 260px;
+  height: min(50vh, 400px);
   flex-shrink: 0;
   display: flex;
   touch-action: pan-x;
 }
 
 .gc-popup-track {
+  min-height: 200px;
+  max-height: 50vh;
   display: flex;
   width: 100%;
   height: 100%;
-  min-height: 260px;
   transition: transform 280ms ease-out;
 }
 
@@ -336,40 +344,49 @@ body.gc-popup-open {
   width: 100%;
   height: 100%;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .gc-popup-slide img,
 .gc-popup-slide video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .gc-popup-media img,
 .gc-popup-media video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .gc-popup-body {
+  max-height: 45vh;
   padding: 16px;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 45vh;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
   overscroll-behavior-y: contain;
 }
 
 @media (max-width: 768px) {
+  .gc-popup-media {
+    height: min(45vh, 360px);
+  }
   .gc-popup-body {
     flex: 1 1 auto;
     min-height: 120px;
-    max-height: 45vh;
-    overflow-y: scroll;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
     overflow-x: hidden;
@@ -428,7 +445,7 @@ body.gc-popup-open {
 
 @media (max-width: 768px) {
   .gallery-container [data-gallery-template="tile"] .gc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 20px;
   }
 }
@@ -441,10 +458,13 @@ body.gc-popup-open {
     grid-template-columns: 1fr;
     gap: 16px;
   }
-  /* Gallery page: keep 2-column tiles on small screens when width allows */
+  /* Gallery page: always multi-column tile grid, never single column */
   .gallery-container [data-gallery-template="tile"] .gc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .gallery-container [data-gallery-template="tile"] .gc-grid .gc-card {
+    min-height: 240px;
   }
   .gc-card--slider {
     flex: 1 1 100%;
