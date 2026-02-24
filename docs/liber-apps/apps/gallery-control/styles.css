@@ -79,7 +79,7 @@
 
 .upload-zone:hover,
 .upload-zone.drag-over {
-  border-color: #8C000F;
+  border-color: var(--accent-color, #00d4ff);
   background: rgba(59, 130, 246, 0.08);
 }
 
@@ -106,7 +106,7 @@
 
 .upload-zone:hover .upload-icon,
 .upload-zone.drag-over .upload-icon {
-  color: #8C000F;
+  color: var(--accent-color, #00d4ff);
 }
 
 .upload-text {
@@ -290,7 +290,7 @@ textarea {
 
 .gc-btn-edit:hover {
   background: #1e3a5f;
-  border-color: #8C000F;
+  border-color: var(--accent-color, #00d4ff);
 }
 
 .gc-btn-delete:hover {

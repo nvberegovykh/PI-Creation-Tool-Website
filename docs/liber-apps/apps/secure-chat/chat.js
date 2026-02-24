@@ -93,6 +93,11 @@
       this._suppressLivePatchUntilByConn = new Map();
       this._actionPressArmed = false;
       this._isRecordingByHold = false;
+      this._recordingLocked = false;
+      this._recordingDragStartY = 0;
+      this._recordingLockThreshold = 80;
+      this._recordingWaveRaf = 0;
+      this._recordingAudioCtx = null;
       this._suppressActionClickUntil = 0;
       this._recordingSendInFlight = false;
       this._pendingRecording = null;
@@ -2603,6 +2608,8 @@
         window.addEventListener('mouseup', (e)=> this.handleActionPressEnd(e), true);
         window.addEventListener('touchend', (e)=> this.handleActionPressEnd(e), true);
         window.addEventListener('touchcancel', (e)=> this.handleActionPressEnd(e), true);
+        window.addEventListener('mousemove', (e)=> this.handleActionPointerMove(e), true);
+        window.addEventListener('touchmove', (e)=> this.handleActionPointerMove(e), { passive: true, capture: true });
       }
       document.getElementById('attach-btn').addEventListener('click', ()=>{
         this.showAttachmentQuickActions();
@@ -3381,18 +3388,25 @@
     handleActionPressStart(e){
       const input = document.getElementById('message-input');
       if ((input && input.value.trim().length) || ((Array.isArray(this._pendingAttachments) && this._pendingAttachments.length) || (Array.isArray(this._pendingRemoteShares) && this._pendingRemoteShares.length) || (Array.isArray(this._pendingReusedAttachments) && this._pendingReusedAttachments.length))) return; // only record when empty
-      if (this._activeRecorder) return;
+      if (this._activeRecorder && !this._recordingLocked) return;
+      if (this._activeRecorder && this._recordingLocked){
+        try{ if (this._recStop) this._recStop(); }catch(_){ }
+        this._recordingLocked = false;
+        return;
+      }
       if (e && e.type === 'mousedown' && (this._lastTouchStartAt || 0) && (Date.now() - (this._lastTouchStartAt || 0)) < 500) return; // ignore synthetic mouse after touch
+      this._recordingDragStartY = (e && (e.clientY ?? e.touches?.[0]?.clientY)) ?? 0;
       this._actionPressArmed = true;
       if (e && e.type === 'touchstart'){
         this._lastTouchStartAt = Date.now();
-        this._suppressActionClickUntil = Date.now() + 650;
+        this._suppressActionClickUntil = Date.now() + 400;
       }
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
       const indicator = document.getElementById('recording-indicator');
       if (indicator) indicator.classList.remove('hidden');
       this._pressTimer = setTimeout(async()=>{
         this._isRecordingByHold = true;
+        this._recordingLocked = false;
         try{
           const useVideo = this._recordMode === 'video';
           if (indicator) { indicator.querySelector('i').className = `fas ${useVideo ? 'fa-video' : 'fa-microphone'}`; }
@@ -3403,7 +3417,27 @@
           if (indicator) indicator.classList.add('hidden');
           this._actionPressArmed = false;
         }
-      }, 200);
+      }, 150);
+    }
+
+    handleActionPointerMove(e){
+      if (!this._actionPressArmed && !this._isRecordingByHold && !this._recordingLocked) return;
+      const clientY = (e && (e.clientY ?? e.touches?.[0]?.clientY)) ?? 0;
+      const delta = this._recordingDragStartY - clientY;
+      if (delta >= this._recordingLockThreshold && this._activeRecorder){
+        this._recordingLocked = true;
+        this._isRecordingByHold = false;
+        this._recordingDragStartY = 0;
+        const recordBtn = document.getElementById('overlay-record-btn');
+        const slideHint = document.getElementById('recording-slide-to-lock');
+        if (recordBtn){
+          recordBtn.classList.remove('recording');
+          recordBtn.classList.add('locked');
+          recordBtn.querySelector('i').className = 'fas fa-lock';
+          recordBtn.title = 'Tap to stop';
+        }
+        if (slideHint) slideHint.classList.add('hidden');
+      }
     }
 
     // Crystal-clear recording: noise suppression, auto gain, stereo, high sample rate.
@@ -3440,24 +3474,34 @@
     }
 
     handleActionPressEnd(e){
-      if (!this._actionPressArmed && !this._isRecordingByHold && !this._pressTimer) return;
+      if (!this._actionPressArmed && !this._isRecordingByHold && !this._recordingLocked && !this._pressTimer) return;
       if (e && e.type === 'mouseup' && (this._lastTouchStartAt || 0) && (Date.now() - (this._lastTouchStartAt || 0)) < 500){ this._actionPressArmed = false; this._pressTimer && clearTimeout(this._pressTimer); this._pressTimer = null; return; }
       const hadPressTimer = !!this._pressTimer;
       if (this._pressTimer){ clearTimeout(this._pressTimer); this._pressTimer = null; }
+      if (this._recordingLocked){
+        this._actionPressArmed = false;
+        const indicator = document.getElementById('recording-indicator');
+        if (indicator) indicator.classList.add('hidden');
+        this.refreshActionButton();
+        return;
+      }
       if (this._isRecordingByHold){
         try{ if (this._recStop) this._recStop(); }catch(_){ }
       } else if (hadPressTimer){
         const input = document.getElementById('message-input');
-        const review = document.getElementById('recording-review');
-        if (!this._activeRecorder && (!input || !input.value.trim().length) && (!review || review.classList.contains('hidden'))){
+        const overlay = document.getElementById('recording-preview-overlay');
+        const inOverlay = overlay && overlay.classList.contains('show');
+        if (!this._activeRecorder && (!input || !input.value.trim().length) && !inOverlay){
           this._recordMode = this._recordMode === 'video' ? 'audio' : 'video';
           this.refreshActionButton();
-          this._suppressActionClickUntil = Date.now() + 600;
+          this._suppressActionClickUntil = Date.now() + 400;
         }
       }
       this._isRecordingByHold = false;
+      this._recordingLocked = false;
       this._actionPressArmed = false;
-      const indicator = document.getElementById('recording-indicator'); if (indicator) indicator.classList.add('hidden');
+      const indicator = document.getElementById('recording-indicator');
+      if (indicator) indicator.classList.add('hidden');
       this.refreshActionButton();
     }
 
@@ -3693,7 +3737,7 @@
         const isUnread = !!c.id && fromPeer && updatedMs > readMs;
         const unreadDotHtml = isUnread ? '<span class="chat-unread-dot" style="margin-left:auto;min-width:8px;height:8px;border-radius:50%;background:#4da3ff;display:inline-block;box-shadow:0 0 0 2px rgba(77,163,255,.2);flex-shrink:0"></span>' : '';
         li.innerHTML = `<span class="chat-conn-row" style="display:flex;align-items:center;gap:8px;min-width:0;width:100%">
-          <img class="chat-conn-avatar" src="../../images/default-bird.png" alt="" style="width:18px;height:18px;object-fit:cover;clip-path:polygon(50% 0, 0 100%, 100% 100%);border:1px solid rgba(255,255,255,.24);flex:0 0 auto">
+          <img class="chat-conn-avatar" src="../../images/default-bird.png" alt="" style="width:18px;height:18px;object-fit:cover;border-radius:50%;border:1px solid rgba(255,255,255,.24);flex:0 0 auto">
           <span class="chat-label" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${String(label || 'Chat').replace(/</g,'&lt;')}</span>
           ${unreadDotHtml}
         </span>`;
@@ -7066,6 +7110,28 @@
     bindInlineVideoPlayback(videoEl, title){
       if (!videoEl || videoEl._inlineToggleBound) return;
       videoEl._inlineToggleBound = true;
+      const isCircular = videoEl.classList.contains('video-recording-circular') || videoEl.classList.contains('video-recording-mask');
+      let wrap = null;
+      if (isCircular && videoEl.parentNode){
+        wrap = document.createElement('div');
+        wrap.className = 'circular-video-progress-wrap';
+        videoEl.parentNode.insertBefore(wrap, videoEl);
+        wrap.appendChild(videoEl);
+      }
+      const updateProgress = ()=>{
+        const w = wrap || videoEl.parentElement;
+        if (w && w.classList && w.classList.contains('circular-video-progress-wrap')){
+          const d = videoEl.duration;
+          const t = videoEl.currentTime;
+          w.style.setProperty('--progress', String(d > 0 ? t / d : 0));
+        }
+      };
+      if (wrap){
+        videoEl.addEventListener('loadedmetadata', updateProgress);
+        videoEl.addEventListener('timeupdate', updateProgress);
+        videoEl.addEventListener('ended', ()=>{ if (wrap) wrap.style.setProperty('--progress', '1'); });
+        videoEl.addEventListener('pause', updateProgress);
+      }
       videoEl.style.cursor = 'pointer';
       videoEl.addEventListener('click', (e)=>{
         e.preventDefault();
@@ -7421,46 +7487,17 @@
       }catch(_){ }
     }
 
-    applyRandomTriangleMask(mediaEl){
+    applyCircularMask(mediaEl){
       try{
-        const applyMask = ()=>{
-          try{
-            const rect = mediaEl.getBoundingClientRect();
-            const w = Number(rect.width || mediaEl.clientWidth || mediaEl.videoWidth || mediaEl.naturalWidth || 0);
-            const h = Number(rect.height || mediaEl.clientHeight || mediaEl.videoHeight || mediaEl.naturalHeight || 0);
-            if (!(w > 0 && h > 0)) return;
-            const cx = w / 2;
-            const cy = h / 2;
-            const r = Math.min(w, h) / 2;
-            const tau = Math.PI * 2;
-            // Vertices stay on the centered outer circle; random rotation keeps it random.
-            // This guarantees the mask crosses center and contains an inner centered circle of radius R/2.
-            const start = Math.random() * tau;
-            const dir = Math.random() < 0.5 ? 1 : -1;
-            const angles = [start, start + dir * (tau / 3), start + dir * ((tau * 2) / 3)];
-            const points = angles.map((a)=>{
-              const x = cx + (Math.cos(a) * r);
-              const y = cy + (Math.sin(a) * r);
-              return `${((x / w) * 100).toFixed(2)}% ${((y / h) * 100).toFixed(2)}%`;
-            });
-            mediaEl.style.clipPath = `polygon(${points.join(',')})`;
-            mediaEl.style.webkitClipPath = `polygon(${points.join(',')})`;
-          }catch(_){ }
-        };
-        applyMask();
-        if (!mediaEl._triangleMaskBound){
-          mediaEl._triangleMaskBound = true;
-          mediaEl.addEventListener('loadedmetadata', applyMask);
-          mediaEl.addEventListener('load', applyMask);
-          if (typeof ResizeObserver !== 'undefined'){
-            try{
-              const ro = new ResizeObserver(()=> applyMask());
-              ro.observe(mediaEl);
-              mediaEl._triangleMaskRO = ro;
-            }catch(_){ }
-          }
-        }
+        mediaEl.classList.add('video-recording-circular');
+        mediaEl.style.clipPath = 'circle(50%)';
+        mediaEl.style.webkitClipPath = 'circle(50%)';
+        mediaEl.style.borderRadius = '50%';
       }catch(_){ }
+    }
+
+    applyRandomTriangleMask(mediaEl){
+      this.applyCircularMask(mediaEl);
     }
 
     isVideoRecordingMessage(message, fileName = ''){
@@ -8406,8 +8443,8 @@
           video.style.borderRadius = '8px';
           if (isVideoRecording){
             video.controls = false;
-            video.classList.add('video-recording-mask');
-            this.applyRandomTriangleMask(video);
+            video.classList.add('video-recording-circular');
+            this.applyCircularMask(video);
             this.bindInlineVideoPlayback(video, fileName || 'Video message');
           } else {
             video.controls = true;
@@ -8540,8 +8577,8 @@
           v.style.borderRadius = '8px';
           if (isVideoRecording){
             v.controls = false;
-            v.classList.add('video-recording-mask');
-            this.applyRandomTriangleMask(v);
+            v.classList.add('video-recording-circular');
+            this.applyCircularMask(v);
             this.bindInlineVideoPlayback(v, name || 'Video message');
           } else {
             v.controls = true;
@@ -10513,7 +10550,7 @@
             this._pendingRecording = { blob, type: (options.mimeType||'application/octet-stream'), filename };
             this.showRecordingReview(blob, filename);
           }catch(_){ }
-          this._activeRecorder = null; this._activeStream = null; this._recStop = null; this._isRecordingByHold = false;
+          this._activeRecorder = null; this._activeStream = null; this._recStop = null; this._isRecordingByHold = false; this._recordingLocked = false;
           resolve();
         };
         rec.start();
@@ -10522,14 +10559,21 @@
 
     showLiveRecordingPreview(stream){
       try{
-        const review = document.getElementById('recording-review');
-        const player = document.getElementById('recording-player');
-        const sendBtn = document.getElementById('send-recording-btn');
-        const switchBtn = document.getElementById('switch-camera-btn');
-        const discardBtn = document.getElementById('discard-recording-btn');
+        const overlay = document.getElementById('recording-preview-overlay');
+        const overlayPlayer = document.getElementById('recording-overlay-player');
+        const audioWave = document.getElementById('recording-audio-wave');
+        const switchBtn = document.getElementById('overlay-switch-camera-btn');
+        const recordBtn = document.getElementById('overlay-record-btn');
+        const sendBtn = document.getElementById('overlay-send-btn');
+        const discardBtn = document.getElementById('overlay-discard-btn');
+        const slideHint = document.getElementById('recording-slide-to-lock');
+        const attachBtn = document.getElementById('attach-btn');
+        const stickerBtn = document.getElementById('sticker-btn');
         const input = document.getElementById('message-input');
-        if (!review || !player) return;
-        player.innerHTML = '';
+        const actionBtn = document.getElementById('action-btn');
+        if (!overlay || !overlayPlayer) return;
+        overlayPlayer.innerHTML = '';
+        if (audioWave){ audioWave.innerHTML = ''; audioWave.classList.add('hidden'); }
         const hasVideo = !!(stream && stream.getVideoTracks && stream.getVideoTracks().length);
         const mediaEl = document.createElement(hasVideo ? 'video' : 'audio');
         mediaEl.autoplay = true;
@@ -10538,32 +10582,139 @@
         mediaEl.controls = false;
         mediaEl.srcObject = stream;
         if (hasVideo){
-          mediaEl.classList.add('video-recording-mask');
-          this.applyRandomTriangleMask(mediaEl);
+          mediaEl.classList.add('video-recording-circular');
+          this.applyCircularMask(mediaEl);
+        } else {
+          for (let i = 0; i < 12; i++){
+            const bar = document.createElement('div');
+            bar.className = 'wave-bar';
+            bar.style.height = '8px';
+            audioWave.appendChild(bar);
+          }
+          audioWave.classList.remove('hidden');
+          this._startRecordingWaveform(stream, audioWave);
         }
-        player.appendChild(mediaEl);
-        review.classList.remove('hidden');
+        overlayPlayer.appendChild(mediaEl);
+        overlay.classList.remove('hidden');
+        overlay.classList.add('show');
         if (input) input.style.display = 'none';
-        if (sendBtn) sendBtn.style.display = 'none';
+        if (attachBtn) attachBtn.style.display = 'none';
+        if (stickerBtn) stickerBtn.style.display = 'none';
+        if (actionBtn) actionBtn.style.display = 'none';
         if (switchBtn){
-          switchBtn.style.display = hasVideo ? 'inline-block' : 'none';
-          switchBtn.onclick = ()=>{
-            this._recFacing = this._recFacing === 'user' ? 'environment' : 'user';
-          };
+          switchBtn.style.display = hasVideo ? 'flex' : 'none';
+          switchBtn.onclick = ()=>{ this._switchCameraDuringRecording(); };
         }
+        if (recordBtn){
+          recordBtn.classList.add('recording');
+          recordBtn.querySelector('i').className = 'fas fa-stop';
+          recordBtn.title = 'Stop';
+          recordBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
+        }
+        if (sendBtn) sendBtn.classList.add('hidden');
         if (discardBtn){
-          discardBtn.textContent = 'Stop';
+          discardBtn.classList.remove('hidden');
+          discardBtn.querySelector('i').className = 'fas fa-stop';
+          discardBtn.title = 'Stop';
           discardBtn.onclick = ()=>{ try{ if (this._recStop) this._recStop(); }catch(_){ } };
         }
+        if (slideHint) slideHint.classList.remove('hidden');
+      }catch(_){ }
+    }
+
+    async _switchCameraDuringRecording(){
+      if (!this._activeStream || !this._activeRecorder) return;
+      try{
+        const next = this._recFacing === 'user' ? 'environment' : 'user';
+        this._recFacing = next;
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: this.getRecordingAudioConstraints(),
+          video: { facingMode: next }
+        });
+        const videoTracks = this._activeStream.getVideoTracks();
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        if (videoTracks.length && newVideoTrack){
+          videoTracks.forEach(t => t.stop());
+          this._activeStream.removeTrack(videoTracks[0]);
+          this._activeStream.addTrack(newVideoTrack);
+          const overlayPlayer = document.getElementById('recording-overlay-player');
+          const videoEl = overlayPlayer?.querySelector('video');
+          if (videoEl) videoEl.srcObject = this._activeStream;
+          newStream.getAudioTracks().forEach(t => t.stop());
+        } else {
+          newStream.getTracks().forEach(t => t.stop());
+        }
+      }catch(e){ console.warn('Switch camera failed', e); }
+    }
+
+    _startRecordingWaveform(stream, audioWaveEl){
+      try{
+        if (!stream || !audioWaveEl || !audioWaveEl.isConnected) return;
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        this._recordingAudioCtx = ctx;
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.6;
+        src.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const bars = audioWaveEl.querySelectorAll('.wave-bar');
+        const tick = ()=>{
+          if (!this._activeRecorder || !audioWaveEl.isConnected){ this._stopRecordingWaveform(); return; }
+          analyser.getByteFrequencyData(data);
+          const step = Math.floor(data.length / bars.length);
+          bars.forEach((bar, i)=>{
+            const idx = Math.min(i * step, data.length - 1);
+            const v = data[idx] || 0;
+            const h = Math.max(8, (v / 255) * 32);
+            bar.style.height = `${h}px`;
+          });
+          this._recordingWaveRaf = requestAnimationFrame(tick);
+        };
+        tick();
+      }catch(_){ }
+    }
+
+    _stopRecordingWaveform(){
+      try{
+        if (this._recordingWaveRaf){ cancelAnimationFrame(this._recordingWaveRaf); this._recordingWaveRaf = 0; }
+        if (this._recordingAudioCtx){ this._recordingAudioCtx.close().catch(()=>{}); this._recordingAudioCtx = null; }
       }catch(_){ }
     }
 
     hideLiveRecordingPreview(){
       try{
-        const sendBtn = document.getElementById('send-recording-btn');
-        const discardBtn = document.getElementById('discard-recording-btn');
-        if (sendBtn) sendBtn.style.display = '';
-        if (discardBtn) discardBtn.textContent = 'Discard';
+        this._stopRecordingWaveform();
+        const recordBtn = document.getElementById('overlay-record-btn');
+        const discardBtn = document.getElementById('overlay-discard-btn');
+        const slideHint = document.getElementById('recording-slide-to-lock');
+        if (recordBtn){ recordBtn.classList.remove('recording', 'locked'); recordBtn.querySelector('i').className = `fas ${this._recordMode === 'video' ? 'fa-video' : 'fa-microphone'}`; recordBtn.title = 'Record'; }
+        if (discardBtn){ discardBtn.querySelector('i').className = 'fas fa-xmark'; discardBtn.title = 'Discard'; }
+        if (slideHint) slideHint.classList.add('hidden');
+        this._hideRecordingOverlay();
+      }catch(_){ }
+    }
+
+    _hideRecordingOverlay(){
+      try{
+        const overlay = document.getElementById('recording-preview-overlay');
+        const overlayPlayer = document.getElementById('recording-overlay-player');
+        const attachBtn = document.getElementById('attach-btn');
+        const stickerBtn = document.getElementById('sticker-btn');
+        const input = document.getElementById('message-input');
+        const actionBtn = document.getElementById('action-btn');
+        if (overlay){ overlay.classList.add('hidden'); overlay.classList.remove('show'); }
+        if (overlayPlayer){
+          const mediaEl = overlayPlayer.querySelector('video, audio');
+          if (mediaEl){ mediaEl.srcObject = null; mediaEl.src = ''; }
+          overlayPlayer.innerHTML = '';
+        }
+        if (input) input.style.display = '';
+        if (attachBtn) attachBtn.style.display = '';
+        if (stickerBtn) stickerBtn.style.display = '';
+        if (actionBtn) actionBtn.style.display = '';
       }catch(_){ }
     }
 
@@ -10832,14 +10983,22 @@
 if (window && window.secureChatApp && typeof window.secureChatApp.showRecordingReview !== 'function'){
 window.secureChatApp.showRecordingReview = function(blob, filename){
   try{
-    const review = document.getElementById('recording-review');
-    const player = document.getElementById('recording-player');
-    const sendBtn = document.getElementById('send-recording-btn');
-    const discardBtn = document.getElementById('discard-recording-btn');
-    const switchBtn = document.getElementById('switch-camera-btn');
-    if (!review || !player || !sendBtn || !discardBtn) return;
+    const overlay = document.getElementById('recording-preview-overlay');
+    const overlayPlayer = document.getElementById('recording-overlay-player');
+    const audioWave = document.getElementById('recording-audio-wave');
+    const switchBtn = document.getElementById('overlay-switch-camera-btn');
+    const recordBtn = document.getElementById('overlay-record-btn');
+    const sendBtn = document.getElementById('overlay-send-btn');
+    const discardBtn = document.getElementById('overlay-discard-btn');
+    const slideHint = document.getElementById('recording-slide-to-lock');
+    const input = document.getElementById('message-input');
+    const actionBtn = document.getElementById('action-btn');
+    const attachBtn = document.getElementById('attach-btn');
+    const stickerBtn = document.getElementById('sticker-btn');
+    if (!overlay || !overlayPlayer || !sendBtn || !discardBtn) return;
     const self = window.secureChatApp;
-    player.innerHTML = '';
+    overlayPlayer.innerHTML = '';
+    if (audioWave){ audioWave.innerHTML = ''; audioWave.classList.add('hidden'); }
     const url = URL.createObjectURL(blob);
     const isVideo = (blob.type||'').startsWith('video');
     if (isVideo){
@@ -10847,57 +11006,98 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       mediaEl.controls = true;
       mediaEl.src = url;
       mediaEl.playsInline = true;
-      mediaEl.classList.add('video-recording-mask');
-      mediaEl.style.maxWidth = '100%';
-      mediaEl.addEventListener('loadedmetadata', ()=>{ try{ self.applyRandomTriangleMask(mediaEl); }catch(_){ } });
+      mediaEl.classList.add('video-recording-circular');
+      mediaEl.addEventListener('loadedmetadata', ()=>{ try{ self.applyCircularMask(mediaEl); }catch(_){ } });
       mediaEl.addEventListener('play', ()=>{
         try{
           const hostBg = self.getGlobalBgPlayer();
           if (hostBg && !hostBg.paused) hostBg.pause();
         }catch(_){ }
       });
-      player.appendChild(mediaEl);
+      const progressWrap = document.createElement('div');
+      progressWrap.className = 'circular-video-progress-wrap';
+      progressWrap.appendChild(mediaEl);
+      overlayPlayer.appendChild(progressWrap);
+      const updateProgress = ()=>{
+        const d = mediaEl.duration;
+        const t = mediaEl.currentTime;
+        progressWrap.style.setProperty('--progress', String(d > 0 ? t / d : 0));
+      };
+      mediaEl.addEventListener('loadedmetadata', updateProgress);
+      mediaEl.addEventListener('timeupdate', updateProgress);
+      mediaEl.addEventListener('ended', ()=>{ progressWrap.style.setProperty('--progress', '1'); });
+      mediaEl.addEventListener('pause', updateProgress);
       mediaEl.load();
     } else {
-      // Keep type-bar review consistent with in-chat voice UI.
-      self.renderWaveAttachment(player, url, 'You');
+      const waveWrap = document.createElement('div');
+      waveWrap.className = 'voice-wave-player';
+      self.renderWaveAttachment(waveWrap, url, 'You');
+      overlayPlayer.appendChild(waveWrap);
     }
-    review.classList.remove('hidden');
-    const input = document.getElementById('message-input'); if (input) input.style.display='none';
-    const actionBtn = document.getElementById('action-btn'); if (actionBtn){ actionBtn.innerHTML = '<i class="fas fa-arrow-up"></i>'; actionBtn.title = 'Send'; }
+    overlay.classList.remove('hidden');
+    overlay.classList.add('show');
+    if (input) input.style.display = 'none';
+    if (attachBtn) attachBtn.style.display = 'none';
+    if (stickerBtn) stickerBtn.style.display = 'none';
+    if (actionBtn) actionBtn.style.display = 'none';
+    if (switchBtn){
+      switchBtn.style.display = isVideo ? 'flex' : 'none';
+      switchBtn.classList.remove('hidden');
+      if (isVideo){
+        switchBtn.onclick = async ()=>{
+          try{
+            self._pendingRecording = null;
+            try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
+            doHide();
+            self.refreshActionButton();
+            self._recFacing = (self._recFacing || 'user') === 'user' ? 'environment' : 'user';
+            await self.recordVideoMessage();
+          }catch(_){ }
+        };
+      }
+    }
+    if (recordBtn){ recordBtn.classList.remove('recording', 'locked'); recordBtn.classList.add('hidden'); }
+    if (slideHint) slideHint.classList.add('hidden');
+    sendBtn.classList.remove('hidden');
+    discardBtn.classList.remove('hidden');
+    discardBtn.querySelector('i').className = 'fas fa-xmark';
+    discardBtn.title = 'Discard';
     self._recordingSendInFlight = false;
-    if (switchBtn){ switchBtn.style.display = isVideo ? 'inline-block':'none'; }
-    if (switchBtn && isVideo){
-      switchBtn.onclick = async ()=>{
-        try{
-          // Toggle between user/environment
-          const currFacing = self._recFacing || 'user';
-          const next = currFacing === 'user' ? 'environment' : 'user';
-          self._recFacing = next;
-          const newStream = await navigator.mediaDevices.getUserMedia({ audio: self.getRecordingAudioConstraints(), video: { facingMode: next } });
-          await self.captureMedia(newStream, self.getPreferredMediaRecorderOptions('video'), 30_000, 'video.webm');
-        }catch(_){ }
-      };
-    }
+    const doHide = ()=>{
+      overlay.classList.add('hidden');
+      overlay.classList.remove('show');
+      overlayPlayer.innerHTML = '';
+      if (input) input.style.display = '';
+      if (attachBtn) attachBtn.style.display = '';
+      if (stickerBtn) stickerBtn.style.display = '';
+      if (actionBtn) actionBtn.style.display = '';
+      self.refreshActionButton();
+    };
     sendBtn.onclick = async ()=>{
       if (self._recordingSendInFlight) return;
       const targetConnId = self.activeConnection;
       if (!targetConnId) return;
       const pending = self._pendingRecording;
-      if (!pending || !pending.blob){ review.classList.add('hidden'); player.innerHTML = ''; return; }
+      if (!pending || !pending.blob){ doHide(); return; }
       const blob = pending.blob;
       const isVideoSend = (pending.type||'').startsWith('video');
       const filename = pending.filename || (isVideoSend ? 'video.webm' : 'voice.webm');
       self._recordingSendInFlight = true;
       self._pendingRecording = null;
+      const sendInFlightTimer = setTimeout(()=>{
+        if (self._recordingSendInFlight){
+          self._recordingSendInFlight = false;
+          sendBtn.disabled = false;
+          discardBtn.disabled = false;
+          sendBtn.style.opacity = '';
+          discardBtn.style.opacity = '';
+        }
+      }, 5000);
       sendBtn.disabled = true;
       discardBtn.disabled = true;
       sendBtn.style.opacity = '0.65';
       discardBtn.style.opacity = '0.65';
-      review.classList.add('hidden');
-      player.innerHTML = '';
-      if (input) input.style.display='';
-      if (actionBtn){ actionBtn.innerHTML = `<i class="fas ${self._recordMode === 'video' ? 'fa-video' : 'fa-microphone'}"></i>`; actionBtn.title = self._recordMode === 'video' ? 'Video message' : 'Voice message'; }
+      doHide();
       if (!self.storage) {
         console.error('Storage not available for recording');
         alert('Recording upload not available - storage not configured. Please check Firebase configuration.');
@@ -10966,15 +11166,14 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
         }
       }
       finally{
+        clearTimeout(sendInFlightTimer);
         self._recordingSendInFlight = false;
         sendBtn.disabled = false;
         discardBtn.disabled = false;
         sendBtn.style.opacity = '';
         discardBtn.style.opacity = '';
         try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
-        review.classList.add('hidden');
-        player.innerHTML='';
-        if (input) input.style.display='';
+        doHide();
         self.refreshActionButton();
       }
     };
@@ -10982,9 +11181,7 @@ window.secureChatApp.showRecordingReview = function(blob, filename){
       if (self._recordingSendInFlight) return;
       self._pendingRecording = null;
       try{ if (url) URL.revokeObjectURL(url); }catch(_){ }
-      review.classList.add('hidden');
-      player.innerHTML='';
-      if (input) input.style.display='';
+      doHide();
       self.refreshActionButton();
     };
   }catch(_){ }

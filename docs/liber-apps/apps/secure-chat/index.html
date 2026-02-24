@@ -143,6 +143,25 @@
                     </div>
                 </div>
             </div>
+            <!-- Recording preview overlay (full-screen, circular video/audio) -->
+            <div id="recording-preview-overlay" class="recording-preview-overlay hidden">
+                <div class="recording-preview-content">
+                    <div id="recording-preview-circle" class="recording-preview-circle">
+                        <div id="recording-overlay-player" class="recording-overlay-player"></div>
+                        <div id="recording-audio-wave" class="recording-audio-wave hidden"></div>
+                    </div>
+                    <div class="recording-preview-controls">
+                        <button id="overlay-switch-camera-btn" class="icon-btn recording-control-btn" title="Switch camera" style="display:none"><i class="fas fa-camera-rotate"></i></button>
+                        <button id="overlay-record-btn" class="icon-btn recording-record-btn" title="Record"><i class="fas fa-microphone"></i></button>
+                        <button id="overlay-send-btn" class="icon-btn recording-send-btn hidden" title="Send"><i class="fas fa-arrow-up"></i></button>
+                        <button id="overlay-discard-btn" class="icon-btn recording-discard-btn hidden" title="Discard"><i class="fas fa-xmark"></i></button>
+                    </div>
+                    <div id="recording-slide-to-lock" class="recording-slide-to-lock hidden">
+                        <span>Slide up to lock</span>
+                        <i class="fas fa-chevron-up"></i>
+                    </div>
+                </div>
+            </div>
             <button id="show-call-btn" class="btn secondary call-fab" style="display:none"><i class="fas fa-phone-volume"></i></button>
             <div id="incoming-call-prompt" class="incoming-call-prompt hidden" aria-live="polite">
                 <button id="incoming-call-open-btn" class="btn incoming-call-open" type="button" title="Open incoming call">
