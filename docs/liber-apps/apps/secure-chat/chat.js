@@ -1844,8 +1844,12 @@
         }
         const w = Math.max(1, host.clientWidth || 1);
         const h = Math.max(1, host.clientHeight || 1);
-        if (canvas.width !== w) canvas.width = w;
-        if (canvas.height !== h) canvas.height = h;
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+          canvas.style.width = w + 'px';
+          canvas.style.height = h + 'px';
+        }
         return canvas;
       }catch(_){ return null; }
     }
@@ -1876,14 +1880,18 @@
         const by = Math.max(0, Math.min(1, Number(seg.by || 0)));
         const size = Math.max(1, Math.min(24, Number(seg.size || 4)));
         const color = String(seg.color || '#ffffff');
+        ctx.save();
         ctx.strokeStyle = color;
         ctx.lineWidth = size;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
         ctx.beginPath();
         ctx.moveTo(ax * w, ay * h);
         ctx.lineTo(bx * w, by * h);
         ctx.stroke();
+        ctx.restore();
       }catch(_){ }
     }
 
@@ -2178,6 +2186,7 @@
           document.body.appendChild(el);
         }
         this._sfuTrackEls.set(key, el);
+        this._applyAudioOutputSink && this._applyAudioOutputSink();
       }catch(_){ }
     }
 
@@ -3473,15 +3482,18 @@
       }
     }
 
-    // Crystal-clear recording: noise suppression, auto gain, stereo, high sample rate.
+    // Crystal-clear studio-quality audio: noise suppression, echo cancel, auto gain.
     getRecordingAudioConstraints(){
       return {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
         sampleRate: { ideal: 48000 },
-        channelCount: { ideal: 2 }
+        channelCount: { ideal: 1 }
       };
+    }
+    getCallAudioConstraints(){
+      return this.getRecordingAudioConstraints();
     }
 
     getPreferredMediaRecorderOptions(kind = 'audio'){
@@ -9610,6 +9622,70 @@
       this._layoutCallOverlay();
       this._syncCallFab();
     };
+    // Mobile: audio output switch (speaker / earpiece)
+    const audioOutBtn = document.getElementById('audio-output-btn');
+    if (audioOutBtn && this._isMobileDevice()){
+      audioOutBtn.style.display = '';
+      this._audioOutputEarpiece = this._audioOutputEarpiece ?? true;
+      this._applyAudioOutputSink();
+      this._syncAudioOutputIcon(audioOutBtn);
+      audioOutBtn.onclick = async () => {
+        this._audioOutputEarpiece = !this._audioOutputEarpiece;
+        await this._applyAudioOutputSink();
+        this._syncAudioOutputIcon(audioOutBtn);
+      };
+      // Proximity: switch to earpiece when phone near ear (no headphones)
+      try {
+        if ('onuserproximity' in window || 'ondeviceproximity' in window){
+          const onProx = (e) => {
+            const near = e?.near ?? (e?.value !== undefined ? e.value < 5 : false);
+            if (typeof near === 'boolean' && this._audioOutputEarpiece !== near){
+              this._audioOutputEarpiece = near;
+              this._applyAudioOutputSink();
+              this._syncAudioOutputIcon(audioOutBtn);
+            }
+          };
+          window.addEventListener('userproximity', onProx);
+          window.addEventListener('deviceproximity', onProx);
+          this._proximityCleanup = () => {
+            window.removeEventListener('userproximity', onProx);
+            window.removeEventListener('deviceproximity', onProx);
+          };
+        }
+      }catch(_){}
+    }
+  }
+
+  _syncAudioOutputIcon(btn){
+    if (!btn) btn = document.getElementById('audio-output-btn');
+    if (!btn) return;
+    const isEarpiece = !!this._audioOutputEarpiece;
+    btn.innerHTML = isEarpiece ? '<i class="fas fa-phone-volume"></i>' : '<i class="fas fa-volume-high"></i>';
+    btn.title = isEarpiece ? 'Earpiece (tap for speaker)' : 'Speaker (tap for earpiece)';
+    btn.classList.toggle('active', !isEarpiece);
+  }
+
+  async _applyAudioOutputSink(){
+    if (!this._audioOutputEarpiece && !this._cachedSpeakerId){
+      try {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        const speaker = devs.find(d => d.kind === 'audiooutput' && /speaker/i.test(d.label || ''));
+        this._cachedSpeakerId = speaker?.deviceId || '';
+      }catch(_){ this._cachedSpeakerId = ''; }
+    }
+    const targetId = this._audioOutputEarpiece ? '' : (this._cachedSpeakerId || '');
+    const mediaEls = [
+      ...Array.from(document.querySelectorAll('[id^="remoteAudio-"]')),
+      ...Array.from(document.querySelectorAll('#remoteAudio')),
+      ...Array.from(document.querySelectorAll('[id^="remoteVideo-"]')),
+      ...Array.from(document.querySelectorAll('#remoteVideo')),
+      ...Array.from(document.querySelectorAll('[data-sfu-track-key]')).filter(n => /^(video|audio)$/i.test(n.tagName))
+    ];
+    for (const el of mediaEls){
+      try {
+        if (el.setSinkId) await el.setSinkId(targetId || '');
+      }catch(_){}
+    }
   }
 
   async attemptStartRoomCall(video){
@@ -9704,7 +9780,8 @@
     }
     await this.updatePresence('connecting', video);
     this._activePCs = new Map();
-    const config = { audio: true, video: !!video };
+    const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const config = { audio: audioCfg, video: !!video };
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia(config);
@@ -9836,6 +9913,7 @@
         rv.srcObject = stream;
         rv.muted = false;
         rv.volume = 1;
+        this._applyAudioOutputSink && this._applyAudioOutputSink();
         const syncVideoVisibility = ()=>{
           rv.style.display = getHasVideo() ? 'block' : 'none';
         };
@@ -9960,7 +10038,8 @@
       await this.updatePresence('connecting', video);
     this._activePCs = new Map();
     // Prepare local media
-    const localCfg = { audio: true, video: !!video };
+    const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const localCfg = { audio: audioCfg, video: !!video };
     let localStream;
     try {
       localStream = await navigator.mediaDevices.getUserMedia(localCfg);
@@ -10091,6 +10170,7 @@
       rv.srcObject = rstream;
       rv.muted = false;
       rv.volume = 1;
+      this._applyAudioOutputSink && this._applyAudioOutputSink();
       const syncVideoVisibility = ()=>{
         rv.style.display = getHasVideo() ? 'block' : 'none';
       };
@@ -10297,7 +10377,8 @@
         try{ this._activeCall && this._activeCall.unsubs && this._activeCall.unsubs.forEach(u=>{ try{u&&u();}catch(_){}}); }catch(_){ }
         try{ this._activeCall && this._activeCall.pc && this._activeCall.pc.close(); }catch(_){ }
         callId = callId || `${this.activeConnection}_${Date.now()}`;
-        const config = { audio: true, video: !!video };
+        const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        const config = { audio: audioCfg, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getRequiredIceServers(),
@@ -10337,6 +10418,7 @@
             if (!aud){ aud = document.createElement('audio'); aud.id='remoteAudio'; aud.autoplay = true; aud.style.display='none'; document.body.appendChild(aud); }
             aud.srcObject = e.streams[0];
           }
+          this._applyAudioOutputSink && this._applyAudioOutputSink();
           this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
         };
         if (ov){ ov.classList.remove('hidden'); const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Connecting...'; }
@@ -10386,7 +10468,8 @@
 
     async answerCall(callId, { video }){
       try{
-        const config = { audio:true, video: !!video };
+        const audioCfg = this.getCallAudioConstraints?.() || { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        const config = { audio: audioCfg, video: !!video };
         const stream = await navigator.mediaDevices.getUserMedia(config);
         const pc = new RTCPeerConnection({
           iceServers: await this.getRequiredIceServers(),
@@ -10423,6 +10506,7 @@
             if (!aud){ aud = document.createElement('audio'); aud.id='remoteAudio'; aud.autoplay = true; aud.style.display='none'; document.body.appendChild(aud); }
             aud.srcObject = e.streams[0];
           }
+          this._applyAudioOutputSink && this._applyAudioOutputSink();
           this._attachSpeakingDetector(e.streams[0], '.call-participants .avatar.remote');
         };
         if (ov){ ov.classList.remove('hidden'); const cs = document.getElementById('call-status'); if (cs) cs.textContent = 'Connecting...'; }
@@ -10906,6 +10990,10 @@
       if (this._drawSyncUnsub){
         try{ this._drawSyncUnsub(); }catch(_){ }
         this._drawSyncUnsub = null;
+      }
+      if (this._proximityCleanup){
+        try{ this._proximityCleanup(); }catch(_){ }
+        this._proximityCleanup = null;
       }
       if (this._drawEventsUnsub){
         try{ this._drawEventsUnsub(); }catch(_){ }

@@ -100,7 +100,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-tile{position:relative;background:#0d1017;border:1px solid rgba(255,255,255,.12);border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;width:100%;height:100%;max-height:300px;min-height:140px;aspect-ratio:1 / 1;opacity:1;transform:translateY(0);transition:opacity .22s ease,transform .22s ease,box-shadow .22s ease}
 .call-tile video{background:#111;width:100%;height:100%;object-fit:cover;object-position:center center;box-shadow:none;transition:opacity .2s;cursor:pointer}
 .call-tile .call-draw-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
-.call-preview-draw-canvas{position:absolute;inset:6px;z-index:4;pointer-events:none;width:calc(100% - 12px);height:calc(100% - 12px)}
+.call-preview-draw-canvas{position:absolute;inset:0;z-index:4;pointer-events:none}
 .call-tile.screen{grid-column:span 2;aspect-ratio:16 / 9}
 .call-tile.screen video{object-fit:contain;background:#000}
 .call-tile.call-tile-enter{opacity:0;transform:translateY(6px) scale(.985)}
@@ -122,13 +122,13 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .call-participants .avatar img{ width:100%; height:100%; object-fit:cover; border-radius:50%; display:block }
 /* Hide labels below avatars */
 .call-participants .avatar .name, .call-participants .avatar .state{ display:none !important }
-.call-fullscreen{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;z-index:130;background:rgba(0,0,0,.94)}
+.call-fullscreen{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;z-index:130;background:rgba(0,0,0,.94);contain:layout style paint}
 .call-fullscreen.hidden{display:none}
 .call-fullscreen-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .call-fullscreen-media .call-tile{width:100%;height:100%;max-width:none;max-height:none;border:0;border-radius:0;aspect-ratio:auto}
 .call-fullscreen-media .call-tile video{width:100%;height:100%;object-fit:contain;object-position:center center}
-.call-draw-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;pointer-events:auto}
-.call-draw-tools{position:fixed;top:calc(12px + env(safe-area-inset-top, 0));right:calc(12px + env(safe-area-inset-right, 0));display:flex;align-items:center;gap:8px;background:rgba(6,8,12,.5);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:6px 10px;z-index:131}
+.call-draw-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;pointer-events:auto;display:block}
+.call-draw-tools{position:absolute;top:calc(12px + env(safe-area-inset-top, 0));right:calc(12px + env(safe-area-inset-right, 0));display:flex;align-items:center;gap:8px;background:rgba(6,8,12,.5);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:6px 10px;z-index:131}
 .call-draw-tools .btn{background:transparent !important;border:0 !important;color:#fff;padding:6px}
 .draw-palette{position:absolute;bottom:100%;right:0;margin-bottom:4px;display:flex;gap:6px;padding:4px 6px;border-radius:999px;background:rgba(9,12,18,.84);border:1px solid rgba(255,255,255,.14)}
 .draw-palette.hidden{display:none}
