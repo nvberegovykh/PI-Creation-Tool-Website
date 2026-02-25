@@ -2534,7 +2534,7 @@
         const connectOpts = {
           websocketTimeout: 25000,
           peerConnectionTimeout: 25000,
-          maxRetries: 2,
+          maxRetries: 3,
           rtcConfig: { iceTransportPolicy: 'relay' }
         };
         const urlsToTry = [wsUrl].concat(tokenResp?.wsUrlFallbacks || []).filter(Boolean);
@@ -2555,18 +2555,22 @@
           }catch(e){
             lastErr = e;
             if (cs) cs.textContent = urlsToTry.indexOf(url) < urlsToTry.length - 1 ? 'Retrying via alternate region...' : '';
-            try{ room.disconnect(); }catch(_){}
+            try{
+              const dc = room.disconnect();
+              if (dc && typeof dc.then === 'function') await dc;
+            }catch(_){}
             room = null;
           }
         }
         if (lastErr || !room) throw (lastErr || new Error('Connection failed'));
         if (this._sfuConnectAborted) {
-          try{ room.disconnect(); }catch(_){}
+          try{ const dc = room.disconnect(); if (dc && typeof dc.then === 'function') await dc; }catch(_){}
           return false;
         }
         this._sfuRoom = room;
         this._micEnabled = true;
         this._videoEnabled = !!video;
+        if (this._sfuConnectAborted) return false;
         try{
           await room.localParticipant.setMicrophoneEnabled(this._micEnabled, {
             echoCancellation: true,
@@ -2575,6 +2579,7 @@
             channelCount: 1
           });
         }catch(_){}
+        if (this._sfuConnectAborted) return false;
         try{ await room.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
         try{
           room.remoteParticipants.forEach((rp)=>{
@@ -2589,10 +2594,7 @@
         this.updateRoomUI();
         try{
           const markerKey = String(callConnId || '');
-          if (markerKey){
-            this._sfuCallMarkerByConn.add(markerKey);
-            await this._emitJoinCallMessage(markerKey);
-          }
+          if (markerKey) this._sfuCallMarkerByConn.add(markerKey);
         }catch(_){ }
         const startBtn = document.getElementById('start-call-btn');
         if (startBtn) startBtn.style.display = 'none';
@@ -4160,6 +4162,7 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      this._disableCallFab = false;
       this.clearPendingAttachments();
       try{
         const pendingShared = this.takePendingSharedAssetsForConn(this.activeConnection);
@@ -6204,7 +6207,9 @@
       // Push sent by onChatMessageWrite Firestore trigger only (avoids duplicates)
     }
 
+    /** @deprecated UNUSED – Do not call. Push is sent by onChatMessageWrite Firestore trigger only. Calling this would cause duplicate notifications. */
     async sendPushForMessageForConnection(connId, text){
+      console.warn('[chat] sendPushForMessageForConnection is deprecated – call should be removed');
       Promise.resolve().then(async ()=>{
         try{
           if (!(window.firebaseService && typeof window.firebaseService.callFunction === 'function')) return;
@@ -6962,7 +6967,9 @@
       // Live listener updates UI; avoid forcing reload here to prevent race/flicker.
     }
 
+    /** @deprecated UNUSED – Do not call. Push is sent by onChatMessageWrite Firestore trigger only. Calling this would cause duplicate notifications. */
     async sendPushForMessage(text){
+      console.warn('[chat] sendPushForMessage is deprecated – call should be removed');
       try{
         if (!(window.firebaseService && typeof window.firebaseService.callFunction === 'function')) return;
         const connSnap = await firebase.getDoc(firebase.doc(this.db,'chatConnections',this.activeConnection));
@@ -9621,6 +9628,7 @@
       };
       this._roomUnsub = firebase.onSnapshot(roomRef, (snap)=>{
         this._roomState = snap.exists() ? (snap.data() || { status: 'idle', activeCallId: null }) : { status: 'idle', activeCallId: null };
+        if (!this._roomState.activeCallId) this._disableCallFab = false;
         this.updateRoomUI();
         this._syncCallFab();
       });
@@ -9636,7 +9644,6 @@
             this._joiningCall = true;
             try{
               const ok = await this._startOrJoinSfuCall(this._videoEnabled);
-              if (ok) await this._emitJoinCallMessage(callConnId);
             }catch(e){ this._showCallError('Auto-join failed: ' + (e?.message || e)); console.warn('SFU auto-join failed', e?.message || e); }
             finally{ this._joiningCall = false; }
           }
@@ -9668,6 +9675,7 @@
     this._roomUnsub = firebase.onSnapshot(roomRef, async snap => {
       this._roomState = snap.data() || { status: 'idle', activeCallId: null };
       const activeCid = this._roomState.activeCallId;
+      if (!activeCid) this._disableCallFab = false;
       const startedBy = this._roomState.startedBy;
       const iAmInitiator = !!activeCid && ((startedBy === (this.currentUser?.uid)) || (activeCid === this._connectingCid));
       const alreadyConnected = !!this._activeCid && this._activeCid === activeCid && this._activePCs.size > 0;
@@ -9743,7 +9751,7 @@
       }
       const roomId = this.getCallConnId();
       this._disableCallFab = true;
-      await this.cleanupActiveCall(false, 'close_button');
+      await this.cleanupActiveCall(true, 'close_button');
       await this._endRoomIfNoParticipantsLeft(roomId);
       const ov2 = document.getElementById('call-overlay');
       if (ov2) ov2.classList.add('hidden');
@@ -11354,7 +11362,6 @@
           activeCallId: null,
           lastActiveAt: new Date().toISOString()
         });
-        await this._emitEndCallMessage(connId);
       }catch(_){ }
     }
 
