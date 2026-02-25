@@ -65,6 +65,7 @@ html, body {
 
 /* Year separator in tile gallery – spans full row */
 .gc-tile-search-wrap {
+  margin-top: 15vh;
   margin-bottom: 16px;
 }
 .gc-tile-search {

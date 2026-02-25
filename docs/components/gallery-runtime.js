@@ -485,37 +485,38 @@
         });
       });
     };
+    const updateYearDots = () => {
+      const seps = host.querySelectorAll('.gc-year-sep');
+      if (!seps.length) return;
+      const vh = window.innerHeight;
+      const bottomThirdTop = vh * 0.67;
+      const intersecting = Array.from(seps).map((el) => {
+        const r = el.getBoundingClientRect();
+        const inView = r.top < vh && r.bottom > 0;
+        return inView ? { el, year: el.getAttribute('data-year'), top: r.top, bottom: r.bottom } : null;
+      }).filter(Boolean).filter((x) => x.year);
+      if (!intersecting.length) return;
+      const inBottomThird = intersecting.filter((x) => x.top >= bottomThirdTop);
+      const best = inBottomThird.length > 0
+        ? inBottomThird.sort((a, b) => b.top - a.top)[0]
+        : intersecting.sort((a, b) => a.top - b.top)[0];
+      const y = best.year;
+      activeYear = y;
+      host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
+      host.querySelectorAll('.gc-year-current').forEach((span) => {
+        const yr = span.getAttribute('data-year');
+        const isActive = yr === y;
+        span.classList.toggle('active', isActive);
+        span.textContent = isActive ? y : '';
+      });
+    };
     const wireYearObserver = () => {
       if (yearObserver) { yearObserver.disconnect(); yearObserver = null; }
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length || !('IntersectionObserver' in window)) return;
-      yearObserver = new IntersectionObserver(
-        () => {
-          const vh = window.innerHeight;
-          const bottomThirdTop = vh * 0.67;
-          const intersecting = Array.from(seps).map((el) => {
-            const r = el.getBoundingClientRect();
-            const inView = r.top < vh && r.bottom > 0;
-            return inView ? { el, year: el.getAttribute('data-year'), top: r.top, bottom: r.bottom } : null;
-          }).filter(Boolean).filter((x) => x.year);
-          if (!intersecting.length) return;
-          const inBottomThird = intersecting.filter((x) => x.top >= bottomThirdTop);
-          const best = inBottomThird.length > 0
-            ? inBottomThird.sort((a, b) => b.top - a.top)[0]
-            : intersecting.sort((a, b) => a.top - b.top)[0];
-          const y = best.year;
-          activeYear = y;
-          host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
-          host.querySelectorAll('.gc-year-current').forEach((span) => {
-            const yr = span.getAttribute('data-year');
-            const isActive = yr === y;
-            span.classList.toggle('active', isActive);
-            span.textContent = isActive ? y : '';
-          });
-        },
-        { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] }
-      );
+      yearObserver = new IntersectionObserver(() => updateYearDots(), { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] });
       seps.forEach((s) => yearObserver.observe(s));
+      requestAnimationFrame(() => updateYearDots());
     };
     const subs = getSubsForType(activeType);
     const subsWithCards = subs.filter((s) => getProjectsForTab(activeType, s).length > 0);

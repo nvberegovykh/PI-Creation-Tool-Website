@@ -49,14 +49,14 @@
             <div class="rq-field rq-field-email">
               <label for="rq-email">Email *</label>
               <input type="email" id="rq-email" required placeholder="your@email.com" />
-              <div class="rq-note rq-note-email">Liber Apps account will be created using this email. Please check your inbox to log in.</div>
+              <div class="rq-note rq-note-email">Liber Apps account will be created using this email. Please check your inbox to log in. The letter may appear in your spam folder.</div>
             </div>
             <button type="submit" class="request-quiz-submit" id="rq-submit">Submit Request</button>
           </form>
           <div id="rq-success" class="rq-success" style="display:none">
             <div class="rq-success-icon">✓</div>
             <p><strong>Request submitted!</strong></p>
-            <p>Check your email for a link to log in and access your project tracker.</p>
+            <p>Check your email for a link to log in and access your project tracker. The letter may appear in your spam folder.</p>
           </div>
         </div>
       </div>`;
@@ -213,10 +213,10 @@
             if (window.parent && window.parent !== window) window.parent.dispatchEvent(new CustomEvent('requestQuizSuccess'));
           } catch (_) {}
         } else if (data.existingUser) {
-          if (successP) successP.textContent = 'Check your email for a link to sign in and open your project tracker.';
+          if (successP) successP.textContent = 'Check your email for a link to sign in and open your project tracker. The letter may appear in your spam folder.';
           if (successEl) successEl.style.display = '';
         } else {
-          if (successP) successP.textContent = 'Check your email for a link to log in and access your project tracker.';
+          if (successP) successP.textContent = 'Check your email for a link to log in and access your project tracker. The letter may appear in your spam folder.';
           if (successEl) successEl.style.display = '';
         }
       } else {
