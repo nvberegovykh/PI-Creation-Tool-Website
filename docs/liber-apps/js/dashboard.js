@@ -1590,7 +1590,7 @@ class DashboardManager {
                     try{
                         resendBtn.disabled = true;
                         const ok = await window.firebaseService.sendEmailVerification();
-                        if (ok !== false) this.showSuccess('Verification email sent');
+                        if (ok !== false) this.showSuccess('Verification email sent. The letter may appear in your spam folder.');
                         else this.showError('Failed to send verification email');
                     }catch(_){ this.showError('Failed to send verification email'); }
                     finally{ resendBtn.disabled = false; }
@@ -6730,7 +6730,7 @@ Do you want to proceed?`);
                 if (rvBtn) {
                     rvBtn.style.display = user.emailVerified ? 'none' : 'inline-flex';
                     rvBtn.onclick = async () => {
-                        try { await window.firebaseService.sendEmailVerification(); this.showSuccess('Verification email sent'); }
+                        try { await window.firebaseService.sendEmailVerification(); this.showSuccess('Verification email sent. The letter may appear in your spam folder.'); }
                         catch { this.showError('Failed to send verification'); }
                     };
                 }

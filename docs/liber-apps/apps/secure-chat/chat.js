@@ -6201,7 +6201,7 @@
         lastMessage: String(text || '').slice(0,200),
         updatedAt: new Date().toISOString()
       });
-      this.sendPushForMessageForConnection(connId, text);
+      // Push sent by onChatMessageWrite Firestore trigger only (avoids duplicates)
     }
 
     async sendPushForMessageForConnection(connId, text){
@@ -6958,8 +6958,7 @@
       if (fileUrl){
         this.pushRecentAttachment({ fileUrl, fileName: fileName || 'file', sentAt: new Date().toISOString() });
       }
-      // Push notify every sent message (receiver-only, never sender).
-      Promise.resolve().then(()=> this.sendPushForMessage(text));
+      // Push sent by onChatMessageWrite Firestore trigger only (avoids duplicates)
       // Live listener updates UI; avoid forcing reload here to prevent race/flicker.
     }
 

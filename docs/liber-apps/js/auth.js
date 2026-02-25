@@ -416,7 +416,7 @@ class AuthManager {
                         // Send verification email via Firebase
                         await window.firebaseService.sendEmailVerification();
                         
-                        this.showMessage('Registration successful! Please check your email to verify your account.', 'success');
+                        this.showMessage('Registration successful! Please check your email to verify your account. The letter may appear in your spam folder.', 'success');
                         
                         // Clear form
                         document.getElementById('registerForm').reset();
@@ -536,7 +536,7 @@ class AuthManager {
                 
                 // Send new verification email
                 await window.emailService.sendVerificationEmail(user.email, user.username, newToken);
-                this.showMessage(`Verification email resent to ${user.email}`, 'success');
+                this.showMessage(`Verification email resent to ${user.email}. The letter may appear in your spam folder.`, 'success');
             }
         } catch (error) {
             console.error('Failed to resend verification email:', error);
@@ -576,7 +576,7 @@ class AuthManager {
             if (window.firebaseService && window.firebaseService.isInitialized) {
                 console.log('Using Firebase password reset...');
                 await window.firebaseService.sendPasswordResetEmail(email);
-                this.showMessage('Password reset link sent to your email. Please check your inbox.', 'success');
+                this.showMessage('Password reset link sent to your email. Please check your inbox. The letter may appear in your spam folder.', 'success');
             } else {
                 console.error('Firebase not available - password reset requires Firebase. No fallback.');
                 this.showMessage('Password reset service not available. Please contact support.', 'error');
@@ -644,7 +644,7 @@ class AuthManager {
                     // If current user matches email, send directly; else attempt link-based send
                     if (window.firebaseService && window.firebaseService.auth.currentUser && (window.firebaseService.auth.currentUser.email||'').toLowerCase()===email.toLowerCase()){
                         await window.firebaseService.sendEmailVerification();
-                        this.showMessage('Verification email sent. Please check your inbox.', 'success');
+                        this.showMessage('Verification email sent. Please check your inbox. The letter may appear in your spam folder.', 'success');
                         return;
                     }
                     // Fallback: ask user to login for verification mail (required by Firebase)
