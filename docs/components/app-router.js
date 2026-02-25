@@ -110,17 +110,14 @@
     const contactHost = document.getElementById('liber-contact-host');
     const overlay = document.getElementById('liber-intro-overlay');
     const content = document.getElementById('liber-main-content');
-    const dot0 = overlay?.querySelector('.liber-intro-dot[data-dot="0"]');
-    const dot1 = overlay?.querySelector('.liber-intro-dot[data-dot="1"]');
-    const dot2 = overlay?.querySelector('.liber-intro-dot[data-dot="2"]');
-    const dots = [dot0, dot1, dot2].filter(Boolean);
-    const dotOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
+    const dotEls = overlay ? Array.from(overlay.querySelectorAll('.liber-intro-dot')) : [];
+    const dotOrder = dotEls.map((_, i) => i).sort(() => Math.random() - 0.5);
     let loadedCount = 0;
     const MIN_INTRO_MS = 800;
 
     function markLoaded() {
       const idx = dotOrder[loadedCount];
-      if (dots[idx]) dots[idx].classList.add('loaded');
+      if (dotEls[idx]) dotEls[idx].classList.add('loaded');
       loadedCount++;
     }
 
@@ -146,12 +143,9 @@
               galleryHost.dataset.loaded = '1';
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(galleryHost);
             }
-            markLoaded();
           })
-          .catch(() => { markLoaded(); })
+          .catch(() => {})
       );
-    } else {
-      markLoaded();
     }
     if (contactHost && !contactHost.dataset.loaded) {
       fetchPromises.push(
@@ -166,12 +160,9 @@
               contactHost.dataset.loaded = '1';
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(contactHost);
             }
-            markLoaded();
           })
-          .catch(() => { markLoaded(); })
+          .catch(() => {})
       );
-    } else {
-      markLoaded();
     }
 
     window.__introStartTime = Date.now();
@@ -179,17 +170,16 @@
     function runBootAndFinish() {
       const bootFn = typeof window.__gcBoot === 'function' ? window.__gcBoot : null;
       if (bootFn) {
-        Promise.resolve(bootFn()).then(() => {
-          markLoaded();
+        Promise.resolve(bootFn({ onGalleryMount: markLoaded })).then(() => {
           const elapsed = Date.now() - window.__introStartTime;
           const remaining = Math.max(0, MIN_INTRO_MS - elapsed);
           setTimeout(finishIntro, remaining);
         }).catch(() => {
-          markLoaded();
+          dotEls.forEach((d) => d.classList.add('loaded'));
           setTimeout(finishIntro, MIN_INTRO_MS);
         });
       } else {
-        markLoaded();
+        dotEls.forEach((d) => d.classList.add('loaded'));
         setTimeout(finishIntro, MIN_INTRO_MS);
       }
     }

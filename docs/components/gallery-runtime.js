@@ -481,7 +481,7 @@
           e.preventDefault();
           const y = btn.getAttribute('data-year');
           const el = host.querySelector(`.gc-year-sep[data-year="${y}"]`);
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
       });
     };
@@ -835,7 +835,8 @@
     ro.observe(wrap);
   }
 
-  async function boot() {
+  async function boot(opts) {
+    const onGalleryMount = opts && typeof opts.onGalleryMount === 'function' ? opts.onGalleryMount : null;
     const hosts = Array.from(document.querySelectorAll('[data-gallery-template]'));
     if (!hosts.length) return;
     try {
@@ -846,11 +847,12 @@
         return;
       }
       const projectById = new Map(projects.map((p) => [p.id, p]));
-      hosts.forEach((host) => {
+      hosts.forEach((host, index) => {
         const kind = host.getAttribute('data-gallery-template');
         if (kind === 'tile') mountTiles(host, projects, projectById);
         else if (kind === 'single-slider') mountSingleSlider(host, projects, projectById);
         else if (kind === 'full-width-slider') mountFullWidth(host, projects, projectById);
+        if (onGalleryMount) onGalleryMount(index, kind);
       });
     } catch (err) {
       hosts.forEach((host) => { host.innerHTML = '<div class="gc-template">Gallery is temporarily unavailable.</div>'; });
