@@ -257,10 +257,11 @@
 
   window.openRequestQuiz = openQuiz;
 
-  document.querySelectorAll('[data-action="open-request-quiz"]').forEach((el) => {
-    el.addEventListener('click', (e) => {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="open-request-quiz"]');
+    if (btn) {
       e.preventDefault();
       openQuiz();
-    });
+    }
   });
 })();

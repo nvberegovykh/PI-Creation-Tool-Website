@@ -85,6 +85,19 @@
 
   let pricingCache = null;
 
+  function wirePricingTabs(container) {
+    if (!container) return;
+    const tabs = container.querySelectorAll('.gc-pricing-tab');
+    const panels = container.querySelectorAll('.gc-pricing-panel');
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const id = tab.getAttribute('data-tab');
+        tabs.forEach((t) => t.classList.toggle('active', t === tab));
+        panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-panel') === id));
+      });
+    });
+  }
+
   function ensurePricingStyles() {
     if (document.getElementById('gc-pricing-styles')) return;
     const link = document.createElement('link');
@@ -124,53 +137,25 @@
     const content = overlay.querySelector('#gc-pricing-content');
     if (pricingCache) {
       content.innerHTML = pricingCache;
-      overlay.classList.add('gc-open');
-      document.body.classList.add('gc-pricing-open');
-      return;
-    }
-
-    const source = document.getElementById('gc-pricing-source');
-    if (source) {
-      // Use outerHTML for full structure; strip id so #gc-pricing-source { display:none } doesn't hide the popup copy
-      let html = source.outerHTML || source.innerHTML;
-      if (html && html.trim()) {
-        html = html.replace(/\s*id=["']gc-pricing-source["']/i, '');
-        pricingCache = html;
-        content.innerHTML = pricingCache;
-      } else {
-        content.innerHTML = '<p>Pricing unavailable.</p>';
-      }
+      wirePricingTabs(content);
       overlay.classList.add('gc-open');
       document.body.classList.add('gc-pricing-open');
       return;
     }
 
     ensurePricingStyles();
-    const showPopup = () => {
+    if (typeof window.__getPricingPopupHTML === 'function') {
+      content.innerHTML = window.__getPricingPopupHTML();
+      pricingCache = content.innerHTML;
+      wirePricingTabs(content);
       overlay.classList.add('gc-open');
       document.body.classList.add('gc-pricing-open');
-    };
-    const contactUrl = new URL('contact.html', window.location.href).href;
-    fetch(contactUrl)
-      .then((r) => r.text())
-      .then((html) => {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const pricing = doc.querySelector('.pricing10-wrapper');
-        if (pricing) {
-          let html = pricing.outerHTML;
-          html = html.replace(/\s*id=["']gc-pricing-source["']/i, '');
-          pricingCache = html;
-          content.innerHTML = html;
-        } else {
-          content.innerHTML = '<p>Pricing unavailable.</p>';
-        }
-        requestAnimationFrame(() => showPopup());
-      })
-      .catch(() => {
-        content.innerHTML = '<p>Could not load pricing.</p>';
-        requestAnimationFrame(() => showPopup());
-      });
+      return;
+    }
+
+    content.innerHTML = '<p>Pricing unavailable.</p>';
+    overlay.classList.add('gc-open');
+    document.body.classList.add('gc-pricing-open');
   }
 
   if (document.readyState === 'loading') {

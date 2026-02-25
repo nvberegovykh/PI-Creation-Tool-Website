@@ -61,10 +61,40 @@
     if (hash === 'gallery' || hash === 'contact') showPage(hash);
   }
 
+  function forceIntroComplete() {
+    const overlay = document.getElementById('liber-intro-overlay');
+    const content = document.getElementById('liber-main-content');
+    if (overlay && !overlay.classList.contains('liber-intro-done')) {
+      overlay.classList.add('liber-intro-done');
+      overlay.style.pointerEvents = 'none';
+      overlay.style.visibility = 'hidden';
+    }
+    if (content && !content.classList.contains('liber-content-visible')) {
+      content.classList.add('liber-content-visible');
+      content.style.pointerEvents = 'auto';
+    }
+  }
+
+  function repairPointerEvents() {
+    const overlay = document.getElementById('liber-intro-overlay');
+    const content = document.getElementById('liber-main-content');
+    const activePage = document.querySelector('[data-page].page-active');
+    if (overlay && overlay.classList.contains('liber-intro-done')) {
+      overlay.style.pointerEvents = 'none';
+    }
+    if (content && content.classList.contains('liber-content-visible')) {
+      content.style.pointerEvents = 'auto';
+    }
+    if (activePage) {
+      activePage.style.pointerEvents = 'auto';
+    }
+  }
+
   function runIntro() {
     const overlay = document.getElementById('liber-intro-overlay');
     const content = document.getElementById('liber-main-content');
     if (!overlay) return;
+    const introStart = Date.now();
     const logo = overlay.querySelector('.liber-intro-logo');
     let cycle = 0;
     const maxCycles = Math.ceil(INTRO_TOTAL_MS / INTRO_LOGO_CYCLE_MS);
@@ -82,6 +112,14 @@
     };
     if (logo) logo.classList.add('liber-intro-logo-visible');
     setTimeout(tick, INTRO_LOGO_CYCLE_MS / 2);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - introStart >= INTRO_TOTAL_MS + 500) {
+        forceIntroComplete();
+      }
+      repairPointerEvents();
+    });
   }
 
   function loadExtraPages() {

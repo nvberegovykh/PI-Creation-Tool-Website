@@ -27,6 +27,7 @@
 /* Main content - hidden during intro, fades in after */
 #liber-main-content {
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.4s ease-out;
 }
 #liber-main-content.liber-content-visible {

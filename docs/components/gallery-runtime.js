@@ -520,10 +520,11 @@
     const groupsLimited = byYear
       .map((g) => ({ year: g.year, projects: g.projects.filter((p) => selectedIds.has(p.id)) }))
       .filter((g) => g.projects.length > 0);
+    const yearIds = groupsLimited.map((g, i) => `gc-year-${i}-${String(g.year).replace(/[^a-z0-9-]/gi, '_')}`);
     const gridHtml = groupsLimited
       .map(
-        (g) =>
-          `<div class="gc-year-sep" aria-hidden="true">${g.year}</div>` +
+        (g, i) =>
+          `<div class="gc-year-sep" id="${yearIds[i]}" data-year="${g.year}" aria-hidden="true">${g.year}</div>` +
           g.projects.map((p) => buildCard(p, '')).join('')
       )
       .join('');
@@ -570,6 +571,10 @@
         renderGrid();
       });
     });
+    const initialYears = groupsLimited.map((g) => g.year);
+    if (initialYears.length) activeYear = initialYears[0];
+    updateYearDots(initialYears);
+    wireYearObserver();
     wireRotations(host, projectById);
     wireCardIntro(host);
     wirePopupOpener(host, projectById, projects);

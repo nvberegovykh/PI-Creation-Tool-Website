@@ -164,6 +164,7 @@ html, body {
 /* Tile gallery: inner content centered, year dots on right (absolute, no layout shift) */
 .gc-tile-gallery {
   position: relative;
+  overflow: visible;
 }
 .gc-tile-gallery-inner {
   width: 100%;
@@ -197,14 +198,14 @@ html, body {
   gap: 6px;
 }
 .gc-year-dot {
-  width: 8px;
-  height: 8px;
-  min-width: 8px;
-  min-height: 8px;
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  min-height: 10px;
   border-radius: 50%;
   border: none;
   padding: 0;
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.5);
   cursor: pointer;
   transition: all 0.25s ease;
   position: relative;
