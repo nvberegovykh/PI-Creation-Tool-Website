@@ -76,8 +76,15 @@
     <link href="./components/navbar-submenu.css" rel="stylesheet" />
     <link href="./contact.css" rel="stylesheet" id="gc-pricing-styles" />
     <link href="./components/request-quiz.css" rel="stylesheet" />
+    <link href="./components/app-router.css" rel="stylesheet" />
+    <link href="./gallery.css" rel="stylesheet" />
   </head>
   <body>
+    <div id="liber-intro-overlay" aria-hidden="false">
+      <img src="public/liberlogo1-1500h.png" alt="Liber Creative" class="liber-intro-logo" />
+    </div>
+    <div id="liber-main-content">
+      <div data-page="home" id="page-home" class="page-active">
     <link rel="stylesheet" href="./style.css" />
     <div>
       <link href="./index.css" rel="stylesheet" />
@@ -312,6 +319,10 @@
         </footer15-wrapper>
       </div>
     </div>
+      </div>
+      <div data-page="gallery" id="liber-gallery-host" class="page-hidden"></div>
+      <div data-page="contact" id="liber-contact-host" class="page-hidden"></div>
+    </div>
     <script src="./liber-apps/js/secure-keys.js"></script>
     <script type="module" src="./liber-apps/js/firebase-loader.js"></script>
     <script src="./liber-apps/js/firebase-service.js"></script>
@@ -320,6 +331,7 @@
     <script src="./components/navbar-scroll.js"></script>
     <script src="./components/navbar-submenu.js"></script>
     <script src="./components/request-quiz.js"></script>
+    <script src="./components/app-router.js"></script>
     <script src="./index.umd.js"></script>
     <script>
       (function () {

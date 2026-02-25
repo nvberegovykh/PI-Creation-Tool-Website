@@ -1,0 +1,46 @@
+/* Intro overlay */
+#liber-intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dl-color-theme-neutral-light, #000);
+  transition: opacity 0.35s ease-out, visibility 0.35s ease-out;
+}
+#liber-intro-overlay.liber-intro-done {
+  opacity: 0;
+  visibility: hidden;
+}
+.liber-intro-logo {
+  width: min(180px, 40vw);
+  height: auto;
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+.liber-intro-logo.liber-intro-logo-visible {
+  opacity: 1;
+}
+
+/* Main content - hidden during intro, fades in after */
+#liber-main-content {
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+#liber-main-content.liber-content-visible {
+  opacity: 1;
+}
+
+/* Page switching */
+[data-page] {
+  display: none;
+}
+[data-page].page-active {
+  display: block;
+  animation: liber-page-fade-in 0.3s ease-out;
+}
+@keyframes liber-page-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
