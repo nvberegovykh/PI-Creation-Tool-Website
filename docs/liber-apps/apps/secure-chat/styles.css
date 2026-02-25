@@ -142,16 +142,6 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   .call-overlay{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
   .call-participants{width:100%;max-width:calc(100vw - 12px);justify-content:flex-start}
 }
-.error-toast{
-  position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:12px;right:12px;max-width:400px;margin:0 auto;
-  z-index:9999;display:flex;align-items:center;gap:10px;padding:12px 14px;
-  background:rgba(30,0,0,.92);color:#fca5a5;border:1px solid rgba(239,68,68,.4);border-radius:10px;
-  font-size:13px;line-height:1.35;word-break:break-word;box-shadow:0 4px 20px rgba(0,0,0,.4);
-}
-.error-toast.hidden{display:none !important}
-.error-toast #error-toast-text{flex:1}
-.error-toast #error-toast-dismiss{flex-shrink:0;width:28px;height:28px;border:none;background:rgba(255,255,255,.12);color:#fca5a5;border-radius:6px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
-.error-toast #error-toast-dismiss:hover{background:rgba(255,255,255,.2)}
 .call-fab{
   position: fixed;
   right: 14px;
