@@ -91,10 +91,30 @@
     state.editingItem = false;
   }
 
+  const SUBTYPES_BY_TYPE = {
+    Architecture: ['Residential', 'Commercial', 'Manufacturing', 'Renovation'],
+    'Web Development': ['Business', 'App'],
+    Products: []
+  };
+
+  function syncProjectSubtypeOptions() {
+    const type = byId('project-type').value;
+    const subtypeWrap = byId('project-subtype-wrap');
+    const subtypeSelect = byId('project-subtype');
+    const opts = SUBTYPES_BY_TYPE[type] || [];
+    subtypeWrap.style.display = opts.length ? '' : 'none';
+    const currentVal = subtypeSelect.value;
+    subtypeSelect.innerHTML = '<option value="">— None —</option>' + opts.map((s) => `<option value="${s}">${s}</option>`).join('');
+    if (opts.includes(currentVal)) subtypeSelect.value = currentVal;
+    else subtypeSelect.value = '';
+  }
+
   function resetProjectForm() {
     byId('project-id').value = '';
     byId('project-title').value = '';
     byId('project-year').value = '';
+    byId('project-type').value = '';
+    byId('project-subtype').value = '';
     byId('project-description').value = '';
     byId('project-cover-policy').value = 'first';
     byId('project-published').checked = false;
@@ -123,6 +143,9 @@
     byId('project-id').value = project.id || '';
     byId('project-title').value = project.title || '';
     byId('project-year').value = project.year || '';
+    byId('project-type').value = project.projectType || '';
+    syncProjectSubtypeOptions();
+    byId('project-subtype').value = project.projectSubtype || '';
     byId('project-description').value = project.description || '';
     byId('project-cover-policy').value = project.coverPolicy || 'first';
     byId('project-published').checked = !!project.isPublished;
@@ -265,7 +288,7 @@
         `<div class="gc-card-preview">${mediaHtml}</div>` +
         `<div class="gc-card-info">` +
         `<strong>${p.title || 'Untitled'}</strong>` +
-        `<span>${p.year || '-'} • ${p.isPublished ? 'Published' : 'Draft'}</span>` +
+        `<span>${p.year || '-'} • ${p.projectType || '—'}${p.projectSubtype ? ' / ' + p.projectSubtype : ''} • ${p.isPublished ? 'Published' : 'Draft'}</span>` +
         `</div>` +
         `<div class="gc-card-actions">` +
         `<button class="gc-btn-edit" data-project-id="${p.id}" title="Edit"><i class="fas fa-pencil-alt"></i></button>` +
@@ -465,7 +488,9 @@
       description: byId('project-description').value.trim(),
       coverPolicy: byId('project-cover-policy').value,
       isPublished: byId('project-published').checked,
-      ownerId: uid
+      ownerId: uid,
+      projectType: byId('project-type').value.trim(),
+      projectSubtype: byId('project-subtype').value.trim()
     };
     if (!payload.title) {
       notify('Project title is required', 'warning');
@@ -615,6 +640,7 @@
       }
     });
     byId('item-type').addEventListener('change', syncItemTypeFields);
+    byId('project-type').addEventListener('change', syncProjectSubtypeOptions);
 
     byId('project-add-btn').addEventListener('click', () => {
       resetProjectForm();
@@ -677,6 +703,7 @@
       wireActions();
       await ensureFirebaseReady();
       hideProjectForm();
+      syncProjectSubtypeOptions();
       await loadProjects();
       syncItemTypeFields();
     } catch (err) {

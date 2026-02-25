@@ -796,6 +796,8 @@ class FirebaseService {
             coverPolicy: String(data.coverPolicy || 'first'),
             isPublished: !!data.isPublished,
             ownerId: uid,
+            projectType: String(data.projectType || '').trim(),
+            projectSubtype: String(data.projectSubtype || '').trim(),
             createdAt: now,
             updatedAt: now,
             createdAtTS: firebase.serverTimestamp(),

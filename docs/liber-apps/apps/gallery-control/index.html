@@ -21,6 +21,19 @@
         <input type="hidden" id="project-id" />
         <label>Title <input id="project-title" required placeholder="Project name" /></label>
         <label>Year <input id="project-year" maxlength="8" placeholder="e.g. 2024" /></label>
+        <label>Type
+          <select id="project-type">
+            <option value="">— Select type —</option>
+            <option value="Architecture">Architecture</option>
+            <option value="Web Development">Web Development</option>
+            <option value="Products">Products</option>
+          </select>
+        </label>
+        <label id="project-subtype-wrap">Subtype
+          <select id="project-subtype">
+            <option value="">— None —</option>
+          </select>
+        </label>
         <label>Description <textarea id="project-description" rows="4" placeholder="Project description / text"></textarea></label>
         <label>Cover policy
           <select id="project-cover-policy">
