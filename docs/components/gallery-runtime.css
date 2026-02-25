@@ -170,21 +170,13 @@ html, body {
   width: 100%;
   max-width: 100%;
 }
-.gc-tile-content-row {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  align-items: start;
-}
-.gc-tile-content-row.gc-year-dots-visible {
-  grid-template-columns: 1fr auto;
-}
 .gc-year-dots-wrap {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 8px 0 8px 1rem;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
   pointer-events: auto;
 }
 .gc-year-dots {
@@ -220,8 +212,10 @@ html, body {
 }
 .gc-year-dot .gc-year-dot-label {
   position: absolute;
-  right: 100%;
-  margin-right: 8px;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -235,13 +229,8 @@ html, body {
   opacity: 1;
 }
 @media (max-width: 768px) {
-  .gc-tile-content-row {
-    grid-template-columns: 1fr;
-  }
   .gc-year-dots-wrap {
-    flex-direction: row;
-    justify-content: center;
-    padding: 12px 0;
+    padding: 16px 0;
   }
   .gc-year-dot {
     width: 6px;
@@ -264,21 +253,28 @@ html, body {
   padding: 24px 0 8px;
   margin-top: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--dl-color-theme-neutral-light, #0a0a0a);
+  position: relative;
+  z-index: 1;
 }
 .gc-year-sep:first-child {
   margin-top: 0;
   padding-top: 0;
 }
 
-/* Gallery page: flexible tile grid, bigger cards – never single column */
+/* Gallery page: tile grid with square cards */
 .gallery-container [data-gallery-template="tile"] .gc-grid {
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 28px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+}
+.gallery-container [data-gallery-template="tile"] .gc-grid .gc-card {
+  aspect-ratio: 1 / 1;
+  min-height: 0;
 }
 @media (min-width: 1200px) {
   .gallery-container [data-gallery-template="tile"] .gc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-    gap: 32px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 28px;
   }
 }
 
@@ -416,9 +412,6 @@ html, body {
 
 .gc-grid .gc-card {
   min-height: 320px;
-}
-.gallery-container [data-gallery-template="tile"] .gc-grid .gc-card {
-  min-height: 380px;
 }
 
 .gc-card--slider {
@@ -678,9 +671,6 @@ body.gc-popup-open {
   .gallery-container [data-gallery-template="tile"] .gc-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
-  }
-  .gallery-container [data-gallery-template="tile"] .gc-grid .gc-card {
-    min-height: 240px;
   }
   .gc-card--slider {
     flex: 1 1 100%;

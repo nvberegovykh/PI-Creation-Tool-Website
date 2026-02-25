@@ -469,8 +469,6 @@
       const wrapEl = host.querySelector('.gc-year-dots-wrap');
       const dotsEl = host.querySelector('.gc-year-dots');
       if (!wrapEl || !dotsEl) return;
-      const contentRow = host.querySelector('.gc-tile-content-row');
-      if (contentRow) contentRow.classList.toggle('gc-year-dots-visible', years.length > 1);
       wrapEl.style.display = years.length > 1 ? '' : 'none';
       dotsEl.innerHTML = years.length > 0
         ? years.map((y) => `<button type="button" class="gc-year-dot ${y === activeYear ? 'active' : ''}" data-year="${y}" aria-label="Scroll to ${y}"><span class="gc-year-dot-label">${y}</span></button>`).join('')
@@ -532,10 +530,8 @@
       searchHtml +
       `<div class="gc-tabs">${typeTabsHtml}</div>` +
       subTabsHtml +
-      `<div class="gc-tile-content-row">` +
       `<div class="gc-tile-grid gc-grid">${gridHtml}</div>` +
       yearDotsHtml +
-      `</div>` +
       `</div>` +
       `</div>`;
     host.querySelector('.gc-tile-search').addEventListener('input', () => renderGrid());

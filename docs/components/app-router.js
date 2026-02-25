@@ -112,8 +112,9 @@
     const content = document.getElementById('liber-main-content');
     const dot0 = overlay?.querySelector('.liber-intro-dot[data-dot="0"]');
     const dot1 = overlay?.querySelector('.liber-intro-dot[data-dot="1"]');
-    const dots = [dot0, dot1].filter(Boolean);
-    const dotOrder = [0, 1].sort(() => Math.random() - 0.5);
+    const dot2 = overlay?.querySelector('.liber-intro-dot[data-dot="2"]');
+    const dots = [dot0, dot1, dot2].filter(Boolean);
+    const dotOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
     let loadedCount = 0;
     const MIN_INTRO_MS = 800;
 
@@ -131,9 +132,9 @@
       }, 50);
     }
 
-    const promises = [];
+    const fetchPromises = [];
     if (galleryHost && !galleryHost.dataset.loaded) {
-      promises.push(
+      fetchPromises.push(
         fetch('gallery.html')
           .then((r) => r.text())
           .then((html) => {
@@ -143,7 +144,6 @@
             if (main) {
               galleryHost.innerHTML = main.outerHTML;
               galleryHost.dataset.loaded = '1';
-              if (typeof window.__gcBoot === 'function') window.__gcBoot();
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(galleryHost);
             }
             markLoaded();
@@ -154,7 +154,7 @@
       markLoaded();
     }
     if (contactHost && !contactHost.dataset.loaded) {
-      promises.push(
+      fetchPromises.push(
         fetch('contact.html')
           .then((r) => r.text())
           .then((html) => {
@@ -164,7 +164,6 @@
             if (main) {
               contactHost.innerHTML = main.outerHTML;
               contactHost.dataset.loaded = '1';
-              if (typeof window.__gcBoot === 'function') window.__gcBoot();
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(contactHost);
             }
             markLoaded();
@@ -175,19 +174,32 @@
       markLoaded();
     }
 
-    if (promises.length === 0) {
-      markLoaded();
-      markLoaded();
-      setTimeout(finishIntro, MIN_INTRO_MS);
+    window.__introStartTime = Date.now();
+
+    function runBootAndFinish() {
+      const bootFn = typeof window.__gcBoot === 'function' ? window.__gcBoot : null;
+      if (bootFn) {
+        Promise.resolve(bootFn()).then(() => {
+          markLoaded();
+          const elapsed = Date.now() - window.__introStartTime;
+          const remaining = Math.max(0, MIN_INTRO_MS - elapsed);
+          setTimeout(finishIntro, remaining);
+        }).catch(() => {
+          markLoaded();
+          setTimeout(finishIntro, MIN_INTRO_MS);
+        });
+      } else {
+        markLoaded();
+        setTimeout(finishIntro, MIN_INTRO_MS);
+      }
+    }
+
+    if (fetchPromises.length === 0) {
+      runBootAndFinish();
       return Promise.resolve();
     }
 
-    const introStart = Date.now();
-    return Promise.all(promises).then(() => {
-      const elapsed = Date.now() - introStart;
-      const remaining = Math.max(0, MIN_INTRO_MS - elapsed);
-      setTimeout(finishIntro, remaining);
-    });
+    return Promise.all(fetchPromises).then(runBootAndFinish);
   }
 
   ready(function () {
