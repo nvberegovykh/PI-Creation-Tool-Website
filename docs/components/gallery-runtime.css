@@ -10,14 +10,6 @@ html, body {
   max-width: 100%;
 }
 
-@media (max-width: 767px) {
-  .contact-container {
-    padding-left: 20px;
-    padding-right: 20px;
-    box-sizing: border-box;
-  }
-}
-
 /* Gallery sections must take full width – parent has align-items:center which otherwise shrinks them */
 .home-container section[data-gallery-template="single-slider"],
 .gallery-container section[data-gallery-template="tile"] {

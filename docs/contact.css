@@ -1268,6 +1268,56 @@ a[href^="mailto:"] {
     gap: var(--dl-space-space-oneandhalfunits);
     flex-direction: column;
   }
+  .contact6-container {
+    overflow-x: hidden;
+  }
+  .contact6-max-width {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .contact6-content1,
+  .contact6-content2,
+  .contact6-content3 {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .contact6-content4,
+  .contact6-content5 {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+    gap: 12px;
+  }
+  .contact6-contact-info1,
+  .contact6-contact-info2 {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .contact6-email,
+  .contact6-text5 {
+    word-break: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    font-size: 0.9rem;
+  }
+  .contact6-content4 .thq-icon-medium,
+  .contact6-content5 .thq-icon-medium {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .contact6-content5 .footer15-link2 img,
+  .contact6-content5 img {
+    max-width: 40px;
+    max-height: 40px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  .contact-request-btn {
+    font-size: 0.9rem;
+    padding: 0.6rem 1.25rem;
+  }
 }
 
 .footer15-wrapper {

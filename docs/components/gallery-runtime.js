@@ -493,22 +493,25 @@
         });
       });
     };
+    let syncYearDebounce = null;
     const syncYearDotsActive = () => {
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length) return;
       const vh = window.innerHeight;
-      const bottomThirdTop = vh * 0.67;
-      const intersecting = Array.from(seps).map((el) => {
-        const r = el.getBoundingClientRect();
-        const inView = r.top < vh && r.bottom > 0;
-        return inView ? { el, year: el.getAttribute('data-year'), top: r.top, bottom: r.bottom } : null;
-      }).filter(Boolean).filter((x) => x.year);
-      if (!intersecting.length) return;
-      const inBottomThird = intersecting.filter((x) => x.top >= bottomThirdTop);
-      const best = inBottomThird.length > 0
-        ? inBottomThird.sort((a, b) => b.top - a.top)[0]
-        : intersecting.sort((a, b) => a.top - b.top)[0];
+      const centerY = vh * 0.5;
+      const candidates = Array.from(seps)
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.bottom < 0 || r.top > vh) return null;
+          const mid = (r.top + r.bottom) / 2;
+          const dist = Math.abs(mid - centerY);
+          return { year: el.getAttribute('data-year'), dist };
+        })
+        .filter((x) => x && x.year);
+      if (!candidates.length) return;
+      const best = candidates.reduce((a, b) => (a.dist <= b.dist ? a : b));
       const y = best.year;
+      if (y === activeYear) return;
       activeYear = y;
       host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
       host.querySelectorAll('.gc-year-current').forEach((span) => {
@@ -518,12 +521,23 @@
         span.textContent = isActive ? y : '';
       });
     };
+    const scheduleSyncYear = () => {
+      if (syncYearDebounce) clearTimeout(syncYearDebounce);
+      syncYearDebounce = setTimeout(() => {
+        syncYearDebounce = null;
+        syncYearDotsActive();
+      }, 120);
+    };
     const wireYearObserver = () => {
+      if (host._gcScrollCleanup) { host._gcScrollCleanup(); host._gcScrollCleanup = null; }
       if (yearObserver) { yearObserver.disconnect(); yearObserver = null; }
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length || !('IntersectionObserver' in window)) return;
-      yearObserver = new IntersectionObserver(() => syncYearDotsActive(), { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] });
+      yearObserver = new IntersectionObserver(scheduleSyncYear, { root: null, rootMargin: '0px', threshold: [0, 0.25, 0.5, 0.75, 1] });
       seps.forEach((s) => yearObserver.observe(s));
+      const scrollEl = document.scrollingElement || document.documentElement;
+      scrollEl.addEventListener('scroll', scheduleSyncYear, { passive: true });
+      host._gcScrollCleanup = () => scrollEl.removeEventListener('scroll', scheduleSyncYear);
       requestAnimationFrame(() => syncYearDotsActive());
     };
     const subs = getSubsForType(activeType);
