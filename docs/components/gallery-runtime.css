@@ -170,26 +170,22 @@ html, body {
   width: 100%;
   max-width: 100%;
 }
+.gc-tile-content-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+.gc-tile-content-row.gc-year-dots-visible {
+  grid-template-columns: 1fr auto;
+}
 .gc-year-dots-wrap {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
-  padding: 8px 4px;
+  padding: 8px 0 8px 1rem;
   pointer-events: auto;
-  z-index: 2;
-}
-.gc-year-current {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.9);
-  min-height: 1.2em;
-  transition: opacity 0.2s ease;
 }
 .gc-year-dots {
   display: flex;
@@ -239,10 +235,13 @@ html, body {
   opacity: 1;
 }
 @media (max-width: 768px) {
+  .gc-tile-content-row {
+    grid-template-columns: 1fr;
+  }
   .gc-year-dots-wrap {
-    right: 4px;
-    padding: 4px 2px;
-    gap: 4px;
+    flex-direction: row;
+    justify-content: center;
+    padding: 12px 0;
   }
   .gc-year-dot {
     width: 6px;
@@ -253,9 +252,6 @@ html, body {
   .gc-year-dot .gc-year-dot-label {
     font-size: 0.6rem;
     margin-right: 6px;
-  }
-  .gc-year-current {
-    font-size: 0.6rem;
   }
 }
 

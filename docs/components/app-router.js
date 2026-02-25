@@ -1,8 +1,6 @@
 (function () {
   'use strict';
-  const INTRO_LOGO_CYCLE_MS = 600;
-  const INTRO_TOTAL_MS = 2200;
-  const CONTENT_FADE_MS = 400;
+  const INTRO_FORCE_MS = 5000;
 
   function ready(fn) {
     if (document.readyState !== 'loading') {
@@ -96,26 +94,11 @@
     if (!overlay) return;
     const introStart = Date.now();
     const logo = overlay.querySelector('.liber-intro-logo');
-    let cycle = 0;
-    const maxCycles = Math.ceil(INTRO_TOTAL_MS / INTRO_LOGO_CYCLE_MS);
-    const tick = () => {
-      cycle++;
-      if (logo) logo.classList.toggle('liber-intro-logo-visible', cycle % 2 === 1);
-      if (cycle < maxCycles * 2) {
-        setTimeout(tick, INTRO_LOGO_CYCLE_MS / 2);
-      } else {
-        overlay.classList.add('liber-intro-done');
-        setTimeout(() => {
-          if (content) content.classList.add('liber-content-visible');
-        }, 200);
-      }
-    };
-    if (logo) logo.classList.add('liber-intro-logo-visible');
-    setTimeout(tick, INTRO_LOGO_CYCLE_MS / 2);
+    if (logo) requestAnimationFrame(() => logo.classList.add('liber-intro-logo-visible'));
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
-      if (Date.now() - introStart >= INTRO_TOTAL_MS + 500) {
+      if (Date.now() - introStart >= INTRO_FORCE_MS) {
         forceIntroComplete();
       }
       repairPointerEvents();
@@ -125,6 +108,29 @@
   function loadExtraPages() {
     const galleryHost = document.getElementById('liber-gallery-host');
     const contactHost = document.getElementById('liber-contact-host');
+    const overlay = document.getElementById('liber-intro-overlay');
+    const content = document.getElementById('liber-main-content');
+    const dot0 = overlay?.querySelector('.liber-intro-dot[data-dot="0"]');
+    const dot1 = overlay?.querySelector('.liber-intro-dot[data-dot="1"]');
+    const dots = [dot0, dot1].filter(Boolean);
+    const dotOrder = [0, 1].sort(() => Math.random() - 0.5);
+    let loadedCount = 0;
+    const MIN_INTRO_MS = 800;
+
+    function markLoaded() {
+      const idx = dotOrder[loadedCount];
+      if (dots[idx]) dots[idx].classList.add('loaded');
+      loadedCount++;
+    }
+
+    function finishIntro() {
+      if (!overlay || overlay.classList.contains('liber-intro-done')) return;
+      overlay.classList.add('liber-intro-done');
+      setTimeout(() => {
+        if (content) content.classList.add('liber-content-visible');
+      }, 50);
+    }
+
     const promises = [];
     if (galleryHost && !galleryHost.dataset.loaded) {
       promises.push(
@@ -140,9 +146,12 @@
               if (typeof window.__gcBoot === 'function') window.__gcBoot();
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(galleryHost);
             }
+            markLoaded();
           })
-          .catch(() => {})
+          .catch(() => { markLoaded(); })
       );
+    } else {
+      markLoaded();
     }
     if (contactHost && !contactHost.dataset.loaded) {
       promises.push(
@@ -158,11 +167,27 @@
               if (typeof window.__gcBoot === 'function') window.__gcBoot();
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(contactHost);
             }
+            markLoaded();
           })
-          .catch(() => {})
+          .catch(() => { markLoaded(); })
       );
+    } else {
+      markLoaded();
     }
-    return Promise.all(promises);
+
+    if (promises.length === 0) {
+      markLoaded();
+      markLoaded();
+      setTimeout(finishIntro, MIN_INTRO_MS);
+      return Promise.resolve();
+    }
+
+    const introStart = Date.now();
+    return Promise.all(promises).then(() => {
+      const elapsed = Date.now() - introStart;
+      const remaining = Math.max(0, MIN_INTRO_MS - elapsed);
+      setTimeout(finishIntro, remaining);
+    });
   }
 
   ready(function () {

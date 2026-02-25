@@ -20,6 +20,9 @@
       priceCard('Extra services', '$30/hr', '') +
       priceCard('Custom Model', 'from $50', '') +
       priceCard('As Built Conditions Surveying', 'from $200', 'with scan and model') +
+      '</div>' +
+      '<div class="gc-pricing-separator">for developers</div>' +
+      '<div class="gc-price-grid">' +
       priceCard('BIM Coordination', '$1000', 'per project per month') +
       priceCard('Design Leading', '$1500', 'per project per month — includes BIM Coordination, Supervision, Construction Plans preparation, Design Book, Visualisations') +
       priceCard('Full Architectural Services', '$2000', 'per project per month — DOB Architectural Plans, Design Leading, Research and Analysis') +

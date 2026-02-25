@@ -14,14 +14,36 @@
   visibility: hidden;
   pointer-events: none;
 }
+.liber-intro-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
 .liber-intro-logo {
   width: min(180px, 40vw);
   height: auto;
   opacity: 0;
-  transition: opacity 0.25s ease-out;
+  transition: opacity 0.4s ease-out;
 }
 .liber-intro-logo.liber-intro-logo-visible {
   opacity: 1;
+}
+.liber-intro-dots {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+.liber-intro-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(128, 128, 128, 0.8);
+  transition: background 0.3s ease;
+}
+.liber-intro-dot.loaded {
+  background: #fff;
 }
 
 /* Main content - hidden during intro, fades in after */
