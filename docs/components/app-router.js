@@ -198,9 +198,42 @@
     return Promise.all(fetchPromises).then(runBootAndFinish);
   }
 
+  function wireNavbarBurgerDelegation() {
+    document.addEventListener('click', (e) => {
+      const burger = e.target.closest('[data-thq="thq-burger-menu"]');
+      const closeBtn = e.target.closest('[data-thq="thq-close-menu"]');
+      if (burger) {
+        const navbar = burger.closest('[data-thq="thq-navbar"]');
+        const mobileMenu = navbar && navbar.querySelector('[data-thq="thq-mobile-menu"]');
+        if (mobileMenu) {
+          document.body.style.overflow = 'hidden';
+          mobileMenu.classList.add('teleport-show', 'thq-show', 'thq-translate-to-default');
+        }
+      } else if (closeBtn) {
+        const navbar = closeBtn.closest('[data-thq="thq-navbar"]');
+        const mobileMenu = navbar && navbar.querySelector('[data-thq="thq-mobile-menu"]');
+        if (mobileMenu) {
+          document.body.style.overflow = '';
+          mobileMenu.classList.remove('teleport-show', 'thq-show', 'thq-translate-to-default');
+        }
+      }
+    });
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href]');
+      if (a && a.target !== '_blank' && !(a.href || '').startsWith('mailto:')) {
+        const mobileMenu = document.querySelector('[data-thq="thq-mobile-menu"].teleport-show');
+        if (mobileMenu && mobileMenu.contains(a)) {
+          mobileMenu.classList.remove('teleport-show', 'thq-show', 'thq-translate-to-default');
+          document.body.style.overflow = '';
+        }
+      }
+    }, true);
+  }
+
   ready(function () {
     const isSpa = document.getElementById('liber-intro-overlay') && document.getElementById('liber-main-content');
     if (!isSpa) return;
+    wireNavbarBurgerDelegation();
     loadExtraPages();
     initNav();
     runIntro();

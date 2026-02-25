@@ -480,6 +480,14 @@
         btn.addEventListener('click', (e) => {
           e.preventDefault();
           const y = btn.getAttribute('data-year');
+          activeYear = y;
+          host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
+          host.querySelectorAll('.gc-year-current').forEach((span) => {
+            const yr = span.getAttribute('data-year');
+            const isActive = yr === y;
+            span.classList.toggle('active', isActive);
+            span.textContent = isActive ? y : '';
+          });
           const el = host.querySelector(`.gc-year-sep[data-year="${y}"]`);
           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
