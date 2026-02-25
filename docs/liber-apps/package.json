@@ -1,24 +1,13 @@
 {
-  "name": "liber-control-panel",
+  "name": "liber-creative",
   "version": "1.0.0",
-  "description": "LIBER/APPS with encrypted data storage",
-  "main": "index.html",
-  "scripts": {
-    "start": "python -m http.server 8000",
-    "serve": "python -m http.server 8000",
-    "add-favicon": "node add-favicon.js",
-    "test": "echo \"No tests specified\" && exit 0"
+  "private": true,
+  "dependencies": {
+    "parcel-bundler": "^1.6.1",
+    "next": ">=14.2.24",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2"
   },
-  "keywords": [
-    "liber",
-    "apps",
-    "liber-apps",
-    "encryption",
-    "invoices",
-    "calculator"
-  ],
-  "author": "Liber Apps",
-  "license": "MIT",
-  "devDependencies": {},
-  "dependencies": {}
+  "scripts": {},
+  "devDependencies": {}
 }
