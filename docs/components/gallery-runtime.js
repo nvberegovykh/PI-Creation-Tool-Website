@@ -746,7 +746,7 @@
     const noDuplicates = host.dataset.noDuplicates === 'true' || host.dataset.noDuplicates === '';
     const gap = 18;
     const cardWidth = 420 + gap;
-    let displaySet = selected.slice();
+    let displaySet = shuffle(selected.slice());
     const renderTrack = (numSets) => {
       const base = displaySet.map((p) => buildCard(p, 'gc-card--full'));
       if (numSets <= 1) return base.join('');
@@ -756,7 +756,7 @@
     };
     const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
     const setW = displaySet.length * cardWidth;
-    const needSets = noDuplicates ? 1 : (setW >= vw ? 2 : Math.min(3, Math.ceil(vw / setW) + 1));
+    const needSets = noDuplicates ? 1 : Math.max(2, setW >= vw ? 2 : Math.ceil(vw / setW) + 1);
     host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack(needSets)}</div></div>`;
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
@@ -768,14 +768,8 @@
     const cycleReset = () => {
       track.style.transition = 'none';
       displaySet = shuffle(displaySet.slice());
-      if (noDuplicates) {
-        offset = 0;
-        track.innerHTML = renderTrack(1);
-      } else {
-        offset %= setWidth();
-        if (offset < 0) offset += setWidth();
-        track.innerHTML = renderTrack(needSets);
-      }
+      offset = 0;
+      track.innerHTML = renderTrack(noDuplicates ? 1 : needSets);
       wireRotations(host, projectById);
       wireCardIntro(host);
       requestAnimationFrame(() => { track.style.transition = ''; });
@@ -846,9 +840,9 @@
           offset += AUTO_PX_PER_MS * dt;
           if (noDuplicates) {
             const maxO = Math.max(0, oneSet - viewW);
-            if (offset >= maxO) cycleReset();
+            if (maxO > 0 && offset >= maxO) cycleReset();
           } else {
-            if (offset >= oneSet) cycleReset();
+            while (offset >= oneSet) offset -= oneSet;
           }
         }
         update();
