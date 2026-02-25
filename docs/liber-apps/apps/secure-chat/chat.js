@@ -135,6 +135,7 @@
       this._drawLastSentAt = 0;
       this._drawSegments = [];
       this._useSfuCalls = true;
+      this._cleanupInProgress = false;
       this.init();
     }
 
@@ -1785,13 +1786,14 @@
 
     async _emitJoinCallMessage(connId){
       try{
-        const key = String(connId || this.getCallConnId() || '').trim();
-        if (!key) return;
+        const key = String(connId || this.getCallConnId() || this.activeConnection || '').trim();
+        if (!key){ console.warn('[SFU] Join badge skipped: no connId'); return; }
         const now = Date.now();
         const prev = Number(this._lastCallMarkerAtByConn.get(key) || 0);
-        if ((now - prev) < 2500) return;
+        if ((now - prev) < 2500){ console.log('[SFU] Join badge throttled'); return; }
         this._lastCallMarkerAtByConn.set(key, now);
         await this.saveMessage({ text: `[call:room:${key}_latest]`, connId: key });
+        console.log('[SFU] Join call badge sent');
       }catch(e){
         this._showCallError('Join-call marker failed: ' + (e?.message || e));
         console.warn('Join-call marker send failed', e?.message || e);
@@ -1804,7 +1806,7 @@
         if (!key) return;
         const now = Date.now();
         const prev = Number(this._lastCallEndedMarkerAtByConn.get(key) || 0);
-        if ((now - prev) < 2500) return;
+        if ((now - prev) < 6000) return;
         this._lastCallEndedMarkerAtByConn.set(key, now);
         await this.saveMessage({ text: `[call:ended:${key}]`, connId: key });
       }catch(e){
@@ -2310,15 +2312,23 @@
         } else if (kind === 'audio'){
           el.autoplay = true;
           el.playsInline = true;
+          el.muted = false;
           el.style.display = 'none';
           document.body.appendChild(el);
-          try{ el.play && el.play().catch(()=>{}); }catch(_){}
+          const tryPlay = ()=> {
+            try{ el.play?.().catch((e)=>{ console.warn('[SFU] Audio play failed', pid, e?.message || e); }); }catch(e){ console.warn('[SFU] Audio play error', pid, e?.message || e); }
+          };
+          tryPlay();
+          el.addEventListener('loadedmetadata', tryPlay, { once: true });
+          el.addEventListener('canplay', tryPlay, { once: true });
         } else {
           document.body.appendChild(el);
         }
         this._sfuTrackEls.set(key, el);
         this._applyAudioOutputSink && this._applyAudioOutputSink();
-      }catch(_){ }
+      }catch(e){
+        console.warn('[SFU] _attachSfuTrack failed', track?.kind, publication?.trackSid, e?.message || e);
+      }
     }
 
     _detachSfuTrack(track, publication, participant){
@@ -2482,7 +2492,10 @@
         if (cs) cs.textContent = 'Connecting SFU...';
         await this.updatePresence('connecting', !!video);
         const TOKEN_TIMEOUT_MS = 20000;
-        const tokenPromise = window.firebaseService.callFunction('getSfuToken', { connId: callConnId });
+        const tz = typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions?.()?.timeZone || '' : '';
+        const lang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        const preferEu = /^(Europe|Asia)\//.test(tz) || /Moscow|Turkey|Israel|Yekaterinburg|Samara|Kiev|Minsk|Tbilisi|Baku|Yerevan/.test(tz) || /^ru(-|$)|^be(-|$)|^uk(-|$)|^kk(-|$)|^uz(-|$)|^kz(-|$)|^ky(-|$)|^tg(-|$)|^az(-|$)|^hy(-|$)|^ka(-|$)/.test(lang);
+        const tokenPromise = window.firebaseService.callFunction('getSfuToken', { connId: callConnId, preferredRegion: preferEu ? 'eu' : '' });
         const tokenTimeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Token request timed out')), TOKEN_TIMEOUT_MS);
         });
@@ -2510,6 +2523,7 @@
           adaptiveStream: true,
           dynacast: true,
           stopLocalTrackOnUnpublish: true,
+          webAudioMix: true,
           videoCaptureDefaults: isMobile
             ? { resolution: { width: 640, height: 480 }, frameRate: 20 }
             : { resolution: { width: 1920, height: 1080 }, frameRate: 30 },
@@ -2519,24 +2533,32 @@
             autoGainControl: true,
             channelCount: 1,
             sampleRate: 48000
+          },
+          publishDefaults: {
+            dtx: false,
+            red: true,
+            simulcast: true,
+            videoEncoding: { maxBitrate: 2800000, maxFramerate: 30 },
+            audioBitrate: 96000
           }
         };
         try{
           if (mod?.VideoPresets?.h720 && mod?.VideoPresets?.h180){
-            roomOpts.publishDefaults = {
-              simulcast: true,
-              videoSimulcastLayers: [mod.VideoPresets.h180, mod.VideoPresets.h360, mod.VideoPresets.h720],
-              videoEncoding: { maxBitrate: 2800000, maxFramerate: 30 },
-              audioBitrate: 64000
-            };
+            roomOpts.publishDefaults.videoSimulcastLayers = [mod.VideoPresets.h180, mod.VideoPresets.h360, mod.VideoPresets.h720];
           }
         }catch(_){ }
-        const CONNECT_TIMEOUT_MS = 45000;
+        try{
+          const DefaultReconnectPolicy = mod?.DefaultReconnectPolicy;
+          if (DefaultReconnectPolicy){
+            roomOpts.reconnectPolicy = new DefaultReconnectPolicy([3000, 6000, 12000]);
+          }
+        }catch(_){ }
+        const CONNECT_TIMEOUT_MS = 60000;
         const connectOpts = {
-          websocketTimeout: 25000,
-          peerConnectionTimeout: 25000,
-          maxRetries: 3,
-          rtcConfig: { iceTransportPolicy: 'relay' }
+          websocketTimeout: 35000,
+          peerConnectionTimeout: 35000,
+          maxRetries: 2,
+          rtcConfig: { iceTransportPolicy: 'relay', iceCandidatePoolSize: 10 }
         };
         const urlsToTry = [wsUrl].concat(tokenResp?.wsUrlFallbacks || []).filter(Boolean);
         const hasFallbacks = (tokenResp?.wsUrlFallbacks || []).length > 0;
@@ -2566,7 +2588,7 @@
               if (dc && typeof dc.then === 'function') await dc;
             }catch(_){}
             room = null;
-            if (i < urlsToTry.length - 1) await new Promise((r) => setTimeout(r, 800));
+            if (i < urlsToTry.length - 1) await new Promise((r) => setTimeout(r, 1500));
           }
         }
         if (lastErr || !room){
@@ -2581,7 +2603,7 @@
         this._micEnabled = true;
         this._videoEnabled = !!video;
         if (this._sfuConnectAborted) return false;
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 600));
         if (this._sfuConnectAborted || this._sfuRoom !== room) return false;
         try{
           await room.localParticipant.setMicrophoneEnabled(this._micEnabled, {
@@ -2589,8 +2611,11 @@
             noiseSuppression: true,
             autoGainControl: true,
             channelCount: 1
-          });
-        }catch(_){}
+          }, { dtx: false });
+        }catch(e){
+          console.warn('[SFU] setMicrophoneEnabled failed on connect', e?.message || e);
+          this._showCallError('Microphone failed: ' + (e?.message || 'unknown'));
+        }
         if (this._sfuConnectAborted || this._sfuRoom !== room) return false;
         try{ await room.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
         try{
@@ -9611,6 +9636,8 @@
 
   async enterRoom(video = false){
     if (!this.activeConnection) return;
+    let waited = 0;
+    while (this._cleanupInProgress && waited < 2000){ await new Promise(r=>setTimeout(r, 100)); waited += 100; }
     this._callConnectionId = this.activeConnection;
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -9743,7 +9770,7 @@
         return;
       }
       if (this._useSfuCalls){
-        await this._emitJoinCallMessage(this.getCallConnId());
+        await this._emitJoinCallMessage(this.getCallConnId() || this.activeConnection);
         const ok = await this._startOrJoinSfuCall(this._videoEnabled);
       } else {
         await this.attemptStartRoomCall(this._videoEnabled);
@@ -9785,7 +9812,10 @@
           noiseSuppression: true,
           autoGainControl: true,
           channelCount: 1
-        }).catch(()=>{});
+        }, { dtx: false }).catch((e)=>{
+          console.warn('[SFU] setMicrophoneEnabled failed (toggle)', e?.message || e);
+          this._showCallError('Microphone failed: ' + (e?.message || 'unknown'));
+        });
         micBtn.classList.toggle('muted', !this._micEnabled);
         return;
       }
@@ -10662,7 +10692,7 @@
   async _setupRoomInactivityMonitor(){
     this._lastSpeech.clear();
     if (this._inactTimer) clearInterval(this._inactTimer);
-    const silenceLimitMs = 3 * 60 * 1000;
+      const silenceLimitMs = 30 * 60 * 1000;
     this._inactTimer = setInterval(()=>{
       const now = Date.now();
       let maxLast = 0;
@@ -10673,7 +10703,7 @@
         this.cleanupActiveCall(true, 'silence_timer');
         const roomRef = firebase.doc(this.db,'callRooms', this.getCallConnId());
         firebase.updateDoc(roomRef, { status: 'idle', activeCallId: null, endedBy: this.currentUser.uid, endedAt: new Date().toISOString() });
-        this.saveMessage({ text: '[system] Call ended due to silence' });
+        this.saveMessage({ text: '[system] Call ended due to extended silence' });
         if (this._autoResumeBySpeech) this._startAutoResumeMonitor(false);
       }
     }, 15000);
@@ -10961,7 +10991,7 @@
         this._lastRemoteSpeechTs = Date.now();
         // initial detector values are set by _attachSpeakingDetector callbacks
         if (this._inactTimer) clearInterval(this._inactTimer);
-        const limitMs = 5 * 60 * 1000; // 5 minutes
+        const limitMs = 30 * 60 * 1000;
         this._inactTimer = setInterval(()=>{
           const last = Math.max(this._lastLocalSpeechTs||0, this._lastRemoteSpeechTs||0);
           if (Date.now() - last > limitMs){
@@ -10969,7 +10999,7 @@
             try{ pc.close(); }catch(_){ }
             try{ localStream && localStream.getTracks().forEach(t=> t.stop()); }catch(_){ }
             const ov = document.getElementById('call-overlay'); if (ov) ov.classList.add('hidden');
-            this.saveMessage({ text: '[system] Call ended due to 5 minutes of silence' }).catch(()=>{});
+            this.saveMessage({ text: '[system] Call ended due to extended silence' }).catch(()=>{});
             this._startAutoResumeMonitor(opts && opts.video);
           }
         }, 15000);
@@ -11262,6 +11292,9 @@
     }
 
     async cleanupActiveCall(endRoom = false, reason = 'unknown'){
+    if (this._cleanupInProgress) return;
+    this._cleanupInProgress = true;
+    try{
     const endedConnId = String(this.getCallConnId() || this.activeConnection || '').trim();
     this._startingCall = false;
     this._joiningCall = false;
@@ -11327,7 +11360,11 @@
       const sb = document.getElementById('start-call-btn');
       if (sb) sb.style.display = '';
       this._setActiveSpeakerLabel(null);
-      if (reason !== 'close_button') this._disableCallFab = false;
+      this._disableCallFab = false;
+      [ 'call-room-btn', 'mobile-call-room-btn', 'voice-call-btn', 'video-call-btn', 'mobile-voice-call-btn', 'mobile-video-call-btn' ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+      });
       this._syncCallFab();
       this._updateMediaSessionState('idle', null);
       this._sfuCallMarkerByConn.delete(String(this.getCallConnId() || ''));
@@ -11348,6 +11385,9 @@
       this._drawEventsSeen = new Set();
       this._drawSyncBoundConnId = null;
       this._callConnectionId = null;
+    }finally{
+      this._cleanupInProgress = false;
+    }
     }
 
     async _endRoomIfNoParticipantsLeft(callConnId){
