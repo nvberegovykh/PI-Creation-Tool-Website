@@ -2420,6 +2420,7 @@
       });
       room.on('disconnected', async ()=>{
         try{
+          if (this._sfuRoom === room) this._sfuRoom = null;
           const cs = document.getElementById('call-status');
           const shouldKeep = !!(this._inRoom && this._isMobileDevice());
           if (shouldKeep){
@@ -2571,6 +2572,8 @@
         this._micEnabled = true;
         this._videoEnabled = !!video;
         if (this._sfuConnectAborted) return false;
+        await new Promise((r) => setTimeout(r, 300));
+        if (this._sfuConnectAborted || this._sfuRoom !== room) return false;
         try{
           await room.localParticipant.setMicrophoneEnabled(this._micEnabled, {
             echoCancellation: true,
@@ -2579,7 +2582,7 @@
             channelCount: 1
           });
         }catch(_){}
-        if (this._sfuConnectAborted) return false;
+        if (this._sfuConnectAborted || this._sfuRoom !== room) return false;
         try{ await room.localParticipant.setCameraEnabled(this._videoEnabled); }catch(_){}
         try{
           room.remoteParticipants.forEach((rp)=>{
@@ -11298,7 +11301,8 @@
         this._monitoring = false;
       }
       document.querySelectorAll('#call-videos > *').forEach(el => el.remove());
-      if (!endRoom) this._inRoom = false;
+      this._inRoom = false;
+      if (endRoom && this._roomState) this._roomState = { ...this._roomState, status: 'idle', activeCallId: null };
       try {
         await navigator.mediaDevices.getUserMedia({audio: false});
       } catch (_) {}
