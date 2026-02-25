@@ -143,9 +143,12 @@
               galleryHost.dataset.loaded = '1';
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(galleryHost);
             }
+            markLoaded();
           })
-          .catch(() => {})
+          .catch(() => { markLoaded(); })
       );
+    } else {
+      markLoaded();
     }
     if (contactHost && !contactHost.dataset.loaded) {
       fetchPromises.push(
@@ -160,9 +163,12 @@
               contactHost.dataset.loaded = '1';
               if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(contactHost);
             }
+            markLoaded();
           })
-          .catch(() => {})
+          .catch(() => { markLoaded(); })
       );
+    } else {
+      markLoaded();
     }
 
     window.__introStartTime = Date.now();
