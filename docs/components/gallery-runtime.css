@@ -171,19 +171,37 @@ html, body {
   max-width: 100%;
 }
 .gc-year-dots-wrap {
-  display: flex;
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 0;
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
   pointer-events: auto;
+  padding: 8px 4px;
 }
 .gc-year-dots {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 4px;
+}
+.gc-year-dot-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.gc-year-current {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.2;
+  display: none;
+  min-height: 1.2em;
+}
+.gc-year-current.active {
+  display: block;
 }
 .gc-year-dot {
   width: 10px;
@@ -196,7 +214,6 @@ html, body {
   background: rgba(255, 255, 255, 0.5);
   cursor: pointer;
   transition: all 0.25s ease;
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -210,27 +227,10 @@ html, body {
   transform: scale(1.25);
   box-shadow: 0 0 0 2px rgba(159, 197, 255, 0.4);
 }
-.gc-year-dot .gc-year-dot-label {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 6px;
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-.gc-year-dot:hover .gc-year-dot-label,
-.gc-year-dot.active .gc-year-dot-label {
-  opacity: 1;
-}
 @media (max-width: 768px) {
   .gc-year-dots-wrap {
-    padding: 16px 0;
+    right: 8px;
+    padding: 4px 2px;
   }
   .gc-year-dot {
     width: 6px;
@@ -238,9 +238,8 @@ html, body {
     min-width: 6px;
     min-height: 6px;
   }
-  .gc-year-dot .gc-year-dot-label {
+  .gc-year-current {
     font-size: 0.6rem;
-    margin-right: 6px;
   }
 }
 

@@ -471,7 +471,10 @@
       if (!wrapEl || !dotsEl) return;
       wrapEl.style.display = years.length > 1 ? '' : 'none';
       dotsEl.innerHTML = years.length > 0
-        ? years.map((y) => `<button type="button" class="gc-year-dot ${y === activeYear ? 'active' : ''}" data-year="${y}" aria-label="Scroll to ${y}"><span class="gc-year-dot-label">${y}</span></button>`).join('')
+        ? years.map((y) => {
+            const isActive = y === activeYear;
+            return `<div class="gc-year-dot-row"><span class="gc-year-current${isActive ? ' active' : ''}" data-year="${y}">${isActive ? y : ''}</span><button type="button" class="gc-year-dot ${isActive ? 'active' : ''}" data-year="${y}" aria-label="Scroll to ${y}"></button></div>`;
+          }).join('')
         : '';
       dotsEl.querySelectorAll('.gc-year-dot').forEach((btn) => {
         btn.addEventListener('click', (e) => {
@@ -494,6 +497,12 @@
             if (y) {
               activeYear = y;
               host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
+              host.querySelectorAll('.gc-year-current').forEach((span) => {
+                const yr = span.getAttribute('data-year');
+                const isActive = yr === y;
+                span.classList.toggle('active', isActive);
+                span.textContent = isActive ? y : '';
+              });
             }
           });
         },
@@ -509,7 +518,7 @@
       .join('');
     const subTabsHtml = `<div class="gc-subtabs" style="display:${showSubTabs ? '' : 'none'}">${showSubTabs ? `<button type="button" class="gc-subtab ${activeSubtype === '' ? 'active' : ''}" data-subtype="">All</button>` + subsWithCards.map((s) => `<button type="button" class="gc-subtab ${s === activeSubtype ? 'active' : ''}" data-subtype="${s}">${s}</button>`).join('') : ''}</div>`;
     const searchHtml = `<div class="gc-tile-search-wrap"><input type="text" class="gc-tile-search" placeholder="Search by name, type, subtype..." /></div>`;
-    const yearDotsHtml = `<div class="gc-year-dots-wrap"><div class="gc-year-dots"></div></div>`;
+    const yearDotsHtml = `<div class="gc-year-dots-wrap"><div class="gc-year-dots" aria-label="Year navigation"></div></div>`;
     let projs = getProjectsForTab(activeType, activeSubtype);
     const byYear = projectsByYear(projs.slice(0, count));
     const selectedIds = new Set(projs.slice(0, count).map((p) => p.id));
@@ -531,8 +540,8 @@
       `<div class="gc-tabs">${typeTabsHtml}</div>` +
       subTabsHtml +
       `<div class="gc-tile-grid gc-grid">${gridHtml}</div>` +
-      yearDotsHtml +
       `</div>` +
+      yearDotsHtml +
       `</div>`;
     host.querySelector('.gc-tile-search').addEventListener('input', () => renderGrid());
     host.querySelector('.gc-tile-search').addEventListener('keyup', (e) => { if (e.key === 'Enter') renderGrid(); });
