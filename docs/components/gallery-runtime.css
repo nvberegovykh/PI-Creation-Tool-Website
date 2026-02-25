@@ -56,6 +56,103 @@
 }
 
 /* Year separator in tile gallery – spans full row */
+.gc-tile-search-wrap {
+  margin-bottom: 16px;
+}
+.gc-tile-search {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+}
+.gc-tile-search::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.gc-tabs, .gc-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.gc-tab, .gc-subtab {
+  padding: 8px 16px;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.gc-tab:hover, .gc-subtab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.gc-tab.active, .gc-subtab.active {
+  background: rgba(159, 197, 255, 0.2);
+  border-color: #9fc5ff;
+}
+.gc-subtabs {
+  margin-top: -8px;
+  margin-left: 8px;
+}
+.gc-card-type {
+  display: block;
+  font-size: 11px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.gc-popup-seemore {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.gc-seemore-label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  opacity: 0.9;
+}
+.gc-seemore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.gc-seemore-card {
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  transition: border-color 0.2s, transform 0.2s;
+}
+.gc-seemore-card:hover {
+  border-color: rgba(159, 197, 255, 0.5);
+  transform: scale(1.02);
+}
+.gc-seemore-card img,
+.gc-seemore-card video {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+}
+.gc-seemore-card span {
+  display: block;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gc-year-sep {
   grid-column: 1 / -1;
   font-size: 0.875rem;

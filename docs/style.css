@@ -31,6 +31,17 @@
   --dl-radius-radius-buttonradius: 24px;
   --dl-space-space-oneandhalfunits: 24px;
 }
+
+/* Text selection only – does not affect nav/focus highlights */
+::selection {
+  background: #8C000F !important;
+  color: #fff !important;
+}
+::-moz-selection {
+  background: #8C000F !important;
+  color: #fff !important;
+}
+
 .button {
   color: var(--dl-color-theme-neutral-dark);
   display: inline-block;

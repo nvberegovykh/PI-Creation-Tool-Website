@@ -103,14 +103,22 @@
     return `<img src="${item.url}" alt="${item.caption || 'Gallery item'}" loading="lazy" />`;
   }
 
+  const SUBTYPES_BY_TYPE = {
+    Architecture: ['Residential', 'Commercial', 'Manufacturing', 'Renovation'],
+    'Web Development': ['Business', 'App'],
+    Products: []
+  };
+
   function buildCard(project, modeClass) {
     const forRotation = visualItemsForRotation(project.items);
     const first = forRotation[0] || visualItems(project.items)[0];
     if (!first) return '';
+    const typeLabel = project.projectType ? (project.projectSubtype ? `${project.projectType} / ${project.projectSubtype}` : project.projectType) : '';
+    const typeHtml = typeLabel ? `<span class="gc-card-type">${typeLabel}</span>` : '';
     return (
       `<article class="gc-card ${modeClass}" data-project-id="${project.id}" tabindex="0">` +
       `<div class="gc-media" data-rotation-index="0">${createMediaElement(first, true)}</div>` +
-      `<div class="gc-overlay"><div><h3>${project.title || 'Project'}</h3><p>${project.year || ''}</p></div></div>` +
+      `<div class="gc-overlay"><div>${typeHtml}<h3>${project.title || 'Project'}</h3><p>${project.year || ''}</p></div></div>` +
       '</article>'
     );
   }
@@ -174,7 +182,7 @@
     });
   }
 
-  function openPopup(project) {
+  function openPopup(project, allProjects, projectById) {
     let popup = document.getElementById('gc-popup');
     if (!popup) {
       popup = document.createElement('div');
@@ -188,7 +196,12 @@
     const dotsHtml = visuals.length > 1
       ? `<div class="gc-popup-dots" role="tablist">${visuals.map((_, i) => `<button type="button" class="gc-dot" data-gc-idx="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}</div>`
       : '';
-    const bodyHtml = `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${texts.map((t) => `<p>${t.text}</p>`).join('')}</div></div>`;
+    const textsHtml = texts.map((t) => `<p>${t.text}</p>`).join('');
+    const seeMoreProjects = pickRandomFromOtherSubtypes(project, allProjects || [], 6);
+    const seeMoreHtml = seeMoreProjects.length > 0
+      ? `<div class="gc-popup-seemore"><p class="gc-seemore-label">See More...</p><div class="gc-seemore-grid">${seeMoreProjects.map((p) => `<div class="gc-seemore-card" data-project-id="${p.id}" tabindex="0">${visualItems(p.items || [])[0] ? createMediaElement(visualItems(p.items || [])[0], true) : ''}<span>${p.title || 'Project'}</span></div>`).join('')}</div></div>`
+      : '';
+    const bodyHtml = `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${textsHtml}</div>${seeMoreHtml}</div>`;
     const slidesHtml = visuals.map((v) => `<div class="gc-popup-slide">${createMediaElement(v, false)}</div>`).join('');
     popup.innerHTML =
       `<div class="gc-popup-card" role="dialog" aria-modal="true">` +
@@ -267,6 +280,20 @@
       mediaEl.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     }
     dots.forEach((dot, i) => dot.addEventListener('click', (e) => { e.stopPropagation(); setIdx(i); }));
+    popup.querySelectorAll('.gc-seemore-card[data-project-id]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = el.getAttribute('data-project-id');
+        const p = (projectById && projectById.get(id)) || (allProjects && allProjects.find((x) => x.id === id));
+        if (p) openPopup(p, allProjects || [], projectById);
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          el.click();
+        }
+      });
+    });
     popup.classList.add('open');
     document.body.classList.add('gc-popup-open');
     const close = () => {
@@ -282,7 +309,10 @@
     popup.addEventListener('click', handler);
   }
 
-  function wirePopupOpener(container, projectById) {
+  function wirePopupOpener(container, projectById, allProjects) {
+    const openForProject = (project) => {
+      if (project) openPopup(project, allProjects || [], projectById);
+    };
     container.addEventListener('click', (e) => {
       if (window.__gcSuppressNextClick) { window.__gcSuppressNextClick = false; return; }
       const card = e.target.closest('.gc-card[data-project-id]');
@@ -292,7 +322,7 @@
       if (!project) return;
       e.preventDefault();
       e.stopPropagation();
-      openPopup(project);
+      openForProject(project);
     });
     container.addEventListener('keydown', (e) => {
       const card = e.target.closest('.gc-card[data-project-id]');
@@ -302,7 +332,7 @@
       const project = projectById.get(id);
       if (!project) return;
       e.preventDefault();
-      openPopup(project);
+      openForProject(project);
     });
   }
 
@@ -313,6 +343,52 @@
     });
     if (!byId.size || count <= 0) return [];
     return shuffle([...byId.values()]).slice(0, count);
+  }
+
+  function projectsByType(projects) {
+    const withMedia = projects.filter((p) => visualItems(p.items || []).length > 0);
+    const byType = new Map();
+    for (const p of withMedia) {
+      const t = (p.projectType || '').trim() || 'Other';
+      if (!byType.has(t)) byType.set(t, []);
+      byType.get(t).push(p);
+    }
+    return byType;
+  }
+
+  function projectsArchitectureOnly(projects) {
+    return projects.filter((p) => (p.projectType || '').trim() === 'Architecture' && visualItems(p.items || []).length > 0);
+  }
+
+  function pickRandomFromOtherSubtypes(currentProject, allProjects, count) {
+    const type = (currentProject.projectType || '').trim();
+    const mySubtype = (currentProject.projectSubtype || '').trim();
+    const subs = SUBTYPES_BY_TYPE[type] || [];
+    if (!type || subs.length < 2) return pickProjects(allProjects.filter((p) => p.id !== currentProject.id), count);
+    const sameType = allProjects.filter((p) => (p.projectType || '').trim() === type && p.id !== currentProject.id && visualItems(p.items || []).length > 0);
+    const bySub = new Map();
+    for (const p of sameType) {
+      const s = (p.projectSubtype || '').trim() || '—';
+      if (!bySub.has(s)) bySub.set(s, []);
+      bySub.get(s).push(p);
+    }
+    const result = [];
+    const otherSubs = subs.filter((s) => s !== mySubtype);
+    let attempts = 0;
+    while (result.length < count && attempts < 20) {
+      for (const sub of shuffle(otherSubs)) {
+        const arr = bySub.get(sub) || [];
+        if (arr.length > 0) {
+          const pick = arr[Math.floor(Math.random() * arr.length)];
+          if (!result.find((r) => r.id === pick.id)) {
+            result.push(pick);
+            if (result.length >= count) break;
+          }
+        }
+      }
+      attempts++;
+    }
+    return result.slice(0, count);
   }
 
   function projectsByYear(projects) {
@@ -337,35 +413,123 @@
 
   function mountTiles(host, projects, projectById) {
     const count = Number(host.dataset.cardCount || 999);
-    const groups = projectsByYear(projects);
-    const allProjects = groups.flatMap((g) => g.projects);
-    const selected = allProjects.slice(0, count);
-    if (!selected.length) {
+    const typeOrder = ['Architecture', 'Web Development', 'Products', 'Other'];
+    const byType = projectsByType(projects);
+    const typesWithCards = typeOrder.filter((t) => (byType.get(t) || []).length > 0);
+    if (!typesWithCards.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
     }
-    const selectedIds = new Set(selected.map((p) => p.id));
-    const groupsLimited = groups
+    let activeType = typesWithCards[0];
+    let activeSubtype = '';
+    const getSubsForType = (t) => SUBTYPES_BY_TYPE[t] || [];
+    const getProjectsForTab = (t, sub) => {
+      const arr = byType.get(t) || [];
+      if (!sub) return arr;
+      return arr.filter((p) => (p.projectSubtype || '').trim() === sub);
+    };
+    const renderGrid = () => {
+      let projs = getProjectsForTab(activeType, activeSubtype);
+      const searchQ = (host.querySelector('.gc-tile-search') || {}).value || '';
+      if (searchQ.trim()) {
+        const q = searchQ.trim().toLowerCase();
+        projs = projs.filter((p) => {
+          const title = (p.title || '').toLowerCase();
+          const type = (p.projectType || '').toLowerCase();
+          const sub = (p.projectSubtype || '').toLowerCase();
+          return title.includes(q) || type.includes(q) || sub.includes(q);
+        });
+      }
+      projs = projs.slice(0, count);
+      const byYear = projectsByYear(projs);
+      const selectedIds = new Set(projs.map((p) => p.id));
+      const groupsLimited = byYear
+        .map((g) => ({ year: g.year, projects: g.projects.filter((p) => selectedIds.has(p.id)) }))
+        .filter((g) => g.projects.length > 0);
+      const html = groupsLimited
+        .map(
+          (g) =>
+            `<div class="gc-year-sep" aria-hidden="true">${g.year}</div>` +
+            g.projects.map((p) => buildCard(p, '')).join('')
+        )
+        .join('');
+      const grid = host.querySelector('.gc-tile-grid');
+      if (grid) grid.innerHTML = html || '<p class="gc-empty">No projects match.</p>';
+      wireRotations(host, projectById);
+      wireCardIntro(host);
+    };
+    const subs = getSubsForType(activeType);
+    const subsWithCards = subs.filter((s) => getProjectsForTab(activeType, s).length > 0);
+    const showSubTabs = subsWithCards.length > 0;
+    const typeTabsHtml = typesWithCards
+      .map((t) => `<button type="button" class="gc-tab ${t === activeType ? 'active' : ''}" data-type="${t}">${t}</button>`)
+      .join('');
+    const subTabsHtml = `<div class="gc-subtabs" style="display:${showSubTabs ? '' : 'none'}">${showSubTabs ? `<button type="button" class="gc-subtab ${activeSubtype === '' ? 'active' : ''}" data-subtype="">All</button>` + subsWithCards.map((s) => `<button type="button" class="gc-subtab ${s === activeSubtype ? 'active' : ''}" data-subtype="${s}">${s}</button>`).join('') : ''}</div>`;
+    const searchHtml = `<div class="gc-tile-search-wrap"><input type="text" class="gc-tile-search" placeholder="Search by name, type, subtype..." /></div>`;
+    let projs = getProjectsForTab(activeType, activeSubtype);
+    const byYear = projectsByYear(projs.slice(0, count));
+    const selectedIds = new Set(projs.slice(0, count).map((p) => p.id));
+    const groupsLimited = byYear
       .map((g) => ({ year: g.year, projects: g.projects.filter((p) => selectedIds.has(p.id)) }))
       .filter((g) => g.projects.length > 0);
-    const html = groupsLimited
+    const gridHtml = groupsLimited
       .map(
         (g) =>
           `<div class="gc-year-sep" aria-hidden="true">${g.year}</div>` +
           g.projects.map((p) => buildCard(p, '')).join('')
       )
       .join('');
-    host.innerHTML = `<div class="gc-template"><div class="gc-grid">${html}</div></div>`;
+    host.innerHTML =
+      `<div class="gc-template gc-tile-gallery">` +
+      searchHtml +
+      `<div class="gc-tabs">${typeTabsHtml}</div>` +
+      subTabsHtml +
+      `<div class="gc-tile-grid gc-grid">${gridHtml}</div>` +
+      `</div>`;
+    host.querySelector('.gc-tile-search').addEventListener('input', () => renderGrid());
+    host.querySelector('.gc-tile-search').addEventListener('keyup', (e) => { if (e.key === 'Enter') renderGrid(); });
+    host.querySelectorAll('.gc-tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeType = btn.getAttribute('data-type');
+        activeSubtype = '';
+        const subs2 = getSubsForType(activeType);
+        const subsWithCards2 = subs2.filter((s) => getProjectsForTab(activeType, s).length > 0);
+        const subTabsEl = host.querySelector('.gc-subtabs');
+        if (subTabsEl) {
+          subTabsEl.innerHTML = subsWithCards2.length > 0
+            ? `<button type="button" class="gc-subtab active" data-subtype="">All</button>` + subsWithCards2.map((s) => `<button type="button" class="gc-subtab" data-subtype="${s}">${s}</button>`).join('')
+            : '';
+          subTabsEl.style.display = subsWithCards2.length > 0 ? '' : 'none';
+          subTabsEl.querySelectorAll('.gc-subtab').forEach((b) => {
+            b.addEventListener('click', () => {
+              activeSubtype = b.getAttribute('data-subtype');
+              subTabsEl.querySelectorAll('.gc-subtab').forEach((x) => x.classList.toggle('active', x === b));
+              renderGrid();
+            });
+          });
+        }
+        host.querySelectorAll('.gc-tab').forEach((x) => x.classList.toggle('active', x === btn));
+        renderGrid();
+      });
+    });
+    host.querySelectorAll('.gc-subtab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeSubtype = btn.getAttribute('data-subtype');
+        host.querySelectorAll('.gc-subtab').forEach((x) => x.classList.toggle('active', x === btn));
+        renderGrid();
+      });
+    });
     wireRotations(host, projectById);
     wireCardIntro(host);
-    wirePopupOpener(host, projectById);
+    wirePopupOpener(host, projectById, projects);
   }
 
   const SINGLE_SLIDER_AUTO_MS = 30000;
 
   function mountSingleSlider(host, projects, projectById) {
+    const archOnly = projectsArchitectureOnly(projects);
     const count = Number(host.dataset.cardCount || 9);
-    let selected = pickProjects(projects, count);
+    let selected = pickProjects(archOnly, count);
     if (!selected.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
@@ -384,7 +548,7 @@
     let autoTimer = null;
     const MAX_SLIDE_WIDTH = 2200;
     const appendQueue = () => {
-      const more = pickProjects(projects, count);
+      const more = pickProjects(archOnly, count);
       if (!more.length) return;
       selected = selected.concat(more);
       track.insertAdjacentHTML('beforeend', renderTrack(more));
@@ -477,12 +641,13 @@
     startAutoAdvance();
     wireRotations(host, projectById);
     wireCardIntro(host);
-    wirePopupOpener(host, projectById);
+    wirePopupOpener(host, projectById, projects);
   }
 
   function mountFullWidth(host, projects, projectById) {
+    const archOnly = projectsArchitectureOnly(projects);
     const count = Number(host.dataset.cardCount || 10) || 999;
-    const selected = pickProjects(projects, count);
+    const selected = pickProjects(archOnly, count);
     if (!selected.length) {
       host.innerHTML = '<div class="gc-template"><p class="gc-empty">No published gallery projects yet.</p></div>';
       return;
@@ -597,7 +762,7 @@
     startAutoScroll();
     wireRotations(host, projectById);
     wireCardIntro(host);
-    wirePopupOpener(host, projectById);
+    wirePopupOpener(host, projectById, projects);
     requestAnimationFrame(update);
     const ro = new ResizeObserver(() => update());
     ro.observe(wrap);
