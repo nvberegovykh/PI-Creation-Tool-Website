@@ -746,40 +746,67 @@
     const noDuplicates = host.dataset.noDuplicates === 'true' || host.dataset.noDuplicates === '';
     const gap = 18;
     const cardWidth = 420 + gap;
-    let displaySet = shuffle(selected.slice());
-    const renderTrack = (numSets) => {
-      const base = displaySet.map((p) => buildCard(p, 'gc-card--full'));
-      if (numSets <= 1) return base.join('');
+    const MAX_CARDS = 28;
+    const SHIFT_SIZE = 7;
+    const pool = shuffle(selected.slice());
+    let poolIndex = 0;
+    const getVisibleCards = () => {
+      const n = Math.min(MAX_CARDS, pool.length);
       const out = [];
-      for (let i = 0; i < numSets; i++) out.push(...base);
-      return out.join('');
+      for (let i = 0; i < n; i++) out.push(pool[(poolIndex + i) % pool.length]);
+      return out;
     };
-    const vw = typeof window !== 'undefined' ? window.innerWidth || 1200 : 1200;
-    const setW = displaySet.length * cardWidth;
-    const needSets = noDuplicates ? 1 : Math.max(2, setW >= vw ? 2 : Math.ceil(vw / setW) + 1);
-    host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack(needSets)}</div></div>`;
+    const renderTrack = () => getVisibleCards().map((p) => buildCard(p, 'gc-card--full')).join('');
+    host.innerHTML = `<div class="gc-template gc-fullwrap"><div class="gc-full-track">${renderTrack()}</div></div>`;
     const wrap = host.querySelector('.gc-fullwrap');
     const track = host.querySelector('.gc-full-track');
     let offset = 0;
     let startX = 0;
     let startOffset = 0;
     let autoScrollId = null;
-    const setWidth = () => displaySet.length * cardWidth;
+    const setWidth = () => Math.min(MAX_CARDS, pool.length) * cardWidth;
+    const shiftRight = () => {
+      if (pool.length <= MAX_CARDS) return;
+      track.style.transition = 'none';
+      poolIndex = (poolIndex + SHIFT_SIZE) % pool.length;
+      offset = Math.max(0, offset - SHIFT_SIZE * cardWidth);
+      track.innerHTML = renderTrack();
+      wireRotations(host, projectById);
+      wireCardIntro(host);
+      requestAnimationFrame(() => { track.style.transition = ''; });
+    };
+    const shiftLeft = () => {
+      if (pool.length <= MAX_CARDS) return;
+      track.style.transition = 'none';
+      poolIndex = (poolIndex - SHIFT_SIZE + pool.length * 2) % pool.length;
+      offset += SHIFT_SIZE * cardWidth;
+      track.innerHTML = renderTrack();
+      wireRotations(host, projectById);
+      wireCardIntro(host);
+      requestAnimationFrame(() => { track.style.transition = ''; });
+    };
     const cycleReset = () => {
       track.style.transition = 'none';
-      displaySet = shuffle(displaySet.slice());
+      poolIndex = 0;
       offset = 0;
-      track.innerHTML = renderTrack(noDuplicates ? 1 : needSets);
+      const shuffled = shuffle(pool.slice());
+      pool.length = 0;
+      pool.push(...shuffled);
+      track.innerHTML = renderTrack();
       wireRotations(host, projectById);
       wireCardIntro(host);
       requestAnimationFrame(() => { track.style.transition = ''; });
     };
     const getViewW = () => wrap.offsetWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
     const update = () => {
-      const totalW = track.offsetWidth || setWidth() * (noDuplicates ? 1 : 3);
+      const totalW = track.offsetWidth || setWidth();
       const viewW = getViewW();
       const maxO = Math.max(0, totalW - viewW);
-      offset = Math.max(0, Math.min(offset, maxO));
+      const shiftW = SHIFT_SIZE * cardWidth;
+      const canShift = pool.length > MAX_CARDS;
+      if (canShift && offset > maxO) shiftRight();
+      else if (canShift && offset < 0) shiftLeft();
+      else offset = Math.max(0, Math.min(offset, maxO));
       track.style.transform = `translateX(-${offset}px)`;
     };
     const onStart = (x) => {
@@ -836,14 +863,10 @@
         if (viewW > 0) {
           const dt = lastT ? Math.min(t - lastT, 100) : 16;
           lastT = t;
-          const oneSet = setWidth();
+          const totalW = track.offsetWidth || setWidth();
+          const maxO = Math.max(0, totalW - viewW);
           offset += AUTO_PX_PER_MS * dt;
-          if (noDuplicates) {
-            const maxO = Math.max(0, oneSet - viewW);
-            if (maxO > 0 && offset >= maxO) cycleReset();
-          } else {
-            while (offset >= oneSet) offset -= oneSet;
-          }
+          if (noDuplicates && maxO > 0 && offset >= maxO) cycleReset();
         }
         update();
         autoScrollId = requestAnimationFrame(tick);
