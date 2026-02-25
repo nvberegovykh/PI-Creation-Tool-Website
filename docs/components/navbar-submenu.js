@@ -1,11 +1,6 @@
 (function () {
-  function init() {
-    const container = document.querySelector('.navbar-interactive-container');
-    if (!container) {
-      setTimeout(init, 100);
-      return;
-    }
-
+  function initOne(container) {
+    if (!container) return;
     const desktopMenu = container.querySelector('.navbar-interactive-desktop-menu');
     const mobileNav = container.querySelector('.navbar-interactive-nav');
 
@@ -69,6 +64,24 @@
       });
     }
   }
+
+  function init() {
+    const containers = document.querySelectorAll('.navbar-interactive-container');
+    if (!containers.length) {
+      setTimeout(init, 100);
+      return;
+    }
+    containers.forEach((c) => initOne(c));
+  }
+
+  function initForNewContent(root) {
+    if (!root) return;
+    const containers = root.querySelectorAll ? root.querySelectorAll('.navbar-interactive-container') : [];
+    const arr = (root.classList && root.classList.contains('navbar-interactive-container')) ? [root] : Array.from(containers);
+    arr.forEach((c) => initOne(c));
+  }
+
+  window.__navbarSubmenuInitForNewContent = initForNewContent;
 
   let pricingCache = null;
 

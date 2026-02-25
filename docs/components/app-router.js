@@ -76,8 +76,6 @@
       } else {
         overlay.classList.add('liber-intro-done');
         setTimeout(() => {
-          overlay.style.pointerEvents = 'none';
-          overlay.style.visibility = 'hidden';
           if (content) content.classList.add('liber-content-visible');
         }, 200);
       }
@@ -102,6 +100,7 @@
               galleryHost.innerHTML = main.outerHTML;
               galleryHost.dataset.loaded = '1';
               if (typeof window.__gcBoot === 'function') window.__gcBoot();
+              if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(galleryHost);
             }
           })
           .catch(() => {})
@@ -119,6 +118,7 @@
               contactHost.innerHTML = main.outerHTML;
               contactHost.dataset.loaded = '1';
               if (typeof window.__gcBoot === 'function') window.__gcBoot();
+              if (typeof window.__navbarSubmenuInitForNewContent === 'function') window.__navbarSubmenuInitForNewContent(contactHost);
             }
           })
           .catch(() => {})

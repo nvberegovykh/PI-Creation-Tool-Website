@@ -428,6 +428,8 @@
       if (!sub) return arr;
       return arr.filter((p) => (p.projectSubtype || '').trim() === sub);
     };
+    let activeYear = null;
+    let yearObserver = null;
     const renderGrid = () => {
       let projs = getProjectsForTab(activeType, activeSubtype);
       const searchQ = (host.querySelector('.gc-tile-search') || {}).value || '';
@@ -446,10 +448,11 @@
       const groupsLimited = byYear
         .map((g) => ({ year: g.year, projects: g.projects.filter((p) => selectedIds.has(p.id)) }))
         .filter((g) => g.projects.length > 0);
+      const yearIds = groupsLimited.map((g, i) => `gc-year-${i}-${String(g.year).replace(/[^a-z0-9-]/gi, '_')}`);
       const html = groupsLimited
         .map(
-          (g) =>
-            `<div class="gc-year-sep" aria-hidden="true">${g.year}</div>` +
+          (g, i) =>
+            `<div class="gc-year-sep" id="${yearIds[i]}" data-year="${g.year}" aria-hidden="true">${g.year}</div>` +
             g.projects.map((p) => buildCard(p, '')).join('')
         )
         .join('');
@@ -457,6 +460,50 @@
       if (grid) grid.innerHTML = html || '<p class="gc-empty">No projects match.</p>';
       wireRotations(host, projectById);
       wireCardIntro(host);
+      const years = groupsLimited.map((g) => g.year);
+      if (years.length && (!activeYear || !years.includes(activeYear))) activeYear = years[0];
+      updateYearDots(years);
+      wireYearObserver();
+    };
+    const updateYearDots = (years) => {
+      const wrapEl = host.querySelector('.gc-year-dots-wrap');
+      const dotsEl = host.querySelector('.gc-year-dots');
+      const labelEl = host.querySelector('.gc-year-current');
+      if (!wrapEl || !dotsEl) return;
+      wrapEl.style.display = years.length > 1 ? '' : 'none';
+      dotsEl.innerHTML = years.length > 0
+        ? years.map((y) => `<button type="button" class="gc-year-dot ${y === activeYear ? 'active' : ''}" data-year="${y}" aria-label="Scroll to ${y}"><span class="gc-year-dot-label">${y}</span></button>`).join('')
+        : '';
+      if (labelEl && activeYear) labelEl.textContent = activeYear;
+      dotsEl.querySelectorAll('.gc-year-dot').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const y = btn.getAttribute('data-year');
+          const el = host.querySelector(`.gc-year-sep[data-year="${y}"]`);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    };
+    const wireYearObserver = () => {
+      if (yearObserver) { yearObserver.disconnect(); yearObserver = null; }
+      const seps = host.querySelectorAll('.gc-year-sep');
+      if (!seps.length || !('IntersectionObserver' in window)) return;
+      yearObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            const y = entry.target.getAttribute('data-year');
+            if (y) {
+              activeYear = y;
+              host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
+              const label = host.querySelector('.gc-year-current');
+              if (label) label.textContent = y;
+            }
+          });
+        },
+        { root: null, rootMargin: '-15% 0px -65% 0px', threshold: 0 }
+      );
+      seps.forEach((s) => yearObserver.observe(s));
     };
     const subs = getSubsForType(activeType);
     const subsWithCards = subs.filter((s) => getProjectsForTab(activeType, s).length > 0);
@@ -466,6 +513,7 @@
       .join('');
     const subTabsHtml = `<div class="gc-subtabs" style="display:${showSubTabs ? '' : 'none'}">${showSubTabs ? `<button type="button" class="gc-subtab ${activeSubtype === '' ? 'active' : ''}" data-subtype="">All</button>` + subsWithCards.map((s) => `<button type="button" class="gc-subtab ${s === activeSubtype ? 'active' : ''}" data-subtype="${s}">${s}</button>`).join('') : ''}</div>`;
     const searchHtml = `<div class="gc-tile-search-wrap"><input type="text" class="gc-tile-search" placeholder="Search by name, type, subtype..." /></div>`;
+    const yearDotsHtml = `<div class="gc-year-dots-wrap"><span class="gc-year-current" aria-live="polite"></span><div class="gc-year-dots"></div></div>`;
     let projs = getProjectsForTab(activeType, activeSubtype);
     const byYear = projectsByYear(projs.slice(0, count));
     const selectedIds = new Set(projs.slice(0, count).map((p) => p.id));
@@ -481,10 +529,13 @@
       .join('');
     host.innerHTML =
       `<div class="gc-template gc-tile-gallery">` +
+      `<div class="gc-tile-gallery-inner">` +
       searchHtml +
       `<div class="gc-tabs">${typeTabsHtml}</div>` +
       subTabsHtml +
       `<div class="gc-tile-grid gc-grid">${gridHtml}</div>` +
+      `</div>` +
+      yearDotsHtml +
       `</div>`;
     host.querySelector('.gc-tile-search').addEventListener('input', () => renderGrid());
     host.querySelector('.gc-tile-search').addEventListener('keyup', (e) => { if (e.key === 'Enter') renderGrid(); });
@@ -676,16 +727,17 @@
     const setWidth = () => displaySet.length * cardWidth;
     const cycleReset = () => {
       track.style.transition = 'none';
+      displaySet = shuffle(displaySet.slice());
       if (noDuplicates) {
         offset = 0;
+        track.innerHTML = renderTrack(1);
       } else {
         offset %= setWidth();
         if (offset < 0) offset += setWidth();
-        displaySet = shuffle(displaySet.slice());
         track.innerHTML = renderTrack(needSets);
-        wireRotations(host, projectById);
-        wireCardIntro(host);
       }
+      wireRotations(host, projectById);
+      wireCardIntro(host);
       requestAnimationFrame(() => { track.style.transition = ''; });
     };
     const getViewW = () => wrap.offsetWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -752,7 +804,12 @@
           lastT = t;
           const oneSet = setWidth();
           offset += AUTO_PX_PER_MS * dt;
-          if (offset >= oneSet) cycleReset();
+          if (noDuplicates) {
+            const maxO = Math.max(0, oneSet - viewW);
+            if (offset >= maxO) cycleReset();
+          } else {
+            if (offset >= oneSet) cycleReset();
+          }
         }
         update();
         autoScrollId = requestAnimationFrame(tick);

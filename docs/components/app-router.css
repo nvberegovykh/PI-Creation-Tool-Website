@@ -12,6 +12,7 @@
 #liber-intro-overlay.liber-intro-done {
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
 }
 .liber-intro-logo {
   width: min(180px, 40vw);
@@ -30,14 +31,17 @@
 }
 #liber-main-content.liber-content-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Page switching */
 [data-page] {
   display: none;
+  pointer-events: none;
 }
 [data-page].page-active {
   display: block;
+  pointer-events: auto;
   animation: liber-page-fade-in 0.3s ease-out;
 }
 @keyframes liber-page-fade-in {

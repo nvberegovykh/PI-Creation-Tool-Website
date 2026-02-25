@@ -161,6 +161,103 @@ html, body {
   white-space: nowrap;
 }
 
+/* Tile gallery: inner content centered, year dots on right (absolute, no layout shift) */
+.gc-tile-gallery {
+  position: relative;
+}
+.gc-tile-gallery-inner {
+  width: 100%;
+  max-width: 100%;
+}
+.gc-year-dots-wrap {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 4px;
+  pointer-events: auto;
+  z-index: 2;
+}
+.gc-year-current {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.9);
+  min-height: 1.2em;
+  transition: opacity 0.2s ease;
+}
+.gc-year-dots {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.gc-year-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gc-year-dot:hover {
+  background: rgba(255, 255, 255, 0.6);
+  transform: scale(1.35);
+}
+.gc-year-dot.active {
+  background: #9fc5ff;
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px rgba(159, 197, 255, 0.4);
+}
+.gc-year-dot .gc-year-dot-label {
+  position: absolute;
+  right: 100%;
+  margin-right: 8px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.gc-year-dot:hover .gc-year-dot-label,
+.gc-year-dot.active .gc-year-dot-label {
+  opacity: 1;
+}
+@media (max-width: 768px) {
+  .gc-year-dots-wrap {
+    right: 4px;
+    padding: 4px 2px;
+    gap: 4px;
+  }
+  .gc-year-dot {
+    width: 6px;
+    height: 6px;
+    min-width: 6px;
+    min-height: 6px;
+  }
+  .gc-year-dot .gc-year-dot-label {
+    font-size: 0.6rem;
+    margin-right: 6px;
+  }
+  .gc-year-current {
+    font-size: 0.6rem;
+  }
+}
+
 .gc-year-sep {
   grid-column: 1 / -1;
   font-size: 0.875rem;
