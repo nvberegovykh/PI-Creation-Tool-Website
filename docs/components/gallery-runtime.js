@@ -485,7 +485,7 @@
         });
       });
     };
-    const updateYearDots = () => {
+    const syncYearDotsActive = () => {
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length) return;
       const vh = window.innerHeight;
@@ -514,9 +514,9 @@
       if (yearObserver) { yearObserver.disconnect(); yearObserver = null; }
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length || !('IntersectionObserver' in window)) return;
-      yearObserver = new IntersectionObserver(() => updateYearDots(), { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] });
+      yearObserver = new IntersectionObserver(() => syncYearDotsActive(), { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] });
       seps.forEach((s) => yearObserver.observe(s));
-      requestAnimationFrame(() => updateYearDots());
+      requestAnimationFrame(() => syncYearDotsActive());
     };
     const subs = getSubsForType(activeType);
     const subsWithCards = subs.filter((s) => getProjectsForTab(activeType, s).length > 0);
