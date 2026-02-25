@@ -490,15 +490,19 @@
       const seps = host.querySelectorAll('.gc-year-sep');
       if (!seps.length || !('IntersectionObserver' in window)) return;
       yearObserver = new IntersectionObserver(
-        (entries) => {
-          const intersecting = entries.filter((e) => e.isIntersecting).map((e) => ({
-            el: e.target,
-            year: e.target.getAttribute('data-year'),
-            ratio: e.intersectionRatio,
-            top: e.boundingClientRect.top
-          })).filter((x) => x.year);
+        () => {
+          const vh = window.innerHeight;
+          const bottomThirdTop = vh * 0.67;
+          const intersecting = Array.from(seps).map((el) => {
+            const r = el.getBoundingClientRect();
+            const inView = r.top < vh && r.bottom > 0;
+            return inView ? { el, year: el.getAttribute('data-year'), top: r.top, bottom: r.bottom } : null;
+          }).filter(Boolean).filter((x) => x.year);
           if (!intersecting.length) return;
-          const best = intersecting.sort((a, b) => b.ratio - a.ratio)[0];
+          const inBottomThird = intersecting.filter((x) => x.top >= bottomThirdTop);
+          const best = inBottomThird.length > 0
+            ? inBottomThird.sort((a, b) => b.top - a.top)[0]
+            : intersecting.sort((a, b) => a.top - b.top)[0];
           const y = best.year;
           activeYear = y;
           host.querySelectorAll('.gc-year-dot').forEach((d) => d.classList.toggle('active', d.getAttribute('data-year') === y));
@@ -509,7 +513,7 @@
             span.textContent = isActive ? y : '';
           });
         },
-        { root: null, rootMargin: '-67% 0px 0px 0px', threshold: [0, 0.1, 0.5, 1] }
+        { root: null, rootMargin: '0px', threshold: [0, 0.1, 0.5, 1] }
       );
       seps.forEach((s) => yearObserver.observe(s));
     };
