@@ -1609,7 +1609,7 @@
 
     async _ensureSfuClient(){
       if (this._sfuModule) return this._sfuModule;
-      const mod = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.15.5/+esm');
+      const mod = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/+esm');
       this._sfuModule = mod;
       return mod;
     }
@@ -2539,9 +2539,12 @@
           rtcConfig: { iceTransportPolicy: 'relay' }
         };
         const urlsToTry = [wsUrl].concat(tokenResp?.wsUrlFallbacks || []).filter(Boolean);
+        const hasFallbacks = (tokenResp?.wsUrlFallbacks || []).length > 0;
+        console.log('[SFU] Connecting to', wsUrl ? 'primary + ' + urlsToTry.length + ' URL(s)' : 'no primary', hasFallbacks ? '(fallbacks configured)' : '(no fallbacks - add LIVEKIT_WS_URL_FALLBACKS in Secret Manager for EU/Asia)');
         let room = null;
         let lastErr = null;
-        for (const url of urlsToTry){
+        for (let i = 0; i < urlsToTry.length; i++){
+          const url = urlsToTry[i];
           if (this._sfuConnectAborted) return false;
           room = new Room(roomOpts);
           this._bindSfuRoom(room, callConnId);
@@ -2552,18 +2555,24 @@
             });
             await Promise.race([connectPromise, timeoutPromise]);
             lastErr = null;
+            if (i > 0) console.log('[SFU] Connected via fallback region', i + 1);
             break;
           }catch(e){
             lastErr = e;
-            if (cs) cs.textContent = urlsToTry.indexOf(url) < urlsToTry.length - 1 ? 'Retrying via alternate region...' : '';
+            console.warn('[SFU] Region', i + 1, 'failed:', e?.message || e, 'URL:', url?.slice(0, 60) + '...');
+            if (cs) cs.textContent = i < urlsToTry.length - 1 ? 'Retrying via alternate region...' : '';
             try{
               const dc = room.disconnect();
               if (dc && typeof dc.then === 'function') await dc;
             }catch(_){}
             room = null;
+            if (i < urlsToTry.length - 1) await new Promise((r) => setTimeout(r, 800));
           }
         }
-        if (lastErr || !room) throw (lastErr || new Error('Connection failed'));
+        if (lastErr || !room){
+          console.error('[SFU] No connection after', urlsToTry.length, 'region(s). Last error:', lastErr?.message || lastErr);
+          throw (lastErr || new Error('Connection failed'));
+        }
         if (this._sfuConnectAborted) {
           try{ const dc = room.disconnect(); if (dc && typeof dc.then === 'function') await dc; }catch(_){}
           return false;
@@ -9734,8 +9743,8 @@
         return;
       }
       if (this._useSfuCalls){
+        await this._emitJoinCallMessage(this.getCallConnId());
         const ok = await this._startOrJoinSfuCall(this._videoEnabled);
-        if (ok) await this._emitJoinCallMessage(this.getCallConnId());
       } else {
         await this.attemptStartRoomCall(this._videoEnabled);
       }
