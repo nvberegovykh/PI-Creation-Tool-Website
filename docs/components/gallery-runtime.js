@@ -203,10 +203,16 @@
       : '';
     const bodyHtml = `<div class="gc-popup-body"><h3>${project.title || 'Project'} ${project.year || ''}</h3><p>${project.description || ''}</p><div>${textsHtml}</div>${seeMoreHtml}</div>`;
     const slidesHtml = visuals.map((v) => `<div class="gc-popup-slide">${createMediaElement(v, false)}</div>`).join('');
+    const isDesktop = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(min-width: 768px)').matches;
+    const navBtnsHtml = (isDesktop && visuals.length > 1) ? `<button type="button" class="gc-popup-nav-btn gc-popup-prev" aria-label="Previous slide">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>` +
+      `<button type="button" class="gc-popup-nav-btn gc-popup-next" aria-label="Next slide">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>` : '';
     popup.innerHTML =
       `<div class="gc-popup-card" role="dialog" aria-modal="true">` +
       `<div class="gc-popup-media">` +
       `<button class="gc-slider-btn gc-popup-close" data-gc-close="1">Close</button>` +
+      navBtnsHtml +
       `<div class="gc-popup-track">${slidesHtml}</div>` +
       dotsHtml +
       `</div>` + bodyHtml + `</div>`;
@@ -224,11 +230,17 @@
     if (mediaEl && track && visuals.length > 1) {
       let startX = 0;
       let startY = 0;
+      let startTs = 0;
+      let lastX = 0;
+      let lastT = 0;
       let startIdx = 0;
       let isHorizontalSwipe = null; /* null=undecided, true=swipe, false=scroll */
       const SLOPE = 0.5; /* vertical wins: |dx| > SLOPE*|dy| => horizontal, else scroll */
-      const onStart = (x, y) => { startX = x; startY = y; startIdx = idx; isHorizontalSwipe = null; };
+      const MOMENTUM_THRESHOLD = 0.4; /* px/ms - fast swipe overrides position threshold */
+      const onStart = (x, y) => { startX = x; startY = y; startTs = Date.now(); lastX = x; lastT = startTs; startIdx = idx; isHorizontalSwipe = null; };
       const onMove = (x) => {
+        lastX = x;
+        lastT = Date.now();
         const w = mediaEl.offsetWidth || 400;
         const delta = (startX - x) / w;
         const raw = startIdx + delta;
@@ -237,13 +249,18 @@
         track.style.transform = `translateX(-${clamped * 100}%)`;
       };
       const onEnd = (x) => {
-        track.style.transition = '';
+        track.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1)';
         const w = mediaEl.offsetWidth || 400;
         const delta = startX - x;
-        if (Math.abs(delta) > w * 0.15) {
-          if (delta > 0) goNext();
-          else goPrev();
-        } else setIdx(idx);
+        const dt = Math.max(10, Date.now() - startTs);
+        const velocity = (x - lastX) / Math.max(10, Date.now() - lastT);
+        let targetIdx = idx;
+        if (Math.abs(velocity) > MOMENTUM_THRESHOLD) {
+          targetIdx = velocity < 0 ? idx + 1 : idx - 1;
+        } else if (Math.abs(delta) > w * 0.15) {
+          targetIdx = delta > 0 ? idx + 1 : idx - 1;
+        }
+        setIdx(targetIdx);
       };
       mediaEl.addEventListener('mousedown', (e) => {
         onStart(e.clientX, e.clientY);
@@ -280,6 +297,17 @@
       mediaEl.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     }
     dots.forEach((dot, i) => dot.addEventListener('click', (e) => { e.stopPropagation(); setIdx(i); }));
+    const prevBtn = popup.querySelector('.gc-popup-prev');
+    const nextBtn = popup.querySelector('.gc-popup-next');
+    if (prevBtn) prevBtn.addEventListener('click', (e) => { e.stopPropagation(); goPrev(); });
+    if (nextBtn) nextBtn.addEventListener('click', (e) => { e.stopPropagation(); goNext(); });
+    const keyHandler = (e) => {
+      if (!popup || !popup.classList.contains('open')) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    };
+    document.addEventListener('keydown', keyHandler);
     popup.querySelectorAll('.gc-seemore-card[data-project-id]').forEach((el) => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -297,6 +325,7 @@
     popup.classList.add('open');
     document.body.classList.add('gc-popup-open');
     const close = () => {
+      document.removeEventListener('keydown', keyHandler);
       popup.classList.remove('open');
       document.body.classList.remove('gc-popup-open');
       popup.removeEventListener('click', handler);
@@ -657,8 +686,14 @@
       track.querySelectorAll('.gc-slide').forEach((s) => { s.style.flex = `0 0 ${slideWidth}px`; s.style.minWidth = `${slideWidth}px`; s.style.maxWidth = `${slideWidth}px`; });
       track.style.transform = `translateX(-${page * slideWidth}px)`;
     };
-    const onStart = (x) => { didDrag = false; startX = x; startPage = page; stopAutoAdvance(); };
+    let startTs = 0;
+    let lastX = 0;
+    let lastT = 0;
+    const MOMENTUM_THRESHOLD = 0.4;
+    const onStart = (x) => { didDrag = false; startX = x; startTs = Date.now(); lastX = x; lastT = startTs; startPage = page; stopAutoAdvance(); };
     const onMove = (x) => {
+      lastX = x;
+      lastT = Date.now();
       if (Math.abs(x - startX) > 5) { didDrag = true; window.__gcSuppressNextClick = true; }
       const slideWidth = shell ? shell.offsetWidth : 400;
       const delta = startX - x;
@@ -678,17 +713,18 @@
       if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
     };
     const onEnd = (x) => {
-      track.style.transition = '';
+      track.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1)';
       const slideWidth = shell ? shell.offsetWidth : 400;
       const delta = startX - x;
-      if (Math.abs(delta) > slideWidth * 0.2) {
-        if (delta > 0) {
-          ensureQueueAhead();
-          page = Math.min(page + 1, selected.length - 1);
-        } else {
-          page = Math.max(page - 1, 0);
-        }
+      const velocity = (x - lastX) / Math.max(10, Date.now() - lastT);
+      let targetPage = startPage;
+      if (Math.abs(velocity) > MOMENTUM_THRESHOLD) {
+        targetPage = velocity < 0 ? startPage + 1 : startPage - 1;
+      } else if (Math.abs(delta) > slideWidth * 0.2) {
+        targetPage = delta > 0 ? startPage + 1 : startPage - 1;
       }
+      if (targetPage > startPage) ensureQueueAhead();
+      page = Math.max(0, Math.min(targetPage, selected.length - 1));
       update();
       startAutoAdvance();
     };

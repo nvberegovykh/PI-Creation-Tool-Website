@@ -26,6 +26,7 @@
       priceCard('BIM Coordination', '$1000', 'per project per month') +
       priceCard('Design Leading', '$1500', 'per project per month — includes BIM Coordination, Supervision, Construction Plans preparation, Design Book, Visualisations') +
       priceCard('Full Architectural Services', '$2000', 'per project per month — DOB Architectural Plans, Design Leading, Research and Analysis') +
+      priceCard('EnergyPlus Energy Modeling', 'from $2000', 'building energy simulation and analysis') +
       '</div>' +
       '<div class="gc-pricing-footer"><p>Design $/SF rate is calculated depending on project location, size to complexity ratio, amount of repetitions and expected modular components.</p></div>'
     );

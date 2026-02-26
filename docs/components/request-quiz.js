@@ -91,7 +91,7 @@
     if (!items) return;
     const toAdd = [];
     for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
+      if ((items[i].type || '').indexOf('image') !== -1) {
         const f = items[i].getAsFile();
         if (f) toAdd.push(f);
       }
