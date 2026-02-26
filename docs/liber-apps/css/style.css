@@ -185,6 +185,7 @@ body {
     /* Allow natural page scrolling; prevent horizontal overflow */
     overflow-y: auto;
     overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
     min-height: 100vh;
 }
 

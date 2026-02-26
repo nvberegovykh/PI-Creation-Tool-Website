@@ -239,7 +239,7 @@ class ChatGPTIntegration {
                             try {
                                 const arr = JSON.parse(plain || '[]');
                                 this.savedThreads = Array.isArray(arr) ? arr : [];
-                                console.log(`Loaded ${this.savedThreads.length} encrypted saved threads for user: ${userId}`);
+                                if (window.__devLog) window.__devLog('Loaded', this.savedThreads.length, 'encrypted threads');
                                 this.updateThreadSelector();
                             } catch {
                                 this.savedThreads = [];
@@ -251,12 +251,12 @@ class ChatGPTIntegration {
                     }
                 } else if (Array.isArray(parsed)) {
                     this.savedThreads = parsed;
-                    console.log(`Loaded ${this.savedThreads.length} saved threads for user: ${userId}`);
+                    if (window.__devLog) window.__devLog('Loaded', this.savedThreads.length, 'saved threads');
                 } else {
                     this.savedThreads = [];
                 }
             } else {
-                console.log(`No saved threads found for user: ${userId}`);
+                if (window.__devLog) window.__devLog('No saved threads found');
             }
         } catch (error) {
             console.error('Failed to load saved threads:', error);
@@ -402,13 +402,13 @@ class ChatGPTIntegration {
                     }
                 } else if (Array.isArray(parsed)) {
                     this.chatHistory = parsed.slice(-this.maxHistoryItems);
-                    console.log(`Loaded ${this.chatHistory.length} messages for thread: ${threadId}`);
+                    if (window.__devLog) window.__devLog('Loaded', this.chatHistory.length, 'messages for thread');
                 } else {
                     this.chatHistory = [];
                 }
             } else {
                 this.chatHistory = [];
-                console.log(`No history found for thread: ${threadId}`);
+                if (window.__devLog) window.__devLog('No history found for thread');
             }
             
             this.displayChatHistory();
@@ -967,13 +967,13 @@ class ChatGPTIntegration {
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            if (item.type.indexOf('image') !== -1) {
+            if ((item.type || '').indexOf('image') !== -1) {
                 const file = item.getAsFile();
                 if (file) {
                     files.push(file);
                     hasFiles = true;
                 }
-            } else if (item.type.indexOf('text') !== -1) {
+            } else if ((item.type || '').indexOf('text') !== -1) {
                 // Handle text paste - let it go through normally
                 continue;
             }
@@ -981,7 +981,7 @@ class ChatGPTIntegration {
 
         if (hasFiles) {
             e.preventDefault();
-            console.log(`Processing ${files.length} files from paste event`);
+            if (window.__devLog) window.__devLog('Processing', files.length, 'files from paste');
             this.processFiles(files);
         }
     }

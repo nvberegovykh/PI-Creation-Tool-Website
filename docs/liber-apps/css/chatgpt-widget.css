@@ -131,6 +131,8 @@
 .chatgpt-messages {
     flex: 1;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -978,6 +980,8 @@
 .thread-list {
     max-height: 350px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
 }
 
 .thread-item {

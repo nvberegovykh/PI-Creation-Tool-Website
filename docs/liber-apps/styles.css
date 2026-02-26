@@ -9,6 +9,8 @@
   border-radius: 0 0 8px 8px;
   max-height: 200px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   z-index: 1000;
   box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }

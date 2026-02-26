@@ -66,12 +66,21 @@
                     <button id="mobile-group-menu-btn" class="icon-btn" title="Chat settings"><i class="fas fa-users-gear"></i></button>
                     <button id="mobile-new-connection-btn" class="btn">+ Group</button>
                 </div>
+                <div id="chat-category-tabs" class="chat-category-tabs">
+                    <button type="button" class="chat-category-tab active" data-category="all">All</button>
+                    <button type="button" class="chat-category-tab" data-category="projects">Projects</button>
+                    <button type="button" class="chat-category-tab chat-category-add" id="chat-category-add-btn" title="Add category"><i class="fas fa-plus"></i></button>
+                </div>
                 <ul id="connections-list" class="connections-list"></ul>
             </div>
         </aside>
         <main class="main">
             <div class="chat-header">
-                <h3 id="chat-top-title">—</h3>
+                <div class="chat-header-title-wrap">
+                    <h3 id="chat-top-title">—</h3>
+                    <span id="chat-category-badge" class="chat-category-badge" title="Change category" tabindex="0"></span>
+                    <div id="chat-category-dropdown" class="chat-category-dropdown hidden"></div>
+                </div>
                 <div class="header-actions">
                     <button id="call-room-btn" class="icon-btn" title="Start/join call"><i class="fas fa-phone"></i></button>
                     <button id="chat-attachments-btn" class="icon-btn" title="Chat attachments"><i class="fas fa-paperclip"></i></button>
@@ -96,9 +105,27 @@
                 <button id="error-toast-dismiss" type="button" aria-label="Dismiss">×</button>
             </div>
             <div id="messages" class="messages"></div>
+            <div id="msg-context-overlay" class="msg-context-overlay" aria-hidden="true">
+                <div class="msg-context-backdrop" id="msg-context-backdrop"></div>
+                <div class="msg-context-stack" id="msg-context-stack" style="display:none">
+                    <div class="msg-reaction-picker" id="msg-reaction-picker"></div>
+                    <div class="msg-context-bubble" id="msg-context-bubble"></div>
+                </div>
+            </div>
+            <div id="reactions-who-modal" class="reactions-who-modal hidden" aria-hidden="true"></div>
             <div id="dialogue-title-bar" class="dialogue-title-bar"><span id="active-connection-name" class="title">—</span></div>
             <div id="composer-attachments" class="composer-attachments hidden"></div>
             <div class="composer">
+                <div id="composer-reply-preview" class="composer-reply-preview hidden">
+                    <span class="composer-reply-icon"><i class="fas fa-reply"></i></span>
+                    <span class="composer-reply-text"></span>
+                    <button type="button" class="composer-reply-close" title="Cancel reply"><i class="fas fa-xmark"></i></button>
+                </div>
+                <div id="composer-edit-preview" class="composer-edit-preview hidden">
+                    <span class="composer-edit-icon"><i class="fas fa-pen"></i></span>
+                    <span class="composer-edit-label">Editing message</span>
+                    <button type="button" class="composer-edit-close" title="Cancel edit"><i class="fas fa-xmark"></i></button>
+                </div>
                 <input id="file-input" type="file" accept="*/*" multiple style="display:none" />
                 <button id="attach-btn" class="icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
                 <button id="sticker-btn" class="icon-btn" title="Stickers"><i class="fas fa-note-sticky"></i></button>

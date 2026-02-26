@@ -136,7 +136,133 @@
       this._drawSegments = [];
       this._useSfuCalls = true;
       this._cleanupInProgress = false;
+      this.pendingReply = null;
+      this.pendingEdit = null;
+      this.chatCategories = [];
+      this.connCategories = {};
+      this.selectedCategory = 'all';
       this.init();
+    }
+
+    _chatCategoriesKey(){ return `liber_chat_categories_${this.currentUser?.uid || 'anon'}`; }
+    _chatConnCategoriesKey(){ return `liber_chat_conn_categories_${this.currentUser?.uid || 'anon'}`; }
+    loadChatCategories(){
+      try{
+        const raw = localStorage.getItem(this._chatCategoriesKey());
+        const arr = raw ? JSON.parse(raw) : [];
+        this.chatCategories = Array.isArray(arr) ? arr.filter((n)=> typeof n === 'string' && n.trim()) : [];
+      }catch(_){ this.chatCategories = []; }
+    }
+    saveChatCategories(){
+      try{ localStorage.setItem(this._chatCategoriesKey(), JSON.stringify(this.chatCategories)); }catch(_){}
+    }
+    loadConnCategories(){
+      try{
+        const raw = localStorage.getItem(this._chatConnCategoriesKey());
+        const obj = raw ? JSON.parse(raw) : {};
+        this.connCategories = obj && typeof obj === 'object' ? obj : {};
+      }catch(_){ this.connCategories = {}; }
+    }
+    saveConnCategories(){
+      try{ localStorage.setItem(this._chatConnCategoriesKey(), JSON.stringify(this.connCategories)); }catch(_){}
+    }
+
+    renderCategoryTabs(){
+      const wrap = document.getElementById('chat-category-tabs');
+      if (!wrap) return;
+      const sel = this.selectedCategory || 'all';
+      const addBtn = document.getElementById('chat-category-add-btn');
+      const existingTabs = wrap.querySelectorAll('.chat-category-tab:not(.chat-category-add)');
+      existingTabs.forEach((t)=> t.remove());
+      const tabs = [
+        { cat: 'all', label: 'All' },
+        { cat: 'projects', label: 'Projects' },
+        ...this.chatCategories.map((c)=> ({ cat: c, label: c }))
+      ];
+      const fragment = document.createDocumentFragment();
+      tabs.forEach(({ cat, label })=>{
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chat-category-tab' + (sel === cat ? ' active' : '');
+        btn.dataset.category = cat;
+        btn.textContent = label;
+        btn.addEventListener('click', ()=> this.selectCategory(cat));
+        fragment.appendChild(btn);
+      });
+      wrap.insertBefore(fragment, addBtn);
+    }
+
+    selectCategory(cat){
+      this.selectedCategory = String(cat || 'all').trim() || 'all';
+      this.renderConnectionsList();
+    }
+
+    addChatCategory(){
+      const name = prompt('Category name');
+      if (!name || !String(name).trim()) return;
+      const n = String(name).trim();
+      if (this.chatCategories.includes(n)) return;
+      this.chatCategories.push(n);
+      this.saveChatCategories();
+      this.selectedCategory = n;
+      this.renderCategoryTabs();
+      this.renderConnectionsList();
+    }
+
+    showCategoryDropdownForBadge(){
+      const dd = document.getElementById('chat-category-dropdown');
+      const badge = document.getElementById('chat-category-badge');
+      if (!dd || !badge || !this.activeConnection) return;
+      const cats = this.chatCategories.filter((c)=> c && c !== 'projects' && c !== 'all');
+      dd.innerHTML = '';
+      dd.classList.remove('hidden');
+      const addItem = (label, value, isClear)=>{
+        const item = document.createElement('div');
+        item.className = 'chat-category-dropdown-item' + (isClear ? ' data-clear' : '');
+        item.dataset.value = value;
+        item.textContent = label;
+        item.addEventListener('click', ()=>{
+          this.assignCategoryToConn(this.activeConnection, value);
+          dd.classList.add('hidden');
+          this._closeCategoryDropdownOutside = null;
+        });
+        dd.appendChild(item);
+      };
+      addItem('Non categorized', '', true);
+      cats.forEach((c)=> addItem(c, c, false));
+      const close = ()=>{
+        dd.classList.add('hidden');
+        document.removeEventListener('click', this._closeCategoryDropdownOutside);
+        this._closeCategoryDropdownOutside = null;
+      };
+      this._closeCategoryDropdownOutside = (e)=>{
+        if (!dd.contains(e.target) && e.target !== badge) close();
+      };
+      requestAnimationFrame(()=> document.addEventListener('click', this._closeCategoryDropdownOutside));
+    }
+
+    assignCategoryToConn(connId, category){
+      if (!connId) return;
+      const cat = typeof category === 'string' ? category.trim() : '';
+      if (cat) this.connCategories[connId] = cat;
+      else delete this.connCategories[connId];
+      this.saveConnCategories();
+      this.updateChatCategoryBadge();
+      this.renderConnectionsList();
+    }
+
+    updateChatCategoryBadge(){
+      const badge = document.getElementById('chat-category-badge');
+      if (!badge) return;
+      const connId = this.activeConnection;
+      if (!connId){
+        badge.textContent = '';
+        badge.style.display = 'none';
+        return;
+      }
+      const cat = (this.connCategories[connId] || '').trim();
+      badge.textContent = cat || 'Non categorized';
+      badge.style.display = '';
     }
 
     computeConnKey(uids){
@@ -843,6 +969,309 @@
         if (!mid) return cid;
         return `${cid}:${mid}`;
       }catch(_){ return String(msgId || '').trim(); }
+    }
+
+    static REACTION_EMOJIS = ['👍','💯','❤️','🔥','😤','❤️‍🩹','🎉'];
+
+    getMessageReplyQuoteHtml(m, sourceConnId){
+      const rt = m && m.replyTo && typeof m.replyTo === 'object';
+      if (!rt || !m.replyTo.messageId) return '';
+      const text = String(m.replyTo.textPreview || '').trim();
+      const preview = text.length > 15 ? text.slice(0, 15) + '...' : text;
+      const sender = String(m.replyTo.senderName || 'User').replace(/</g,'&lt;');
+      const targetDomId = this.buildMsgDomId(m.replyTo.connId || sourceConnId, m.replyTo.messageId);
+      return `<a href="#" class="msg-reply-quote" data-reply-target="${targetDomId.replace(/"/g,'&quot;')}" role="button"><span class="reply-author">${sender}</span>${preview ? ': ' + preview.replace(/</g,'&lt;') : ''}</a>`;
+    }
+
+    scrollToMessage(domMsgId){
+      if (!domMsgId) return;
+      const box = document.getElementById('messages');
+      if (!box) return;
+      const el = box.querySelector(`[data-msg-id="${String(domMsgId).replace(/"/g,'\\"')}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    getMessageReactionsHtml(m, msgId, sourceConnId, isGroupChat){
+      const reactions = (m && m.reactions && typeof m.reactions === 'object') ? m.reactions : {};
+      const entries = Object.entries(reactions).filter(([,uids])=> Array.isArray(uids) && uids.length > 0);
+      if (!entries.length) return '';
+      const mid = String(msgId||'').replace(/"/g,'&quot;');
+      const cid = String(sourceConnId||'').replace(/"/g,'&quot;');
+      return entries.map(([emoji, uids])=>{
+        const count = uids.length;
+        const firstUid = uids[0];
+        const avHtml = !isGroupChat && firstUid ? `<img class="react-avatar" src="${this._avatarCache.get(firstUid) || this.usernameCache.get(firstUid)?.avatarUrl || '../../images/default-bird.png'}" alt="">` : '';
+        const countSpan = isGroupChat && count > 0 ? `<span class="react-count">${count}</span>` : '';
+        const hasCount = isGroupChat && count > 0;
+        return `<span class="msg-reaction-badge" data-emoji="${String(emoji).replace(/"/g,'&quot;')}" data-msg-id="${mid}" data-conn-id="${cid}" data-has-count="${hasCount ? '1' : '0'}" title="Reacted">${avHtml}<span class="react-emoji">${emoji}</span>${countSpan}</span>`;
+      }).join('');
+    }
+
+    isGroupChat(connId){
+      const conn = (this.connections||[]).find(c=> c && c.id === connId);
+      const parts = conn ? (Array.isArray(conn.participants)? conn.participants : []) : [];
+      return parts.length > 2;
+    }
+
+    showMessageContext(el, msgData){
+      const overlay = document.getElementById('msg-context-overlay');
+      const stack = document.getElementById('msg-context-stack');
+      const bubble = document.getElementById('msg-context-bubble');
+      const picker = document.getElementById('msg-reaction-picker');
+      const backdrop = document.getElementById('msg-context-backdrop');
+      if (!overlay || !stack || !bubble || !picker) return;
+      this._msgContextData = msgData;
+      const rect = el.getBoundingClientRect();
+      stack.style.display = 'flex';
+      const canModify = msgData.canModify;
+      const items = [
+        { id:'reply', icon:'fa-reply', label:'Reply' },
+        { id:'forward', icon:'fa-share', label:'Share to chat' }
+      ];
+      if (canModify) items.push({ id:'edit', icon:'fa-edit', label:'Edit' });
+      items.push({ id:'delete', icon:'fa-trash', label:'Remove', cls:'delete' });
+      items.push(
+        { id:'copy', icon:'fa-copy', label:'Copy' },
+        { id:'translate', icon:'fa-language', label:'Translate' },
+        { id:'pin', icon:'fa-thumbtack', label:'Pin' },
+        { id:'select', icon:'fa-check-circle', label:'Select' }
+      );
+      bubble.innerHTML = items.map(i=> `<button type="button" class="msg-context-item ${i.cls||''}" data-action="${i.id}"><i class="fas ${i.icon}"></i> ${i.label}</button>`).join('');
+      picker.innerHTML = SecureChatApp.REACTION_EMOJIS.map(e=> `<button type="button" class="msg-react-btn" data-emoji="${e}" title="${e}">${e}</button>`).join('');
+      const close = ()=>{
+        overlay.classList.remove('active');
+        stack.classList.add('hiding');
+        setTimeout(()=>{ stack.style.display = 'none'; stack.classList.remove('hiding'); }, 180);
+        overlay.setAttribute('aria-hidden','true');
+        backdrop.onclick = null;
+      };
+      backdrop.onclick = close;
+      items.forEach(btn => {
+        const b = bubble.querySelector(`[data-action="${btn.id}"]`);
+        if (b) b.onclick = ()=>{ this.handleMessageContextAction(btn.id, msgData); close(); };
+      });
+      SecureChatApp.REACTION_EMOJIS.forEach(e=>{
+        const b = picker.querySelector(`[data-emoji="${e}"]`);
+        if (b) b.onclick = ()=>{ this.addOrToggleReaction(msgData.connId, msgData.msgId, e); close(); };
+      });
+      overlay.classList.add('active');
+      overlay.setAttribute('aria-hidden','false');
+      requestAnimationFrame(()=>{
+        const stackRect = stack.getBoundingClientRect();
+        const pad = 12;
+        let top = rect.top - stackRect.height - pad;
+        let left = rect.left + (rect.width / 2) - (stackRect.width / 2);
+        if (left < pad) left = pad;
+        if (left + stackRect.width > window.innerWidth - pad) left = window.innerWidth - stackRect.width - pad;
+        if (top < pad) top = rect.bottom + pad;
+        stack.style.top = `${top}px`;
+        stack.style.left = `${left}px`;
+      });
+    }
+
+    handleMessageContextAction(action, msgData){
+      const { el, connId, msgId, text, sharePayload } = msgData;
+      switch (action){
+        case 'reply': this.setReplyToMessage(msgData); break;
+        case 'copy': try{ navigator.clipboard?.writeText(text||''); }catch(_){ } break;
+        case 'translate': break;
+        case 'pin': break;
+        case 'forward': this.openShareMessageSheet(sharePayload||{}); break;
+        case 'select': break;
+        case 'edit': this.setEditMessage(msgData); break;
+        case 'delete': this.deleteMessage(connId, msgId, el); break;
+      }
+    }
+
+    setReplyToMessage(msgData){
+      if (!msgData || !this.activeConnection || String(msgData.connId || '') !== String(this.activeConnection)) return;
+      const text = String(msgData.text || '').trim();
+      const preview = text.length > 15 ? text.slice(0, 15) + '...' : text;
+      const senderName = (msgData.m?.sender === this.currentUser.uid ? 'You' : (msgData.senderName || 'User'));
+      const cached = this.usernameCache.get(msgData.m?.sender);
+      const displayName = (cached && typeof cached === 'object' ? cached.username : cached) || senderName;
+      this.pendingReply = {
+        messageId: msgData.msgId,
+        connId: msgData.connId,
+        textPreview: preview,
+        senderName: String(displayName || '').trim() || senderName
+      };
+      this.updateComposerReplyPreview();
+      const input = document.getElementById('message-input');
+      if (input){ input.focus(); }
+    }
+
+    clearPendingReply(){
+      this.pendingReply = null;
+      this.updateComposerReplyPreview();
+    }
+
+    setEditMessage(msgData){
+      if (!msgData || !this.activeConnection || String(msgData.connId || '') !== String(this.activeConnection)) return;
+      this.pendingEdit = { connId: msgData.connId, msgId: msgData.msgId };
+      const input = document.getElementById('message-input');
+      if (input){
+        input.value = String(msgData.text || '').trim();
+        input.focus();
+      }
+      this.clearPendingReply();
+      this.updateComposerEditPreview();
+      this.refreshActionButton();
+    }
+
+    clearPendingEdit(){
+      if (this.pendingEdit){
+        const input = document.getElementById('message-input');
+        if (input) input.value = '';
+      }
+      this.pendingEdit = null;
+      this.updateComposerEditPreview();
+    }
+
+    updateComposerEditPreview(){
+      const el = document.getElementById('composer-edit-preview');
+      if (!el) return;
+      if (this.pendingEdit){
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    updateComposerReplyPreview(){
+      const el = document.getElementById('composer-reply-preview');
+      const textEl = el?.querySelector('.composer-reply-text');
+      if (!el) return;
+      if (this.pendingReply){
+        const r = this.pendingReply;
+        const label = `${r.senderName}: ${r.textPreview}`;
+        if (textEl) textEl.textContent = label;
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+        if (textEl) textEl.textContent = '';
+      }
+    }
+    async editMessage(connId, msgId, text){
+      try{
+        const key = await this.getFallbackKeyForConn(connId);
+        const cipher = await chatCrypto.encryptWithKey(text, key);
+        await firebase.updateDoc(firebase.doc(this.db,'chatMessages',connId,'messages',msgId),{ cipher, updatedAt: new Date().toISOString() });
+      }catch(_){ alert('Failed to edit'); }
+    }
+    async deleteMessage(connId, msgId, el){
+      if (!confirm('Delete this message?')) return;
+      await this.dissolveOutRemove(el, 220);
+      await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',connId,'messages',msgId));
+    }
+    promptReplaceMessageFile(connId, msgId){
+      const p = document.createElement('input'); p.type='file'; p.accept='*/*'; p.style.display='none'; document.body.appendChild(p);
+      p.onchange = async ()=>{
+        try{
+          const f = p.files[0]; if (!f) return;
+          const aesKey2 = await this.getFallbackKey();
+          const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); });
+          const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2);
+          const blob = new Blob([JSON.stringify(cipherF)],{type:'application/json'});
+          const sref = firebase.ref(this.storage, `chat/${connId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`);
+          await firebase.uploadBytes(sref, blob, { contentType:'application/json' });
+          const url = await firebase.getDownloadURL(sref);
+          await firebase.updateDoc(firebase.doc(this.db,'chatMessages',connId,'messages',msgId),{ fileUrl:url, fileName:f.name, updatedAt: new Date().toISOString() });
+        }catch(_){ alert('Failed'); }
+        finally{ document.body.removeChild(p); }
+      };
+      p.click();
+    }
+
+    bindMessageContextMenu(el, msgData){
+      const open = (e)=>{
+        if (e) e.preventDefault();
+        this.showMessageContext(el, msgData);
+      };
+      el.addEventListener('contextmenu', open);
+      let longPressTimer = null;
+      const clearTimer = ()=>{ if (longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; } };
+      el.addEventListener('touchstart', (e)=>{
+        if (e.target.closest('.msg-reaction-badge, .msg-context-overlay')) return;
+        clearTimer();
+        longPressTimer = setTimeout(()=>{ open(e); longPressTimer = null; }, 400);
+      }, { passive: true });
+      el.addEventListener('touchend', clearTimer);
+      el.addEventListener('touchcancel', clearTimer);
+      el.addEventListener('touchmove', clearTimer, { passive: true });
+      el.addEventListener('click', (e)=>{
+        if (e.target.closest('.msg-reaction-badge')) return;
+      });
+      // Drag-to-reply: right for received, left for sent
+      const DRAG_REPLY_THRESHOLD = 50;
+      let dragStartX = 0;
+      let dragReplyTriggered = false;
+      const getClientX = (e)=> (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
+      const onDragStart = (e)=>{
+        if (e.target.closest('.msg-reaction-badge, .msg-context-overlay, .msg-reply-quote')) return;
+        dragStartX = getClientX(e);
+        dragReplyTriggered = false;
+      };
+      const onDragMove = (e)=>{
+        if (dragReplyTriggered) return;
+        const x = getClientX(e);
+        const delta = x - dragStartX;
+        const isSelf = el.classList.contains('self');
+        const triggered = isSelf ? delta < -DRAG_REPLY_THRESHOLD : delta > DRAG_REPLY_THRESHOLD;
+        if (triggered){
+          dragReplyTriggered = true;
+          clearTimer();
+          this.setReplyToMessage(msgData);
+        }
+      };
+      const onDragEnd = ()=>{ dragReplyTriggered = false; };
+      el.addEventListener('touchstart', onDragStart, { passive: true });
+      el.addEventListener('touchmove', (e)=>{ onDragMove(e); }, { passive: true });
+      el.addEventListener('touchend', onDragEnd);
+      el.addEventListener('touchcancel', onDragEnd);
+      el.addEventListener('mousedown', onDragStart);
+      el.addEventListener('mousemove', onDragMove);
+      el.addEventListener('mouseup', onDragEnd);
+      el.addEventListener('mouseleave', onDragEnd);
+    }
+
+    async addOrToggleReaction(connId, msgId, emoji){
+      try{
+        const ref = firebase.doc(this.db,'chatMessages',connId,'messages',msgId);
+        const snap = await firebase.getDoc(ref);
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        const reactions = { ...(data.reactions && typeof data.reactions === 'object' ? data.reactions : {}) };
+        const list = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
+        const idx = list.indexOf(this.currentUser.uid);
+        if (idx >= 0) list.splice(idx, 1);
+        else list.push(this.currentUser.uid);
+        if (list.length === 0) delete reactions[emoji];
+        else reactions[emoji] = list;
+        await firebase.updateDoc(ref, { reactions, updatedAt: new Date().toISOString() });
+      }catch(_){ }
+    }
+
+    showReactionsWhoModal(emoji, uids, connId){
+      const modal = document.getElementById('reactions-who-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.innerHTML = `<div class="reactions-who-panel">
+        <div class="reactions-who-title"><span class="emoji">${emoji}</span> Reacted</div>
+        <div class="reactions-who-list"></div>
+        <button type="button" class="btn secondary" style="margin-top:12px;width:100%" id="reactions-who-close">Close</button>
+      </div>`;
+      const list = modal.querySelector('.reactions-who-list');
+      (uids||[]).forEach(uid=>{
+        const name = (this.usernameCache.get(uid)?.username || this.usernameCache.get(uid) || 'User').toString();
+        const avatar = this._avatarCache.get(uid) || this.usernameCache.get(uid)?.avatarUrl || '../../images/default-bird.png';
+        const item = document.createElement('div');
+        item.className = 'reactions-who-item';
+        item.innerHTML = `<img src="${avatar}" alt=""><span>${String(name).replace(/</g,'&lt;')}</span>`;
+        list.appendChild(item);
+      });
+      modal.querySelector('#reactions-who-close').onclick = ()=> modal.classList.add('hidden');
+      modal.onclick = (e)=> { if (e.target === modal) modal.classList.add('hidden'); };
     }
 
     getRecentAttachments(){
@@ -2730,6 +3159,8 @@
         return;
       }
 
+      this.loadChatCategories();
+      this.loadConnCategories();
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.bindUI();
       this.setupFullscreenImagePreview();
@@ -2890,6 +3321,42 @@
       const mobileGroupBtn = document.getElementById('mobile-new-connection-btn');
       if (mobileGroupBtn){
         mobileGroupBtn.addEventListener('click', ()=> { this.groupBaseParticipants = null; this.promptNewConnection(); });
+      }
+      const categoryAddBtn = document.getElementById('chat-category-add-btn');
+      if (categoryAddBtn) categoryAddBtn.addEventListener('click', ()=> this.addChatCategory());
+      const categoryBadge = document.getElementById('chat-category-badge');
+      if (categoryBadge){
+        categoryBadge.addEventListener('click', (e)=>{ e.stopPropagation(); this.showCategoryDropdownForBadge(); });
+        categoryBadge.addEventListener('keydown', (e)=>{ if (e.key==='Enter'||e.key===' ') { e.preventDefault(); this.showCategoryDropdownForBadge(); } });
+      }
+      const messagesBox = document.getElementById('messages');
+      if (messagesBox && !messagesBox._reactionBadgeBound){
+        messagesBox._reactionBadgeBound = true;
+        messagesBox.addEventListener('click', (e)=>{
+          const replyQuote = e.target.closest('.msg-reply-quote');
+          if (replyQuote){
+            e.preventDefault();
+            e.stopPropagation();
+            const target = replyQuote.getAttribute('data-reply-target');
+            if (target) this.scrollToMessage(target);
+            return;
+          }
+          const badge = e.target.closest('.msg-reaction-badge');
+          if (!badge) return;
+          e.stopPropagation();
+          const msgId = badge.getAttribute('data-msg-id');
+          const connId = badge.getAttribute('data-conn-id');
+          const emoji = badge.getAttribute('data-emoji');
+          if (msgId && connId){
+            firebase.getDoc(firebase.doc(this.db,'chatMessages',connId,'messages',msgId)).then(snap=>{
+              if (!snap.exists()) return;
+              const data = snap.data() || {};
+              const reactions = data.reactions || {};
+              const uids = Array.isArray(reactions[emoji]) ? reactions[emoji] : [];
+              this.showReactionsWhoModal(emoji, uids, connId);
+            }).catch(()=>{});
+          }
+        });
       }
       const actionBtn = document.getElementById('action-btn');
       if (actionBtn){
@@ -3074,8 +3541,20 @@
           }
         });
       }
+      const replyClose = document.getElementById('composer-reply-preview');
+      if (replyClose){
+        const closeBtn = replyClose.querySelector('.composer-reply-close');
+        if (closeBtn) closeBtn.addEventListener('click', ()=> this.clearPendingReply());
+      }
+      const editPreview = document.getElementById('composer-edit-preview');
+      if (editPreview){
+        const editCloseBtn = editPreview.querySelector('.composer-edit-close');
+        if (editCloseBtn) editCloseBtn.addEventListener('click', ()=> this.clearPendingEdit());
+      }
       document.addEventListener('keydown', (e)=>{
         if (e.key === 'Escape'){
+          if (this.pendingEdit){ this.clearPendingEdit(); this.refreshActionButton(); return; }
+          if (this.pendingReply){ this.clearPendingReply(); return; }
           this.setMobileMenuOpen(false);
         }
       });
@@ -4026,12 +4505,43 @@
           }
         }catch(_){ }
       }
+      this.renderConnectionsList(connSeq);
+      return;
+    }
+
+    renderConnectionsList(connSeq){
+      const listEl = document.getElementById('connections-list');
+      if (!listEl) return;
+      if (connSeq != null && connSeq !== this._connLoadSeq) return;
+      this.renderCategoryTabs();
       listEl.classList.remove('loading');
       listEl.innerHTML = '';
-      const projectConns = this.connections.filter((c) => c && (c.projectId || c.type === 'project'));
-      const otherConns = this.connections.filter((c) => !c || (!c.projectId && c.type !== 'project'));
+      let projectConns = this.connections.filter((c) => c && (c.projectId || c.type === 'project'));
+      let otherConns = this.connections.filter((c) => !c || (!c.projectId && c.type !== 'project'));
+      const sel = this.selectedCategory || 'all';
+      if (sel === 'projects') {
+        otherConns = [];
+      } else if (sel !== 'all' && sel) {
+        const cat = String(sel).trim();
+        const match = (c) => (this.connCategories[c?.id] || '').trim() === cat;
+        projectConns = projectConns.filter(match);
+        otherConns = otherConns.filter(match);
+      }
+      const seen = new Set();
+      const getCachedName = (uid, fallback = '')=>{
+        const cached = this.usernameCache.get(uid);
+        if (cached && typeof cached === 'object') return this._safeUsername(cached.username || '', fallback);
+        return this._safeUsername(cached || '', fallback);
+      };
+      const getCachedAvatar = (uid)=>{
+        const direct = this._avatarCache.get(uid);
+        if (direct) return direct;
+        const cached = this.usernameCache.get(uid);
+        if (cached && typeof cached === 'object' && cached.avatarUrl) return cached.avatarUrl;
+        return '../../images/default-bird.png';
+      };
       const renderConn = (c) => {
-        if (connSeq !== this._connLoadSeq) return;
+        if (connSeq != null && connSeq !== this._connLoadSeq) return;
         const isProject = !!(c.projectId || c.type === 'project');
         const key = isProject ? c.id : (c.key || this.computeConnKey(c.participants || []));
         if (seen.has(key)) return;
@@ -4117,10 +4627,18 @@
           if (li) listEl.appendChild(li);
         });
       }
-      // Subscribe to participant username changes for live label updates
-      try{
-        if (connSeq !== this._connLoadSeq) return;
-        const uidSet = new Set();
+      if (projectConns.length === 0 && otherConns.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'conn-empty-category';
+        empty.style.cssText = 'padding:16px;color:#9ca3af;font-size:13px;text-align:center';
+        empty.textContent = sel === 'all' ? 'No chats yet' : 'No chats in this category';
+        listEl.appendChild(empty);
+      }
+      // Subscribe to participant username changes for live label updates (only on full load from loadConnections)
+      if (connSeq != null){
+        try{
+          if (connSeq !== this._connLoadSeq) return;
+          const uidSet = new Set();
         this.connections.forEach(c => (Array.isArray(c.participants)?c.participants:[]).forEach(u=>uidSet.add(u)));
         const uids = Array.from(uidSet);
         // Create listeners
@@ -4178,7 +4696,8 @@
             if (this.userUnsubs) this.userUnsubs.set(uid, unsub);
           }catch(_){ }
         });
-      }catch(_){ }
+        }catch(_){ }
+      }
       // No recursive call
       this.updateUnreadBadges().catch(()=>{});
     }
@@ -4201,6 +4720,8 @@
       this.activeConnection = resolvedConnId || connId;
       this._disableCallFab = false;
       this.clearPendingAttachments();
+      this.clearPendingReply();
+      this.clearPendingEdit();
       try{
         const pendingShared = this.takePendingSharedAssetsForConn(this.activeConnection);
         if (pendingShared && pendingShared.length) this.queueRemoteSharedAssets(pendingShared);
@@ -4260,6 +4781,7 @@
       }catch(_){ }
       this.loadMessages().catch(()=>{});
       this.applyAdminBadgeForConn(this.activeConnection);
+      this.updateChatCategoryBadge();
       Promise.resolve().then(async ()=>{
         try{
           if (setSeq !== this._setActiveSeq || this.activeConnection !== (resolvedConnId || connId)) return;
@@ -4678,8 +5200,13 @@
                 const isVoiceMsgAppend = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
                 const senderStr = isVoiceMsgAppend ? '' : String(senderName || '');
                 const metaSepAppend = senderStr ? `${senderStr} · ` : '';
-                el.innerHTML = `${mediaBlockHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${metaSepAppend}${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class="msg-actions" data-mid="${d.id || m.id}" style="cursor:pointer"><i class="fas fa-edit" title="Edit"></i> <i class="fas fa-trash" title="Delete"></i> <i class="fas fa-paperclip" title="Replace file"></i></span>`:''} · <span class="msg-share" style="cursor:pointer" title="Share"><i class="fas fa-share-nodes"></i></span></div>`;
+                const msgId = d.id || m.id;
+                const isGroup = this.isGroupChat(sourceConnId);
+                const reactionsHtml = this.getMessageReactionsHtml(m, msgId, sourceConnId, isGroup);
+                const replyQuoteHtml = this.getMessageReplyQuoteHtml(m, sourceConnId);
+                el.innerHTML = `${mediaBlockHtml}${replyQuoteHtml}<div class="msg-text">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class="file-link">${inferredFileName || 'Attachment'}</div>`}<div class="file-preview"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class="meta">${systemBadge}${metaSepAppend}${timeStr}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}</div>${reactionsHtml ? `<div class="msg-reactions-row">${reactionsHtml}</div>` : ''}`;
                 box.insertBefore(el, box.firstElementChild);
+                this.bindMessageContextMenu(el, { el, connId: activeConnId, msgId, text, canModify, sharePayload, m, senderName });
                 const joinBtn = el.querySelector('button[data-call-id]');
                 if (joinBtn) joinBtn.addEventListener('click', ()=> this._joinCallFromBadge(joinBtn.getAttribute('data-call-id') || '', joinBtn));
                 if (hasMedia){
@@ -4712,8 +5239,6 @@
                   }
                 }
                 if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
-                if (canModify){ const actions = el.querySelector('.msg-actions'); if (actions){ const mid = actions.getAttribute('data-mid'); const icons = actions.querySelectorAll('i'); icons[0].onclick = async ()=>{ const next = prompt('Edit:', el.querySelector('.msg-text')?.textContent || ''); if (next===null) return; await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: await chatCrypto.encryptWithKey(next, await this.getFallbackKey()), updatedAt: new Date().toISOString() }); }; icons[1].onclick = async ()=>{ if (!confirm('Delete?')) return; await this.dissolveOutRemove(el, 220); await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid)); }; icons[2].onclick = ()=>{ const p = document.createElement('input'); p.type='file'; p.style.display='none'; document.body.appendChild(p); p.onchange = async ()=>{ try{ const f = p.files[0]; if (!f) return; const aesKey2 = await this.getFallbackKey(); const base64 = await new Promise((r,e)=>{ const fr = new FileReader(); fr.onload=()=>r(String(fr.result||'').split(',')[1]); fr.onerror=e; fr.readAsDataURL(f); }); const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2); const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'}); const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`); await firebase.uploadBytes(sref, blob, { contentType: 'application/json' }); await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl: await firebase.getDownloadURL(sref), fileName: f.name, updatedAt: new Date().toISOString() }); }catch(_){ alert('Failed'); } finally{ document.body.removeChild(p); } }; p.click(); }; }; }
-                const shareBtn = el.querySelector('.msg-share'); if (shareBtn) shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
               };
               newDocs.sort((a,b)=>{ const ta = normalizeDocTime(a.data); const tb = normalizeDocTime(b.data); return ta !== tb ? ta - tb : String(a.id).localeCompare(String(b.id)); });
               for (const d of newDocs){ try{ await renderOneAppend(d, d.sourceConnId || activeConnId); }catch(_){ } }
@@ -4890,7 +5415,11 @@
               const isVoiceMsg = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
               const senderStr2 = isVoiceMsg ? '' : String(senderName || '');
               const metaSep = senderStr2 ? `${senderStr2} · ` : '';
-              el.innerHTML = `${mediaBlockHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSep}${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}${canModify?` · <span class=\"msg-actions\" data-mid=\"${d.id || m.id}\" style=\"cursor:pointer\"><i class=\"fas fa-edit\" title=\"Edit\"></i> <i class=\"fas fa-trash\" title=\"Delete\"></i> <i class=\"fas fa-paperclip\" title=\"Replace file\"></i></span>`:''} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+              const msgId2 = d.id || m.id;
+              const isGroup2 = this.isGroupChat(sourceConnId);
+              const reactionsHtml2 = this.getMessageReactionsHtml(m, msgId2, sourceConnId, isGroup2);
+              const replyQuoteHtml2 = this.getMessageReplyQuoteHtml(m, sourceConnId);
+              el.innerHTML = `${mediaBlockHtml2}${replyQuoteHtml2}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSep}${timeStr2}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}</div>${reactionsHtml2 ? `<div class=\"msg-reactions-row\">${reactionsHtml2}</div>` : ''}`;
               if (replaceEl){
                 box.replaceChild(el, replaceEl);
               } else if (forceAppend){
@@ -4937,52 +5466,7 @@
                 }
               }
               if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
-            // Bind edit/delete/replace for own messages
-              if (canModify){
-              const actions = el.querySelector('.msg-actions');
-              if (actions){
-                const mid = actions.getAttribute('data-mid');
-                const icons = actions.querySelectorAll('i');
-                const editIcon = icons[0];
-                const delIcon = icons[1];
-                const repIcon = icons[2];
-                editIcon.onclick = async ()=>{
-                  const current = el.querySelector('.msg-text')?.textContent || '';
-                  const next = prompt('Edit message:', current);
-                  if (next===null) return;
-                  const key = await this.getFallbackKey();
-                  const cipher2 = await chatCrypto.encryptWithKey(next, key);
-                  await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ cipher: cipher2, updatedAt: new Date().toISOString() });
-                };
-                delIcon.onclick = async ()=>{
-                  if (!confirm('Delete this message?')) return;
-                  await this.dissolveOutRemove(el, 220);
-                  await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid));
-                };
-                repIcon.onclick = async ()=>{
-                  const picker = document.createElement('input'); picker.type='file'; picker.accept='*/*'; picker.style.display='none'; document.body.appendChild(picker);
-                  picker.onchange = async ()=>{
-                    try{
-                      const f = picker.files[0]; if (!f) return;
-                      const aesKey2 = await this.getFallbackKey();
-                      const base64 = await new Promise((resolve, reject)=>{ const r = new FileReader(); r.onload=()=>{ const s=String(r.result||''); resolve(s.includes(',')?s.split(',')[1]:''); }; r.onerror=reject; r.readAsDataURL(f); });
-                      const cipherF = await chatCrypto.encryptWithKey(base64, aesKey2);
-                      const blob = new Blob([JSON.stringify(cipherF)], {type:'application/json'});
-                      const sref = firebase.ref(this.storage, `chat/${activeConnId}/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}.enc.json`);
-                      await firebase.uploadBytes(sref, blob, { contentType: 'application/json' });
-                      const url = await firebase.getDownloadURL(sref);
-                      await firebase.updateDoc(firebase.doc(this.db,'chatMessages',activeConnId,'messages', mid),{ fileUrl:url, fileName:f.name, updatedAt: new Date().toISOString() });
-                    }catch(_){ alert('Failed to replace file'); }
-                    finally{ document.body.removeChild(picker); }
-                  };
-                  picker.click();
-                };
-              }
-              }
-              const shareBtn = el.querySelector('.msg-share');
-              if (shareBtn){
-                shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
-              }
+              this.bindMessageContextMenu(el, { el, connId: sourceConnId, msgId: msgId2, text, canModify, sharePayload, m, senderName });
           };
           currentRenderOneForLoadMore = renderOne;
           // docChanges incremental: add/modify/remove only – no full reload. New messages pop in smoothly.
@@ -5302,7 +5786,6 @@
             if (stickerDataMatch){
               bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
             }
-            const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
             const dayLabel = this.formatMessageDay(m.createdAt, m);
             if (dayLabel !== lastRenderedDay2){
               const sep = document.createElement('div');
@@ -5325,8 +5808,15 @@
             const isVoiceMsgFb = hasFile && this.isVoiceRecordingMessage(m, inferredFileName);
             const senderStr3 = isVoiceMsgFb ? '' : String(senderName || '');
             const metaSepFb = senderStr3 ? `${senderStr3} · ` : '';
-            el.innerHTML = `${mediaBlockHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt} · <span class=\"msg-share\" style=\"cursor:pointer\" title=\"Share to another chat\"><i class=\"fas fa-share-nodes\"></i></span></div>`;
+            const msgId3 = d.id || m.id;
+            const isGroup3 = this.isGroupChat(activeConnId);
+            const reactionsHtml3 = this.getMessageReactionsHtml(m, msgId3, activeConnId, isGroup3);
+            const replyQuoteHtml3 = this.getMessageReplyQuoteHtml(m, activeConnId);
+            const sharePayload3 = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '', { ...m, id: msgId3 }, senderName);
+            const canModify3 = m.sender === this.currentUser.uid;
+            el.innerHTML = `${mediaBlockHtml3}${replyQuoteHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}</div>${reactionsHtml3 ? `<div class=\"msg-reactions-row\">${reactionsHtml3}</div>` : ''}`;
             box.appendChild(el);
+            this.bindMessageContextMenu(el, { el, connId: activeConnId, msgId: msgId3, text, canModify: canModify3, sharePayload: sharePayload3, m, senderName });
             const joinBtn = el.querySelector('button[data-call-id]');
             if (joinBtn){ joinBtn.addEventListener('click', ()=> this._joinCallFromBadge(joinBtn.getAttribute('data-call-id') || '', joinBtn)); }
             if (hasMedia){
@@ -5366,10 +5856,6 @@
               }
             }
             if (m.sharedAsset && typeof m.sharedAsset === 'object') this.bindSharedAssetCardInteractions(el, m.sharedAsset);
-            const shareBtn = el.querySelector('.msg-share');
-            if (shareBtn){
-              shareBtn.onclick = ()=> this.openShareMessageSheet(sharePayload);
-            }
             if (fallbackDocs.length > 50 || (i % 2) === 1){
               await this.yieldToUi();
             }
@@ -6025,6 +6511,14 @@
       const queuedFiles = (this._pendingAttachments || []).map((x)=> x && x.file).filter((f)=> f instanceof File);
       const queuedShared = (this._pendingRemoteShares || []).map((x)=> x && x.sharedAsset).filter((x)=> x && typeof x === 'object');
       const queuedReused = (this._pendingReusedAttachments || []).filter((x)=> x && x.fileUrl);
+      if (this.pendingEdit && text){
+        const { connId, msgId } = this.pendingEdit;
+        this.clearPendingEdit();
+        input.value = '';
+        this.publishTypingState(false, { force: true }).catch(()=>{});
+        try{ await this.editMessage(connId, msgId, text); }catch(e){ input.value = text; this.pendingEdit = { connId, msgId }; this.updateComposerEditPreview(); throw e; }
+        return;
+      }
       if ((!text && !queuedFiles.length && !queuedShared.length && !queuedReused.length) || !this.activeConnection) return;
       const can = await this.canSendToActiveConnection();
       if (!can.ok){
@@ -6032,6 +6526,8 @@
         return;
       }
       input.value = '';
+      const replyToSend = this.pendingReply ? { ...this.pendingReply } : null;
+      if (replyToSend) this.clearPendingReply();
       this.clearPendingAttachments();
       this.publishTypingState(false, { force: true }).catch(()=>{});
       try{
@@ -6057,17 +6553,18 @@
           });
           mediaItems.sort((a,b)=> mediaRank(a) - mediaRank(b));
           const combinedText = text.trim() || '';
-          await this.saveMessage({ text: combinedText, media: mediaItems, attachmentSourceConnId: this.activeConnection });
+          await this.saveMessage({ text: combinedText, media: mediaItems, attachmentSourceConnId: this.activeConnection, replyTo: replyToSend });
           mediaItems.forEach((it)=> this.pushRecentAttachment({ fileUrl: it.fileUrl, fileName: it.fileName, sentAt: new Date().toISOString() }));
         } else {
-          if (text) await this.saveMessage({ text });
+          if (text) await this.saveMessage({ text, replyTo: replyToSend });
           if (queuedFiles.length){
-            const result = await this.sendFiles(queuedFiles, { silent: true });
+            const result = await this.sendFiles(queuedFiles, { silent: true, replyTo: replyToSend });
             if (result.failedFiles && result.failedFiles.length){
               this.queueAttachments(result.failedFiles);
               alert(`Sent ${result.sentCount || 0} attachments, ${result.failedFiles.length} failed. Failed files are still in queue.`);
             }
           }
+          let firstReused = true;
           for (const r of queuedReused){
             const msg = r.message || {};
             await this.saveMessage({
@@ -6077,12 +6574,16 @@
               attachmentSourceConnId: this.activeConnection,
               attachmentKeySalt: String(msg.attachmentKeySalt || '').trim() || null,
               isVideoRecording: !!msg.isVideoRecording,
-              isVoiceRecording: !!msg.isVoiceRecording
+              isVoiceRecording: !!msg.isVoiceRecording,
+              replyTo: firstReused ? replyToSend : undefined
             });
+            firstReused = false;
           }
         }
+        let firstShared = true;
         for (const sharedAsset of queuedShared){
-          await this.saveMessage({ text: '[shared]', sharedAsset });
+          await this.saveMessage({ text: '[shared]', sharedAsset, replyTo: firstShared ? replyToSend : undefined });
+          firstShared = false;
         }
       }catch(e){
         input.value = text;
@@ -6551,6 +7052,7 @@
 
     async sendFiles(files, opts = {}){
       const silent = !!opts.silent;
+      const replyTo = opts.replyTo || null;
       const result = { sentCount: 0, failedFiles: [] };
       const targetConnId = this.activeConnection;
       if (!files || !files.length || !targetConnId) { console.warn('No files or no active connection'); return result; }
@@ -6616,6 +7118,7 @@
           const url = await firebase.getDownloadURL(r);
           console.log('File upload completed');
           const text = `[file] ${f.name}`;
+          const useReplyTo = (replyTo && result.sentCount === 0) ? replyTo : undefined;
           await this.saveMessage({
             text,
             fileUrl:url,
@@ -6623,7 +7126,8 @@
             connId: targetConnId,
             attachmentSourceConnId: targetConnId,
             attachmentKeySalt: String(salts?.stableSalt || targetConnId || ''),
-            isVideoRecording: false
+            isVideoRecording: false,
+            replyTo: useReplyTo
           });
           this.pushRecentAttachment({ fileUrl: url, fileName: f.name, sentAt: new Date().toISOString() });
           result.sentCount += 1;
@@ -6959,7 +7463,7 @@
       }catch(_){ alert('Failed to send sticker'); }
     }
 
-    async saveMessage({text,fileUrl,fileName, sharedAsset, media, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording}){
+    async saveMessage({text,fileUrl,fileName, sharedAsset, media, connId, attachmentSourceConnId, attachmentKeySalt, isVideoRecording, isVoiceRecording, replyTo}){
       const targetConnId = connId || this.activeConnection;
       if (!targetConnId) return;
       const aesKey = await this.getFallbackKeyForConn(targetConnId);
@@ -6987,6 +7491,14 @@
         createdAtTS: firebase.serverTimestamp()
       };
       if (mediaArr) doc.media = mediaArr;
+      if (replyTo && typeof replyTo === 'object' && replyTo.messageId){
+        doc.replyTo = {
+          messageId: String(replyTo.messageId),
+          connId: String(replyTo.connId || targetConnId),
+          textPreview: String(replyTo.textPreview || '').slice(0, 50),
+          senderName: String(replyTo.senderName || '').slice(0, 80)
+        };
+      }
       const ts = doc.createdAtTS;
       delete doc.createdAtTS;
       const plainDoc = JSON.parse(JSON.stringify(doc));

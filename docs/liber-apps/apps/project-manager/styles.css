@@ -165,6 +165,8 @@
   right: 0;
   max-height: 220px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: #161a22;
   border: 1px solid #2b3854;
   border-radius: 8px;

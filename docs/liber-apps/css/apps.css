@@ -220,6 +220,7 @@
     gap: 12px;
     margin-bottom: 24px;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     padding-bottom: 8px;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -324,6 +325,8 @@
     width: 100%;
     max-height: 80vh;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     box-shadow: var(--shadow-hover);
     animation: slideUp 0.3s ease-out;
 }

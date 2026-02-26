@@ -23,6 +23,8 @@
     max-width: 400px;
     max-height: 90svh;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     box-shadow: var(--shadow-hover);
     animation: slideUp 0.5s ease-out;
 }

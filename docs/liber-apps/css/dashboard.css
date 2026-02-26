@@ -120,6 +120,7 @@
     display: flex;
     gap: 10px;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
     border-radius: 200px;
@@ -710,6 +711,8 @@
     z-index: 50;
     max-height: 300px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     padding: 8px 0;
 }
 
@@ -1142,6 +1145,8 @@
 #space-section .settings-grid {
   display: block;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 @media (min-width: 768px) {
@@ -1162,6 +1167,8 @@
     gap: 4px;
     border-radius: 0;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     grid-column: 1;
   }
   .nav-btn {
@@ -1223,6 +1230,8 @@
   max-width: 80%;
   max-height: 80%;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 /* Fix black space - reduce margin/padding above bottom nav */

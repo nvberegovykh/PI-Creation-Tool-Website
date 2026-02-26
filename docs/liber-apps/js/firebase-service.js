@@ -118,7 +118,7 @@ class FirebaseService {
             console.log('Firebase app created with name:', this.app.name);
 
             // Initialize services with modular SDK
-            console.log('Initializing Firebase services...');
+            if (window.__devLog) window.__devLog('Initializing Firebase services...');
             this.auth = firebase.auth(this.app);
             this.db = firebase.firestore(this.app);
             this.storage = firebase.getStorage ? firebase.getStorage(this.app) : null;

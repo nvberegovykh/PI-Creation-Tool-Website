@@ -52,7 +52,7 @@ class LiberAppsControlPanel {
             // Mark as initialized
             this.isInitialized = true;
 
-            console.log('LIBER/APPS initialized successfully');
+            if (window.__devLog) window.__devLog('LIBER/APPS initialized successfully');
 
         } catch (e) {
             console.error('App start failed:', e);
