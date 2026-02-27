@@ -32,6 +32,11 @@
   --dl-space-space-oneandhalfunits: 24px;
 }
 
+/* Momentum scroll on mobile – landing, contact, gallery */
+html, body {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Text selection only – does not affect nav/focus highlights */
 ::selection {
   background: #8C000F !important;

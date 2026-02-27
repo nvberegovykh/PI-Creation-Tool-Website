@@ -437,7 +437,7 @@
             <td>${escapeHtml(r._versionName)}</td>
             <td>${escapeHtml(r._version)}</td>
             <td>${escapeHtml(r._source)}</td>
-            <td>${escapeHtml(r._fileName)}</td>
+            <td class="gc-filename-cell" title="${escapeHtml(r._fileName)}">${escapeHtml(r._fileName)}</td>
             <td>${escapeHtml(r._updated)}</td>
             <td><button type="button" class="gc-download-link gc-download-button" data-url="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(r._fileName || 'download')}">Download</button></td>
           </tr>
