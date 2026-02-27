@@ -401,8 +401,9 @@ body.gc-downloads-open {
 
 .gc-downloads-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 1260px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .gc-downloads-table th,
@@ -412,6 +413,9 @@ body.gc-downloads-open {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 0.84rem;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .gc-downloads-table th {
@@ -422,11 +426,31 @@ body.gc-downloads-open {
 .gc-download-link {
   color: #9fc5ff;
   text-decoration: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
 }
 
 .gc-download-link:hover {
   text-decoration: underline;
 }
+
+.gc-downloads-table th:nth-child(1),
+.gc-downloads-table td:nth-child(1) { width: 190px; }  /* Version Name */
+.gc-downloads-table th:nth-child(2),
+.gc-downloads-table td:nth-child(2) { width: 110px; }  /* Version */
+.gc-downloads-table th:nth-child(3),
+.gc-downloads-table td:nth-child(3) { width: 110px; }  /* Source */
+.gc-downloads-table th:nth-child(4),
+.gc-downloads-table td:nth-child(4) { width: 260px; }  /* Filename */
+.gc-downloads-table th:nth-child(5),
+.gc-downloads-table td:nth-child(5) { width: 300px; }  /* Description */
+.gc-downloads-table th:nth-child(6),
+.gc-downloads-table td:nth-child(6) { width: 130px; }  /* Updated */
+.gc-downloads-table th:nth-child(7),
+.gc-downloads-table td:nth-child(7) { width: 120px; }  /* Action */
 
 /* Pricing popup title */
 .gc-pricing-title {

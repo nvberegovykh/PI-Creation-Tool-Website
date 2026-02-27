@@ -223,7 +223,7 @@
       if (host.includes('github.com') && relIdx >= 1 && segments.length > relIdx + 2) {
         tag = decodeURIComponent(segments[relIdx + 1] || '');
       }
-      const match = /(?:^|[^a-z0-9])(v?\d+\.\d+\.\d+(?:[-._][a-z0-9]+)*)/i.exec(`${fileName} ${tag} ${path}`);
+      const match = /(?:^|[^a-z0-9])(v?\d+(?:\.\d+){1,3}(?:[-._][a-z0-9]+)*)/i.exec(`${fileName} ${tag} ${path}`);
       versionNumber = match ? match[1].replace(/_/g, '.') : '';
       if (fileName) versionName = fileName.replace(/\.[a-z0-9]{1,6}$/i, '');
       else if (tag) versionName = tag;
@@ -316,8 +316,7 @@
         ...r,
         _platform: normalizePlatform(r.platform || meta.platform),
         _versionName: String(r.versionName || meta.versionName || '-'),
-        _versionNumber: String(r.versionNumber || meta.versionNumber || '-'),
-        _tag: String(r.tag || meta.tag || '-'),
+        _version: String(r.version || r.tag || meta.tag || r.versionNumber || meta.versionNumber || '-'),
         _source: String(r.source || meta.source || '-'),
         _fileName: String(r.fileName || meta.fileName || '-')
       };
@@ -335,12 +334,12 @@
         .map((r) => `
           <tr>
             <td>${escapeHtml(r._versionName)}</td>
-            <td>${escapeHtml(r._versionNumber)}</td>
-            <td>${escapeHtml(r._tag)}</td>
+            <td>${escapeHtml(r._version)}</td>
             <td>${escapeHtml(r._source)}</td>
             <td>${escapeHtml(r._fileName)}</td>
+            <td title="${escapeHtml(String(r.description || r.releaseDescription || r.repoDescription || '-'))}">${escapeHtml(String(r.description || r.releaseDescription || r.repoDescription || '-'))}</td>
             <td>${escapeHtml(formatDate(r.updatedAt || r.createdAt))}</td>
-            <td><a href="${escapeHtml(r.directUrl || '')}" target="_blank" rel="noopener noreferrer" class="gc-download-link">Download</a></td>
+            <td><button type="button" class="gc-download-link gc-download-button" data-url="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(r._fileName || 'download')}">Download</button></td>
           </tr>
         `)
         .join('');
@@ -352,9 +351,9 @@
                 <tr>
                   <th>Version Name</th>
                   <th>Version</th>
-                  <th>Tag</th>
                   <th>Source</th>
                   <th>Filename</th>
+                  <th>Description</th>
                   <th>Updated</th>
                   <th>Action</th>
                 </tr>
@@ -384,6 +383,25 @@
         panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-gc-platform-panel') === id));
       });
     });
+    container.querySelectorAll('.gc-download-button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const url = btn.getAttribute('data-url');
+        const file = btn.getAttribute('data-file') || 'download';
+        if (!url) return;
+        triggerDirectDownload(url, file);
+      });
+    });
+  }
+
+  function triggerDirectDownload(url, fileName) {
+    const a = document.createElement('a');
+    a.href = String(url || '');
+    a.download = String(fileName || 'download').trim() || 'download';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   function closeDownloads() {
