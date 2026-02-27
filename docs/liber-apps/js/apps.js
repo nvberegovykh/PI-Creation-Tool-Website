@@ -573,6 +573,20 @@ class AppsManager {
                 lastUpdated: '2026-02-22',
                 logo: null,
                 adminOnly: true
+            },
+            {
+                id: 'downloads-manager',
+                name: 'Downloads Manager',
+                description: 'Admin app to manage direct download links and versions metadata.',
+                version: '1.0.0',
+                category: 'business',
+                icon: 'fas fa-download',
+                status: 'online',
+                path: 'apps/downloads-manager/index.html',
+                author: 'Liber Apps',
+                lastUpdated: '2026-02-27',
+                logo: null,
+                adminOnly: true
             }
         ];
 

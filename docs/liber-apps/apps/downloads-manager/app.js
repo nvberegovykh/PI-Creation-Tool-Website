@@ -1,0 +1,436 @@
+(function () {
+  'use strict';
+
+  const COLLECTION = 'downloads';
+  const PLATFORM_ORDER = ['windows', 'macos', 'android', 'ios', 'linux', 'web', 'other'];
+  const GITHUB_API_BASE = 'https://api.github.com/repos/';
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function notify(msg, type) {
+    if (window.parent && window.parent.dashboardManager) {
+      window.parent.dashboardManager.showNotification(msg, type || 'success');
+    } else {
+      alert(msg);
+    }
+  }
+
+  function getFirebaseService() {
+    if (window.firebaseService && window.firebaseService.isInitialized) return window.firebaseService;
+    try {
+      for (const w of [window.parent, window.top].filter(Boolean)) {
+        if (w !== window && w.firebaseService && w.firebaseService.isInitialized) return w.firebaseService;
+      }
+    } catch (_) {}
+    return window.firebaseService;
+  }
+
+  function fb() {
+    const fs = getFirebaseService();
+    return (fs && fs.firebase) ? fs.firebase : (typeof firebase !== 'undefined' ? firebase : window.firebase);
+  }
+
+  function normalizePlatform(v) {
+    const p = String(v || '').trim().toLowerCase();
+    if (PLATFORM_ORDER.includes(p)) return p;
+    return 'other';
+  }
+
+  function detectPlatform(url, fileName) {
+    const hay = `${String(url || '').toLowerCase()} ${String(fileName || '').toLowerCase()}`;
+    if (/\bwindows\b|\.exe\b|\.msi\b/.test(hay)) return 'windows';
+    if (/\bmac\b|macos|osx|\.dmg\b|\.pkg\b/.test(hay)) return 'macos';
+    if (/\bandroid\b|\.apk\b|play\.google\.com/.test(hay)) return 'android';
+    if (/\bios\b|iphone|ipad|apps\.apple\.com/.test(hay)) return 'ios';
+    if (/\blinux\b|\.deb\b|\.rpm\b|\.appimage\b|\.tar\.gz\b/.test(hay)) return 'linux';
+    if (/chrome\.google\.com\/webstore|addons\.mozilla\.org|microsoftedge\.microsoft\.com/.test(hay)) return 'web';
+    return 'other';
+  }
+
+  function parseDownloadMeta(rawUrl) {
+    const url = String(rawUrl || '').trim();
+    let host = '';
+    let path = '';
+    let tag = '';
+    let fileName = '';
+    let versionNumber = '';
+    let versionName = '';
+
+    try {
+      const u = new URL(url);
+      host = String(u.hostname || '').toLowerCase();
+      path = String(u.pathname || '');
+      const segments = path.split('/').filter(Boolean);
+      fileName = decodeURIComponent(segments[segments.length - 1] || '');
+
+      const relIdx = segments.findIndex((s) => s.toLowerCase() === 'download');
+      if (host.includes('github.com') && relIdx >= 1 && segments.length > relIdx + 2) {
+        tag = decodeURIComponent(segments[relIdx + 1] || '');
+      }
+
+      const match = /(?:^|[^a-z0-9])(v?\d+\.\d+\.\d+(?:[-._][a-z0-9]+)*)/i.exec(`${fileName} ${tag} ${path}`);
+      versionNumber = match ? match[1].replace(/_/g, '.') : '';
+      if (fileName) {
+        versionName = fileName.replace(/\.[a-z0-9]{1,6}$/i, '');
+      } else if (tag) {
+        versionName = tag;
+      } else if (versionNumber) {
+        versionName = `Release ${versionNumber}`;
+      } else {
+        versionName = host || 'Download';
+      }
+    } catch (_) {
+      fileName = '';
+      versionName = 'Download';
+    }
+
+    const source = host.includes('github.com')
+      ? 'GitHub'
+      : host.includes('play.google.com')
+      ? 'Google Play'
+      : host.includes('apps.apple.com')
+      ? 'App Store'
+      : host
+      ? host.replace(/^www\./, '')
+      : 'External';
+
+    const platform = detectPlatform(url, fileName);
+    return { versionName, versionNumber, tag, fileName, source, platform };
+  }
+
+  function parseGithubRepo(rawUrl) {
+    try {
+      const u = new URL(String(rawUrl || '').trim());
+      if (!/github\.com$/i.test(u.hostname)) return null;
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      const owner = parts[0];
+      const repo = parts[1];
+      if (!owner || !repo) return null;
+      return { owner, repo, key: `${owner}/${repo}` };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function extractVersionNumber(input) {
+    const m = /(?:^|[^a-z0-9])(v?\d+\.\d+\.\d+(?:[-._][a-z0-9]+)*)/i.exec(String(input || ''));
+    return m ? m[1].replace(/_/g, '.') : '';
+  }
+
+  async function fetchLatestGithubRelease(owner, repo) {
+    const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/vnd.github+json' }
+    });
+    if (!res.ok) throw new Error(`GitHub latest release fetch failed (${res.status})`);
+    return res.json();
+  }
+
+  async function getAllRows() {
+    const fs = getFirebaseService();
+    if (!fs?.db) return [];
+    const snap = await fb().getDocs(fb().collection(fs.db, COLLECTION));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
+
+  async function syncGithubRepoLatest(repoInfo, actorUid) {
+    const fs = getFirebaseService();
+    if (!fs?.db || !repoInfo?.owner || !repoInfo?.repo) return { synced: 0, removed: 0, tag: '' };
+
+    const release = await fetchLatestGithubRelease(repoInfo.owner, repoInfo.repo);
+    const tag = String(release?.tag_name || release?.name || '').trim();
+    const assets = Array.isArray(release?.assets) ? release.assets : [];
+    if (!assets.length) throw new Error('Latest release has no downloadable assets');
+
+    const existing = (await getAllRows()).filter((r) => String(r.githubRepo || '') === repoInfo.key);
+    const byAssetId = new Map(existing.map((r) => [String(r.githubAssetId || ''), r]));
+    const latestAssetIds = new Set();
+    let upserts = 0;
+
+    for (const a of assets) {
+      const assetId = String(a?.id || '').trim();
+      const directUrl = String(a?.browser_download_url || '').trim();
+      const fileName = String(a?.name || '').trim() || 'download';
+      if (!assetId || !directUrl) continue;
+      latestAssetIds.add(assetId);
+
+      const platform = normalizePlatform(detectPlatform(directUrl, fileName));
+      const now = new Date().toISOString();
+      const versionNumber = extractVersionNumber(`${tag} ${fileName}`);
+      const payload = {
+        directUrl,
+        platform,
+        versionName: fileName.replace(/\.[a-z0-9]{1,8}$/i, ''),
+        versionNumber: versionNumber || '',
+        tag: tag || '',
+        fileName,
+        source: 'GitHub',
+        githubRepo: repoInfo.key,
+        githubAssetId: assetId,
+        githubReleaseId: String(release?.id || ''),
+        githubPublishedAt: String(release?.published_at || release?.created_at || now),
+        updatedAt: now,
+        createdBy: actorUid || ''
+      };
+      const existingRow = byAssetId.get(assetId);
+      if (existingRow?.id) {
+        await fb().updateDoc(fb().doc(fs.db, COLLECTION, existingRow.id), payload);
+      } else {
+        await fb().addDoc(fb().collection(fs.db, COLLECTION), {
+          ...payload,
+          createdAt: now
+        });
+      }
+      upserts += 1;
+    }
+
+    let removed = 0;
+    for (const row of existing) {
+      const aid = String(row.githubAssetId || '');
+      if (!aid || latestAssetIds.has(aid)) continue;
+      await fb().deleteDoc(fb().doc(fs.db, COLLECTION, row.id));
+      removed += 1;
+    }
+
+    return { synced: upserts, removed, tag };
+  }
+
+  async function maybeAutoRefreshGithubRows(rows) {
+    const repos = Array.from(new Set(
+      (rows || [])
+        .map((r) => String(r.githubRepo || '').trim())
+        .filter(Boolean)
+    ));
+    if (!repos.length) return rows || [];
+
+    const now = Date.now();
+    const last = Number(localStorage.getItem('liber_downloads_last_sync_at') || '0');
+    if (now - last < 10 * 60 * 1000) return rows || [];
+
+    const fs = getFirebaseService();
+    const me = fs?.auth?.currentUser;
+    for (const key of repos) {
+      const [owner, repo] = key.split('/');
+      if (!owner || !repo) continue;
+      try { await syncGithubRepoLatest({ owner, repo, key }, me?.uid || ''); } catch (_) {}
+    }
+    localStorage.setItem('liber_downloads_last_sync_at', String(Date.now()));
+    return loadRows();
+  }
+
+  async function ensureAdmin() {
+    try {
+      const parent = window.parent || window.top;
+      if (parent && parent.dashboardManager?._isAdminSession) return true;
+      if (parent && parent.authManager?.isAdmin?.()) return true;
+    } catch (_) {}
+    const fs = getFirebaseService();
+    const me = fs?.auth?.currentUser;
+    if (!me || !fs?.db) return false;
+    const userDoc = await fb().getDoc(fb().doc(fs.db, 'users', me.uid));
+    const role = userDoc?.exists ? (userDoc.data()?.role || 'user') : 'user';
+    return String(role).toLowerCase() === 'admin';
+  }
+
+  function formatDate(v) {
+    const d = v?.toDate ? v.toDate() : new Date(v || Date.now());
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleString();
+  }
+
+  function platformLabel(platform) {
+    const p = normalizePlatform(platform);
+    if (p === 'macos') return 'Mac OS';
+    if (p === 'ios') return 'iOS';
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }
+
+  async function loadRows() {
+    const fs = getFirebaseService();
+    if (!fs?.db) return [];
+    try {
+      const q = fb().query(
+        fb().collection(fs.db, COLLECTION),
+        fb().orderBy('updatedAt', 'desc'),
+        fb().limit(400)
+      );
+      const snap = await fb().getDocs(q);
+      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return maybeAutoRefreshGithubRows(rows);
+    } catch (e) {
+      // fallback when composite indexes/order are not ready
+      const snap = await fb().getDocs(fb().collection(fs.db, COLLECTION));
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+      return maybeAutoRefreshGithubRows(rows);
+    }
+  }
+
+  function renderRows(rows) {
+    const empty = byId('downloads-empty');
+    const wrap = byId('downloads-table-wrap');
+    const body = byId('downloads-table-body');
+    if (!body || !empty || !wrap) return;
+    if (!rows.length) {
+      empty.classList.remove('hidden');
+      wrap.classList.add('hidden');
+      body.innerHTML = '';
+      return;
+    }
+    empty.classList.add('hidden');
+    wrap.classList.remove('hidden');
+
+    body.innerHTML = rows
+      .map((r) => {
+        const meta = parseDownloadMeta(r.directUrl || '');
+        const versionName = String(r.versionName || meta.versionName || '-');
+        const versionNumber = String(r.versionNumber || meta.versionNumber || '-');
+        const tag = String(r.tag || meta.tag || '-');
+        const source = String(r.source || meta.source || '-');
+        const fileName = String(r.fileName || meta.fileName || '-');
+        const platform = normalizePlatform(r.platform || meta.platform);
+        return `
+          <tr>
+            <td>${escapeHtml(versionName)}</td>
+            <td>${escapeHtml(versionNumber)}</td>
+            <td>${escapeHtml(tag)}</td>
+            <td><span class="platform-pill">${escapeHtml(platformLabel(platform))}</span></td>
+            <td>${escapeHtml(source)}</td>
+            <td>${escapeHtml(fileName)}</td>
+            <td>${escapeHtml(formatDate(r.updatedAt || r.createdAt))}</td>
+            <td class="row-actions">
+              <button type="button" class="icon-btn" data-open="${escapeHtml(r.directUrl || '')}" title="Open"><i class="fas fa-up-right-from-square"></i></button>
+              <button type="button" class="icon-btn" data-delete="${escapeHtml(r.id)}" title="Delete"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    body.querySelectorAll('[data-open]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const url = btn.getAttribute('data-open');
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      });
+    });
+    body.querySelectorAll('[data-delete]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-delete');
+        if (!id) return;
+        if (!confirm('Delete this download link?')) return;
+        try {
+          const fs = getFirebaseService();
+          await fb().deleteDoc(fb().doc(fs.db, COLLECTION, id));
+          notify('Link removed');
+          renderRows(await loadRows());
+        } catch (e) {
+          notify(e?.message || 'Failed to delete', 'error');
+        }
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = String(s || '');
+    return d.innerHTML;
+  }
+
+  async function addDownload(e) {
+    e.preventDefault();
+    const fs = getFirebaseService();
+    if (!fs?.db) return;
+    const me = fs.auth?.currentUser;
+    if (!me) return notify('Please log in', 'error');
+
+    const url = String(byId('download-url')?.value || '').trim();
+    const platformInput = String(byId('download-platform')?.value || 'auto').trim();
+    const customName = String(byId('download-name')?.value || '').trim();
+    if (!url) return notify('Direct link is required', 'error');
+
+    const meta = parseDownloadMeta(url);
+    const platform = platformInput === 'auto' ? meta.platform : normalizePlatform(platformInput);
+    const now = new Date().toISOString();
+
+    const ghRepo = parseGithubRepo(url);
+    if (ghRepo) {
+      try {
+        const synced = await syncGithubRepoLatest(ghRepo, me.uid);
+        byId('download-form')?.reset();
+        notify(`Synced latest ${ghRepo.key} release ${synced.tag ? `(${synced.tag})` : ''}: ${synced.synced} assets`, 'success');
+        renderRows(await loadRows());
+        return;
+      } catch (err) {
+        notify(err?.message || 'Failed to sync latest GitHub release', 'error');
+        return;
+      }
+    }
+
+    const payload = {
+      directUrl: url,
+      platform,
+      versionName: customName || meta.versionName || '',
+      versionNumber: meta.versionNumber || '',
+      tag: meta.tag || '',
+      fileName: meta.fileName || '',
+      source: meta.source || '',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: me.uid
+    };
+
+    try {
+      await fb().addDoc(fb().collection(fs.db, COLLECTION), payload);
+      byId('download-form')?.reset();
+      notify('Download link added');
+      renderRows(await loadRows());
+    } catch (err) {
+      notify(err?.message || 'Failed to add download', 'error');
+    }
+  }
+
+  function showDenied(message) {
+    const app = document.querySelector('.downloads-manager-app');
+    if (!app) return;
+    app.innerHTML = `
+      <header class="downloads-header">
+        <h1><i class="fas fa-download"></i> Downloads Manager</h1>
+      </header>
+      <section class="panel">
+        <p style="color:#ef4444;margin:0 0 12px 0">${escapeHtml(message)}</p>
+        <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+      </section>
+    `;
+    byId('back-btn')?.addEventListener('click', backToDashboard);
+  }
+
+  function backToDashboard() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'liber:close-app-shell' }, '*');
+      }
+    } catch (_) {}
+  }
+
+  async function init() {
+    byId('back-btn')?.addEventListener('click', backToDashboard);
+    const ok = await ensureAdmin();
+    if (!ok) {
+      showDenied('Downloads Manager is for administrators only.');
+      return;
+    }
+    byId('download-form')?.addEventListener('submit', addDownload);
+    renderRows(await loadRows());
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

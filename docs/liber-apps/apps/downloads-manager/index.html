@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Downloads Manager</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="downloads-manager-app">
+    <header class="downloads-header">
+      <h1><i class="fas fa-download"></i> Downloads Manager</h1>
+      <button id="back-btn" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</button>
+    </header>
+
+    <section class="panel">
+      <h2>Add download</h2>
+      <form id="download-form" class="download-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="download-platform">Platform</label>
+            <select id="download-platform">
+              <option value="auto" selected>Auto detect</option>
+              <option value="windows">Windows</option>
+              <option value="macos">Mac OS</option>
+              <option value="android">Android</option>
+              <option value="ios">iOS</option>
+              <option value="linux">Linux</option>
+              <option value="web">Web</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="download-name">Version name (optional)</label>
+            <input type="text" id="download-name" placeholder="Stable / Beta / Pro build" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="download-url">Direct download link *</label>
+          <input type="url" id="download-url" required placeholder="https://github.com/.../releases/download/.../file.exe" />
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Add link</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Versions list</h2>
+      <div id="downloads-empty" class="empty-state">No download links added yet.</div>
+      <div id="downloads-table-wrap" class="downloads-table-wrap hidden">
+        <table class="downloads-table">
+          <thead>
+            <tr>
+              <th>Version Name</th>
+              <th>Version</th>
+              <th>Tag</th>
+              <th>Platform</th>
+              <th>Source</th>
+              <th>Filename</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="downloads-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="../../js/secure-keys.js"></script>
+  <script src="../../js/firebase-loader.js"></script>
+  <script src="../../js/firebase-service.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

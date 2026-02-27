@@ -1,0 +1,145 @@
+.downloads-manager-app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--primary-text, #f4f7ff);
+}
+
+.downloads-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.downloads-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.panel {
+  border: 1px solid var(--border-color, #283246);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--secondary-bg, #0d1119);
+  margin-bottom: 14px;
+}
+
+.panel h2 {
+  margin: 0 0 12px 0;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px;
+  background: #111827;
+  border: 1px solid #2b3854;
+  color: #e8edff;
+  border-radius: 8px;
+}
+
+.downloads-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #2b3854;
+  border-radius: 10px;
+}
+
+.downloads-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+
+.downloads-table th,
+.downloads-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.downloads-table th {
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.downloads-table td.url {
+  max-width: 300px;
+}
+
+.downloads-table td.url a {
+  color: var(--accent-color, #00d4ff);
+  text-decoration: none;
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.downloads-table td.url a:hover {
+  text-decoration: underline;
+}
+
+.platform-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  border: 1px solid #2b3854;
+  background: #161a22;
+  color: #e8edff;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  border-color: var(--accent-color, #00d4ff);
+}
+
+.empty-state {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 680px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
