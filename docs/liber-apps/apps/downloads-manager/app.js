@@ -116,8 +116,18 @@
   }
 
   function extractVersionNumber(input) {
-    const m = /(?:^|[^a-z0-9])(v?\d+\.\d+\.\d+(?:[-._][a-z0-9]+)*)/i.exec(String(input || ''));
+    const m = /(?:^|[^a-z0-9])(v?\d+(?:\.\d+){1,3}(?:[-._][a-z0-9]+)*)/i.exec(String(input || ''));
     return m ? m[1].replace(/_/g, '.') : '';
+  }
+
+  async function fetchGithubRepoMeta(owner, repo) {
+    const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/vnd.github+json' }
+    });
+    if (!res.ok) return null;
+    return res.json();
   }
 
   async function fetchLatestGithubRelease(owner, repo) {
@@ -142,7 +152,11 @@
     if (!fs?.db || !repoInfo?.owner || !repoInfo?.repo) return { synced: 0, removed: 0, tag: '' };
 
     const release = await fetchLatestGithubRelease(repoInfo.owner, repoInfo.repo);
+    const repoMeta = await fetchGithubRepoMeta(repoInfo.owner, repoInfo.repo);
     const tag = String(release?.tag_name || release?.name || '').trim();
+    const repoDescription = String(repoMeta?.description || '').trim();
+    const releaseDescription = String(release?.body || '').trim();
+    const mergedDescription = [repoDescription, releaseDescription].filter(Boolean).join(' | ');
     const assets = Array.isArray(release?.assets) ? release.assets : [];
     if (!assets.length) throw new Error('Latest release has no downloadable assets');
 
@@ -166,9 +180,13 @@
         platform,
         versionName: fileName.replace(/\.[a-z0-9]{1,8}$/i, ''),
         versionNumber: versionNumber || '',
+        version: tag || '',
         tag: tag || '',
         fileName,
         source: 'GitHub',
+        repoDescription,
+        releaseDescription,
+        description: mergedDescription,
         githubRepo: repoInfo.key,
         githubAssetId: assetId,
         githubReleaseId: String(release?.id || ''),
@@ -289,22 +307,22 @@
       .map((r) => {
         const meta = parseDownloadMeta(r.directUrl || '');
         const versionName = String(r.versionName || meta.versionName || '-');
-        const versionNumber = String(r.versionNumber || meta.versionNumber || '-');
-        const tag = String(r.tag || meta.tag || '-');
+        const version = String(r.version || r.tag || meta.tag || r.versionNumber || meta.versionNumber || '-');
         const source = String(r.source || meta.source || '-');
         const fileName = String(r.fileName || meta.fileName || '-');
+        const description = String(r.description || r.releaseDescription || r.repoDescription || '-');
         const platform = normalizePlatform(r.platform || meta.platform);
         return `
           <tr>
             <td>${escapeHtml(versionName)}</td>
-            <td>${escapeHtml(versionNumber)}</td>
-            <td>${escapeHtml(tag)}</td>
+            <td>${escapeHtml(version)}</td>
             <td><span class="platform-pill">${escapeHtml(platformLabel(platform))}</span></td>
             <td>${escapeHtml(source)}</td>
             <td>${escapeHtml(fileName)}</td>
+            <td class="description" title="${escapeHtml(description)}">${escapeHtml(description)}</td>
             <td>${escapeHtml(formatDate(r.updatedAt || r.createdAt))}</td>
             <td class="row-actions">
-              <button type="button" class="icon-btn" data-open="${escapeHtml(r.directUrl || '')}" title="Open"><i class="fas fa-up-right-from-square"></i></button>
+              <button type="button" class="icon-btn" data-open="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(fileName)}" title="Download"><i class="fas fa-download"></i></button>
               <button type="button" class="icon-btn" data-delete="${escapeHtml(r.id)}" title="Delete"><i class="fas fa-trash"></i></button>
             </td>
           </tr>
@@ -315,7 +333,8 @@
     body.querySelectorAll('[data-open]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const url = btn.getAttribute('data-open');
-        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        const fileName = btn.getAttribute('data-file') || 'download';
+        if (url) triggerDirectDownload(url, fileName);
       });
     });
     body.querySelectorAll('[data-delete]').forEach((btn) => {
@@ -339,6 +358,17 @@
     const d = document.createElement('div');
     d.textContent = String(s || '');
     return d.innerHTML;
+  }
+
+  function triggerDirectDownload(url, fileName) {
+    const a = document.createElement('a');
+    a.href = String(url || '');
+    a.download = String(fileName || 'download').trim() || 'download';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   async function addDownload(e) {
@@ -376,9 +406,13 @@
       platform,
       versionName: customName || meta.versionName || '',
       versionNumber: meta.versionNumber || '',
+      version: meta.tag || meta.versionNumber || '',
       tag: meta.tag || '',
       fileName: meta.fileName || '',
       source: meta.source || '',
+      repoDescription: '',
+      releaseDescription: '',
+      description: '',
       createdAt: now,
       updatedAt: now,
       createdBy: me.uid

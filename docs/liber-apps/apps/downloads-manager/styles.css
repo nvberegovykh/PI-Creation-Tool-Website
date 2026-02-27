@@ -65,7 +65,8 @@
 .downloads-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 1320px;
+  table-layout: fixed;
 }
 
 .downloads-table th,
@@ -75,6 +76,9 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .downloads-table th {
@@ -100,6 +104,32 @@
   text-decoration: underline;
 }
 
+.downloads-table td.description {
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.92;
+}
+
+/* Keep each segment in its own boundary. */
+.downloads-table th:nth-child(1),
+.downloads-table td:nth-child(1) { width: 200px; }  /* Version Name */
+.downloads-table th:nth-child(2),
+.downloads-table td:nth-child(2) { width: 100px; }  /* Version */
+.downloads-table th:nth-child(3),
+.downloads-table td:nth-child(3) { width: 110px; }  /* Platform */
+.downloads-table th:nth-child(4),
+.downloads-table td:nth-child(4) { width: 110px; }  /* Source */
+.downloads-table th:nth-child(5),
+.downloads-table td:nth-child(5) { width: 280px; }  /* Filename */
+.downloads-table th:nth-child(6),
+.downloads-table td:nth-child(6) { width: 300px; }  /* Description */
+.downloads-table th:nth-child(7),
+.downloads-table td:nth-child(7) { width: 150px; }  /* Updated */
+.downloads-table th:nth-child(8),
+.downloads-table td:nth-child(8) { width: 120px; }  /* Actions */
+
 .platform-pill {
   display: inline-flex;
   align-items: center;
@@ -113,6 +143,8 @@
 
 .row-actions {
   display: flex;
+  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
