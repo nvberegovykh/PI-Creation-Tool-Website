@@ -42,7 +42,8 @@
           <input type="url" id="download-url" required placeholder="https://github.com/.../releases/download/.../file.exe" />
         </div>
         <div class="form-actions">
-          <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Add link</button>
+          <button type="submit" id="download-submit-btn" class="btn btn-primary"><i class="fas fa-plus"></i> Add link</button>
+          <button type="button" id="download-cancel-edit" class="btn btn-secondary hidden">Cancel edit</button>
         </div>
       </form>
     </section>
@@ -59,7 +60,6 @@
               <th>Platform</th>
               <th>Source</th>
               <th>Filename</th>
-              <th>Description</th>
               <th>Updated</th>
               <th>Actions</th>
             </tr>
@@ -67,6 +67,7 @@
           <tbody id="downloads-table-body"></tbody>
         </table>
       </div>
+      <div id="downloads-cards-wrap" class="downloads-cards-wrap hidden"></div>
     </section>
   </div>
 

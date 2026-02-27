@@ -4,6 +4,7 @@
   const COLLECTION = 'downloads';
   const PLATFORM_ORDER = ['windows', 'macos', 'android', 'ios', 'linux', 'web', 'other'];
   const GITHUB_API_BASE = 'https://api.github.com/repos/';
+  const state = { editId: '' };
 
   function byId(id) {
     return document.getElementById(id);
@@ -289,55 +290,102 @@
     }
   }
 
+  function composeDescription(row, source, fileName) {
+    const value = String(row?.description || row?.releaseDescription || row?.repoDescription || '').trim();
+    if (value) return value;
+    const repo = String(row?.githubRepo || '').trim();
+    if (repo) return `Latest release asset from ${repo}`;
+    return `${source || 'Direct'} download item: ${fileName || 'file'}`;
+  }
+
   function renderRows(rows) {
     const empty = byId('downloads-empty');
     const wrap = byId('downloads-table-wrap');
     const body = byId('downloads-table-body');
-    if (!body || !empty || !wrap) return;
+    const cardsWrap = byId('downloads-cards-wrap');
+    if (!body || !empty || !wrap || !cardsWrap) return;
     if (!rows.length) {
       empty.classList.remove('hidden');
       wrap.classList.add('hidden');
+      cardsWrap.classList.add('hidden');
       body.innerHTML = '';
+      cardsWrap.innerHTML = '';
       return;
     }
     empty.classList.add('hidden');
     wrap.classList.remove('hidden');
+    cardsWrap.classList.remove('hidden');
 
-    body.innerHTML = rows
+    const viewRows = rows
       .map((r) => {
         const meta = parseDownloadMeta(r.directUrl || '');
         const versionName = String(r.versionName || meta.versionName || '-');
         const version = String(r.version || r.tag || meta.tag || r.versionNumber || meta.versionNumber || '-');
         const source = String(r.source || meta.source || '-');
         const fileName = String(r.fileName || meta.fileName || '-');
-        const description = String(r.description || r.releaseDescription || r.repoDescription || '-');
+        const description = composeDescription(r, source, fileName);
         const platform = normalizePlatform(r.platform || meta.platform);
+        const updated = formatDate(r.updatedAt || r.createdAt);
+        return { r, versionName, version, source, fileName, description, platform, updated };
+      });
+
+    body.innerHTML = viewRows
+      .map((r) => {
         return `
-          <tr>
-            <td>${escapeHtml(versionName)}</td>
-            <td>${escapeHtml(version)}</td>
-            <td><span class="platform-pill">${escapeHtml(platformLabel(platform))}</span></td>
-            <td>${escapeHtml(source)}</td>
-            <td>${escapeHtml(fileName)}</td>
-            <td class="description" title="${escapeHtml(description)}">${escapeHtml(description)}</td>
-            <td>${escapeHtml(formatDate(r.updatedAt || r.createdAt))}</td>
+          <tr class="download-main-row">
+            <td>${escapeHtml(r.versionName)}</td>
+            <td>${escapeHtml(r.version)}</td>
+            <td><span class="platform-pill">${escapeHtml(platformLabel(r.platform))}</span></td>
+            <td>${escapeHtml(r.source)}</td>
+            <td title="${escapeHtml(r.fileName)}">${escapeHtml(r.fileName)}</td>
+            <td>${escapeHtml(r.updated)}</td>
             <td class="row-actions">
-              <button type="button" class="icon-btn" data-open="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(fileName)}" title="Download"><i class="fas fa-download"></i></button>
-              <button type="button" class="icon-btn" data-delete="${escapeHtml(r.id)}" title="Delete"><i class="fas fa-trash"></i></button>
+              <button type="button" class="icon-btn" data-open="${escapeHtml(r.r.directUrl || '')}" data-file="${escapeHtml(r.fileName)}" title="Download"><i class="fas fa-download"></i></button>
+              <button type="button" class="icon-btn" data-edit="${escapeHtml(r.r.id)}" title="Edit"><i class="fas fa-pen"></i></button>
+              <button type="button" class="icon-btn" data-delete="${escapeHtml(r.r.id)}" title="Delete"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>
+          <tr class="download-sub-row">
+            <td colspan="7">
+              <div class="download-subline">
+                <span class="download-sub-label">Description</span>
+                <span class="download-sub-value">${escapeHtml(r.description)}</span>
+              </div>
             </td>
           </tr>
         `;
       })
       .join('');
 
-    body.querySelectorAll('[data-open]').forEach((btn) => {
+    cardsWrap.innerHTML = viewRows.map((row) => `
+      <article class="download-card">
+        <div class="download-card-head">
+          <h4 title="${escapeHtml(row.versionName)}">${escapeHtml(row.versionName)}</h4>
+          <span class="platform-pill">${escapeHtml(platformLabel(row.platform))}</span>
+        </div>
+        <div class="download-card-grid">
+          <div><span>Version</span><strong>${escapeHtml(row.version)}</strong></div>
+          <div><span>Source</span><strong>${escapeHtml(row.source)}</strong></div>
+          <div><span>Filename</span><strong title="${escapeHtml(row.fileName)}">${escapeHtml(row.fileName)}</strong></div>
+          <div><span>Updated</span><strong>${escapeHtml(row.updated)}</strong></div>
+        </div>
+        <p class="download-card-description">${escapeHtml(row.description)}</p>
+        <div class="download-card-actions">
+          <button type="button" class="icon-btn" data-open="${escapeHtml(row.r.directUrl || '')}" data-file="${escapeHtml(row.fileName)}" title="Download"><i class="fas fa-download"></i></button>
+          <button type="button" class="icon-btn" data-edit="${escapeHtml(row.r.id)}" title="Edit"><i class="fas fa-pen"></i></button>
+          <button type="button" class="icon-btn" data-delete="${escapeHtml(row.r.id)}" title="Delete"><i class="fas fa-trash"></i></button>
+        </div>
+      </article>
+    `).join('');
+
+    document.querySelectorAll('#downloads-table-body [data-open], #downloads-cards-wrap [data-open]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const url = btn.getAttribute('data-open');
         const fileName = btn.getAttribute('data-file') || 'download';
         if (url) triggerDirectDownload(url, fileName);
       });
     });
-    body.querySelectorAll('[data-delete]').forEach((btn) => {
+    document.querySelectorAll('#downloads-table-body [data-delete], #downloads-cards-wrap [data-delete]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-delete');
         if (!id) return;
@@ -350,6 +398,16 @@
         } catch (e) {
           notify(e?.message || 'Failed to delete', 'error');
         }
+      });
+    });
+    document.querySelectorAll('#downloads-table-body [data-edit], #downloads-cards-wrap [data-edit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-edit');
+        const row = rows.find((x) => String(x.id) === String(id));
+        if (!row) return;
+        setEditMode(row);
+        byId('download-url')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        byId('download-url')?.focus();
       });
     });
   }
@@ -371,6 +429,24 @@
     document.body.removeChild(a);
   }
 
+  function setEditMode(row) {
+    const submitBtn = byId('download-submit-btn');
+    const cancelBtn = byId('download-cancel-edit');
+    if (!submitBtn || !cancelBtn) return;
+    if (!row) {
+      state.editId = '';
+      submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add link';
+      cancelBtn.classList.add('hidden');
+      return;
+    }
+    state.editId = String(row.id || '');
+    byId('download-url').value = String(row.directUrl || '');
+    byId('download-name').value = String(row.versionName || '');
+    byId('download-platform').value = normalizePlatform(row.platform || 'auto');
+    submitBtn.innerHTML = '<i class="fas fa-save"></i> Save changes';
+    cancelBtn.classList.remove('hidden');
+  }
+
   async function addDownload(e) {
     e.preventDefault();
     const fs = getFirebaseService();
@@ -388,6 +464,30 @@
     const now = new Date().toISOString();
 
     const ghRepo = parseGithubRepo(url);
+    if (state.editId) {
+      try {
+        const updatePayload = {
+          directUrl: url,
+          platform,
+          versionName: customName || meta.versionName || '',
+          versionNumber: meta.versionNumber || '',
+          version: meta.tag || meta.versionNumber || '',
+          tag: meta.tag || '',
+          fileName: meta.fileName || '',
+          source: meta.source || '',
+          updatedAt: now
+        };
+        await fb().updateDoc(fb().doc(fs.db, COLLECTION, state.editId), updatePayload);
+        byId('download-form')?.reset();
+        setEditMode(null);
+        notify('Download link updated');
+        renderRows(await loadRows());
+        return;
+      } catch (err) {
+        notify(err?.message || 'Failed to update download', 'error');
+        return;
+      }
+    }
     if (ghRepo) {
       try {
         const synced = await syncGithubRepoLatest(ghRepo, me.uid);
@@ -421,6 +521,7 @@
     try {
       await fb().addDoc(fb().collection(fs.db, COLLECTION), payload);
       byId('download-form')?.reset();
+      setEditMode(null);
       notify('Download link added');
       renderRows(await loadRows());
     } catch (err) {
@@ -459,6 +560,11 @@
       return;
     }
     byId('download-form')?.addEventListener('submit', addDownload);
+    byId('download-cancel-edit')?.addEventListener('click', () => {
+      byId('download-form')?.reset();
+      setEditMode(null);
+    });
+    setEditMode(null);
     renderRows(await loadRows());
   }
 
