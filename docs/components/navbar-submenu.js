@@ -306,6 +306,14 @@
     containers.forEach((c) => syncDownloadsButtons(c));
   }
 
+  function composeDownloadDescription(row, source, fileName) {
+    const value = String(row?.description || row?.releaseDescription || row?.repoDescription || '').trim();
+    if (value) return value;
+    const repo = String(row?.githubRepo || '').trim();
+    if (repo) return `Latest release asset from ${repo}`;
+    return `${source || 'Direct'} download item: ${fileName || 'file'}`;
+  }
+
   function renderDownloadsPopupContent(rows) {
     if (!rows.length) {
       return '<div class="gc-downloads-empty">No downloads are available right now.</div>';
@@ -318,7 +326,9 @@
         _versionName: String(r.versionName || meta.versionName || '-'),
         _version: String(r.version || r.tag || meta.tag || r.versionNumber || meta.versionNumber || '-'),
         _source: String(r.source || meta.source || '-'),
-        _fileName: String(r.fileName || meta.fileName || '-')
+        _fileName: String(r.fileName || meta.fileName || '-'),
+        _description: composeDownloadDescription(r, String(r.source || meta.source || '-'), String(r.fileName || meta.fileName || '-')),
+        _updated: formatDate(r.updatedAt || r.createdAt)
       };
     });
 
@@ -332,17 +342,42 @@
       const list = enriched.filter((r) => r._platform === p);
       const rowsHtml = list
         .map((r) => `
-          <tr>
+          <tr class="gc-download-main-row">
             <td>${escapeHtml(r._versionName)}</td>
             <td>${escapeHtml(r._version)}</td>
             <td>${escapeHtml(r._source)}</td>
             <td>${escapeHtml(r._fileName)}</td>
-            <td title="${escapeHtml(String(r.description || r.releaseDescription || r.repoDescription || '-'))}">${escapeHtml(String(r.description || r.releaseDescription || r.repoDescription || '-'))}</td>
-            <td>${escapeHtml(formatDate(r.updatedAt || r.createdAt))}</td>
+            <td>${escapeHtml(r._updated)}</td>
             <td><button type="button" class="gc-download-link gc-download-button" data-url="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(r._fileName || 'download')}">Download</button></td>
+          </tr>
+          <tr class="gc-download-sub-row">
+            <td colspan="6">
+              <div class="gc-download-subline">
+                <span class="gc-download-sub-label">Description</span>
+                <span class="gc-download-sub-value">${escapeHtml(r._description)}</span>
+              </div>
+            </td>
           </tr>
         `)
         .join('');
+      const cardsHtml = list.map((r) => `
+        <article class="gc-download-card">
+          <div class="gc-download-card-head">
+            <h4 title="${escapeHtml(r._versionName)}">${escapeHtml(r._versionName)}</h4>
+            <span class="gc-downloads-platform-tab active">${escapeHtml(platformLabel(r._platform))}</span>
+          </div>
+          <div class="gc-download-card-grid">
+            <div><span>Version</span><strong>${escapeHtml(r._version)}</strong></div>
+            <div><span>Source</span><strong>${escapeHtml(r._source)}</strong></div>
+            <div><span>Filename</span><strong title="${escapeHtml(r._fileName)}">${escapeHtml(r._fileName)}</strong></div>
+            <div><span>Updated</span><strong>${escapeHtml(r._updated)}</strong></div>
+          </div>
+          <p class="gc-download-card-description">${escapeHtml(r._description)}</p>
+          <div class="gc-download-card-actions">
+            <button type="button" class="gc-download-link gc-download-button" data-url="${escapeHtml(r.directUrl || '')}" data-file="${escapeHtml(r._fileName || 'download')}">Download</button>
+          </div>
+        </article>
+      `).join('');
       return `
         <div class="gc-downloads-panel${p === first ? ' active' : ''}" data-gc-platform-panel="${p}">
           <div class="gc-downloads-table-wrap">
@@ -353,7 +388,6 @@
                   <th>Version</th>
                   <th>Source</th>
                   <th>Filename</th>
-                  <th>Description</th>
                   <th>Updated</th>
                   <th>Action</th>
                 </tr>
@@ -361,6 +395,7 @@
               <tbody>${rowsHtml}</tbody>
             </table>
           </div>
+          <div class="gc-downloads-cards-wrap">${cardsHtml}</div>
         </div>
       `;
     }).join('');

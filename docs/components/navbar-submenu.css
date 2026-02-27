@@ -324,6 +324,14 @@ body.gc-pricing-open {
   padding-top: 56px;
   color: #fff;
   box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(14px) scale(0.985);
+  transition: opacity 0.24s ease, transform 0.28s ease;
+}
+
+.gc-downloads-overlay.gc-open .gc-downloads-popup {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .gc-downloads-close {
@@ -401,7 +409,7 @@ body.gc-downloads-open {
 
 .gc-downloads-table {
   width: 100%;
-  min-width: 1260px;
+  min-width: 1040px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -444,13 +452,98 @@ body.gc-downloads-open {
 .gc-downloads-table th:nth-child(3),
 .gc-downloads-table td:nth-child(3) { width: 110px; }  /* Source */
 .gc-downloads-table th:nth-child(4),
-.gc-downloads-table td:nth-child(4) { width: 260px; }  /* Filename */
+.gc-downloads-table td:nth-child(4) { width: 360px; }  /* Filename */
 .gc-downloads-table th:nth-child(5),
-.gc-downloads-table td:nth-child(5) { width: 300px; }  /* Description */
+.gc-downloads-table td:nth-child(5) { width: 130px; }  /* Updated */
 .gc-downloads-table th:nth-child(6),
-.gc-downloads-table td:nth-child(6) { width: 130px; }  /* Updated */
-.gc-downloads-table th:nth-child(7),
-.gc-downloads-table td:nth-child(7) { width: 120px; }  /* Action */
+.gc-downloads-table td:nth-child(6) { width: 120px; }  /* Action */
+
+.gc-download-sub-row td {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.gc-download-subline {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.gc-download-sub-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+  flex: 0 0 auto;
+}
+
+.gc-download-sub-value {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.92;
+}
+
+.gc-downloads-cards-wrap {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .gc-downloads-table-wrap {
+    display: none;
+  }
+  .gc-downloads-cards-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .gc-download-card {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .gc-download-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  .gc-download-card-head h4 {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+  .gc-download-card-grid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .gc-download-card-grid span {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.7;
+  }
+  .gc-download-card-grid strong {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gc-download-card-description {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
+    opacity: 0.92;
+  }
+  .gc-download-card-actions {
+    margin-top: 10px;
+  }
+}
 
 /* Pricing popup title */
 .gc-pricing-title {
