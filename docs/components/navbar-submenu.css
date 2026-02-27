@@ -513,12 +513,18 @@ body.gc-downloads-open {
   .gc-download-card-head {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
   }
   .gc-download-card-head h4 {
     margin: 0;
     font-size: 0.95rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.3;
   }
   .gc-download-card-grid {
     margin-top: 10px;

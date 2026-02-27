@@ -50,11 +50,22 @@
 
       const dot = dotRow.querySelector('.gc-nav-mobile-dot');
       const submenu = dotRow.querySelector('.gc-nav-mobile-submenu');
+      const applyMobileSubmenuSpacing = (open) => {
+        if (!dotRow || !submenu) return;
+        if (!open) {
+          dotRow.style.marginBottom = '0px';
+          return;
+        }
+        // Keep social/footer items below the expanded submenu.
+        const extra = Math.ceil(submenu.scrollHeight || 0) + 12;
+        dotRow.style.marginBottom = `${extra}px`;
+      };
       dot.addEventListener('click', () => {
         const willOpen = !dotRow.classList.contains('gc-submenu-open');
         dot.classList.toggle('gc-active', willOpen);
         submenu.classList.toggle('gc-open', willOpen);
         dotRow.classList.toggle('gc-submenu-open', willOpen);
+        applyMobileSubmenuSpacing(willOpen);
       });
 
       dotRow.querySelector('[data-gc-nav="services"]').addEventListener('click', () => {
@@ -62,18 +73,21 @@
         submenu.classList.remove('gc-open');
         dot.classList.remove('gc-active');
         dotRow.classList.remove('gc-submenu-open');
+        applyMobileSubmenuSpacing(false);
       });
       dotRow.querySelector('[data-gc-nav="downloads"]').addEventListener('click', () => {
         openDownloadsPopup();
         submenu.classList.remove('gc-open');
         dot.classList.remove('gc-active');
         dotRow.classList.remove('gc-submenu-open');
+        applyMobileSubmenuSpacing(false);
       });
       dotRow.querySelector('[data-gc-nav="request"]').addEventListener('click', () => {
         if (typeof window.openRequestQuiz === 'function') window.openRequestQuiz();
         submenu.classList.remove('gc-open');
         dot.classList.remove('gc-active');
         dotRow.classList.remove('gc-submenu-open');
+        applyMobileSubmenuSpacing(false);
       });
     }
 

@@ -25,6 +25,15 @@
     return (items || []).filter((item) => item && item.type === 'text' && item.text);
   }
 
+  function suppressClickBriefly(ms) {
+    const duration = Math.max(120, Number(ms) || 350);
+    window.__gcSuppressClickUntil = Date.now() + duration;
+  }
+
+  function isClickSuppressed() {
+    return Number(window.__gcSuppressClickUntil || 0) > Date.now();
+  }
+
   async function loadFirebase() {
     if (window.__galleryFirebaseCtx) return window.__galleryFirebaseCtx;
     const [{ initializeApp }, firestoreMod] = await Promise.all([
@@ -265,9 +274,24 @@
       mediaEl.addEventListener('mousedown', (e) => {
         onStart(e.clientX, e.clientY);
         const m = (ev) => onMove(ev.clientX);
-        const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); };
+        const cleanup = () => {
+          document.removeEventListener('mousemove', m);
+          document.removeEventListener('mouseup', u);
+          window.removeEventListener('blur', cancelDrag);
+          document.removeEventListener('visibilitychange', onVisibilityAbort);
+        };
+        const cancelDrag = () => {
+          cleanup();
+          setIdx(idx);
+        };
+        const onVisibilityAbort = () => {
+          if (document.visibilityState === 'hidden') cancelDrag();
+        };
+        const u = (ev) => { cleanup(); onEnd(ev.clientX); };
         document.addEventListener('mousemove', m);
         document.addEventListener('mouseup', u);
+        window.addEventListener('blur', cancelDrag);
+        document.addEventListener('visibilitychange', onVisibilityAbort);
       });
       let touching = false;
       mediaEl.addEventListener('touchstart', (e) => {
@@ -343,7 +367,7 @@
       if (project) openPopup(project, allProjects || [], projectById);
     };
     container.addEventListener('click', (e) => {
-      if (window.__gcSuppressNextClick) { window.__gcSuppressNextClick = false; return; }
+      if (isClickSuppressed()) return;
       const card = e.target.closest('.gc-card[data-project-id]');
       if (!card || !container.contains(card)) return;
       const id = card.getAttribute('data-project-id');
@@ -694,7 +718,7 @@
     const onMove = (x) => {
       lastX = x;
       lastT = Date.now();
-      if (Math.abs(x - startX) > 5) { didDrag = true; window.__gcSuppressNextClick = true; }
+      if (Math.abs(x - startX) > 5) { didDrag = true; suppressClickBriefly(420); }
       const slideWidth = shell ? shell.offsetWidth : 400;
       const delta = startX - x;
       const pageOffset = delta / slideWidth;
@@ -732,7 +756,28 @@
     const SLOPE = 0.5; /* vertical scroll wins over horizontal swipe */
     let startY = 0;
     const addDrag = (el) => {
-      el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = (ev) => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(ev.clientX); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
+      el.addEventListener('mousedown', (e) => {
+        onStart(e.clientX);
+        const m = (ev) => onMove(ev.clientX);
+        const cleanup = () => {
+          document.removeEventListener('mousemove', m);
+          document.removeEventListener('mouseup', u);
+          window.removeEventListener('blur', cancelDrag);
+          document.removeEventListener('visibilitychange', onVisibilityAbort);
+        };
+        const cancelDrag = () => {
+          cleanup();
+          onEnd(startX);
+        };
+        const onVisibilityAbort = () => {
+          if (document.visibilityState === 'hidden') cancelDrag();
+        };
+        const u = (ev) => { cleanup(); onEnd(ev.clientX); };
+        document.addEventListener('mousemove', m);
+        document.addEventListener('mouseup', u);
+        window.addEventListener('blur', cancelDrag);
+        document.addEventListener('visibilitychange', onVisibilityAbort);
+      });
       let touched = false;
       el.addEventListener('touchstart', (e) => {
         touched = true;
@@ -852,7 +897,7 @@
       track.style.transition = 'none';
     };
     const onMove = (x) => {
-      if (Math.abs(x - startX) > 5) window.__gcSuppressNextClick = true;
+      if (Math.abs(x - startX) > 5) suppressClickBriefly(420);
       offset = startOffset + (startX - x);
       update();
     };
@@ -862,7 +907,29 @@
     let isHorizontalSwipe = null;
     const SWIPE_SLOPE = 0.5; /* vertical scroll wins over horizontal swipe */
     const addDrag = (el) => {
-      el.addEventListener('mousedown', (e) => { onStart(e.clientX); const m = (ev) => onMove(ev.clientX); const u = () => { document.removeEventListener('mousemove', m); document.removeEventListener('mouseup', u); onEnd(); }; document.addEventListener('mousemove', m); document.addEventListener('mouseup', u); });
+      el.addEventListener('mousedown', (e) => {
+        onStart(e.clientX);
+        const m = (ev) => onMove(ev.clientX);
+        const cleanup = () => {
+          document.removeEventListener('mousemove', m);
+          document.removeEventListener('mouseup', u);
+          window.removeEventListener('blur', cancelDrag);
+          document.removeEventListener('visibilitychange', onVisibilityAbort);
+        };
+        const cancelDrag = () => {
+          cleanup();
+          onEndRestoreTransition();
+          if (!autoScrollId) startAutoScroll();
+        };
+        const onVisibilityAbort = () => {
+          if (document.visibilityState === 'hidden') cancelDrag();
+        };
+        const u = () => { cleanup(); onEnd(); };
+        document.addEventListener('mousemove', m);
+        document.addEventListener('mouseup', u);
+        window.addEventListener('blur', cancelDrag);
+        document.addEventListener('visibilitychange', onVisibilityAbort);
+      });
       let touching = false;
       el.addEventListener('touchstart', (e) => {
         touching = true;
