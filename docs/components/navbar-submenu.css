@@ -486,6 +486,7 @@ body.gc-downloads-open {
 
 .gc-downloads-cards-wrap {
   display: none;
+  overflow-x: hidden;
 }
 
 @media (max-width: 780px) {
@@ -529,9 +530,8 @@ body.gc-downloads-open {
   .gc-download-card-grid strong {
     display: block;
     margin-top: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .gc-download-card-description {
     margin: 10px 0 0;
@@ -539,6 +539,7 @@ body.gc-downloads-open {
     line-height: 1.45;
     white-space: normal;
     opacity: 0.92;
+    overflow-wrap: anywhere;
   }
   .gc-download-card-actions {
     margin-top: 10px;

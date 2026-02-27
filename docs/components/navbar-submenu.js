@@ -1,6 +1,7 @@
 (function () {
   const DOWNLOAD_COLLECTION = 'downloads';
   const PLATFORM_ORDER = ['windows', 'macos', 'android', 'ios', 'linux', 'web', 'other'];
+  const GITHUB_API_BASE = 'https://api.github.com/repos/';
 
   function initOne(container) {
     if (!container) return;
@@ -258,6 +259,96 @@
     return d.toLocaleDateString();
   }
 
+  function parseGithubRepoFromRow(row) {
+    const key = String(row?.githubRepo || '').trim();
+    if (key && key.includes('/')) {
+      const [owner, repo] = key.split('/');
+      if (owner && repo) return { owner, repo, key: `${owner}/${repo}` };
+    }
+    try {
+      const url = new URL(String(row?.directUrl || '').trim());
+      if (!/github\.com$/i.test(url.hostname)) return null;
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      return { owner: parts[0], repo: parts[1], key: `${parts[0]}/${parts[1]}` };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function fetchGithubReleaseLatest(owner, repo) {
+    const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`;
+    const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) throw new Error(`Latest release fetch failed (${res.status})`);
+    return res.json();
+  }
+
+  async function fetchGithubRepoMeta(owner, repo) {
+    const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  async function refreshRowsWithLatestGithub(rows) {
+    const all = Array.isArray(rows) ? rows : [];
+    const repos = [];
+    const seen = new Set();
+    all.forEach((row) => {
+      const repo = parseGithubRepoFromRow(row);
+      if (!repo) return;
+      if (seen.has(repo.key)) return;
+      seen.add(repo.key);
+      repos.push(repo);
+    });
+    if (!repos.length) return all;
+
+    const nonGithubRows = all.filter((row) => !parseGithubRepoFromRow(row));
+    const githubRows = [];
+    for (const repo of repos) {
+      try {
+        const [release, meta] = await Promise.all([
+          fetchGithubReleaseLatest(repo.owner, repo.repo),
+          fetchGithubRepoMeta(repo.owner, repo.repo)
+        ]);
+        const tag = String(release?.tag_name || release?.name || '').trim();
+        const repoDescription = String(meta?.description || '').trim();
+        const releaseDescription = String(release?.body || '').trim();
+        const desc = [repoDescription, releaseDescription].find((x) => String(x || '').trim()) || '';
+        const assets = Array.isArray(release?.assets) ? release.assets : [];
+        assets.forEach((asset) => {
+          const directUrl = String(asset?.browser_download_url || '').trim();
+          const fileName = String(asset?.name || '').trim();
+          if (!directUrl || !fileName) return;
+          const platform = normalizePlatform(detectPlatform(directUrl, fileName));
+          const metaParsed = parseDownloadMeta(directUrl);
+          githubRows.push({
+            id: `${repo.key}:${String(asset?.id || fileName)}`,
+            directUrl,
+            versionName: fileName.replace(/\.[a-z0-9]{1,8}$/i, ''),
+            version: tag || metaParsed.versionNumber || '',
+            tag: tag || '',
+            fileName,
+            source: 'GitHub',
+            platform,
+            githubRepo: repo.key,
+            repoDescription,
+            releaseDescription,
+            description: desc,
+            updatedAt: String(release?.published_at || release?.created_at || new Date().toISOString())
+          });
+        });
+      } catch (_) {
+        const fallback = all.filter((row) => {
+          const r = parseGithubRepoFromRow(row);
+          return r && r.key === repo.key;
+        });
+        githubRows.push(...fallback);
+      }
+    }
+    return [...githubRows, ...nonGithubRows];
+  }
+
   async function fetchDownloadsRows(force) {
     const now = Date.now();
     if (!force && downloadsRowsCache && now - downloadsFetchedAt < DOWNLOADS_CACHE_MS) return downloadsRowsCache;
@@ -472,7 +563,8 @@
     overlay.classList.add('gc-open');
     document.body.classList.add('gc-downloads-open');
 
-    const rows = await fetchDownloadsRows(true);
+    const baseRows = await fetchDownloadsRows(true);
+    const rows = await refreshRowsWithLatestGithub(baseRows);
     content.innerHTML = renderDownloadsPopupContent(rows);
     wireDownloadsTabs(content);
 
