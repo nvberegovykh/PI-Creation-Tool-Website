@@ -56,7 +56,7 @@
 }
 
 .downloads-table-wrap {
-  overflow-x: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   border: 1px solid #2b3854;
   border-radius: 10px;
@@ -65,7 +65,7 @@
 .downloads-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1140px;
+  min-width: 0;
   table-layout: fixed;
 }
 
@@ -75,10 +75,11 @@
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 
 .downloads-table th {
@@ -146,6 +147,7 @@
   font-size: 12px;
   line-height: 1.45;
   opacity: 0.92;
+  overflow-wrap: anywhere;
 }
 
 .platform-pill {
@@ -202,6 +204,7 @@
   display: none;
   flex-direction: column;
   gap: 12px;
+  overflow-x: hidden;
 }
 
 .download-card {
@@ -242,9 +245,8 @@
   display: block;
   margin-top: 2px;
   font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .download-card-description {
@@ -253,6 +255,7 @@
   line-height: 1.45;
   opacity: 0.9;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .download-card-actions {

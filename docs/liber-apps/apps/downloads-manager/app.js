@@ -121,6 +121,51 @@
     return m ? m[1].replace(/_/g, '.') : '';
   }
 
+  function decodeBase64Utf8(b64) {
+    try {
+      const normalized = String(b64 || '').replace(/\s/g, '');
+      const bin = atob(normalized);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function stripMarkdown(md) {
+    const s = String(md || '');
+    return s
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/\r/g, '')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
+
+  async function fetchGithubReadmeDescription(owner, repo) {
+    try {
+      const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/readme`;
+      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) return '';
+      const data = await res.json();
+      const raw = decodeBase64Utf8(data?.content || '');
+      const text = stripMarkdown(raw);
+      const firstLongLine = text
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => line.length >= 24);
+      return String(firstLongLine || text.split('\n')[0] || '').slice(0, 280).trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function fetchGithubRepoMeta(owner, repo) {
     const url = `${GITHUB_API_BASE}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
     const res = await fetch(url, {
@@ -154,10 +199,11 @@
 
     const release = await fetchLatestGithubRelease(repoInfo.owner, repoInfo.repo);
     const repoMeta = await fetchGithubRepoMeta(repoInfo.owner, repoInfo.repo);
+    const readmeDescription = await fetchGithubReadmeDescription(repoInfo.owner, repoInfo.repo);
     const tag = String(release?.tag_name || release?.name || '').trim();
     const repoDescription = String(repoMeta?.description || '').trim();
     const releaseDescription = String(release?.body || '').trim();
-    const mergedDescription = [repoDescription, releaseDescription].filter(Boolean).join(' | ');
+    const mergedDescription = [readmeDescription, repoDescription, releaseDescription].find((x) => String(x || '').trim()) || '';
     const assets = Array.isArray(release?.assets) ? release.assets : [];
     if (!assets.length) throw new Error('Latest release has no downloadable assets');
 
@@ -185,6 +231,7 @@
         tag: tag || '',
         fileName,
         source: 'GitHub',
+        readmeDescription,
         repoDescription,
         releaseDescription,
         description: mergedDescription,
@@ -226,10 +273,6 @@
     ));
     if (!repos.length) return rows || [];
 
-    const now = Date.now();
-    const last = Number(localStorage.getItem('liber_downloads_last_sync_at') || '0');
-    if (now - last < 10 * 60 * 1000) return rows || [];
-
     const fs = getFirebaseService();
     const me = fs?.auth?.currentUser;
     for (const key of repos) {
@@ -237,7 +280,6 @@
       if (!owner || !repo) continue;
       try { await syncGithubRepoLatest({ owner, repo, key }, me?.uid || ''); } catch (_) {}
     }
-    localStorage.setItem('liber_downloads_last_sync_at', String(Date.now()));
     return loadRows();
   }
 
@@ -291,10 +333,10 @@
   }
 
   function composeDescription(row, source, fileName) {
-    const value = String(row?.description || row?.releaseDescription || row?.repoDescription || '').trim();
+    const value = String(row?.description || row?.readmeDescription || row?.repoDescription || row?.releaseDescription || '').trim();
     if (value) return value;
     const repo = String(row?.githubRepo || '').trim();
-    if (repo) return `Latest release asset from ${repo}`;
+    if (repo) return `Latest release from ${repo}`;
     return `${source || 'Direct'} download item: ${fileName || 'file'}`;
   }
 
