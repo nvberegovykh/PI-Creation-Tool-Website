@@ -128,7 +128,12 @@ class DashboardManager {
                 const src = String(el.currentSrc || el.src || '').trim();
                 if (!src) return null;
                 const explicit = el.getAttribute('data-fullscreen-media') === '1';
-                if (el.controls && !explicit) return null;
+                const allowControlledVideo =
+                    explicit
+                    || el.classList.contains('post-media-video')
+                    || el.classList.contains('player-media')
+                    || !!el.closest('.post-media-visual-item,.post-item,.wave-item,.video-item,.file-preview,[data-media-collection]');
+                if (el.controls && !allowControlledVideo) return null;
                 return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video') };
             }
             return null;
@@ -633,13 +638,32 @@ class DashboardManager {
             cardEl.dataset.assetLikeUrl = this.normalizeMediaUrl(url);
             const likeBtn = cardEl.querySelector('.asset-like-btn');
             const likeCount = cardEl.querySelector('.asset-like-count');
+            const commentsBtn = cardEl.querySelector('.asset-comment-btn');
+            const commentsCount = cardEl.querySelector('.asset-comments-count');
+            const viewsCount = cardEl.querySelector('.asset-views-count');
             const shareChatBtn = cardEl.querySelector('.asset-share-chat-btn');
             const keys = this.getAssetLikeKeys(kind, url);
             const primaryKey = keys[0];
+            let commentsPostId = '';
             const refreshCount = async ()=>{
                 try{
                     const n = await this.getAssetAggregatedLikeCount(kind, url);
                     if (likeCount) likeCount.textContent = `${n}`;
+                    if (!commentsPostId){
+                        commentsPostId = await this.resolveAssetPostId(asset);
+                    }
+                    if (commentsCount){
+                        if (commentsPostId){
+                            const st = await window.firebaseService.getPostStats(commentsPostId);
+                            commentsCount.textContent = `${Number(st?.comments || 0)}`;
+                        } else {
+                            commentsCount.textContent = '0';
+                        }
+                    }
+                    if (viewsCount){
+                        const rawViews = Number(asset.viewCount || asset.views || asset.playCount || 0);
+                        viewsCount.textContent = `${rawViews > 0 ? rawViews : 0}`;
+                    }
                     const norm = this.normalizeMediaUrl(url);
                     document.querySelectorAll('[data-asset-like-kind][data-asset-like-url]').forEach((host)=>{
                         const k = String(host.getAttribute('data-asset-like-kind') || '').toLowerCase();
@@ -749,6 +773,21 @@ class DashboardManager {
                         sourceId: String(asset.sourceId || asset.id || '')
                     }
                 });
+            }
+            if (commentsBtn){
+                commentsBtn.onclick = async ()=>{
+                    try{
+                        if (!commentsPostId){
+                            commentsPostId = await this.ensureAssetDiscussionPost(asset);
+                        }
+                        if (!commentsPostId){
+                            this.showError('Unable to open comments');
+                            return;
+                        }
+                        await this.openAssetCommentsModal(commentsPostId, asset.title || asset.name || 'Comments');
+                        await refreshCount();
+                    }catch(_){ this.showError('Unable to open comments'); }
+                };
             }
         }catch(_){ }
     }
@@ -3597,6 +3636,10 @@ class DashboardManager {
      * Initialize the dashboard
      */
     init() {
+        try{
+            const prefLang = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase();
+            this.applyAppLanguage(prefLang);
+        }catch(_){ }
         this.setupEventListeners();
         this.setupFullscreenImagePreview();
         this.setupFeedTabs();
@@ -5027,7 +5070,19 @@ class DashboardManager {
                             return text.includes(term) || author.includes(term);
                         })
                         : (trending || []);
-                    suggEl.innerHTML = filteredTrending.slice(0, 10).map(tp=>`<div class="post-item" style="border:1px solid var(--border-color);border-radius:12px;padding:10px;margin:8px 0">${(tp.text||'').replace(/</g,'&lt;')}</div>`).join('');
+                    suggEl.innerHTML = '';
+                    const top = filteredTrending.slice(0, 10);
+                    for (const tp of top){
+                        if (!tp || !tp.id) continue;
+                        try{ await this.primeWaveMetaForMedia(tp?.media || tp?.mediaUrl); }catch(_){ }
+                        const card = await this.buildRealtimeFeedPostElement(tp, {});
+                        suggEl.appendChild(card);
+                    }
+                    this.bindUserPreviewTriggers(suggEl);
+                    this.activatePlayers(suggEl);
+                    this.clearPostActionListeners(suggEl);
+                    this.activatePostActions(suggEl);
+                    this.applyHorizontalMasonryOrder(suggEl);
                 }catch(_){
                     suggEl.innerHTML = '';
                 }
@@ -5554,6 +5609,8 @@ class DashboardManager {
                 const tA = document.getElementById('wave-tab-audio');
                 const tV = document.getElementById('wave-tab-video');
                 const tP = document.getElementById('wave-tab-pictures');
+                const uploadQuick = document.getElementById('wave-upload-quick-btn');
+                const studioQuick = document.getElementById('wave-studio-btn');
                 const pA = document.getElementById('wave-audio-pane');
                 const pV = document.getElementById('wave-video-pane');
                 const pP = document.getElementById('wave-pictures-pane');
@@ -5563,6 +5620,9 @@ class DashboardManager {
                         tA.classList.toggle('active', name === 'audio');
                         tV.classList.toggle('active', name === 'video');
                         tP.classList.toggle('active', name === 'pictures');
+                        tA.setAttribute('aria-selected', name === 'audio' ? 'true' : 'false');
+                        tV.setAttribute('aria-selected', name === 'video' ? 'true' : 'false');
+                        tP.setAttribute('aria-selected', name === 'pictures' ? 'true' : 'false');
                         // Keep CSS-controlled layout for audio pane (grid on desktop).
                         pA.style.display = name === 'audio' ? '' : 'none';
                         pV.style.display = name === 'video' ? 'block' : 'none';
@@ -5574,6 +5634,14 @@ class DashboardManager {
                     tA.onclick = ()=> activate('audio');
                     tV.onclick = ()=> activate('video');
                     tP.onclick = ()=> activate('pictures');
+                }
+                if (uploadQuick && !uploadQuick._bound){
+                    uploadQuick._bound = true;
+                    uploadQuick.onclick = ()=> this.openWaveconnectQuickSheet('upload');
+                }
+                if (studioQuick && !studioQuick._bound){
+                    studioQuick._bound = true;
+                    studioQuick.onclick = ()=> this.openWaveconnectQuickSheet('studio');
                 }
                 break;
             case 'profile':
@@ -5588,6 +5656,204 @@ class DashboardManager {
                 this.loadSettings();
                 break;
         }
+    }
+
+    openWaveconnectTabAndFocus(kind, mode = 'upload'){
+        try{
+            const tabMap = {
+                audio: document.getElementById('wave-tab-audio'),
+                video: document.getElementById('wave-tab-video'),
+                pictures: document.getElementById('wave-tab-pictures')
+            };
+            const focusMap = {
+                upload: {
+                    audio: document.getElementById('wave-upload-card'),
+                    video: document.querySelector('#wave-video-pane .settings-card'),
+                    pictures: document.querySelector('#wave-pictures-pane .settings-card')
+                },
+                studio: {
+                    audio: document.getElementById('wave-library'),
+                    video: document.getElementById('video-library'),
+                    pictures: document.getElementById('picture-library')
+                }
+            };
+            const k = (kind === 'video' || kind === 'pictures') ? kind : 'audio';
+            const tabBtn = tabMap[k];
+            if (tabBtn && typeof tabBtn.click === 'function') tabBtn.click();
+            setTimeout(()=>{
+                const target = focusMap[mode] && focusMap[mode][k];
+                if (target && typeof target.scrollIntoView === 'function'){
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 80);
+        }catch(_){ }
+    }
+
+    openWaveconnectQuickSheet(mode = 'upload'){
+        try{
+            let sheet = document.getElementById('waveconnect-quick-sheet');
+            if (sheet) sheet.remove();
+            sheet = document.createElement('div');
+            sheet.id = 'waveconnect-quick-sheet';
+            sheet.className = 'waveconnect-sheet';
+            const title = mode === 'studio' ? 'Open Studio' : 'Quick Upload';
+            const label = mode === 'studio' ? 'Open manager for:' : 'Upload type:';
+            sheet.innerHTML = `<div class="waveconnect-sheet-panel">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+                    <div style="font-weight:600">${title}</div>
+                    <button type="button" class="btn btn-secondary" data-close-sheet>Close</button>
+                </div>
+                <div style="font-size:12px;opacity:.78;margin-bottom:8px">${label}</div>
+                <div class="waveconnect-sheet-grid">
+                    <button type="button" class="btn btn-secondary" data-wave-kind="audio"><i class="fas fa-music"></i> Audio</button>
+                    <button type="button" class="btn btn-secondary" data-wave-kind="video"><i class="fas fa-video"></i> Video</button>
+                    <button type="button" class="btn btn-secondary" data-wave-kind="pictures"><i class="fas fa-image"></i> Pictures</button>
+                </div>
+            </div>`;
+            const close = ()=>{ try{ sheet.remove(); }catch(_){ } };
+            sheet.addEventListener('click', (e)=>{
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (target === sheet || target.matches('[data-close-sheet]')) return close();
+                const btn = target.closest('[data-wave-kind]');
+                if (!btn) return;
+                const kind = String(btn.getAttribute('data-wave-kind') || 'audio');
+                close();
+                this.openWaveconnectTabAndFocus(kind, mode);
+            });
+            document.body.appendChild(sheet);
+        }catch(_){ }
+    }
+
+    async resolveAssetPostId(asset = {}){
+        try{
+            const direct = String(asset.sourcePostId || '').trim();
+            if (direct) return direct;
+            const srcId = String(asset.sourceId || '').trim();
+            if (srcId){
+                try{
+                    const qBySource = firebase.query(
+                        firebase.collection(window.firebaseService.db, 'posts'),
+                        firebase.where('sourceType', '==', 'waveconnect-asset'),
+                        firebase.where('sourceId', '==', srcId),
+                        firebase.limit(1)
+                    );
+                    const sBySource = await firebase.getDocs(qBySource);
+                    if (!sBySource.empty){
+                        return String(sBySource.docs[0].id || '').trim();
+                    }
+                }catch(_){ }
+            }
+            const url = String(asset.url || '').trim();
+            if (!url) return '';
+            const q = firebase.query(
+                firebase.collection(window.firebaseService.db, 'posts'),
+                firebase.where('mediaUrl', '==', url),
+                firebase.limit(1)
+            );
+            const snap = await firebase.getDocs(q);
+            if (!snap.empty){
+                return String(snap.docs[0].id || '').trim();
+            }
+            return '';
+        }catch(_){ return ''; }
+    }
+
+    async ensureAssetDiscussionPost(asset = {}){
+        try{
+            const existing = await this.resolveAssetPostId(asset);
+            if (existing) return existing;
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid) return '';
+            const url = String(asset.url || '').trim();
+            if (!url) return '';
+            const kind = String(asset.kind || this.inferMediaKindFromUrl(url) || 'file');
+            const title = String(asset.title || asset.name || 'Media');
+            const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'posts'));
+            const mediaEntry = (kind === 'image' || kind === 'picture' || kind === 'video')
+                ? [{ kind: kind === 'picture' ? 'image' : kind, url, name: title, by: String(asset.by || asset.authorName || ''), cover: String(asset.cover || asset.thumbnailUrl || '') }]
+                : [];
+            await firebase.setDoc(docRef, {
+                id: docRef.id,
+                authorId: me.uid,
+                authorName: String(me.displayName || me.email || 'User'),
+                text: title,
+                mediaUrl: url,
+                mediaType: kind,
+                media: mediaEntry,
+                visibility: 'public',
+                sourceType: 'waveconnect-asset',
+                sourceId: String(asset.sourceId || ''),
+                createdAt: new Date().toISOString(),
+                createdAtTS: firebase.serverTimestamp()
+            }, { merge: true });
+            return String(docRef.id || '');
+        }catch(_){ return ''; }
+    }
+
+    async openAssetCommentsModal(postId, title = 'Comments'){
+        try{
+            if (!postId) return;
+            const me = await this.resolveCurrentUser();
+            if (!me || !me.uid){ this.showError('Please sign in'); return; }
+            let layer = document.getElementById('asset-comments-layer');
+            if (layer) layer.remove();
+            layer = document.createElement('div');
+            layer.id = 'asset-comments-layer';
+            layer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1201;display:flex;justify-content:center;align-items:center;padding:14px';
+            layer.innerHTML = `<div style="width:min(780px,100%);max-height:85vh;overflow:auto;background:#111722;border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+                    <div style="font-weight:600">${String(title || 'Comments').replace(/</g,'&lt;')}</div>
+                    <button type="button" class="btn btn-secondary" id="asset-comments-close">Close</button>
+                </div>
+                <div class="comment-tree" id="asset-comments-tree" style="display:block"></div>
+            </div>`;
+            document.body.appendChild(layer);
+            const close = ()=>{ try{ layer.remove(); }catch(_){ } };
+            layer.addEventListener('click', (e)=>{ if (e.target === layer) close(); });
+            const closeBtn = layer.querySelector('#asset-comments-close');
+            if (closeBtn) closeBtn.addEventListener('click', close);
+            const tree = layer.querySelector('#asset-comments-tree');
+            if (tree){
+                tree.dataset.limit = '10';
+                tree.dataset.forceOpen = '1';
+                await this.openAdvancedCommentsFallback(postId, tree, me.uid);
+            }
+        }catch(_){ this.showError('Unable to open comments'); }
+    }
+
+    incrementAssetViewCounter(asset = {}){
+        try{
+            const kind = String(asset.kind || '').toLowerCase();
+            if (kind !== 'video' && kind !== 'audio') return;
+            const srcId = String(asset.sourceId || asset.id || '').trim();
+            if (!srcId) return;
+            if (!this._assetViewSession) this._assetViewSession = new Map();
+            const key = `${kind}:${srcId}`;
+            const now = Date.now();
+            const prev = Number(this._assetViewSession.get(key) || 0);
+            if (prev && (now - prev) < 20000) return;
+            this._assetViewSession.set(key, now);
+            if (kind === 'video'){
+                try{
+                    window.firebaseService?.trackVideoInteraction?.({
+                        action: 'open',
+                        source: 'app',
+                        sourceId: srcId,
+                        videoId: srcId
+                    });
+                }catch(_){ }
+                try{
+                    const ref = firebase.doc(window.firebaseService.db, 'videos', srcId);
+                    firebase.setDoc(ref, { viewCount: firebase.increment(1), updatedAt: new Date().toISOString(), updatedAtTS: firebase.serverTimestamp() }, { merge: true }).catch(()=>{});
+                }catch(_){ }
+            } else if (kind === 'audio'){
+                try{
+                    const ref = firebase.doc(window.firebaseService.db, 'wave', srcId);
+                    firebase.setDoc(ref, { playCount: firebase.increment(1), updatedAt: new Date().toISOString(), updatedAtTS: firebase.serverTimestamp() }, { merge: true }).catch(()=>{});
+                }catch(_){ }
+            }
+        }catch(_){ }
     }
 
     async loadWaveConnect(){
@@ -6146,8 +6412,9 @@ class DashboardManager {
           ? `<button type="button" class="audio-byline" data-user-preview="${String(w.authorId || '').replace(/"/g,'&quot;')}" style="font-size:12px;color:#aaa;background:none;border:none;padding:0;text-align:left;cursor:pointer">by ${(w.authorName||'').replace(/</g,'&lt;')}</button>`
           : '';
         const iconBtn = 'background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.92;color:#d6deeb';
+        const editBtnHtml = `<button class="edit-wave-btn" style="${iconBtn}" title="Edit track"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = allowRemove ? `<button class="remove-btn" style="${iconBtn}" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-comments"></i></button><button class="audio-download-btn" style="${iconBtn};border:1px solid rgba(255,255,255,.2);border-radius:999px" title="Download audio"><i class="fas fa-download"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-comment-btn" style="${iconBtn}" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="min-width:18px;opacity:.88">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-headphones"></i></span><span class="asset-views-count" style="min-width:18px;opacity:.88">${Number(w.playCount || 0) || 0}</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="audio-download-btn" style="${iconBtn};border:1px solid rgba(255,255,255,.2);border-radius:999px" title="Download audio"><i class="fas fa-download"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6202,9 +6469,35 @@ class DashboardManager {
         if (a){
             const host = div.querySelector('.wave-item-audio-host') || div;
             this.attachWaveAudioUI(a, host, { hideNative: true });
-            a.addEventListener('play', ()=> this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl }));
+            a.addEventListener('play', ()=>{
+                this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl });
+                this.incrementAssetViewCounter({ kind: 'audio', sourceId: w.id, url: w.url });
+            });
         }
-        this.bindAssetCardInteractions(div, { kind:'audio', url: w.url, title: w.title, by: w.authorName, cover: w.coverUrl, sourceId: w.id });
+        const editBtn = div.querySelector('.edit-wave-btn');
+        if (editBtn){
+            editBtn.onclick = async ()=>{
+                try{
+                    const id = String(w.id || '').trim();
+                    if (!id){ this.showError('Cannot edit this item'); return; }
+                    const nextTitle = prompt('Track title:', String(w.title || ''));
+                    if (nextTitle === null) return;
+                    const nextVisibilityRaw = prompt('Visibility (public/private):', String(w.visibility || 'public'));
+                    if (nextVisibilityRaw === null) return;
+                    const nextVisibility = String(nextVisibilityRaw || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, 'wave', id), {
+                        title: String(nextTitle || '').trim() || 'Untitled',
+                        visibility: nextVisibility,
+                        updatedAt: new Date().toISOString(),
+                        updatedAtTS: firebase.serverTimestamp()
+                    });
+                    this.showSuccess('Track updated');
+                    const me = await window.firebaseService.getCurrentUser();
+                    if (me?.uid) this.renderWaveLibrary(me.uid);
+                }catch(_){ this.showError('Failed to update track'); }
+            };
+        }
+        this.bindAssetCardInteractions(div, { kind:'audio', url: w.url, title: w.title, by: w.authorName, cover: w.coverUrl, sourceId: w.id, sourcePostId: w.sourcePostId, playCount: Number(w.playCount || 0) || 0 });
         this.bindUserPreviewTriggers(div);
         return div;
     }
@@ -6364,11 +6657,12 @@ class DashboardManager {
         const mediaHtml = isImageSource
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
             : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
+        const editBtnHtml = `<button class="edit-visual-btn" title="Edit media" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img src="${thumb}" alt="cover" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-eye"></i></span><span class="asset-views-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">${Number(v.viewCount || 0) || 0}</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6387,7 +6681,33 @@ class DashboardManager {
             }catch(_){ this.showError('Repost failed'); }
         }; }
         const vEl = div.querySelector('.liber-lib-video');
-        if (vEl){ vEl.addEventListener('play', ()=> this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl })); }
+        if (vEl){ vEl.addEventListener('play', ()=>{
+            this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl });
+            this.incrementAssetViewCounter({ kind: 'video', sourceId: v.id, url: v.url });
+        }); }
+        const editBtn = div.querySelector('.edit-visual-btn');
+        if (editBtn){
+            editBtn.onclick = async ()=>{
+                try{
+                    const id = String(v.id || '').trim();
+                    if (!id){ this.showError('Cannot edit this item'); return; }
+                    const nextTitle = prompt('Video title:', String(v.title || ''));
+                    if (nextTitle === null) return;
+                    const nextVisibilityRaw = prompt('Visibility (public/private):', String(v.visibility || 'public'));
+                    if (nextVisibilityRaw === null) return;
+                    const nextVisibility = String(nextVisibilityRaw || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, 'videos', id), {
+                        title: String(nextTitle || '').trim() || 'Untitled',
+                        visibility: nextVisibility,
+                        updatedAt: new Date().toISOString(),
+                        updatedAtTS: firebase.serverTimestamp()
+                    });
+                    this.showSuccess('Video updated');
+                    const me = await window.firebaseService.getCurrentUser();
+                    if (me?.uid) this.renderVideoLibrary(me.uid);
+                }catch(_){ this.showError('Failed to update video'); }
+            };
+        }
         const removeBtn = div.querySelector('.remove-visual-btn');
         if (removeBtn){
             removeBtn.onclick = async ()=>{
@@ -6399,7 +6719,7 @@ class DashboardManager {
                 }catch(_){ this.showError('Failed to remove from library'); }
             };
         }
-        this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl, sourceId: v.id });
+        this.bindAssetCardInteractions(div, { kind:'video', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl, sourceId: v.id, sourcePostId: v.sourcePostId, viewCount: Number(v.viewCount || 0) || 0 });
         return div;
     }
 
@@ -6544,10 +6864,11 @@ class DashboardManager {
         const mediaHtml = isVideoSource
             ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
             : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
+        const editBtnHtml = `<button class="edit-visual-btn" title="Edit media" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img class="picture-author-avatar" src="${thumb}" alt="author" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-comments"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -6580,7 +6901,30 @@ class DashboardManager {
                 }catch(_){ this.showError('Failed to remove from library'); }
             };
         }
-        this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url, sourceId: v.id });
+        const editBtn = div.querySelector('.edit-visual-btn');
+        if (editBtn){
+            editBtn.onclick = async ()=>{
+                try{
+                    const id = String(v.id || '').trim();
+                    if (!id){ this.showError('Cannot edit this item'); return; }
+                    const nextTitle = prompt('Media title:', String(v.title || ''));
+                    if (nextTitle === null) return;
+                    const nextVisibilityRaw = prompt('Visibility (public/private):', String(v.visibility || 'public'));
+                    if (nextVisibilityRaw === null) return;
+                    const nextVisibility = String(nextVisibilityRaw || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, 'videos', id), {
+                        title: String(nextTitle || '').trim() || 'Untitled',
+                        visibility: nextVisibility,
+                        updatedAt: new Date().toISOString(),
+                        updatedAtTS: firebase.serverTimestamp()
+                    });
+                    this.showSuccess('Media updated');
+                    const me = await window.firebaseService.getCurrentUser();
+                    if (me?.uid) this.renderPictureLibrary(me.uid);
+                }catch(_){ this.showError('Failed to update media'); }
+            };
+        }
+        this.bindAssetCardInteractions(div, { kind:'image', url: v.url, title: v.title, by: v.authorName, cover: v.thumbnailUrl || v.url, sourceId: v.id, sourcePostId: v.sourcePostId });
         return div;
     }
 
@@ -6778,6 +7122,45 @@ Do you want to proceed?`);
     /**
      * Load profile info and bind actions
      */
+    getDefaultLanguageForCountry(countryCode){
+        const c = String(countryCode || '').trim().toUpperCase();
+        const map = {
+            US:'en', GB:'en',
+            DE:'de', FR:'fr', ES:'es', IT:'it', PT:'pt', NL:'nl', PL:'pl',
+            UA:'uk', RU:'ru', TR:'tr',
+            IN:'hi', AE:'ar',
+            JP:'ja', KR:'ko', CN:'zh',
+            BR:'pt', MX:'es'
+        };
+        return map[c] || 'en';
+    }
+
+    applyAppLanguage(langCode){
+        try{
+            const lang = String(langCode || 'en').trim().toLowerCase() || 'en';
+            document.documentElement.lang = lang;
+            try{ localStorage.setItem('liber_preferred_language', lang); }catch(_){ }
+            const dict = {
+                en: { waveconnect:'WaveConnect', profile:'My Profile', users:'User Management', settings:'Settings' },
+                es: { waveconnect:'WaveConnect', profile:'Mi Perfil', users:'Gestión de usuarios', settings:'Configuración' },
+                fr: { waveconnect:'WaveConnect', profile:'Mon Profil', users:'Gestion des utilisateurs', settings:'Paramètres' },
+                de: { waveconnect:'WaveConnect', profile:'Mein Profil', users:'Benutzerverwaltung', settings:'Einstellungen' },
+                ru: { waveconnect:'WaveConnect', profile:'Мой профиль', users:'Управление пользователями', settings:'Настройки' },
+                uk: { waveconnect:'WaveConnect', profile:'Мій профіль', users:'Керування користувачами', settings:'Налаштування' },
+                tr: { waveconnect:'WaveConnect', profile:'Profilim', users:'Kullanıcı yönetimi', settings:'Ayarlar' }
+            };
+            const t = dict[lang] || dict.en;
+            const waveH = document.querySelector('#waveconnect-section .section-header h2');
+            const profileH = document.querySelector('#profile-section .section-header h2');
+            const usersH = document.querySelector('#users-section .section-header h2');
+            const settingsH = document.querySelector('#settings-section .section-header h2');
+            if (waveH) waveH.textContent = t.waveconnect;
+            if (profileH) profileH.textContent = t.profile;
+            if (usersH) usersH.textContent = t.users;
+            if (settingsH) settingsH.textContent = t.settings;
+        }catch(_){ }
+    }
+
     async loadProfile() {
         try {
             // Wait for firebase
@@ -6789,10 +7172,18 @@ Do you want to proceed?`);
                 const unameEl = document.getElementById('profile-username');
                 const verifiedEl = document.getElementById('profile-verified');
                 const allowUnconnectedEl = document.getElementById('profile-allow-unconnected-msg');
+                const countryEl = document.getElementById('profile-country');
+                const langEl = document.getElementById('profile-language');
                 if (emailEl) emailEl.value = user.email;
                 if (unameEl) unameEl.value = data.username || '';
                 if (verifiedEl) verifiedEl.textContent = user.emailVerified ? 'Verified' : 'Not verified';
                 if (allowUnconnectedEl) allowUnconnectedEl.checked = data.allowMessagesFromUnconnected !== false;
+                if (countryEl) countryEl.value = String(data.country || '').toUpperCase();
+                if (langEl){
+                    const remembered = String(localStorage.getItem('liber_preferred_language') || '').trim().toLowerCase();
+                    langEl.value = String(data.language || remembered || 'en').toLowerCase();
+                    this.applyAppLanguage(langEl.value);
+                }
 
                 const saveBtn = document.getElementById('save-username-btn');
                 if (saveBtn) {
@@ -6824,6 +7215,31 @@ Do you want to proceed?`);
                             });
                         } catch (_) {
                             this.showError('Failed to update message privacy');
+                        }
+                    };
+                }
+                if (countryEl && langEl){
+                    countryEl.onchange = ()=>{
+                        const suggested = this.getDefaultLanguageForCountry(countryEl.value);
+                        if (!langEl.value || langEl.value === 'en') langEl.value = suggested;
+                    };
+                }
+                const saveLangCountryBtn = document.getElementById('save-language-country-btn');
+                if (saveLangCountryBtn && countryEl && langEl){
+                    saveLangCountryBtn.onclick = async ()=>{
+                        try{
+                            const country = String(countryEl.value || '').toUpperCase();
+                            const language = String(langEl.value || 'en').toLowerCase();
+                            await window.firebaseService.updateUserProfile(user.uid, { country, language });
+                            try{
+                                localStorage.setItem('liber_preferred_language', language);
+                                localStorage.setItem('liber_preferred_country', country);
+                                localStorage.setItem('liber_chat_translate_target', language);
+                            }catch(_){ }
+                            this.applyAppLanguage(language);
+                            this.showSuccess('Language and country saved');
+                        }catch(_){
+                            this.showError('Failed to save language/country');
                         }
                     };
                 }

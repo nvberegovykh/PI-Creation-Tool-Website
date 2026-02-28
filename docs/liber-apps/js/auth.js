@@ -146,6 +146,19 @@ class AuthManager {
         return await window.secureKeyManager.getSystemKey();
     }
 
+    getDefaultLanguageForCountry(countryCode) {
+        const c = String(countryCode || '').trim().toUpperCase();
+        const map = {
+            US: 'en', GB: 'en',
+            DE: 'de', FR: 'fr', ES: 'es', IT: 'it', PT: 'pt', NL: 'nl', PL: 'pl',
+            UA: 'uk', RU: 'ru', TR: 'tr',
+            IN: 'hi', AE: 'ar',
+            JP: 'ja', KR: 'ko', CN: 'zh',
+            BR: 'pt', MX: 'es'
+        };
+        return map[c] || 'en';
+    }
+
     setupEventListeners() {
         // Login form
         const loginForm = document.getElementById('loginForm');
@@ -201,6 +214,19 @@ class AuthManager {
         
         // Setup mobile WALL-E toggle for initial load
         this.setupMobileWallEToggle();
+
+        const registerCountry = document.getElementById('registerCountry');
+        const registerLanguage = document.getElementById('registerLanguage');
+        if (registerCountry && registerLanguage) {
+            const preferredCountry = String(localStorage.getItem('liber_preferred_country') || '').trim().toUpperCase();
+            const preferredLanguage = String(localStorage.getItem('liber_preferred_language') || '').trim().toLowerCase();
+            if (preferredCountry) registerCountry.value = preferredCountry;
+            if (preferredLanguage) registerLanguage.value = preferredLanguage;
+            else if (registerCountry.value) registerLanguage.value = this.getDefaultLanguageForCountry(registerCountry.value);
+            registerCountry.addEventListener('change', () => {
+                registerLanguage.value = this.getDefaultLanguageForCountry(registerCountry.value);
+            });
+        }
     }
 
     switchTab(tabName) {
@@ -317,6 +343,15 @@ class AuthManager {
                     if (userData) {
                         // Reset failed attempts on successful login
                         try{ await window.firebaseService.resetFailedLogin(firebaseUser.uid); }catch(_){}
+                        try{
+                            const prefCountry = String(userData.country || '').trim().toUpperCase();
+                            const prefLanguage = String(userData.language || '').trim().toLowerCase();
+                            if (prefCountry) localStorage.setItem('liber_preferred_country', prefCountry);
+                            if (prefLanguage){
+                                localStorage.setItem('liber_preferred_language', prefLanguage);
+                                localStorage.setItem('liber_chat_translate_target', prefLanguage);
+                            }
+                        }catch(_){ }
                         this.currentUser = {
                             id: firebaseUser.uid,
                             username: userData.username,
@@ -357,9 +392,15 @@ class AuthManager {
         const email = document.getElementById('registerEmail').value.trim();
         const password = document.getElementById('registerPassword').value;
         const confirmPassword = document.getElementById('registerConfirmPassword').value;
+        const country = String(document.getElementById('registerCountry')?.value || '').trim().toUpperCase();
+        const language = String(document.getElementById('registerLanguage')?.value || '').trim().toLowerCase() || this.getDefaultLanguageForCountry(country);
 
         if (!username || !email || !password || !confirmPassword) {
             this.showMessage('All fields are required', 'error');
+            return;
+        }
+        if (!country) {
+            this.showMessage('Please select your country', 'error');
             return;
         }
 
@@ -404,6 +445,8 @@ class AuthManager {
                     const userData = {
                         username: username,
                         email: email,
+                        country,
+                        language,
                         role: 'user',
                         isVerified: false,
                         status: 'pending',
@@ -413,6 +456,11 @@ class AuthManager {
                     const firebaseUser = await window.firebaseService.createUser(email, password, userData);
                     
                     if (firebaseUser) {
+                        try{
+                            localStorage.setItem('liber_preferred_country', country);
+                            localStorage.setItem('liber_preferred_language', language);
+                            localStorage.setItem('liber_chat_translate_target', language);
+                        }catch(_){ }
                         // Send verification email via Firebase
                         await window.firebaseService.sendEmailVerification();
                         
@@ -481,6 +529,15 @@ class AuthManager {
                     status: 'approved'
                 });
                 const data = (await window.firebaseService.getUserData(user.uid)) || {};
+                try{
+                    const prefCountry = String(data.country || '').trim().toUpperCase();
+                    const prefLanguage = String(data.language || '').trim().toLowerCase();
+                    if (prefCountry) localStorage.setItem('liber_preferred_country', prefCountry);
+                    if (prefLanguage){
+                        localStorage.setItem('liber_preferred_language', prefLanguage);
+                        localStorage.setItem('liber_chat_translate_target', prefLanguage);
+                    }
+                }catch(_){ }
                 const stableUsername = String(data.username || '').trim() || String(user.email || '').split('@')[0] || 'user';
                 this.currentUser = { id: user.uid, username: stableUsername, email: user.email, role: (data&&data.role)||'user' };
                 this.createSession();

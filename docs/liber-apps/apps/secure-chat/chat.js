@@ -2,6 +2,24 @@
 (() => {
 
   class SecureChatApp {
+    static TRANSLATION_LANGS = [
+      { code:'en', label:'English' },
+      { code:'es', label:'Spanish' },
+      { code:'fr', label:'French' },
+      { code:'de', label:'German' },
+      { code:'it', label:'Italian' },
+      { code:'pt', label:'Portuguese' },
+      { code:'nl', label:'Dutch' },
+      { code:'pl', label:'Polish' },
+      { code:'uk', label:'Ukrainian' },
+      { code:'ru', label:'Russian' },
+      { code:'tr', label:'Turkish' },
+      { code:'ar', label:'Arabic' },
+      { code:'hi', label:'Hindi' },
+      { code:'zh', label:'Chinese (Simplified)' },
+      { code:'ja', label:'Japanese' },
+      { code:'ko', label:'Korean' }
+    ];
     constructor() {
       this.db = null;
       this.storage = null;
@@ -626,7 +644,12 @@
           const src = String(el.currentSrc || el.src || '').trim();
           if (!src) return null;
           const explicit = el.getAttribute('data-fullscreen-media') === '1';
-          if (el.controls && !explicit) return null;
+          const allowControlledVideo =
+            explicit
+            || el.classList.contains('post-media-video')
+            || el.classList.contains('player-media')
+            || !!el.closest('.msg-text,.file-preview,.msg-media-grid,.msg-media-slider,.post-media-visual-item,[data-media-collection]');
+          if (el.controls && !allowControlledVideo) return null;
           const recClass = el.classList.contains('video-recording-circular') || el.classList.contains('video-recording-mask');
           const recData = el.getAttribute('data-is-recording') === '1' || el.closest('[data-is-recording="1"]');
           return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video'), isRecording: !!(recClass || recData) };
@@ -1082,6 +1105,7 @@
       };
       close.onclick = ()=>{
         this._pinnedByConn.delete(connId);
+        this.savePinnedState();
         this.renderPinnedMessageBar();
       };
     }
@@ -1191,10 +1215,7 @@
         case 'translate': {
           const raw = String(text || '').trim();
           if (!raw) break;
-          try{
-            const url = `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(raw)}&op=translate`;
-            window.open(url, '_blank', 'noopener');
-          }catch(_){ this._showErrorToast('Unable to open translator'); }
+          this.handleTranslateAction(raw);
           break;
         }
         case 'pin': {
@@ -1202,6 +1223,7 @@
           const preview = previewRaw.length > 72 ? `${previewRaw.slice(0, 72)}...` : previewRaw;
           const msgDomId = this.buildMsgDomId(connId, msgId);
           this._pinnedByConn.set(String(connId || ''), { msgDomId, preview });
+          this.savePinnedState();
           this.renderPinnedMessageBar();
           break;
         }
@@ -1213,6 +1235,165 @@
         case 'edit': this.setEditMessage(msgData); break;
         case 'delete': this.deleteMessage(connId, msgId, el); break;
       }
+    }
+
+    getRememberedTranslateTarget(){
+      try{
+        const fromProfile = String(this.me?.language || '').trim().toLowerCase();
+        if (fromProfile) return fromProfile;
+        const fromStore = String(localStorage.getItem('liber_chat_translate_target') || '').trim().toLowerCase();
+        if (fromStore) return fromStore;
+      }catch(_){ }
+      return 'en';
+    }
+
+    async chooseTranslateTargetLanguage(){
+      return new Promise((resolve)=>{
+        try{
+          const current = this.getRememberedTranslateTarget();
+          const overlay = document.createElement('div');
+          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1300;display:flex;align-items:center;justify-content:center;padding:12px';
+          const options = SecureChatApp.TRANSLATION_LANGS.map((it)=> `<option value="${it.code}" ${it.code === current ? 'selected' : ''}>${it.label}</option>`).join('');
+          overlay.innerHTML = `<div style="width:min(420px,100%);background:#111722;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px">
+            <div style="font-weight:600;margin-bottom:10px">Translate message</div>
+            <label style="display:block;font-size:12px;opacity:.85;margin-bottom:6px">Target language</label>
+            <select id="chat-translate-target" style="width:100%;padding:10px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445">${options}</select>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+              <button type="button" class="btn btn-secondary" id="chat-translate-cancel">Cancel</button>
+              <button type="button" class="btn" id="chat-translate-ok">Translate</button>
+            </div>
+          </div>`;
+          const cleanup = ()=>{ try{ overlay.remove(); }catch(_){ } };
+          overlay.addEventListener('click', (e)=>{ if (e.target === overlay){ cleanup(); resolve(''); } });
+          const cancel = overlay.querySelector('#chat-translate-cancel');
+          if (cancel) cancel.addEventListener('click', ()=>{ cleanup(); resolve(''); });
+          const ok = overlay.querySelector('#chat-translate-ok');
+          if (ok) ok.addEventListener('click', ()=>{
+            const sel = overlay.querySelector('#chat-translate-target');
+            const code = String(sel?.value || '').trim().toLowerCase();
+            cleanup();
+            resolve(code || '');
+          });
+          document.body.appendChild(overlay);
+        }catch(_){ resolve(''); }
+      });
+    }
+
+    async translateWithPremiumModel(text, targetLang){
+      try{
+        const clean = String(text || '').trim();
+        const target = String(targetLang || '').trim().toLowerCase();
+        if (!clean || !target) return '';
+        const projectId = String(window.firebaseService?.app?.options?.projectId || '').trim();
+        if (!projectId) return '';
+        const defaultRegion = String(localStorage.getItem('liber_functions_region') || '').trim();
+        const dynamicRegions = Object.keys(window.firebaseService?.functionsByRegion || {});
+        const regions = Array.from(new Set([defaultRegion, ...dynamicRegions, 'europe-west1', 'us-central1'].filter(Boolean)));
+        for (const region of regions){
+          try{
+            const endpoint = `https://${region}-${projectId}.cloudfunctions.net/openaiProxy/v1/chat/completions`;
+            const resp = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                temperature: 0.2,
+                messages: [
+                  { role: 'system', content: `You are a professional native translator. Translate naturally and faithfully into ${target}. Output only translated text without explanations.` },
+                  { role: 'user', content: clean }
+                ]
+              })
+            });
+            if (!resp.ok) continue;
+            const data = await resp.json().catch(()=> ({}));
+            const out = String(data?.choices?.[0]?.message?.content || '').trim();
+            if (out) return out;
+          }catch(_){ }
+        }
+        return '';
+      }catch(_){ return ''; }
+    }
+
+    async handleTranslateAction(rawText){
+      try{
+        const targetLang = await this.chooseTranslateTargetLanguage();
+        if (!targetLang) return;
+        try{ localStorage.setItem('liber_chat_translate_target', targetLang); }catch(_){ }
+        this._showErrorToast('Translating...');
+        const translated = await this.translateWithPremiumModel(rawText, targetLang);
+        if (!translated){
+          this._showErrorToast('Translation unavailable right now');
+          return;
+        }
+        this.showTranslatedMessageModal(rawText, translated, targetLang);
+      }catch(_){
+        this._showErrorToast('Unable to translate message');
+      }
+    }
+
+    showTranslatedMessageModal(original, translated, targetLang){
+      try{
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.64);z-index:1301;display:flex;align-items:center;justify-content:center;padding:12px';
+        overlay.innerHTML = `<div style="width:min(700px,100%);max-height:85vh;overflow:auto;background:#111722;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+            <div style="font-weight:600">Translated (${targetLang.toUpperCase()})</div>
+            <button type="button" class="btn btn-secondary" id="chat-translation-close">Close</button>
+          </div>
+          <div style="font-size:12px;opacity:.76;margin-bottom:6px">Original</div>
+          <div style="padding:10px;border:1px solid #2b3445;border-radius:8px;background:#0d1422;white-space:pre-wrap">${String(original || '').replace(/</g,'&lt;')}</div>
+          <div style="font-size:12px;opacity:.76;margin:10px 0 6px">Translation</div>
+          <div style="padding:10px;border:1px solid #2b3445;border-radius:8px;background:#0d1422;white-space:pre-wrap">${String(translated || '').replace(/</g,'&lt;')}</div>
+        </div>`;
+        const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
+        overlay.addEventListener('click', (e)=>{ if (e.target === overlay) close(); });
+        const closeBtn = overlay.querySelector('#chat-translation-close');
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        document.body.appendChild(overlay);
+      }catch(_){ }
+    }
+
+    _pinnedStorageKey(){
+      return `liber_chat_pinned_${this.currentUser?.uid || 'anon'}`;
+    }
+
+    loadPinnedState(){
+      try{
+        const raw = localStorage.getItem(this._pinnedStorageKey());
+        const obj = raw ? JSON.parse(raw) : {};
+        this._pinnedByConn = new Map(Object.entries(obj || {}).map(([k,v])=> [k, v]));
+      }catch(_){ this._pinnedByConn = new Map(); }
+    }
+
+    savePinnedState(){
+      try{
+        const out = {};
+        this._pinnedByConn.forEach((v,k)=>{ if (k) out[k] = v; });
+        localStorage.setItem(this._pinnedStorageKey(), JSON.stringify(out));
+      }catch(_){ }
+    }
+
+    applyChatLanguage(languageCode){
+      try{
+        const lang = String(languageCode || '').trim().toLowerCase() || 'en';
+        document.documentElement.lang = lang;
+        const dict = {
+          en: { placeholder:'Type a message...', pinned:'Pinned', group:'+ Group' },
+          es: { placeholder:'Escribe un mensaje...', pinned:'Fijado', group:'+ Grupo' },
+          fr: { placeholder:'Tapez un message...', pinned:'Épinglé', group:'+ Groupe' },
+          de: { placeholder:'Nachricht eingeben...', pinned:'Angeheftet', group:'+ Gruppe' },
+          ru: { placeholder:'Введите сообщение...', pinned:'Закреплено', group:'+ Группа' },
+          uk: { placeholder:'Введіть повідомлення...', pinned:'Закріплено', group:'+ Група' },
+          tr: { placeholder:'Mesaj yaz...', pinned:'Sabitlendi', group:'+ Grup' }
+        };
+        const t = dict[lang] || dict.en;
+        const input = document.getElementById('message-input');
+        if (input) input.setAttribute('placeholder', t.placeholder);
+        const pinLabel = document.querySelector('.chat-pinned-label');
+        if (pinLabel) pinLabel.textContent = t.pinned;
+        const groupBtn = document.getElementById('new-connection-btn');
+        if (groupBtn) groupBtn.textContent = t.group;
+      }catch(_){ }
     }
 
     setReplyToMessage(msgData){
@@ -1336,30 +1517,45 @@
       });
       // Drag-to-reply: right for received, left for sent
       const DRAG_REPLY_THRESHOLD = 50;
+      const DRAG_PREVIEW_LIMIT = 72;
       let dragStartX = 0;
       let dragReplyTriggered = false;
       let dragArmed = false;
       const getClientX = (e)=> (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
+      const resetDragPreview = ()=>{
+        el.classList.remove('reply-dragging');
+        el.style.transform = '';
+      };
       const onDragStart = (e)=>{
         if (e.target.closest('.msg-reaction-badge, .msg-context-overlay, .msg-reply-quote')) return;
+        if (e.type === 'mousedown' && e.button !== 0) return;
         dragStartX = getClientX(e);
         dragReplyTriggered = false;
         dragArmed = true;
+        el.classList.add('reply-dragging');
       };
       const onDragMove = (e)=>{
         if (!dragArmed) return;
+        if (e instanceof MouseEvent && e.buttons === 0) return;
         if (dragReplyTriggered) return;
         const x = getClientX(e);
         const delta = x - dragStartX;
         const isSelf = el.classList.contains('self');
+        const previewDelta = isSelf ? Math.max(-DRAG_PREVIEW_LIMIT, Math.min(0, delta)) : Math.min(DRAG_PREVIEW_LIMIT, Math.max(0, delta));
+        el.style.transform = `translateX(${previewDelta}px)`;
         const triggered = isSelf ? delta < -DRAG_REPLY_THRESHOLD : delta > DRAG_REPLY_THRESHOLD;
         if (triggered){
           dragReplyTriggered = true;
           clearTimer();
+          resetDragPreview();
           this.setReplyToMessage(msgData);
         }
       };
-      const onDragEnd = ()=>{ dragReplyTriggered = false; dragArmed = false; };
+      const onDragEnd = ()=>{
+        dragReplyTriggered = false;
+        dragArmed = false;
+        resetDragPreview();
+      };
       el.addEventListener('touchstart', onDragStart, { passive: true });
       el.addEventListener('touchmove', (e)=>{ onDragMove(e); }, { passive: true });
       el.addEventListener('touchend', onDragEnd);
@@ -3297,6 +3493,9 @@
       this.loadChatCategories();
       this.loadConnCategories();
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
+      this.loadPinnedState();
+      const uiLang = String(this.me?.language || localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase();
+      this.applyChatLanguage(uiLang);
       this.bindUI();
       this.setupFullscreenImagePreview();
       if (!this._callOverlayLayoutBound){

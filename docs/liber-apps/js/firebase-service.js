@@ -708,10 +708,13 @@ class FirebaseService {
         await this.waitForInit();
         const likesCol = firebase.collection(this.db, 'posts', postId, 'likes');
         const likeSnap = await firebase.getDocs(likesCol);
+        const commentsCol = firebase.collection(this.db, 'posts', postId, 'comments');
+        let commentsSnap = { size: 0 };
+        try { commentsSnap = await firebase.getDocs(commentsCol); } catch(_){ }
         const repostsCol = firebase.collection(this.db, 'posts', postId, 'reposts');
         let repostSnap = { size: 0 };
         try { repostSnap = await firebase.getDocs(repostsCol); } catch(_){ }
-        return { likes: likeSnap.size, reposts: repostSnap.size };
+        return { likes: likeSnap.size, comments: commentsSnap.size, reposts: repostSnap.size };
     }
 
     async addComment(postId, userUid, text, parentId = null){
@@ -1031,12 +1034,36 @@ class FirebaseService {
             snapGlobal.forEach((d)=> out.push({ id: d.id, ...d.data() }));
         }catch(_){ }
         const seen = new Set();
-        return out.filter((row)=>{
+        const unique = out.filter((row)=>{
             const k = String(row.videoId || row.id || '');
             if (!k || seen.has(k)) return false;
             seen.add(k);
             return true;
         }).slice(0, limitN);
+        const hydrated = [];
+        for (const row of unique){
+            const next = { ...(row || {}) };
+            try{
+                const currentUrl = String(next.url || '').trim();
+                const videoId = String(next.videoId || next.id || '').trim();
+                if (!currentUrl){
+                    if (/^https?:\/\//i.test(videoId)){
+                        next.url = videoId;
+                    }else if (videoId){
+                        const snap = await firebase.getDoc(firebase.doc(this.db, 'videos', videoId));
+                        if (snap.exists()){
+                            const v = snap.data() || {};
+                            next.url = String(v.url || '');
+                            if (!next.title) next.title = String(v.title || 'Video');
+                            if (!next.authorName) next.authorName = String(v.authorName || '');
+                            if (!next.sourceId) next.sourceId = String(v.owner || '');
+                        }
+                    }
+                }
+            }catch(_){ }
+            if (String(next.url || '').trim()) hydrated.push(next);
+        }
+        return hydrated;
     }
 
     /**

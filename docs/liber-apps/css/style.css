@@ -428,6 +428,76 @@ img, video, canvas, svg, iframe {
   box-sizing:border-box;
   object-fit:contain;
 }
+.waveconnect-header-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.waveconnect-tabs{
+  background:rgba(20,26,40,.75);
+  border:1px solid rgba(160,190,230,.22);
+  border-radius:999px;
+  padding:4px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  backdrop-filter:blur(6px);
+}
+#waveconnect-section .waveconnect-tabs .btn{
+  border-radius:999px;
+  border:0;
+  background:transparent;
+  color:#c8d6ea;
+  padding:8px 12px;
+  transition:transform .18s ease, background-color .18s ease, color .18s ease;
+}
+#waveconnect-section .waveconnect-tabs .btn.active{
+  background:linear-gradient(135deg,#2563eb,#3b82f6);
+  color:#fff;
+  box-shadow:0 6px 18px rgba(37,99,235,.35);
+}
+#waveconnect-section .waveconnect-tabs .btn:not(.active):hover{
+  background:rgba(74,102,145,.22);
+  color:#e8f2ff;
+  transform:translateY(-1px);
+}
+#waveconnect-section .waveconnect-quick-btn{
+  width:38px;
+  height:38px;
+  min-width:38px;
+  padding:0;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+.waveconnect-sheet{
+  position:fixed;
+  inset:0;
+  z-index:1200;
+  background:rgba(0,0,0,.55);
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding:16px;
+}
+.waveconnect-sheet-panel{
+  width:min(560px,100%);
+  background:#0f1420;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:14px;
+  padding:14px;
+  box-shadow:0 18px 45px rgba(0,0,0,.45);
+}
+.waveconnect-sheet-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.waveconnect-sheet-grid .btn{
+  width:100%;
+  justify-content:center;
+}
 .video-item-header{ position:relative; z-index:1 }
 .video-item-actions{ pointer-events:auto }
 
@@ -440,6 +510,14 @@ img, video, canvas, svg, iframe {
   #waveconnect-section .section-header > div[style*="display:flex"]{
     flex-wrap:wrap;
     gap:6px;
+  }
+  .waveconnect-header-actions{
+    width:100%;
+    justify-content:flex-start;
+    flex-wrap:wrap;
+  }
+  .waveconnect-sheet-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
   }
   #waveconnect-section .btn{
     padding:8px 10px;

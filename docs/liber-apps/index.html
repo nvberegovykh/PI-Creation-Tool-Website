@@ -112,6 +112,52 @@
                             </label>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="registerCountry">Country</label>
+                        <select id="registerCountry" required>
+                            <option value="">Select country</option>
+                            <option value="US">United States</option>
+                            <option value="GB">United Kingdom</option>
+                            <option value="DE">Germany</option>
+                            <option value="FR">France</option>
+                            <option value="ES">Spain</option>
+                            <option value="IT">Italy</option>
+                            <option value="PT">Portugal</option>
+                            <option value="NL">Netherlands</option>
+                            <option value="PL">Poland</option>
+                            <option value="TR">Turkey</option>
+                            <option value="UA">Ukraine</option>
+                            <option value="RU">Russia</option>
+                            <option value="IN">India</option>
+                            <option value="AE">UAE</option>
+                            <option value="JP">Japan</option>
+                            <option value="KR">South Korea</option>
+                            <option value="CN">China</option>
+                            <option value="BR">Brazil</option>
+                            <option value="MX">Mexico</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerLanguage">Language</label>
+                        <select id="registerLanguage">
+                            <option value="en">English</option>
+                            <option value="es">Spanish</option>
+                            <option value="fr">French</option>
+                            <option value="de">German</option>
+                            <option value="it">Italian</option>
+                            <option value="pt">Portuguese</option>
+                            <option value="nl">Dutch</option>
+                            <option value="pl">Polish</option>
+                            <option value="uk">Ukrainian</option>
+                            <option value="ru">Russian</option>
+                            <option value="tr">Turkish</option>
+                            <option value="ar">Arabic</option>
+                            <option value="hi">Hindi</option>
+                            <option value="zh">Chinese</option>
+                            <option value="ja">Japanese</option>
+                            <option value="ko">Korean</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn-primary">Register</button>
                 </form>
 
@@ -361,10 +407,14 @@
             <section id="waveconnect-section" class="content-section">
                 <div class="section-header">
                     <h2>WaveConnect</h2>
-                    <div class="tabs" style="display:flex;gap:8px;align-items:center">
-                        <button id="wave-tab-audio" class="btn btn-secondary active"><i class="fas fa-music"></i> Audio</button>
-                        <button id="wave-tab-video" class="btn btn-secondary"><i class="fas fa-video"></i> Video</button>
-                        <button id="wave-tab-pictures" class="btn btn-secondary"><i class="fas fa-image"></i> Pictures</button>
+                    <div class="waveconnect-header-actions">
+                        <div class="tabs waveconnect-tabs" role="tablist" aria-label="WaveConnect content tabs">
+                            <button id="wave-tab-audio" class="btn btn-secondary active" role="tab" aria-selected="true"><i class="fas fa-music"></i> Audio</button>
+                            <button id="wave-tab-video" class="btn btn-secondary" role="tab" aria-selected="false"><i class="fas fa-video"></i> Video</button>
+                            <button id="wave-tab-pictures" class="btn btn-secondary" role="tab" aria-selected="false"><i class="fas fa-image"></i> Pictures</button>
+                        </div>
+                        <button id="wave-upload-quick-btn" class="btn btn-secondary waveconnect-quick-btn" title="Upload" aria-label="Open upload actions"><i class="fas fa-cloud-arrow-up"></i></button>
+                        <button id="wave-studio-btn" class="btn btn-secondary waveconnect-quick-btn" title="Studio" aria-label="Open studio manager"><i class="fas fa-sliders"></i></button>
                     </div>
                 </div>
 
@@ -533,6 +583,53 @@
                         <div class="setting-item">
                             <label for="profile-allow-unconnected-msg">Allow messages from unconnected users</label>
                             <input type="checkbox" id="profile-allow-unconnected-msg" checked>
+                        </div>
+                        <div class="setting-item">
+                            <label for="profile-country">Country</label>
+                            <select id="profile-country">
+                                <option value="">Select country</option>
+                                <option value="US">United States</option>
+                                <option value="GB">United Kingdom</option>
+                                <option value="DE">Germany</option>
+                                <option value="FR">France</option>
+                                <option value="ES">Spain</option>
+                                <option value="IT">Italy</option>
+                                <option value="PT">Portugal</option>
+                                <option value="NL">Netherlands</option>
+                                <option value="PL">Poland</option>
+                                <option value="TR">Turkey</option>
+                                <option value="UA">Ukraine</option>
+                                <option value="RU">Russia</option>
+                                <option value="IN">India</option>
+                                <option value="AE">UAE</option>
+                                <option value="JP">Japan</option>
+                                <option value="KR">South Korea</option>
+                                <option value="CN">China</option>
+                                <option value="BR">Brazil</option>
+                                <option value="MX">Mexico</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label for="profile-language">Account language</label>
+                            <select id="profile-language">
+                                <option value="en">English</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="it">Italian</option>
+                                <option value="pt">Portuguese</option>
+                                <option value="nl">Dutch</option>
+                                <option value="pl">Polish</option>
+                                <option value="uk">Ukrainian</option>
+                                <option value="ru">Russian</option>
+                                <option value="tr">Turkish</option>
+                                <option value="ar">Arabic</option>
+                                <option value="hi">Hindi</option>
+                                <option value="zh">Chinese</option>
+                                <option value="ja">Japanese</option>
+                                <option value="ko">Korean</option>
+                            </select>
+                            <button id="save-language-country-btn" class="btn btn-secondary" style="margin-top:8px">Save Language & Country</button>
                         </div>
                         <div class="setting-item">
                             <label>Force Reload</label>
@@ -788,7 +885,7 @@
       (function(){var h=(typeof window!=='undefined'&&window.location&&window.location.hostname)||'';var p=/liberpict\.com|\.web\.app|\.firebaseapp\.com$/i.test(h);window.__devLog=p?function(){}:function(){console.log.apply(console,arguments);};window.__devWarn=p?function(){}:function(){console.warn.apply(console,arguments);};})();
     </script>
     <script>
-      window.LIBER_APP_VERSION = '20260222r18';
+      window.LIBER_APP_VERSION = '20260228r23';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
         const critical = ['js/crypto.js', 'js/secure-keys.js', 'js/email-service.js', 'js/firebase-service.js', 'js/auth.js', '../components/media-fullscreen-viewer.js', '../components/media-video-player.js', 'js/dashboard.js', 'js/apps.js', 'js/users.js', 'js/main.js'];
