@@ -379,7 +379,7 @@
             <td>${escapeHtml(r.version)}</td>
             <td><span class="platform-pill">${escapeHtml(platformLabel(r.platform))}</span></td>
             <td>${escapeHtml(r.source)}</td>
-            <td title="${escapeHtml(r.fileName)}">${escapeHtml(r.fileName)}</td>
+            <td class="filename-cell" title="${escapeHtml(r.fileName)}">${escapeHtml(r.fileName)}</td>
             <td>${escapeHtml(r.updated)}</td>
             <td class="row-actions">
               <button type="button" class="icon-btn" data-open="${escapeHtml(r.r.directUrl || '')}" data-file="${escapeHtml(r.fileName)}" title="Download"><i class="fas fa-download"></i></button>

@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="../../css/style.css?v=20260212r12c" />
     <link rel="stylesheet" href="../../css/chatgpt-widget.css?v=20250818c" />
     <link rel="stylesheet" href="styles.css?v=20260222r19a" />
+    <link rel="stylesheet" href="../../../components/media-fullscreen-viewer.css" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script type="importmap">
       {
@@ -216,7 +217,7 @@
     <script>
       (function loadChatScripts() {
         const v = encodeURIComponent(window.LIBER_CHAT_VERSION || 'dev');
-        const scripts = ['../../js/secure-keys.js','../../js/firebase-loader.js','../../js/firebase-service.js','../../js/crypto.js','chat-crypto.js'];
+        const scripts = ['../../js/secure-keys.js','../../js/firebase-loader.js','../../js/firebase-service.js','../../js/crypto.js','../../../components/media-fullscreen-viewer.js','chat-crypto.js'];
         document.write(scripts.map((s)=>'<script src="'+s+'?v='+v+'"><\/script>').join(''));
       })();
     </script>

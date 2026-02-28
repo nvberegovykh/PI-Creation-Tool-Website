@@ -558,10 +558,33 @@
       return `${m}:${ss}`;
     }
 
+    openFullscreenMedia(items, startIndex = 0){
+      try{
+        const viewer = window.LiberMediaFullscreenViewer;
+        if (!viewer || typeof viewer.open !== 'function') return false;
+        const normalized = (Array.isArray(items) ? items : [])
+          .map((it)=>{
+            if (!it || !it.url) return null;
+            return {
+              type: String(it.type || '').toLowerCase() === 'video' ? 'video' : 'image',
+              url: String(it.url || ''),
+              alt: String(it.alt || it.title || ''),
+              poster: String(it.poster || ''),
+              title: String(it.title || '')
+            };
+          })
+          .filter(Boolean);
+        if (!normalized.length) return false;
+        return viewer.open({ items: normalized, startIndex: Number(startIndex) || 0 });
+      }catch(_){ return false; }
+    }
+
     openFullscreenImage(src, alt = 'image'){
       try{
         const url = String(src || '').trim();
         if (!url) return;
+        const opened = this.openFullscreenMedia([{ type: 'image', url, alt: String(alt || 'image') }], 0);
+        if (opened) return;
         const existing = document.getElementById('chat-image-lightbox');
         if (existing) existing.remove();
         const overlay = document.createElement('div');
@@ -576,27 +599,66 @@
       }catch(_){ }
     }
 
+    _extractFullscreenMediaFromElement(el){
+      try{
+        if (!(el instanceof HTMLElement)) return null;
+        if (el instanceof HTMLImageElement){
+          const src = String(el.currentSrc || el.src || '').trim();
+          if (!src) return null;
+          return { type: 'image', url: src, alt: String(el.alt || 'image') };
+        }
+        if (el instanceof HTMLVideoElement){
+          const src = String(el.currentSrc || el.src || '').trim();
+          if (!src) return null;
+          const explicit = el.getAttribute('data-fullscreen-media') === '1';
+          if (el.controls && !explicit) return null;
+          return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video') };
+        }
+        return null;
+      }catch(_){ return null; }
+    }
+
+    _collectFullscreenMediaContext(targetMedia){
+      try{
+        if (!(targetMedia instanceof HTMLElement)) return { items: [], startIndex: 0 };
+        const root = targetMedia.closest('.msg-media-grid,.msg-media-slider,.msg-media-item,.file-preview,#chat-attachments-sheet,.msg-text,.composer-attachments')
+          || targetMedia.parentElement
+          || document.body;
+        const items = Array.from(root.querySelectorAll('img,video'))
+          .map((el)=> this._extractFullscreenMediaFromElement(el))
+          .filter(Boolean);
+        if (!items.length){
+          const one = this._extractFullscreenMediaFromElement(targetMedia);
+          return one ? { items: [one], startIndex: 0 } : { items: [], startIndex: 0 };
+        }
+        const targetSrc = String((targetMedia.currentSrc || targetMedia.src || targetMedia.getAttribute('src') || '')).trim();
+        const startIndex = Math.max(0, items.findIndex((it)=> String(it.url || '').trim() === targetSrc));
+        return { items, startIndex: startIndex >= 0 ? startIndex : 0 };
+      }catch(_){ return { items: [], startIndex: 0 }; }
+    }
+
     setupFullscreenImagePreview(){
       if (this._fullscreenImagePreviewBound) return;
       this._fullscreenImagePreviewBound = true;
       document.addEventListener('click', (e)=>{
         try{
           const target = e.target;
-          if (!(target instanceof HTMLElement)) return;
-          const img = target.closest('img');
-          if (!(img instanceof HTMLImageElement)) return;
-          if (img.closest('button,[data-user-preview],.chat-conn-avatar,.avatar,.mini-player')) return;
-          const isPreviewImage = img.closest('.msg-text')
-            || img.closest('.file-preview')
-            || img.closest('#chat-attachments-sheet')
-            || img.classList.contains('composer-attachment-thumb')
-            || img.getAttribute('data-fullscreen-image') === '1';
-          if (!isPreviewImage) return;
-          const src = String(img.currentSrc || img.src || '').trim();
-          if (!src) return;
+          if (!(target instanceof Element)) return;
+          const mediaEl = target.closest('img,video');
+          if (!(mediaEl instanceof HTMLElement)) return;
+          if (mediaEl.closest('button,a,label,input,textarea,select,[data-user-preview],.chat-conn-avatar,.avatar,.mini-player')) return;
+          const isEndpoint = mediaEl.closest('.msg-text')
+            || mediaEl.closest('.file-preview')
+            || mediaEl.closest('#chat-attachments-sheet')
+            || mediaEl.classList.contains('composer-attachment-thumb')
+            || mediaEl.getAttribute('data-fullscreen-image') === '1'
+            || mediaEl.getAttribute('data-fullscreen-media') === '1';
+          if (!isEndpoint) return;
+          const payload = this._collectFullscreenMediaContext(mediaEl);
+          if (!payload.items.length) return;
           e.preventDefault();
           e.stopPropagation();
-          this.openFullscreenImage(src, img.alt || 'image');
+          this.openFullscreenMedia(payload.items, payload.startIndex);
         }catch(_){ }
       }, true);
     }

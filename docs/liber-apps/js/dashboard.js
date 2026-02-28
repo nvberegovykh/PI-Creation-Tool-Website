@@ -62,10 +62,33 @@ class DashboardManager {
         return user;
     }
 
+    openFullscreenMedia(items, startIndex = 0){
+        try{
+            const viewer = window.LiberMediaFullscreenViewer;
+            if (!viewer || typeof viewer.open !== 'function') return false;
+            const normalized = (Array.isArray(items) ? items : [])
+                .map((it)=>{
+                    if (!it || !it.url) return null;
+                    return {
+                        type: String(it.type || '').toLowerCase() === 'video' ? 'video' : 'image',
+                        url: String(it.url || ''),
+                        alt: String(it.alt || it.title || ''),
+                        poster: String(it.poster || it.cover || ''),
+                        title: String(it.title || '')
+                    };
+                })
+                .filter(Boolean);
+            if (!normalized.length) return false;
+            return viewer.open({ items: normalized, startIndex: Number(startIndex) || 0 });
+        }catch(_){ return false; }
+    }
+
     openFullscreenImage(src, alt = 'image'){
         try{
             const url = String(src || '').trim();
             if (!url) return;
+            const opened = this.openFullscreenMedia([{ type: 'image', url, alt: String(alt || 'image') }], 0);
+            if (opened) return;
             const existing = document.getElementById('liber-image-lightbox');
             if (existing) existing.remove();
             const overlay = document.createElement('div');
@@ -78,6 +101,45 @@ class DashboardManager {
             if (closeBtn) closeBtn.addEventListener('click', close);
             document.body.appendChild(overlay);
         }catch(_){ }
+    }
+
+    extractFullscreenMediaFromElement(el){
+        try{
+            if (!(el instanceof HTMLElement)) return null;
+            if (el instanceof HTMLImageElement){
+                const src = String(el.currentSrc || el.src || '').trim();
+                if (!src) return null;
+                return { type: 'image', url: src, alt: String(el.alt || 'image') };
+            }
+            if (el instanceof HTMLVideoElement){
+                const src = String(el.currentSrc || el.src || '').trim();
+                if (!src) return null;
+                const explicit = el.getAttribute('data-fullscreen-media') === '1';
+                if (el.controls && !explicit) return null;
+                return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video') };
+            }
+            return null;
+        }catch(_){ return null; }
+    }
+
+    collectFullscreenMediaContext(targetMedia){
+        try{
+            if (!(targetMedia instanceof HTMLElement)) return { items: [], startIndex: 0 };
+            const contextRoot = targetMedia.closest('[data-media-collection],.preview-visual-grid,.post-media-visual-slider,.space-post-preview-card,#preview-pictures,#preview-video,#preview-videos,.file-preview')
+                || targetMedia.parentElement
+                || document.body;
+            const nodes = Array.from(contextRoot.querySelectorAll('img,video'));
+            const items = nodes
+                .map((node)=> this.extractFullscreenMediaFromElement(node))
+                .filter(Boolean);
+            if (!items.length){
+                const one = this.extractFullscreenMediaFromElement(targetMedia);
+                return one ? { items: [one], startIndex: 0 } : { items: [], startIndex: 0 };
+            }
+            const targetSrc = String((targetMedia.currentSrc || targetMedia.src || targetMedia.getAttribute('src') || '')).trim();
+            const startIndex = Math.max(0, items.findIndex((it)=> String(it.url || '').trim() === targetSrc));
+            return { items, startIndex: startIndex >= 0 ? startIndex : 0 };
+        }catch(_){ return { items: [], startIndex: 0 }; }
     }
 
     clearRealtimeFeedSubscription(key){
@@ -708,21 +770,28 @@ class DashboardManager {
         document.addEventListener('click', (e)=>{
             try{
                 const target = e.target;
-                if (!(target instanceof HTMLElement)) return;
-                const img = target.closest('img');
-                if (!(img instanceof HTMLImageElement)) return;
-                if (img.closest('button,[data-user-preview],.avatar,.mobile-bottom-nav,.dashboard-nav,.mini-player')) return;
-                const isPreviewImage = img.classList.contains('post-media-image')
-                    || img.closest('.space-post-preview-card')
-                    || img.closest('#preview-pictures')
-                    || img.getAttribute('data-fullscreen-image') === '1'
-                    || img.closest('.file-preview');
-                if (!isPreviewImage) return;
-                const src = String(img.currentSrc || img.src || '').trim();
-                if (!src) return;
+                if (!(target instanceof Element)) return;
+                const mediaEl = target.closest('img,video');
+                if (!(mediaEl instanceof HTMLElement)) return;
+                if (mediaEl.closest('button,a,label,input,textarea,select,[data-user-preview],.mobile-bottom-nav,.dashboard-nav,.mini-player,.post-save-visual-btn')) return;
+                const isEndpoint = mediaEl.id === 'space-avatar'
+                    || mediaEl.id === 'view-user-avatar'
+                    || mediaEl.classList.contains('post-media-image')
+                    || mediaEl.classList.contains('post-media-video')
+                    || mediaEl.getAttribute('data-fullscreen-image') === '1'
+                    || mediaEl.getAttribute('data-fullscreen-media') === '1'
+                    || mediaEl.closest('.space-post-preview-card')
+                    || mediaEl.closest('.preview-visual-grid')
+                    || mediaEl.closest('#preview-pictures')
+                    || mediaEl.closest('#preview-video')
+                    || mediaEl.closest('#preview-videos')
+                    || mediaEl.closest('.file-preview');
+                if (!isEndpoint) return;
+                const payload = this.collectFullscreenMediaContext(mediaEl);
+                if (!payload.items.length) return;
                 e.preventDefault();
                 e.stopPropagation();
-                this.openFullscreenImage(src, img.alt || 'image');
+                this.openFullscreenMedia(payload.items, payload.startIndex);
             }catch(_){ }
         }, true);
     }
@@ -8211,7 +8280,7 @@ Do you want to proceed?`);
             if (kind === 'image'){
               mediaWrap.innerHTML = `<img loading="lazy" data-fullscreen-image="1" style="width:100%;max-height:260px;object-fit:contain;border-radius:8px;background:#000" src="${String(v?.url || '').replace(/"/g,'&quot;')}" alt="${String(v?.title || 'Picture').replace(/"/g,'&quot;')}">`;
             } else {
-              mediaWrap.innerHTML = `<video controls playsinline style="width:100%;max-height:260px" src="${String(v?.url || '').replace(/"/g,'&quot;')}"></video>`;
+              mediaWrap.innerHTML = `<video controls playsinline data-fullscreen-media="1" style="width:100%;max-height:260px" src="${String(v?.url || '').replace(/"/g,'&quot;')}"></video>`;
             }
             mediaWrap.appendChild(mkAddBtn(kind, v));
             card.innerHTML = `<div style="margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>`;
