@@ -138,6 +138,7 @@
       this._cleanupInProgress = false;
       this.pendingReply = null;
       this.pendingEdit = null;
+      this._pinnedByConn = new Map();
       this.chatCategories = [];
       this.connCategories = {};
       this.selectedCategory = 'all';
@@ -560,8 +561,6 @@
 
     openFullscreenMedia(items, startIndex = 0){
       try{
-        const viewer = window.LiberMediaFullscreenViewer;
-        if (!viewer || typeof viewer.open !== 'function') return false;
         const normalized = (Array.isArray(items) ? items : [])
           .map((it)=>{
             if (!it || !it.url) return null;
@@ -570,12 +569,28 @@
               url: String(it.url || ''),
               alt: String(it.alt || it.title || ''),
               poster: String(it.poster || ''),
-              title: String(it.title || '')
+              title: String(it.title || ''),
+              isRecording: it.isRecording === true
             };
           })
           .filter(Boolean);
         if (!normalized.length) return false;
-        return viewer.open({ items: normalized, startIndex: Number(startIndex) || 0 });
+        const start = Math.max(0, Math.min((normalized.length - 1), Number(startIndex) || 0));
+        const selected = normalized[start] || normalized[0];
+        if (selected && selected.type === 'video' && selected.isRecording !== true){
+          const player = window.LiberVideoPlayer;
+          if (player && typeof player.open === 'function'){
+            const videoItems = normalized.filter((it)=> it.type === 'video' && it.isRecording !== true);
+            const vidIdx = Math.max(0, videoItems.findIndex((it)=> it.url === selected.url));
+            return player.open({ items: videoItems, startIndex: vidIdx, source: 'chat' });
+          }
+        }
+        const viewer = window.LiberMediaFullscreenViewer;
+        if (!viewer || typeof viewer.open !== 'function') return false;
+        const imageItems = normalized.filter((it)=> it.type !== 'video');
+        if (!imageItems.length) return false;
+        const imgIdx = Math.max(0, imageItems.findIndex((it)=> it.url === selected.url));
+        return viewer.open({ items: imageItems, startIndex: imgIdx >= 0 ? imgIdx : 0 });
       }catch(_){ return false; }
     }
 
@@ -612,7 +627,9 @@
           if (!src) return null;
           const explicit = el.getAttribute('data-fullscreen-media') === '1';
           if (el.controls && !explicit) return null;
-          return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video') };
+          const recClass = el.classList.contains('video-recording-circular') || el.classList.contains('video-recording-mask');
+          const recData = el.getAttribute('data-is-recording') === '1' || el.closest('[data-is-recording="1"]');
+          return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video'), isRecording: !!(recClass || recData) };
         }
         return null;
       }catch(_){ return null; }
@@ -1033,6 +1050,42 @@
       }catch(_){ return String(msgId || '').trim(); }
     }
 
+    getCurrentUid(){
+      try{
+        return String(this.currentUser?.uid || this.auth?.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim();
+      }catch(_){ return ''; }
+    }
+
+    isSelfMessage(m){
+      const me = this.getCurrentUid();
+      const sender = String(m?.sender || '').trim();
+      return !!me && !!sender && me === sender;
+    }
+
+    renderPinnedMessageBar(){
+      const wrap = document.getElementById('chat-pinned-bar');
+      const main = document.getElementById('chat-pinned-main');
+      const text = document.getElementById('chat-pinned-text');
+      const close = document.getElementById('chat-pinned-close');
+      if (!wrap || !main || !text || !close) return;
+      const connId = String(this.activeConnection || '').trim();
+      const pinned = connId ? this._pinnedByConn.get(connId) : null;
+      if (!pinned){
+        wrap.classList.add('hidden');
+        text.textContent = '';
+        return;
+      }
+      wrap.classList.remove('hidden');
+      text.textContent = String(pinned.preview || '').trim();
+      main.onclick = ()=>{
+        if (pinned.msgDomId) this.scrollToMessage(pinned.msgDomId);
+      };
+      close.onclick = ()=>{
+        this._pinnedByConn.delete(connId);
+        this.renderPinnedMessageBar();
+      };
+    }
+
     static REACTION_EMOJIS = ['👍','💯','❤️','🔥','😤','❤️‍🩹','🎉'];
 
     getMessageReplyQuoteHtml(m, sourceConnId){
@@ -1061,11 +1114,10 @@
       const cid = String(sourceConnId||'').replace(/"/g,'&quot;');
       return entries.map(([emoji, uids])=>{
         const count = uids.length;
-        const firstUid = uids[0];
-        const avHtml = !isGroupChat && firstUid ? `<img class="react-avatar" src="${this._avatarCache.get(firstUid) || this.usernameCache.get(firstUid)?.avatarUrl || '../../images/default-bird.png'}" alt="">` : '';
-        const countSpan = isGroupChat && count > 0 ? `<span class="react-count">${count}</span>` : '';
+        const safeEmoji = String(emoji || '').replace(/</g,'&lt;');
+        const countSpan = count > 0 ? `<span class="react-count">${count}</span>` : '';
         const hasCount = isGroupChat && count > 0;
-        return `<span class="msg-reaction-badge" data-emoji="${String(emoji).replace(/"/g,'&quot;')}" data-msg-id="${mid}" data-conn-id="${cid}" data-has-count="${hasCount ? '1' : '0'}" title="Reacted">${avHtml}<span class="react-emoji">${emoji}</span>${countSpan}</span>`;
+        return `<span class="msg-reaction-badge" data-emoji="${String(emoji).replace(/"/g,'&quot;')}" data-msg-id="${mid}" data-conn-id="${cid}" data-has-count="${hasCount ? '1' : '0'}" title="Reacted"><span class="react-emoji">${safeEmoji}</span>${countSpan}</span>`;
       }).join('');
     }
 
@@ -1136,10 +1188,28 @@
       switch (action){
         case 'reply': this.setReplyToMessage(msgData); break;
         case 'copy': try{ navigator.clipboard?.writeText(text||''); }catch(_){ } break;
-        case 'translate': break;
-        case 'pin': break;
+        case 'translate': {
+          const raw = String(text || '').trim();
+          if (!raw) break;
+          try{
+            const url = `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(raw)}&op=translate`;
+            window.open(url, '_blank', 'noopener');
+          }catch(_){ this._showErrorToast('Unable to open translator'); }
+          break;
+        }
+        case 'pin': {
+          const previewRaw = String(text || '').trim() || '[media]';
+          const preview = previewRaw.length > 72 ? `${previewRaw.slice(0, 72)}...` : previewRaw;
+          const msgDomId = this.buildMsgDomId(connId, msgId);
+          this._pinnedByConn.set(String(connId || ''), { msgDomId, preview });
+          this.renderPinnedMessageBar();
+          break;
+        }
         case 'forward': this.openShareMessageSheet(sharePayload||{}); break;
-        case 'select': break;
+        case 'select': {
+          if (el) el.classList.toggle('msg-selected');
+          break;
+        }
         case 'edit': this.setEditMessage(msgData); break;
         case 'delete': this.deleteMessage(connId, msgId, el); break;
       }
@@ -1149,7 +1219,7 @@
       if (!msgData || !this.activeConnection || String(msgData.connId || '') !== String(this.activeConnection)) return;
       const text = String(msgData.text || '').trim();
       const preview = text.length > 15 ? text.slice(0, 15) + '...' : text;
-      const senderName = (msgData.m?.sender === this.currentUser.uid ? 'You' : (msgData.senderName || 'User'));
+      const senderName = (this.isSelfMessage(msgData.m) ? 'You' : (msgData.senderName || 'User'));
       const cached = this.usernameCache.get(msgData.m?.sender);
       const displayName = (cached && typeof cached === 'object' ? cached.username : cached) || senderName;
       this.pendingReply = {
@@ -1268,13 +1338,16 @@
       const DRAG_REPLY_THRESHOLD = 50;
       let dragStartX = 0;
       let dragReplyTriggered = false;
+      let dragArmed = false;
       const getClientX = (e)=> (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
       const onDragStart = (e)=>{
         if (e.target.closest('.msg-reaction-badge, .msg-context-overlay, .msg-reply-quote')) return;
         dragStartX = getClientX(e);
         dragReplyTriggered = false;
+        dragArmed = true;
       };
       const onDragMove = (e)=>{
+        if (!dragArmed) return;
         if (dragReplyTriggered) return;
         const x = getClientX(e);
         const delta = x - dragStartX;
@@ -1286,7 +1359,7 @@
           this.setReplyToMessage(msgData);
         }
       };
-      const onDragEnd = ()=>{ dragReplyTriggered = false; };
+      const onDragEnd = ()=>{ dragReplyTriggered = false; dragArmed = false; };
       el.addEventListener('touchstart', onDragStart, { passive: true });
       el.addEventListener('touchmove', (e)=>{ onDragMove(e); }, { passive: true });
       el.addEventListener('touchend', onDragEnd);
@@ -4780,6 +4853,7 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      this.renderPinnedMessageBar();
       this._disableCallFab = false;
       this.clearPendingAttachments();
       this.clearPendingReply();
@@ -4964,6 +5038,7 @@
       const box = document.getElementById('messages');
       if (!box) return;
       if (!this.activeConnection) return;
+      this.renderPinnedMessageBar();
       if (!this.db) {
         box.innerHTML = '<div class="error">Firestore not ready. Please refresh.</div>';
         return;
@@ -5000,9 +5075,10 @@
       const updateBottomUi = ()=>{
         // column-reverse chat: end-of-chat is near scrollTop = 0.
         const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
-        const pinned = scrollPos <= 36;
+        const pinned = scrollPos <= 8;
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = !pinned ? 'inline-block' : 'none';
+        this.renderPinnedMessageBar();
       };
       const maybeLoadOlder = async ()=>{
         const connId = this.activeConnection;
@@ -5013,7 +5089,7 @@
         const lastDoc = this._lastOldestDocSnapshotByConn.get(connId);
         if (!lastDoc) return;
         const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
-        const nearTop = box.scrollHeight - box.clientHeight - scrollPos <= 120;
+        const nearTop = scrollPos >= Math.max(0, (box.scrollHeight - box.clientHeight - 120));
         if (!nearTop) return;
         if (box.dataset.renderedConnId !== connId) return;
         this._lastOlderLoadAt = nowTs;
@@ -5044,7 +5120,6 @@
           this._lastOldestDocSnapshotByConn.set(connId, rawOlder[rawOlder.length - 1]);
           this._hasMoreOlderByConn.set(connId, rawOlder.length >= 200);
           const prevScrollTop = box.scrollTop;
-          const prevScrollHeight = box.scrollHeight;
           const appendContext = { lastRenderedDay: '' };
           const lastMsgEl = box.lastElementChild?.classList?.contains('message') ? box.lastElementChild : null;
           if (lastMsgEl?.dataset?.msgTs){
@@ -5060,8 +5135,7 @@
             try{ await renderOne(d, connId, { forceAppend: true, appendContext }); }catch(_){}
             if (olderAsDocs.length > 50 || (olderAsDocs.length - 1 - i) % 3 === 2) await this.yieldToUi();
           }
-          const heightAdded = box.scrollHeight - prevScrollHeight;
-          box.scrollTop = prevScrollTop + heightAdded;
+          box.scrollTop = prevScrollTop;
           this.applyNewMessagesSeparator(box);
         }finally{ this._loadMoreOlderInFlight = false; }
       };
@@ -5214,18 +5288,18 @@
                   }
                 }
                 const el = document.createElement('div');
-                el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+                el.className='message '+(this.isSelfMessage(m)?'self':'other');
                 const domMsgId = this.buildMsgDomId(sourceConnId, d.id || m.id || '');
                 el.dataset.msgId = domMsgId;
                 const msgTs = this.getMessageTimestampMs(m);
                 el.dataset.msgTs = String(msgTs || 0);
-                if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+                if (!this.isSelfMessage(m) && msgTs > readMarkerMs) el.dataset.unread = '1';
                 const callBadge = this._parseCallBadgeToken(text);
                 if (m.systemType === 'connection_request_intro') el.classList.add('message-system', 'message-connection-request');
                 if (callBadge) el.classList.add('message-system', 'message-call-badge');
                 const cachedSender = this.usernameCache.get(m.sender);
                 const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
-                let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
+                let senderName = this.isSelfMessage(m) ? 'You' : (String(cachedSenderName || '').trim() || 'User');
                 if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                   this._senderLookupInFlight.add(m.sender);
                   Promise.resolve().then(async ()=>{ try { const user = await window.firebaseService.getUserData(m.sender); this.usernameCache.set(m.sender, this._displayName(user, m.sender)); } catch (_) { this.usernameCache.set(m.sender, senderName || 'Unknown'); } finally { this._senderLookupInFlight.delete(m.sender); } });
@@ -5244,7 +5318,7 @@
                 if (gifMatch) bodyHtml = `<img src="${gifMatch[1]}" alt="gif" style="max-width:100%;border-radius:8px" />`;
                 const stickerDataMatch = /^\[sticker-data\](data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$/i.exec(text || '');
                 if (stickerDataMatch) bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
-                const canModify = m.sender === this.currentUser.uid;
+                const canModify = this.isSelfMessage(m);
                 const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
                 const dayLabel = this.formatMessageDay(m.createdAt, m);
                 if (dayLabel !== lastRenderedDay){ const sep = document.createElement('div'); sep.className = 'message-day-separator'; sep.textContent = dayLabel; box.insertBefore(sep, box.firstElementChild); lastRenderedDay = dayLabel; }
@@ -5394,12 +5468,12 @@
                 text = await decryptMessageText(m, sourceConnId);
               }
               const el = document.createElement('div');
-              el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+              el.className='message '+(this.isSelfMessage(m)?'self':'other');
               const domMsgId = this.buildMsgDomId(sourceConnId, d.id || m.id || '');
               el.dataset.msgId = domMsgId;
               const msgTs = this.getMessageTimestampMs(m);
               el.dataset.msgTs = String(msgTs || 0);
-              if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+              if (!this.isSelfMessage(m) && msgTs > readMarkerMs) el.dataset.unread = '1';
               const callBadge = this._parseCallBadgeToken(text);
               if (m.systemType === 'connection_request_intro'){
                 el.classList.add('message-system', 'message-connection-request');
@@ -5408,7 +5482,7 @@
               // Resolve sender name async
               const cachedSender = this.usernameCache.get(m.sender);
               const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
-              let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
+              let senderName = this.isSelfMessage(m) ? 'You' : (String(cachedSenderName || '').trim() || 'User');
               if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
                 this._senderLookupInFlight.add(m.sender);
                 Promise.resolve().then(async ()=>{
@@ -5442,7 +5516,7 @@
               if (stickerDataMatch){
                 bodyHtml = `<img src="${stickerDataMatch[1]}" alt="sticker" style="max-width:100%;border-radius:8px" />`;
               }
-              const canModify = m.sender === this.currentUser.uid;
+              const canModify = this.isSelfMessage(m);
               const sharePayload = this.buildSharePayload(text, m.fileUrl, inferredFileName, sourceConnId, m.attachmentKeySalt || '', { ...m, id: d.id || m.id }, senderName);
               const dayLabel = this.formatMessageDay(m.createdAt, m);
               const effectiveLastDay = (forceAppend || forceInsertBefore) && opts.appendContext ? opts.appendContext.lastRenderedDay : lastRenderedDay;
@@ -5801,11 +5875,11 @@
               }
             }
             const el = document.createElement('div');
-            el.className='message '+(m.sender===this.currentUser.uid?'self':'other');
+            el.className='message '+(this.isSelfMessage(m)?'self':'other');
             el.dataset.msgId = this.buildMsgDomId(activeConnId, d.id || m.id || '');
             const msgTs = this.getMessageTimestampMs(m);
             el.dataset.msgTs = String(msgTs || 0);
-            if (m.sender !== this.currentUser.uid && msgTs > readMarkerMs) el.dataset.unread = '1';
+            if (!this.isSelfMessage(m) && msgTs > readMarkerMs) el.dataset.unread = '1';
             const callBadge = this._parseCallBadgeToken(text);
             if (m.systemType === 'connection_request_intro'){
               el.classList.add('message-system', 'message-connection-request');
@@ -5814,7 +5888,7 @@
             // Resolve sender name async
             const cachedSender = this.usernameCache.get(m.sender);
             const cachedSenderName = (cachedSender && typeof cachedSender === 'object') ? cachedSender.username : cachedSender;
-            let senderName = m.sender === this.currentUser.uid ? 'You' : (String(cachedSenderName || '').trim() || 'User');
+            let senderName = this.isSelfMessage(m) ? 'You' : (String(cachedSenderName || '').trim() || 'User');
             if (!this.usernameCache.has(m.sender) && !this._senderLookupInFlight.has(m.sender)) {
               this._senderLookupInFlight.add(m.sender);
               Promise.resolve().then(async ()=>{
@@ -5875,7 +5949,7 @@
             const reactionsHtml3 = this.getMessageReactionsHtml(m, msgId3, activeConnId, isGroup3);
             const replyQuoteHtml3 = this.getMessageReplyQuoteHtml(m, activeConnId);
             const sharePayload3 = this.buildSharePayload(text, m.fileUrl, inferredFileName, activeConnId, m.attachmentKeySalt || '', { ...m, id: msgId3 }, senderName);
-            const canModify3 = m.sender === this.currentUser.uid;
+            const canModify3 = this.isSelfMessage(m);
             el.innerHTML = `${mediaBlockHtml3}${replyQuoteHtml3}<div class=\"msg-text\">${bodyHtml}</div>${hasFile?`${previewOnlyFile ? '' : `<div class=\"file-link\">${inferredFileName || 'Attachment'}</div>`}<div class=\"file-preview\"><span class="attachment-loading" style="font-size:11px;opacity:.6">Loading…</span></div>`:''}<div class=\"meta\">${systemBadge}${metaSepFb}${timeStr3}${editedBadge}${repostBadge}${originalSignature}${deliveryTxt}</div>${reactionsHtml3 ? `<div class=\"msg-reactions-row\">${reactionsHtml3}</div>` : ''}`;
             box.appendChild(el);
             this.bindMessageContextMenu(el, { el, connId: activeConnId, msgId: msgId3, text, canModify: canModify3, sharePayload: sharePayload3, m, senderName });

@@ -223,12 +223,13 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 }
 .messages{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
 .messages::-webkit-scrollbar{width:0;height:0}
-.message{max-width:72%;padding:12px 14px;border-radius:16px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .28s ease-out}
+.message{max-width:min(72%, 100%);padding:12px 14px;border-radius:16px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .28s ease-out;min-width:0}
 @keyframes msg-fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .message,.connections-list li{word-break:break-word;overflow-wrap:anywhere}
 .message img,.message .file-link{max-width:100%}
 .message.self{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
 .message.other{align-self:flex-start;background:#151823;border-bottom-left-radius:4px}
+.message.msg-selected{outline:2px solid rgba(107,158,255,.9);outline-offset:2px}
 .message.message-media-only{
   background: transparent !important;
   box-shadow: none !important;
@@ -492,8 +493,9 @@ button.call-status-badge:hover{
 .msg-context-bubble .msg-context-item:hover{background:rgba(255,255,255,.08)}
 .msg-context-bubble .msg-context-item i{margin-right:4px;width:18px;text-align:center;opacity:.9}
 .msg-context-bubble .msg-context-item.delete{color:#ef4444}
-.msg-reactions-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;min-height:22px}
-.msg-reaction-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-size:13px;cursor:pointer;transition:opacity .2s,transform .15s;animation:msg-reaction-badge-in .22s ease-out}
+.msg-reactions-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;min-height:22px;max-width:100%;overflow-x:auto;overflow-y:hidden}
+.msg-reactions-row::-webkit-scrollbar{height:0;width:0}
+.msg-reaction-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-size:13px;cursor:pointer;transition:opacity .2s,transform .15s;animation:msg-reaction-badge-in .22s ease-out;flex:0 0 auto;max-width:100%}
 .msg-reaction-badge:hover{opacity:.95;transform:scale(1.02)}
 .msg-reaction-badge .react-emoji{line-height:1}
 .msg-reaction-badge .react-count{font-size:11px;opacity:.9;min-width:14px}
@@ -510,6 +512,51 @@ button.call-status-badge:hover{
 .file-preview img{cursor:pointer}
 .file-preview audio{width:100%;background:#131a27;border-radius:14px;padding:4px}
 .file-preview img,.file-preview video{max-width:min(100%,360px);max-height:360px;object-fit:contain}
+.chat-pinned-bar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:8px 12px 4px;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid rgba(107,158,255,.35);
+  background:linear-gradient(180deg, rgba(24,33,50,.92), rgba(15,20,33,.92));
+}
+.chat-pinned-bar.hidden{display:none !important}
+.chat-pinned-main{
+  flex:1;
+  min-width:0;
+  border:0;
+  background:transparent;
+  color:#deebff;
+  text-align:left;
+  cursor:pointer;
+  padding:0;
+}
+.chat-pinned-label{
+  display:block;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:#8fb5ff;
+  margin-bottom:2px;
+}
+.chat-pinned-text{
+  display:block;
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.chat-pinned-close{
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.08);
+  color:#f1f5ff;
+  cursor:pointer;
+}
 .file-preview video.video-recording-mask,
 .file-preview video.video-recording-circular,
 .video-recording-circular{

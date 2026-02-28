@@ -64,8 +64,6 @@ class DashboardManager {
 
     openFullscreenMedia(items, startIndex = 0){
         try{
-            const viewer = window.LiberMediaFullscreenViewer;
-            if (!viewer || typeof viewer.open !== 'function') return false;
             const normalized = (Array.isArray(items) ? items : [])
                 .map((it)=>{
                     if (!it || !it.url) return null;
@@ -79,7 +77,22 @@ class DashboardManager {
                 })
                 .filter(Boolean);
             if (!normalized.length) return false;
-            return viewer.open({ items: normalized, startIndex: Number(startIndex) || 0 });
+            const start = Math.max(0, Math.min((normalized.length - 1), Number(startIndex) || 0));
+            const selected = normalized[start] || normalized[0];
+            if (selected && selected.type === 'video'){
+                const player = window.LiberVideoPlayer;
+                if (player && typeof player.open === 'function'){
+                    const videoItems = normalized.filter((it)=> it.type === 'video');
+                    const vidIdx = Math.max(0, videoItems.findIndex((it)=> it.url === selected.url));
+                    return player.open({ items: videoItems, startIndex: vidIdx, source: 'app' });
+                }
+            }
+            const viewer = window.LiberMediaFullscreenViewer;
+            if (!viewer || typeof viewer.open !== 'function') return false;
+            const imageItems = normalized.filter((it)=> it.type !== 'video');
+            if (!imageItems.length) return false;
+            const imgIdx = Math.max(0, imageItems.findIndex((it)=> it.url === selected.url));
+            return viewer.open({ items: imageItems, startIndex: imgIdx >= 0 ? imgIdx : 0 });
         }catch(_){ return false; }
     }
 

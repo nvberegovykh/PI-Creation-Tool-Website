@@ -976,6 +976,69 @@ class FirebaseService {
         return items.slice(0, limitN);
     }
 
+    async trackVideoInteraction(payload = {}){
+        await this.waitForInit();
+        try{
+            const user = this.auth?.currentUser;
+            if (!user || !user.uid) return false;
+            const action = String(payload.action || '').trim();
+            if (!action) return false;
+            const ref = firebase.doc(firebase.collection(this.db, 'videoInteractions'));
+            const nowIso = new Date().toISOString();
+            await firebase.setDoc(ref, {
+                id: ref.id,
+                uid: user.uid,
+                action,
+                source: String(payload.source || 'app'),
+                sourceId: String(payload.sourceId || ''),
+                videoId: String(payload.videoId || ''),
+                watchRatio: Number(payload.watchRatio || 0) || 0,
+                createdAt: nowIso,
+                createdAtTS: firebase.serverTimestamp(),
+                userAgent: String(navigator.userAgent || '').slice(0, 220)
+            });
+            return true;
+        }catch(_){ return false; }
+    }
+
+    async getVideoRecommendations(opts = {}){
+        await this.waitForInit();
+        const limitN = Math.max(1, Math.min(50, Number(opts.limit || 24)));
+        const source = String(opts.source || 'app').trim() || 'app';
+        const user = this.auth?.currentUser;
+        const out = [];
+        try{
+            if (user && user.uid){
+                const qUser = firebase.query(
+                    firebase.collection(this.db, 'videoRecommendations', user.uid, 'items'),
+                    firebase.where('source', 'in', [source, 'any']),
+                    firebase.orderBy('score', 'desc'),
+                    firebase.limit(limitN)
+                );
+                const snapUser = await firebase.getDocs(qUser);
+                snapUser.forEach((d)=> out.push({ id: d.id, ...d.data() }));
+            }
+        }catch(_){ }
+        if (out.length >= 3) return out.slice(0, limitN);
+        try{
+            const qGlobal = firebase.query(
+                firebase.collection(this.db, 'videoRecommendations', 'global', 'items'),
+                firebase.where('source', 'in', [source, 'any']),
+                firebase.orderBy('score', 'desc'),
+                firebase.limit(limitN)
+            );
+            const snapGlobal = await firebase.getDocs(qGlobal);
+            snapGlobal.forEach((d)=> out.push({ id: d.id, ...d.data() }));
+        }catch(_){ }
+        const seen = new Set();
+        return out.filter((row)=>{
+            const k = String(row.videoId || row.id || '');
+            if (!k || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        }).slice(0, limitN);
+    }
+
     /**
      * Update user data in Firestore
      */
