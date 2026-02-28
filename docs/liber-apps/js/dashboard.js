@@ -6656,7 +6656,7 @@ class DashboardManager {
         const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
         const mediaHtml = isImageSource
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
-            : `<video class="liber-lib-video" src="${v.url}" controls playsinline style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}"></video>`;
+            : `<div class="wave-video-preview"><video class="liber-lib-video" src="${v.url}" muted playsinline preload="metadata" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000;cursor:pointer" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}" data-source-id="${String(v.id || '').replace(/"/g,'&quot;')}"></video><button type="button" class="video-open-player-btn" title="Open player"><i class="fas fa-play"></i></button></div>`;
         const editBtnHtml = `<button class="edit-visual-btn" title="Edit media" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img src="${thumb}" alt="cover" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
@@ -6681,10 +6681,35 @@ class DashboardManager {
             }catch(_){ this.showError('Repost failed'); }
         }; }
         const vEl = div.querySelector('.liber-lib-video');
-        if (vEl){ vEl.addEventListener('play', ()=>{
-            this.showMiniPlayer(vEl, { title: v.title, by: v.authorName, cover: v.thumbnailUrl });
-            this.incrementAssetViewCounter({ kind: 'video', sourceId: v.id, url: v.url });
-        }); }
+        const openPlayerBtn = div.querySelector('.video-open-player-btn');
+        const openInPlayer = ()=>{
+            try{
+                const root = div.closest('#video-library,#video-suggestions,#video-search-results,#picture-library,#picture-suggestions,#global-feed,#space-feed,#waveconnect-section') || document;
+                const videos = Array.from(root.querySelectorAll('.liber-lib-video')).map((node)=> ({
+                    type: 'video',
+                    url: String(node.currentSrc || node.src || '').trim(),
+                    title: String(node.dataset.title || '').trim() || 'Video',
+                    by: String(node.dataset.by || '').trim(),
+                    cover: String(node.dataset.cover || '').trim(),
+                    sourceId: String(node.dataset.sourceId || '').trim()
+                })).filter((it)=> !!it.url);
+                if (!videos.length){
+                    this.openFullscreenMedia([{ type:'video', url: String(v.url || ''), title: String(v.title || 'Video'), by: String(v.authorName || ''), cover: String(v.thumbnailUrl || ''), sourceId: String(v.id || '') }], 0);
+                    return;
+                }
+                const idx = Math.max(0, videos.findIndex((it)=> it.url === String(v.url || '')));
+                this.openFullscreenMedia(videos, idx);
+                this.incrementAssetViewCounter({ kind: 'video', sourceId: v.id, url: v.url });
+            }catch(_){ }
+        };
+        if (vEl){
+            vEl.controls = false;
+            vEl.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openInPlayer(); });
+            vEl.addEventListener('play', ()=>{ try{ vEl.pause(); }catch(_){ } openInPlayer(); });
+        }
+        if (openPlayerBtn){
+            openPlayerBtn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); openInPlayer(); };
+        }
         const editBtn = div.querySelector('.edit-visual-btn');
         if (editBtn){
             editBtn.onclick = async ()=>{
@@ -6862,7 +6887,7 @@ class DashboardManager {
         const byline = v.authorName ? `<div style=\"font-size:12px;color:#aaa\">by ${(v.authorName||'').replace(/</g,'&lt;')}</div>` : '';
         const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
         const mediaHtml = isVideoSource
-            ? `<video src="${v.url}" controls playsinline style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000"></video>`
+            ? `<div class="wave-video-preview"><video class="liber-lib-video" src="${v.url}" muted playsinline preload="metadata" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000;cursor:pointer" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||v.url||'').replace(/"/g,'&quot;')}" data-source-id="${String(v.id || '').replace(/"/g,'&quot;')}"></video><button type="button" class="video-open-player-btn" title="Open player"><i class="fas fa-play"></i></button></div>`
             : `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:360px;border-radius:8px;object-fit:contain;background:#000" />`;
         const editBtnHtml = `<button class="edit-visual-btn" title="Edit media" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
@@ -6889,6 +6914,36 @@ class DashboardManager {
         const avatarEl = div.querySelector('.picture-author-avatar');
         if (avatarEl && authorId){
             this.hydrateAuthorAvatarImage(avatarEl, authorId);
+        }
+        const pVideo = div.querySelector('.liber-lib-video');
+        const pOpenBtn = div.querySelector('.video-open-player-btn');
+        const openPictureVideoPlayer = ()=>{
+            try{
+                const root = div.closest('#picture-library,#picture-suggestions,#picture-search-results,#waveconnect-section') || document;
+                const videos = Array.from(root.querySelectorAll('.liber-lib-video')).map((node)=> ({
+                    type: 'video',
+                    url: String(node.currentSrc || node.src || '').trim(),
+                    title: String(node.dataset.title || '').trim() || 'Video',
+                    by: String(node.dataset.by || '').trim(),
+                    cover: String(node.dataset.cover || '').trim(),
+                    sourceId: String(node.dataset.sourceId || '').trim()
+                })).filter((it)=> !!it.url);
+                if (!videos.length){
+                    this.openFullscreenMedia([{ type:'video', url: String(v.url || ''), title: String(v.title || 'Video'), by: String(v.authorName || ''), cover: String(v.thumbnailUrl || v.url || ''), sourceId: String(v.id || '') }], 0);
+                    return;
+                }
+                const idx = Math.max(0, videos.findIndex((it)=> it.url === String(v.url || '')));
+                this.openFullscreenMedia(videos, idx);
+                this.incrementAssetViewCounter({ kind: 'video', sourceId: v.id, url: v.url });
+            }catch(_){ }
+        };
+        if (pVideo){
+            pVideo.controls = false;
+            pVideo.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openPictureVideoPlayer(); });
+            pVideo.addEventListener('play', ()=>{ try{ pVideo.pause(); }catch(_){ } openPictureVideoPlayer(); });
+        }
+        if (pOpenBtn){
+            pOpenBtn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); openPictureVideoPlayer(); };
         }
         const removeBtn = div.querySelector('.remove-visual-btn');
         if (removeBtn){
@@ -7141,13 +7196,18 @@ Do you want to proceed?`);
             document.documentElement.lang = lang;
             try{ localStorage.setItem('liber_preferred_language', lang); }catch(_){ }
             const dict = {
-                en: { waveconnect:'WaveConnect', profile:'My Profile', users:'User Management', settings:'Settings' },
-                es: { waveconnect:'WaveConnect', profile:'Mi Perfil', users:'Gestión de usuarios', settings:'Configuración' },
-                fr: { waveconnect:'WaveConnect', profile:'Mon Profil', users:'Gestion des utilisateurs', settings:'Paramètres' },
-                de: { waveconnect:'WaveConnect', profile:'Mein Profil', users:'Benutzerverwaltung', settings:'Einstellungen' },
-                ru: { waveconnect:'WaveConnect', profile:'Мой профиль', users:'Управление пользователями', settings:'Настройки' },
-                uk: { waveconnect:'WaveConnect', profile:'Мій профіль', users:'Керування користувачами', settings:'Налаштування' },
-                tr: { waveconnect:'WaveConnect', profile:'Profilim', users:'Kullanıcı yönetimi', settings:'Ayarlar' }
+                en: {
+                    waveconnect:'WaveConnect', profile:'My Profile', users:'User Management', settings:'Settings',
+                    account:'Account', changePassword:'Change Password', connections:'Connections', username:'Username',
+                    country:'Country', accountLanguage:'Account language', saveLanguageCountry:'Save Language & Country',
+                    forceReload:'Force Reload', updatePassword:'Update Password'
+                },
+                ru: {
+                    waveconnect:'WaveConnect', profile:'Мой профиль', users:'Управление пользователями', settings:'Настройки',
+                    account:'Аккаунт', changePassword:'Смена пароля', connections:'Контакты', username:'Имя пользователя',
+                    country:'Страна', accountLanguage:'Язык аккаунта', saveLanguageCountry:'Сохранить язык и страну',
+                    forceReload:'Принудительная перезагрузка', updatePassword:'Обновить пароль'
+                }
             };
             const t = dict[lang] || dict.en;
             const waveH = document.querySelector('#waveconnect-section .section-header h2');
@@ -7158,6 +7218,25 @@ Do you want to proceed?`);
             if (profileH) profileH.textContent = t.profile;
             if (usersH) usersH.textContent = t.users;
             if (settingsH) settingsH.textContent = t.settings;
+            const accountCardTitle = document.querySelector('#profile-section .settings-card h3');
+            const passCardTitle = document.querySelector('#profile-section .settings-card:nth-child(2) h3');
+            const connCardTitle = document.querySelector('#space-connections-card h3');
+            if (accountCardTitle) accountCardTitle.textContent = t.account;
+            if (passCardTitle) passCardTitle.textContent = t.changePassword;
+            if (connCardTitle) connCardTitle.textContent = t.connections;
+            const usernameLabel = document.querySelector('label[for="profile-username"]');
+            const countryLabel = document.querySelector('label[for="profile-country"]');
+            const langLabel = document.querySelector('label[for="profile-language"]');
+            if (usernameLabel) usernameLabel.textContent = t.username;
+            if (countryLabel) countryLabel.textContent = t.country;
+            if (langLabel) langLabel.textContent = t.accountLanguage;
+            const saveLangBtn = document.getElementById('save-language-country-btn');
+            const reloadBtn = document.getElementById('profile-force-reload-btn');
+            const passBtn = document.getElementById('change-password-btn');
+            if (saveLangBtn) saveLangBtn.textContent = t.saveLanguageCountry;
+            if (reloadBtn) reloadBtn.textContent = t.forceReload;
+            if (passBtn) passBtn.textContent = t.updatePassword;
+            try{ window.secureChatApp?.applyChatLanguage?.(lang); }catch(_){ }
         }catch(_){ }
     }
 

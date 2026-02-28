@@ -405,6 +405,32 @@ img, video, canvas, svg, iframe {
   overflow:hidden;
   box-sizing:border-box;
 }
+.wave-video-preview{
+  position:relative;
+  border-radius:10px;
+  overflow:hidden;
+}
+.video-open-player-btn{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  width:44px;
+  height:44px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.28);
+  background:rgba(8,14,24,.72);
+  color:#fff;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  transition:transform .16s ease, background-color .16s ease;
+}
+.video-open-player-btn:hover{
+  transform:translate(-50%,-50%) scale(1.06);
+  background:rgba(26,81,196,.85);
+}
 .video-item img:not([alt="cover"]):not([alt="author"]),
 .video-item video,
 .video-item .liber-lib-video{

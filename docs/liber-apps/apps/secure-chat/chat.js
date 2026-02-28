@@ -157,6 +157,8 @@
       this.pendingReply = null;
       this.pendingEdit = null;
       this._pinnedByConn = new Map();
+      this._selectionMode = false;
+      this._selectedMessages = new Map();
       this.chatCategories = [];
       this.connCategories = {};
       this.selectedCategory = 'all';
@@ -1162,17 +1164,18 @@
       const rect = el.getBoundingClientRect();
       stack.style.display = 'flex';
       const canModify = msgData.canModify;
+      const t = this.getChatTextBundle();
       const items = [
-        { id:'reply', icon:'fa-reply', label:'Reply' },
-        { id:'forward', icon:'fa-share', label:'Share to chat' }
+        { id:'reply', icon:'fa-reply', label:t.reply },
+        { id:'forward', icon:'fa-share', label:t.shareToChat }
       ];
-      if (canModify) items.push({ id:'edit', icon:'fa-edit', label:'Edit' });
-      items.push({ id:'delete', icon:'fa-trash', label:'Remove', cls:'delete' });
+      if (canModify) items.push({ id:'edit', icon:'fa-edit', label:t.edit });
+      items.push({ id:'delete', icon:'fa-trash', label:t.remove, cls:'delete' });
       items.push(
-        { id:'copy', icon:'fa-copy', label:'Copy' },
-        { id:'translate', icon:'fa-language', label:'Translate' },
-        { id:'pin', icon:'fa-thumbtack', label:'Pin' },
-        { id:'select', icon:'fa-check-circle', label:'Select' }
+        { id:'copy', icon:'fa-copy', label:t.copy },
+        { id:'translate', icon:'fa-language', label:t.translate },
+        { id:'pin', icon:'fa-thumbtack', label:t.pin },
+        { id:'select', icon:'fa-check-circle', label:t.select }
       );
       bubble.innerHTML = items.map(i=> `<button type="button" class="msg-context-item ${i.cls||''}" data-action="${i.id}"><i class="fas ${i.icon}"></i> ${i.label}</button>`).join('');
       picker.innerHTML = SecureChatApp.REACTION_EMOJIS.map(e=> `<button type="button" class="msg-react-btn" data-emoji="${e}" title="${e}">${e}</button>`).join('');
@@ -1229,7 +1232,7 @@
         }
         case 'forward': this.openShareMessageSheet(sharePayload||{}); break;
         case 'select': {
-          if (el) el.classList.toggle('msg-selected');
+          this.toggleMessageSelection(msgData);
           break;
         }
         case 'edit': this.setEditMessage(msgData); break;
@@ -1373,26 +1376,181 @@
       }catch(_){ }
     }
 
+    getCurrentUiLanguage(){
+      try{
+        return String(this.me?.language || localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
+      }catch(_){ return 'en'; }
+    }
+
+    getChatTextBundle(languageCode = this.getCurrentUiLanguage()){
+      const lang = String(languageCode || 'en').trim().toLowerCase() || 'en';
+      const dict = {
+        en: {
+          placeholder:'Type a message...',
+          pinned:'Pinned',
+          group:'+ Group',
+          selectedCount:'selected',
+          share:'Share',
+          delete:'Delete',
+          cancel:'Cancel',
+          selectedDeleteSkipped:'Some selected messages cannot be deleted.',
+          selectedDeleteNone:'Select messages you sent to delete.',
+          selectedShareNone:'Select at least one message to share.',
+          reply:'Reply',
+          shareToChat:'Share to chat',
+          edit:'Edit',
+          remove:'Remove',
+          copy:'Copy',
+          translate:'Translate',
+          pin:'Pin',
+          select:'Select'
+        },
+        ru: {
+          placeholder:'Введите сообщение...',
+          pinned:'Закреплено',
+          group:'+ Группа',
+          selectedCount:'выбрано',
+          share:'Поделиться',
+          delete:'Удалить',
+          cancel:'Отмена',
+          selectedDeleteSkipped:'Некоторые выбранные сообщения нельзя удалить.',
+          selectedDeleteNone:'Выберите отправленные вами сообщения для удаления.',
+          selectedShareNone:'Выберите хотя бы одно сообщение для пересылки.',
+          reply:'Ответить',
+          shareToChat:'Поделиться в чат',
+          edit:'Изменить',
+          remove:'Удалить',
+          copy:'Копировать',
+          translate:'Перевести',
+          pin:'Закрепить',
+          select:'Выбрать'
+        }
+      };
+      return dict[lang] || dict.en;
+    }
+
+    getSelectionKey(msgData = {}){
+      const connId = String(msgData.connId || '').trim();
+      const msgId = String(msgData.msgId || '').trim();
+      if (!connId || !msgId) return '';
+      return `${connId}::${msgId}`;
+    }
+
+    toggleMessageSelection(msgData = {}, forceOn = null){
+      try{
+        const key = this.getSelectionKey(msgData);
+        if (!key) return false;
+        const currentlySelected = this._selectedMessages.has(key);
+        const nextSelected = (forceOn === null) ? !currentlySelected : !!forceOn;
+        if (nextSelected){
+          this._selectionMode = true;
+          const entry = {
+            connId: String(msgData.connId || ''),
+            msgId: String(msgData.msgId || ''),
+            el: msgData.el || null,
+            canModify: !!msgData.canModify,
+            sharePayload: msgData.sharePayload || null,
+            ts: Number(msgData.el?.dataset?.msgTs || 0) || 0
+          };
+          this._selectedMessages.set(key, entry);
+          if (entry.el) entry.el.classList.add('msg-selected');
+        } else {
+          const prev = this._selectedMessages.get(key);
+          if (prev?.el) prev.el.classList.remove('msg-selected');
+          this._selectedMessages.delete(key);
+        }
+        if (!this._selectedMessages.size) this._selectionMode = false;
+        this.syncSelectionBar();
+        return nextSelected;
+      }catch(_){ return false; }
+    }
+
+    clearSelectionMode(){
+      try{
+        this._selectedMessages.forEach((item)=>{ if (item?.el) item.el.classList.remove('msg-selected'); });
+      }catch(_){ }
+      this._selectedMessages.clear();
+      this._selectionMode = false;
+      this.syncSelectionBar();
+    }
+
+    syncSelectionBar(){
+      const bar = document.getElementById('chat-select-bar');
+      const countEl = document.getElementById('chat-select-count');
+      const t = this.getChatTextBundle();
+      if (!bar || !countEl) return;
+      const count = Number(this._selectedMessages?.size || 0);
+      if (!this._selectionMode || count <= 0){
+        bar.classList.add('hidden');
+        countEl.textContent = `0 ${t.selectedCount}`;
+        return;
+      }
+      bar.classList.remove('hidden');
+      countEl.textContent = `${count} ${t.selectedCount}`;
+    }
+
+    getSelectedMessagesOrdered(){
+      const rows = Array.from(this._selectedMessages.values());
+      rows.sort((a, b)=>{
+        const ta = Number(a?.ts || 0);
+        const tb = Number(b?.ts || 0);
+        if (ta && tb && ta !== tb) return ta - tb;
+        return String(a?.msgId || '').localeCompare(String(b?.msgId || ''));
+      });
+      return rows;
+    }
+
+    async deleteSelectedMessages(){
+      const t = this.getChatTextBundle();
+      const selected = this.getSelectedMessagesOrdered();
+      if (!selected.length){
+        this._showErrorToast(t.selectedDeleteNone);
+        return;
+      }
+      const deletable = selected.filter((it)=> !!it?.canModify);
+      if (!deletable.length){
+        this._showErrorToast(t.selectedDeleteNone);
+        return;
+      }
+      if (deletable.length !== selected.length){
+        this._showErrorToast(t.selectedDeleteSkipped);
+      }
+      if (!confirm(`Delete ${deletable.length} selected message(s)?`)) return;
+      for (const it of deletable){
+        try{ await this.deleteMessageDirect(it.connId, it.msgId, it.el || null); }catch(_){ }
+      }
+      this.clearSelectionMode();
+    }
+
+    async shareSelectedMessages(){
+      const t = this.getChatTextBundle();
+      const selectedPayloads = this.getSelectedMessagesOrdered().map((it)=> it?.sharePayload).filter(Boolean);
+      if (!selectedPayloads.length){
+        this._showErrorToast(t.selectedShareNone);
+        return;
+      }
+      await this.openShareMessageSheet(selectedPayloads);
+      this.clearSelectionMode();
+    }
+
     applyChatLanguage(languageCode){
       try{
         const lang = String(languageCode || '').trim().toLowerCase() || 'en';
         document.documentElement.lang = lang;
-        const dict = {
-          en: { placeholder:'Type a message...', pinned:'Pinned', group:'+ Group' },
-          es: { placeholder:'Escribe un mensaje...', pinned:'Fijado', group:'+ Grupo' },
-          fr: { placeholder:'Tapez un message...', pinned:'Épinglé', group:'+ Groupe' },
-          de: { placeholder:'Nachricht eingeben...', pinned:'Angeheftet', group:'+ Gruppe' },
-          ru: { placeholder:'Введите сообщение...', pinned:'Закреплено', group:'+ Группа' },
-          uk: { placeholder:'Введіть повідомлення...', pinned:'Закріплено', group:'+ Група' },
-          tr: { placeholder:'Mesaj yaz...', pinned:'Sabitlendi', group:'+ Grup' }
-        };
-        const t = dict[lang] || dict.en;
+        const t = this.getChatTextBundle(lang);
         const input = document.getElementById('message-input');
         if (input) input.setAttribute('placeholder', t.placeholder);
         const pinLabel = document.querySelector('.chat-pinned-label');
         if (pinLabel) pinLabel.textContent = t.pinned;
         const groupBtn = document.getElementById('new-connection-btn');
         if (groupBtn) groupBtn.textContent = t.group;
+        const shareBtn = document.getElementById('chat-select-share');
+        const delBtn = document.getElementById('chat-select-delete');
+        const cancelBtn = document.getElementById('chat-select-cancel');
+        if (shareBtn) shareBtn.textContent = t.share;
+        if (delBtn) delBtn.textContent = t.delete;
+        if (cancelBtn) cancelBtn.textContent = t.cancel;
+        this.syncSelectionBar();
       }catch(_){ }
     }
 
@@ -1474,6 +1632,9 @@
     }
     async deleteMessage(connId, msgId, el){
       if (!confirm('Delete this message?')) return;
+      await this.deleteMessageDirect(connId, msgId, el);
+    }
+    async deleteMessageDirect(connId, msgId, el){
       await this.dissolveOutRemove(el, 220);
       await firebase.deleteDoc(firebase.doc(this.db,'chatMessages',connId,'messages',msgId));
     }
@@ -1514,6 +1675,10 @@
       el.addEventListener('touchmove', clearTimer, { passive: true });
       el.addEventListener('click', (e)=>{
         if (e.target.closest('.msg-reaction-badge')) return;
+        if (!this._selectionMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleMessageSelection(msgData);
       });
       // Drag-to-reply: right for received, left for sent
       const DRAG_REPLY_THRESHOLD = 50;
@@ -3692,6 +3857,21 @@
           }
         });
       }
+      const selShareBtn = document.getElementById('chat-select-share');
+      const selDeleteBtn = document.getElementById('chat-select-delete');
+      const selCancelBtn = document.getElementById('chat-select-cancel');
+      if (selShareBtn && !selShareBtn._bound){
+        selShareBtn._bound = true;
+        selShareBtn.addEventListener('click', ()=> this.shareSelectedMessages());
+      }
+      if (selDeleteBtn && !selDeleteBtn._bound){
+        selDeleteBtn._bound = true;
+        selDeleteBtn.addEventListener('click', ()=> this.deleteSelectedMessages());
+      }
+      if (selCancelBtn && !selCancelBtn._bound){
+        selCancelBtn._bound = true;
+        selCancelBtn.addEventListener('click', ()=> this.clearSelectionMode());
+      }
       const actionBtn = document.getElementById('action-btn');
       if (actionBtn){
         actionBtn.addEventListener('click', ()=> this.handleActionButton());
@@ -3887,6 +4067,7 @@
       }
       document.addEventListener('keydown', (e)=>{
         if (e.key === 'Escape'){
+          if (this._selectionMode){ this.clearSelectionMode(); return; }
           if (this.pendingEdit){ this.clearPendingEdit(); this.refreshActionButton(); return; }
           if (this.pendingReply){ this.clearPendingReply(); return; }
           this.setMobileMenuOpen(false);
@@ -5052,6 +5233,7 @@
       }
       this.stopTypingListener();
       this.activeConnection = resolvedConnId || connId;
+      this.clearSelectionMode();
       this.renderPinnedMessageBar();
       this._disableCallFab = false;
       this.clearPendingAttachments();
@@ -5243,7 +5425,7 @@
         return;
       }
       const activeConnId = this.activeConnection;
-      const visibleLimit = 180;
+      const visibleLimit = this.isMobileViewport() ? 120 : 160;
       const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
       const readMarkerMs = this.getEffectiveReadMarkerForConn(activeConnId, activeConnData);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
@@ -5275,9 +5457,10 @@
         // column-reverse chat: end-of-chat is near scrollTop = 0.
         const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
         const pinned = scrollPos <= 8;
+        const prevPinned = box.dataset.pinnedBottom === '1';
         box.dataset.pinnedBottom = pinned ? '1' : '0';
         toBottomBtn.style.display = !pinned ? 'inline-block' : 'none';
-        this.renderPinnedMessageBar();
+        if (pinned !== prevPinned) this.renderPinnedMessageBar();
       };
       const maybeLoadOlder = async ()=>{
         const connId = this.activeConnection;
@@ -6397,7 +6580,7 @@
         const coverImg = cover ? `<img src="${this.renderText(cover)}" alt="" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover">` : '';
         const header = `<div class="shared-asset-head" style="margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;min-width:0"><div style="flex-shrink:0">${coverImg}</div><div style="min-width:0;flex:1;overflow:hidden"><div class="shared-asset-title" style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>${byline}</div></div>`;
         const visual = kind === 'video'
-          ? `<video src="${this.renderText(url)}" controls playsinline style="width:100%;max-height:280px;border-radius:10px;object-fit:contain;background:#000"></video>`
+          ? `<div class="wave-video-preview"><video class="shared-asset-video" src="${this.renderText(url)}" muted playsinline preload="metadata" style="width:100%;max-height:280px;border-radius:10px;object-fit:contain;background:#000;cursor:pointer"></video><button type="button" class="video-open-player-btn" title="Open player"><i class="fas fa-play"></i></button></div>`
           : (kind === 'image' || kind === 'picture'
               ? `<img src="${this.renderText(url)}" alt="${title}" style="width:100%;max-height:320px;object-fit:contain;border-radius:10px" data-fullscreen-image="1">`
               : (kind === 'audio'
@@ -6720,6 +6903,43 @@
             audioEl.addEventListener('play', ()=> this.notifyParentAudioMetaOnly(audioEl), { once: false });
             const addBtn = root.querySelector('.shared-asset-add-btn');
             if (addBtn) addBtn.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation(); this.addToChatAudioPlaylist({ src: url, title: String(a.title || a.name || 'Audio'), author: String(a.by || a.authorName || ''), sourceKey: '' }); }catch(_){ } };
+          }
+        }
+        if (kind === 'video'){
+          const videoEl = root.querySelector('.shared-asset-video');
+          const openBtn = root.querySelector('.video-open-player-btn');
+          const openVideoPlayer = ()=>{
+            try{
+              const cards = Array.from(document.querySelectorAll('.shared-asset-card[data-shared-kind="video"]'));
+              const items = cards.map((card)=> {
+                const vNode = card.querySelector('.shared-asset-video');
+                if (!vNode) return null;
+                const titleNode = card.querySelector('.shared-asset-title');
+                const byNode = card.querySelector('.shared-asset-byline');
+                return {
+                  type: 'video',
+                  url: String(vNode.currentSrc || vNode.src || '').trim(),
+                  title: String(titleNode?.textContent || 'Video').trim(),
+                  by: String(byNode?.textContent || '').replace(/^by\s+/i, '').trim(),
+                  cover: '',
+                  sourceId: ''
+                };
+              }).filter((it)=> !!it?.url);
+              if (!items.length){
+                this.openFullscreenMedia([{ type:'video', url, title: String(a.title || a.name || 'Video'), by: String(a.by || a.authorName || '') }], 0);
+                return;
+              }
+              const idx = Math.max(0, items.findIndex((it)=> it.url === url));
+              this.openFullscreenMedia(items, idx);
+            }catch(_){ }
+          };
+          if (videoEl){
+            videoEl.controls = false;
+            videoEl.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openVideoPlayer(); });
+            videoEl.addEventListener('play', ()=>{ try{ videoEl.pause(); }catch(_){ } openVideoPlayer(); });
+          }
+          if (openBtn){
+            openBtn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); openVideoPlayer(); };
           }
         }
         root.dataset.assetLikeKind = String(kind || 'asset').toLowerCase();
@@ -7102,6 +7322,8 @@
     }
 
     async openShareMessageSheet(payload){
+      const payloads = (Array.isArray(payload) ? payload : [payload]).filter(Boolean);
+      if (!payloads.length) return;
       const existing = document.getElementById('msg-share-sheet');
       const existingBackdrop = document.getElementById('msg-share-backdrop');
       if (existing){ existing.remove(); if (existingBackdrop) existingBackdrop.remove(); }
@@ -7231,7 +7453,7 @@
       const panel = document.createElement('div');
       panel.id = 'msg-share-sheet';
       panel.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(96px + env(safe-area-inset-bottom));max-height:min(62vh,480px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:103;padding:10px';
-      panel.innerHTML = `<div style="font-weight:600;margin-bottom:8px">Share message to chat</div><input id="share-chat-filter" type="text" placeholder="Search chats..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2a2f36;background:#0f1116;color:#fff;margin-bottom:8px">`;
+      panel.innerHTML = `<div style="font-weight:600;margin-bottom:8px">${payloads.length > 1 ? `Share ${payloads.length} messages to chat` : 'Share message to chat'}</div><input id="share-chat-filter" type="text" placeholder="Search chats..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2a2f36;background:#0f1116;color:#fff;margin-bottom:8px">`;
       const list = document.createElement('div');
       panel.appendChild(list);
 
@@ -7253,7 +7475,9 @@
             row.onclick = async ()=>{
               const can = await this.canSendToConnection(c.id);
               if (!can.ok){ alert(can.reason || 'Cannot share into this chat'); return; }
-              await this.saveMessageToConnection(c.id, payload);
+              for (const item of payloads){
+                await this.saveMessageToConnection(c.id, item);
+              }
               panel.remove();
               backdrop.remove();
             };

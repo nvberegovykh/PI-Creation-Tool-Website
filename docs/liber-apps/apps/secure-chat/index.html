@@ -123,6 +123,16 @@
                 </button>
                 <button type="button" id="chat-pinned-close" class="chat-pinned-close" title="Unpin">×</button>
             </div>
+            <div id="chat-select-bar" class="chat-select-bar hidden" aria-live="polite">
+                <div class="chat-select-count-wrap">
+                    <span id="chat-select-count" class="chat-select-count">0 selected</span>
+                </div>
+                <div class="chat-select-actions">
+                    <button type="button" id="chat-select-share" class="btn secondary">Share</button>
+                    <button type="button" id="chat-select-delete" class="btn secondary">Delete</button>
+                    <button type="button" id="chat-select-cancel" class="btn secondary">Cancel</button>
+                </div>
+            </div>
             <div id="composer-attachments" class="composer-attachments hidden"></div>
             <div class="composer">
                 <div id="composer-reply-preview" class="composer-reply-preview hidden">
