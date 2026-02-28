@@ -277,6 +277,27 @@
                         <span class="gallery-text27">Terms of Use</span>
                       </fragment>
                     </a>
+                    <label for="landing-language-select" class="thq-body-small" style="display:inline-flex;align-items:center;gap:6px;margin-left:10px">
+                      <span>Language</span>
+                      <select id="landing-language-select" style="padding:4px 6px;border-radius:6px;background:#0e121b;color:#fff;border:1px solid rgba(255,255,255,.25)">
+                        <option value="en">EN</option>
+                        <option value="es">ES</option>
+                        <option value="fr">FR</option>
+                        <option value="de">DE</option>
+                        <option value="it">IT</option>
+                        <option value="pt">PT</option>
+                        <option value="nl">NL</option>
+                        <option value="pl">PL</option>
+                        <option value="uk">UK</option>
+                        <option value="ru">RU</option>
+                        <option value="tr">TR</option>
+                        <option value="ar">AR</option>
+                        <option value="hi">HI</option>
+                        <option value="zh">ZH</option>
+                        <option value="ja">JA</option>
+                        <option value="ko">KO</option>
+                      </select>
+                    </label>
                   </div>
                 </div>
                 <span class="footer15-content3 thq-body-small">
@@ -302,6 +323,34 @@
     <script src="./components/pricing-popup-content.js"></script>
     <script src="./components/navbar-submenu.js"></script>
     <script src="./components/request-quiz.js"></script>
+    <script>
+      (function(){
+        const select = document.getElementById('landing-language-select');
+        if (!select) return;
+        const applyLang = (lang)=>{
+          const code = String(lang || 'en').trim().toLowerCase() || 'en';
+          document.documentElement.lang = code;
+          try{ localStorage.setItem('liber_preferred_language', code); }catch(_){ }
+          const t = {
+            en: { privacy:'Privacy Policy', terms:'Terms of Use' },
+            es: { privacy:'Política de privacidad', terms:'Términos de uso' },
+            fr: { privacy:'Politique de confidentialité', terms:'Conditions d’utilisation' },
+            de: { privacy:'Datenschutzrichtlinie', terms:'Nutzungsbedingungen' },
+            ru: { privacy:'Политика конфиденциальности', terms:'Условия использования' },
+            uk: { privacy:'Політика конфіденційності', terms:'Умови використання' },
+            tr: { privacy:'Gizlilik Politikası', terms:'Kullanım Koşulları' }
+          }[code] || { privacy:'Privacy Policy', terms:'Terms of Use' };
+          const links = Array.from(document.querySelectorAll('a[href="./privacy.html"],a[href="privacy.html"]'));
+          links.forEach((el)=>{ el.textContent = t.privacy; });
+          const links2 = Array.from(document.querySelectorAll('a[href="./terms.html"],a[href="terms.html"]'));
+          links2.forEach((el)=>{ el.textContent = t.terms; });
+        };
+        const remember = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
+        select.value = remember;
+        applyLang(remember);
+        select.addEventListener('change', ()=> applyLang(select.value));
+      })();
+    </script>
     <script defer="" src="https://unpkg.com/@teleporthq/teleport-custom-scripts"></script>
   </body>
 </html>

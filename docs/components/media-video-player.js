@@ -154,6 +154,14 @@
       state.playerHost.innerHTML = '';
       state.playerHost.appendChild(buildVideoNode(item));
     }
+    try{
+      window.firebaseService?.trackVideoInteraction?.({
+        action: 'open',
+        source: state.source,
+        sourceId: item.sourceId,
+        videoId: item.id
+      });
+    }catch(_){ }
     updateMeta(item);
     renderRecommendations(item.id);
     try{
