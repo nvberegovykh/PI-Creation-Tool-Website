@@ -113,8 +113,6 @@
   }
 
   function openVisualsFullscreen(visuals, startIndex) {
-    const viewer = window.LiberMediaFullscreenViewer;
-    if (!viewer || typeof viewer.open !== 'function') return false;
     const items = (visuals || []).map((v) => ({
       type: String(v && v.type || '').toLowerCase() === 'video' ? 'video' : 'image',
       url: String(v && v.url || ''),
@@ -122,7 +120,22 @@
       title: String(v && (v.title || v.caption) || '')
     })).filter((v) => v.url);
     if (!items.length) return false;
-    return viewer.open({ items, startIndex: Math.max(0, Number(startIndex) || 0) }) === true;
+    const idx = Math.max(0, Math.min((items.length - 1), Number(startIndex) || 0));
+    const selected = items[idx] || items[0];
+    if (selected && selected.type === 'video'){
+      const player = window.LiberVideoPlayer;
+      if (player && typeof player.open === 'function'){
+        const videos = items.filter((it) => it.type === 'video');
+        const vIdx = Math.max(0, videos.findIndex((it) => it.url === selected.url));
+        return player.open({ items: videos, startIndex: vIdx, source: 'landing' }) === true;
+      }
+    }
+    const viewer = window.LiberMediaFullscreenViewer;
+    if (!viewer || typeof viewer.open !== 'function') return false;
+    const images = items.filter((it)=> it.type !== 'video');
+    if (!images.length) return false;
+    const iIdx = Math.max(0, images.findIndex((it)=> it.url === selected.url));
+    return viewer.open({ items: images, startIndex: iIdx >= 0 ? iIdx : 0 }) === true;
   }
 
   const SUBTYPES_BY_TYPE = {
