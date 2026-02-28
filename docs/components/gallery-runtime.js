@@ -395,18 +395,6 @@
       const id = card.getAttribute('data-project-id');
       const project = projectById.get(id);
       if (!project) return;
-      const endpoint = e.target.closest('.gc-media img, .gc-media video');
-      if (endpoint && card.contains(endpoint)) {
-        const mediaWrap = card.querySelector('.gc-media');
-        const activeIdx = mediaWrap ? Number(mediaWrap.getAttribute('data-rotation-index') || 0) : 0;
-        const visuals = visualItems(project.items || []);
-        const opened = openVisualsFullscreen(visuals, activeIdx);
-        if (opened) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-      }
       e.preventDefault();
       e.stopPropagation();
       openForProject(project);

@@ -73,6 +73,15 @@
   cursor: pointer;
 }
 
+.lmfs-close svg,
+.lmfs-nav svg,
+.lmfs-zoom-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  margin: auto;
+}
+
 .lmfs-close {
   position: absolute;
   top: 14px;

@@ -345,16 +345,20 @@
     if (state.overlay) return;
     const overlay = createEl('div', 'lmfs-overlay');
     overlay.setAttribute('aria-hidden', 'true');
+    const closeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    const prevIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const nextIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const zoomIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.2-4.2M11 8v6M8 11h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
     overlay.innerHTML =
       '<div class="lmfs-shell" role="dialog" aria-modal="true" aria-label="Fullscreen media viewer">' +
-        '<button type="button" class="lmfs-close" aria-label="Close viewer"><i class="fas fa-xmark"></i></button>' +
-        '<button type="button" class="lmfs-nav lmfs-prev" aria-label="Previous media"><i class="fas fa-chevron-left"></i></button>' +
-        '<button type="button" class="lmfs-nav lmfs-next" aria-label="Next media"><i class="fas fa-chevron-right"></i></button>' +
+        `<button type="button" class="lmfs-close" aria-label="Close viewer">${closeIcon}</button>` +
+        `<button type="button" class="lmfs-nav lmfs-prev" aria-label="Previous media">${prevIcon}</button>` +
+        `<button type="button" class="lmfs-nav lmfs-next" aria-label="Next media">${nextIcon}</button>` +
         '<div class="lmfs-stage">' +
           '<div class="lmfs-track"></div>' +
         '</div>' +
         '<div class="lmfs-toolbar">' +
-          '<button type="button" class="lmfs-zoom-btn" aria-label="Toggle zoom" aria-pressed="false"><i class="fas fa-magnifying-glass-plus"></i></button>' +
+          `<button type="button" class="lmfs-zoom-btn" aria-label="Toggle zoom" aria-pressed="false">${zoomIcon}</button>` +
           '<input class="lmfs-zoom-range" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" />' +
           '<span class="lmfs-counter">1 / 1</span>' +
         '</div>' +
@@ -371,7 +375,13 @@
     state.counter = overlay.querySelector('.lmfs-counter');
 
     overlay.addEventListener('click', function(e){
-      if (e.target === overlay) closeViewer();
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (t.closest('.lmfs-close,.lmfs-nav,.lmfs-toolbar')) return;
+      if (t.closest('.lmfs-img,.lmfs-video')) return;
+      if (t.closest('.lmfs-stage,.lmfs-slide,.lmfs-track,.lmfs-shell') || t === overlay) {
+        closeViewer();
+      }
     });
     state.closeBtn.addEventListener('click', closeViewer);
     state.prevBtn.addEventListener('click', function(e){ e.stopPropagation(); goPrev(); });
