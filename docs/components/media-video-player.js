@@ -17,6 +17,7 @@
     commentsBtn: null,
     shareBtn: null,
     mobileMeta: null,
+    theaterBtn: null,
     uiHidden: false,
     holdTimer: null,
     verticalStartY: 0,
@@ -76,6 +77,10 @@
     }
   }
 
+  function getCurrentVideoNode(){
+    return state.playerHost ? state.playerHost.querySelector('video.lvp-video') : null;
+  }
+
   function buildVideoNode(item){
     const v = document.createElement('video');
     v.className = 'lvp-video';
@@ -123,7 +128,9 @@
     state.items.forEach((item, idx)=>{
       const row = createEl('button', `lvp-rec-item${item.id === activeId ? ' active' : ''}`);
       row.type = 'button';
-      row.innerHTML = `<span class="lvp-rec-title">${item.title.replace(/</g,'&lt;')}</span><span class="lvp-rec-author">${item.author.replace(/</g,'&lt;')}</span>`;
+      const thumb = String(item.poster || '').trim();
+      const thumbHtml = thumb ? `<img class="lvp-rec-thumb" src="${thumb.replace(/"/g,'&quot;')}" alt="">` : '<span class="lvp-rec-thumb lvp-rec-thumb-fallback"><i class="fas fa-play"></i></span>';
+      row.innerHTML = `${thumbHtml}<span class="lvp-rec-meta"><span class="lvp-rec-title">${item.title.replace(/</g,'&lt;')}</span><span class="lvp-rec-author">${item.author.replace(/</g,'&lt;')}</span></span>`;
       row.addEventListener('click', ()=>{
         setIndex(idx);
       });
@@ -246,6 +253,7 @@
               <button type="button" class="lvp-action lvp-like">Like</button>
               <button type="button" class="lvp-action lvp-comments">Comments</button>
               <button type="button" class="lvp-action lvp-share">Share</button>
+              <button type="button" class="lvp-action lvp-theater">Theater</button>
             </div>
           </section>
         </div>
@@ -267,6 +275,7 @@
     state.likeBtn = overlay.querySelector('.lvp-like');
     state.commentsBtn = overlay.querySelector('.lvp-comments');
     state.shareBtn = overlay.querySelector('.lvp-share');
+    state.theaterBtn = overlay.querySelector('.lvp-theater');
     state.mobileMeta = overlay.querySelector('.lvp-mobile-meta');
 
     const closeBtn = overlay.querySelector('.lvp-close');
@@ -302,6 +311,35 @@
         });
       }catch(_){ }
     });
+    state.theaterBtn?.addEventListener('click', ()=>{
+      const next = !state.shell.classList.contains('theater');
+      state.shell.classList.toggle('theater', next);
+      state.theaterBtn.textContent = next ? 'Default' : 'Theater';
+    });
+
+    const progress = overlay.querySelector('.lvp-progress');
+    if (progress){
+      const seekTo = (clientX)=>{
+        const v = getCurrentVideoNode();
+        if (!v || !(v.duration > 0)) return;
+        const rect = progress.getBoundingClientRect();
+        const ratio = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+        v.currentTime = ratio * v.duration;
+      };
+      progress.addEventListener('click', (e)=> seekTo(e.clientX));
+      let dragging = false;
+      progress.addEventListener('pointerdown', (e)=>{
+        dragging = true;
+        try{ progress.setPointerCapture(e.pointerId); }catch(_){ }
+        seekTo(e.clientX);
+      });
+      progress.addEventListener('pointermove', (e)=>{ if (dragging) seekTo(e.clientX); });
+      progress.addEventListener('pointerup', (e)=>{
+        dragging = false;
+        try{ progress.releasePointerCapture(e.pointerId); }catch(_){ }
+      });
+      progress.addEventListener('pointercancel', ()=>{ dragging = false; });
+    }
 
     overlay.addEventListener('wheel', onWheel, { passive: false });
     overlay.addEventListener('touchstart', onTouchStart, { passive: true });

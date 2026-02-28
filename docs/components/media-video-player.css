@@ -18,12 +18,41 @@
 .lvp-rec-list{ overflow:auto; display:flex; flex-direction:column; gap:2px; padding:6px; }
 .lvp-rec-item{
   text-align:left; border:0; background:transparent; color:#d8e7ff; border-radius:10px; padding:10px; cursor:pointer;
-  display:flex; flex-direction:column; gap:4px;
+  display:flex; align-items:center; gap:8px;
 }
 .lvp-rec-item.active, .lvp-rec-item:hover{ background:rgba(62,102,166,.28); }
+.lvp-rec-thumb{
+  width:54px;
+  height:36px;
+  border-radius:8px;
+  object-fit:cover;
+  flex:0 0 auto;
+  border:1px solid rgba(255,255,255,.12);
+  background:#000;
+}
+.lvp-rec-thumb-fallback{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:#dbe7ff;
+}
+.lvp-rec-meta{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
 .lvp-rec-title{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lvp-rec-author{ font-size:11px; opacity:.72; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lvp-main{ display:flex; flex-direction:column; min-width:0; height:100%; }
+.lvp-shell.theater .lvp-grid{
+  grid-template-columns: 1fr;
+}
+.lvp-shell.theater .lvp-recommendations{
+  display:none;
+}
+.lvp-shell.theater .lvp-video-host{
+  min-height:min(78vh, 960px);
+}
 .lvp-video-host{
   flex:1 1 auto; min-height:240px; border-radius:14px; overflow:hidden;
   border:1px solid rgba(255,255,255,.1); background:#000;

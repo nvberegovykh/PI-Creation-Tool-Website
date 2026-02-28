@@ -56,7 +56,8 @@
     zoomBtn: null,
     zoomRange: null,
     counter: null,
-    lastActive: null
+    lastActive: null,
+    suppressBackdropCloseUntil: 0
   };
 
   function getCurrentSlide(){
@@ -189,6 +190,7 @@
     state.startIdx = state.idx;
     state.horizontalSwipe = null;
     state.panning = state.scale > 1;
+    state.suppressBackdropCloseUntil = Date.now() + 260;
     if (state.panning) {
       state.stage.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -227,10 +229,15 @@
     if (state.panning){
       state.panning = false;
       state.pointerId = null;
+      state.suppressBackdropCloseUntil = Date.now() + 320;
       return;
     }
     if (state.horizontalSwipe) handleSwipeEnd(e.clientX);
-    else setIndex(state.idx, true);
+    else if (state.track){
+      state.track.style.transition = 'transform 180ms cubic-bezier(0.25, 0.1, 0.25, 1)';
+      state.track.style.transform = `translateX(-${state.idx * 100}%)`;
+    }
+    if (state.scale > 1) state.suppressBackdropCloseUntil = Date.now() + 320;
     state.pointerId = null;
   }
 
@@ -297,8 +304,12 @@
     }
     if (state.touchDragging && e.changedTouches && e.changedTouches[0]){
       if (state.horizontalSwipe) handleSwipeEnd(e.changedTouches[0].clientX);
-      else setIndex(state.idx, true);
+      else if (state.track){
+        state.track.style.transition = 'transform 180ms cubic-bezier(0.25, 0.1, 0.25, 1)';
+        state.track.style.transform = `translateX(-${state.idx * 100}%)`;
+      }
     }
+    if (state.scale > 1) state.suppressBackdropCloseUntil = Date.now() + 320;
     state.touchDragging = false;
     state.pinchStartDistance = 0;
   }
@@ -377,6 +388,8 @@
     overlay.addEventListener('click', function(e){
       const t = e.target;
       if (!(t instanceof Element)) return;
+      if (Date.now() < Number(state.suppressBackdropCloseUntil || 0)) return;
+      if (state.scale > 1) return;
       if (t.closest('.lmfs-close,.lmfs-nav,.lmfs-toolbar')) return;
       if (t.closest('.lmfs-img,.lmfs-video')) return;
       if (t.closest('.lmfs-stage,.lmfs-slide,.lmfs-track,.lmfs-shell') || t === overlay) {
