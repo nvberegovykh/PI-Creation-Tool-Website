@@ -107,9 +107,22 @@
   function createMediaElement(item, mutedVideo) {
     if (!item || !item.url) return '';
     if (item.type === 'video') {
-      return `<video src="${item.url}" ${mutedVideo ? 'muted autoplay loop playsinline' : 'controls playsinline'}></video>`;
+      return `<video src="${item.url}" data-fullscreen-media="1" ${mutedVideo ? 'muted autoplay loop playsinline' : 'controls playsinline'}></video>`;
     }
-    return `<img src="${item.url}" alt="${item.caption || 'Gallery item'}" loading="lazy" />`;
+    return `<img src="${item.url}" data-fullscreen-image="1" alt="${item.caption || 'Gallery item'}" loading="lazy" />`;
+  }
+
+  function openVisualsFullscreen(visuals, startIndex) {
+    const viewer = window.LiberMediaFullscreenViewer;
+    if (!viewer || typeof viewer.open !== 'function') return false;
+    const items = (visuals || []).map((v) => ({
+      type: String(v && v.type || '').toLowerCase() === 'video' ? 'video' : 'image',
+      url: String(v && v.url || ''),
+      alt: String(v && (v.caption || v.title) || ''),
+      title: String(v && (v.title || v.caption) || '')
+    })).filter((v) => v.url);
+    if (!items.length) return false;
+    return viewer.open({ items, startIndex: Math.max(0, Number(startIndex) || 0) }) === true;
   }
 
   const SUBTYPES_BY_TYPE = {
@@ -169,6 +182,7 @@
         card.classList.add('fade-swap');
         window.setTimeout(() => {
           mediaEl.innerHTML = createMediaElement(visuals[idx], true);
+          mediaEl.setAttribute('data-rotation-index', String(idx));
           card.classList.remove('fade-swap');
           mediaEl.classList.add('gc-new-media');
           requestAnimationFrame(() => {
@@ -321,6 +335,14 @@
       mediaEl.addEventListener('touchcancel', () => { touching = false; }, { passive: true });
     }
     dots.forEach((dot, i) => dot.addEventListener('click', (e) => { e.stopPropagation(); setIdx(i); }));
+    popup.querySelectorAll('.gc-popup-slide img, .gc-popup-slide video').forEach((node, i) => {
+      node.addEventListener('click', (e) => {
+        if ((node instanceof HTMLVideoElement) && node.controls && node.getAttribute('data-fullscreen-media') !== '1') return;
+        e.preventDefault();
+        e.stopPropagation();
+        openVisualsFullscreen(visuals, i);
+      });
+    });
     const prevBtn = popup.querySelector('.gc-popup-prev');
     const nextBtn = popup.querySelector('.gc-popup-next');
     if (prevBtn) prevBtn.addEventListener('click', (e) => { e.stopPropagation(); goPrev(); });
@@ -373,6 +395,18 @@
       const id = card.getAttribute('data-project-id');
       const project = projectById.get(id);
       if (!project) return;
+      const endpoint = e.target.closest('.gc-media img, .gc-media video');
+      if (endpoint && card.contains(endpoint)) {
+        const mediaWrap = card.querySelector('.gc-media');
+        const activeIdx = mediaWrap ? Number(mediaWrap.getAttribute('data-rotation-index') || 0) : 0;
+        const visuals = visualItems(project.items || []);
+        const opened = openVisualsFullscreen(visuals, activeIdx);
+        if (opened) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       e.preventDefault();
       e.stopPropagation();
       openForProject(project);

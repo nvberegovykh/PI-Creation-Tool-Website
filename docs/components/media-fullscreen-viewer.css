@@ -1,0 +1,157 @@
+.lmfs-open {
+  overflow: hidden !important;
+}
+
+.lmfs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 21000;
+  display: none;
+  background: radial-gradient(circle at center, rgba(20, 24, 34, 0.82), rgba(0, 0, 0, 0.95));
+}
+
+.lmfs-overlay.open {
+  display: block;
+}
+
+.lmfs-shell {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lmfs-stage {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.lmfs-track {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  will-change: transform;
+}
+
+.lmfs-slide {
+  min-width: 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.lmfs-img,
+.lmfs-video {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 12px;
+  object-fit: contain;
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.45);
+}
+
+.lmfs-img {
+  transform-origin: center center;
+  transition: transform 130ms ease-out;
+  user-select: none;
+}
+
+.lmfs-close,
+.lmfs-nav,
+.lmfs-zoom-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(14, 18, 26, 0.8);
+  color: #fff;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.lmfs-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  width: 42px;
+  height: 42px;
+}
+
+.lmfs-nav {
+  position: absolute;
+  top: 50%;
+  margin-top: -24px;
+  z-index: 3;
+  width: 48px;
+  height: 48px;
+}
+
+.lmfs-prev {
+  left: 14px;
+}
+
+.lmfs-next {
+  right: 14px;
+}
+
+.lmfs-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lmfs-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 14, 22, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.lmfs-zoom-btn {
+  width: 38px;
+  height: 38px;
+}
+
+.lmfs-zoom-range {
+  width: 160px;
+}
+
+.lmfs-counter {
+  min-width: 58px;
+  text-align: right;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 767px) {
+  .lmfs-nav {
+    display: none;
+  }
+
+  .lmfs-slide {
+    padding: 8px;
+  }
+
+  .lmfs-toolbar {
+    bottom: 10px;
+    padding: 7px 10px;
+    gap: 8px;
+  }
+
+  .lmfs-zoom-range {
+    width: 122px;
+  }
+}
