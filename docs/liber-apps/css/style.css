@@ -512,6 +512,24 @@ img, video, canvas, svg, iframe {
   box-shadow:0 8px 20px rgba(0,0,0,.28);
   border-color:rgba(91,169,255,.35);
 }
+.wave-home-media-card{
+  padding:8px 10px;
+}
+.wave-home-media-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.wave-home-media-cover{
+  width:46px;
+  height:46px;
+  border-radius:10px;
+  object-fit:cover;
+  flex:0 0 auto;
+  border:1px solid rgba(255,255,255,.12);
+  background:#0c1220;
+}
 .wave-lib-list-controls{
   display:flex;
   gap:8px;
@@ -978,6 +996,13 @@ input, textarea, select {
     font-size: 14px;
     transition: var(--transition);
     width: 100%;
+}
+/* Windows native select dropdown readability */
+#profile-country option,
+#profile-language option,
+#landing-language-select option{
+    color:#0f1725;
+    background:#ffffff;
 }
 
 input:focus, textarea:focus, select:focus {

@@ -668,6 +668,12 @@ class DashboardManager {
                         const rawViews = Number(asset.viewCount || asset.views || asset.playCount || 0);
                         viewsCount.textContent = `${rawViews > 0 ? rawViews : 0}`;
                     }
+                    const cardVideo = cardEl.querySelector('.liber-lib-video');
+                    if (cardVideo){
+                        cardVideo.dataset.likesCount = String(Number(n || 0) || 0);
+                        cardVideo.dataset.commentsCount = String(Number(commentsCount?.textContent || 0) || 0);
+                        cardVideo.dataset.viewsCount = String(Number(viewsCount?.textContent || asset.viewCount || 0) || 0);
+                    }
                     const norm = this.normalizeMediaUrl(url);
                     document.querySelectorAll('[data-asset-like-kind][data-asset-like-url]').forEach((host)=>{
                         const k = String(host.getAttribute('data-asset-like-kind') || '').toLowerCase();
@@ -6429,7 +6435,40 @@ class DashboardManager {
                 .filter((w)=> this.isWaveAudioItem(w))
                 .sort((a,b)=> (Number(b.playCount || 0) || 0) - (Number(a.playCount || 0) || 0))
                 .slice(0, 6);
-            monthHost.innerHTML = `<h4 style="margin:0 0 8px">Most Popular This Month</h4><div class="wave-home-grid">${monthTop.map((row)=> `<div class="wave-home-card"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(row.title || 'Track').replace(/</g,'&lt;')}</div><div style="opacity:.75;font-size:12px">${Number(row.playCount || 0)} plays</div></div>`).join('') || '<div style="opacity:.75">No popular tracks yet.</div>'}</div>`;
+            const followingSet = new Set((followingRows || []).map((u)=> String(u.uid || '').trim()).filter(Boolean));
+            const libraryAuthorSet = new Set((libraryRows || []).map((w)=> String(w.authorId || w.owner || '').trim()).filter(Boolean));
+            const recommendedTop = audioRows
+                .filter((w)=> this.isWaveAudioItem(w))
+                .map((row)=>{
+                    const authorId = String(row.authorId || row.owner || '').trim();
+                    let score = Number(row.playCount || 0) * 0.22;
+                    if (followingSet.has(authorId)) score += 950;
+                    if (libraryAuthorSet.has(authorId)) score += 320;
+                    return { row, score };
+                })
+                .sort((a,b)=> b.score - a.score)
+                .map((x)=> x.row)
+                .slice(0, 6);
+            const renderAudioHomeCard = (row)=>{
+                const coverSrc = String(row.coverUrl || row.thumbnailUrl || '').trim() || 'images/default-bird.png';
+                const title = String(row.title || 'Track').replace(/</g,'&lt;');
+                const plays = Number(row.playCount || 0) || 0;
+                return `<div class="wave-home-card wave-home-media-card">
+                  <div class="wave-home-media-head">
+                    <img src="${coverSrc.replace(/"/g,'&quot;')}" alt="cover" class="wave-home-media-cover">
+                    <div style="min-width:0;flex:1">
+                      <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+                      <div style="opacity:.75;font-size:12px">${plays} plays</div>
+                    </div>
+                  </div>
+                </div>`;
+            };
+            monthHost.innerHTML = `
+              <h4 style="margin:0 0 8px">Recommended For You</h4>
+              <div class="wave-home-grid">${recommendedTop.map((row)=> renderAudioHomeCard(row)).join('') || '<div style="opacity:.75">No recommendations yet.</div>'}</div>
+              <h4 style="margin:12px 0 8px">Most Popular This Month</h4>
+              <div class="wave-home-grid">${monthTop.map((row)=> renderAudioHomeCard(row)).join('') || '<div style="opacity:.75">No popular tracks yet.</div>'}</div>
+            `;
             const prefRaw = localStorage.getItem(`liber_wave_follow_notify_${uid}`) || '{}';
             let pref = {};
             try{ pref = JSON.parse(prefRaw) || {}; }catch(_){ pref = {}; }
@@ -7267,7 +7306,7 @@ class DashboardManager {
         const originalMark = v.originalAuthorName ? `<div style="font-size:11px;color:#9db3d5">original by ${String(v.originalAuthorName || '').replace(/</g,'&lt;')}</div>` : '';
         const mediaHtml = isImageSource
             ? `<img src="${v.url}" data-fullscreen-image="1" alt="${(v.title||'Picture').replace(/"/g,'&quot;')}" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000" />`
-            : `<div class="wave-video-preview"><video class="liber-lib-video" src="${v.url}" muted playsinline preload="metadata" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000;cursor:pointer" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}" data-source-id="${String(v.id || '').replace(/"/g,'&quot;')}"></video><button type="button" class="video-open-player-btn" title="Open player"><i class="fas fa-play"></i></button></div>`;
+            : `<div class="wave-video-preview"><video class="liber-lib-video" src="${v.url}" muted playsinline preload="metadata" style="width:100%;max-height:320px;border-radius:8px;object-fit:contain;background:#000;cursor:pointer" data-title="${(v.title||'').replace(/"/g,'&quot;')}" data-by="${(v.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(v.thumbnailUrl||'').replace(/"/g,'&quot;')}" data-source-id="${String(v.id || '').replace(/"/g,'&quot;')}" data-likes-count="${Number(v.likesCount || v.likes || 0) || 0}" data-comments-count="${Number(v.commentsCount || v.comments || 0) || 0}" data-views-count="${Number(v.viewCount || v.views || 0) || 0}"></video><button type="button" class="video-open-player-btn" title="Open player"><i class="fas fa-play"></i></button></div>`;
         const editBtnHtml = `<button class="edit-visual-btn" title="Edit media" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img src="${thumb}" alt="cover" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
@@ -7302,10 +7341,13 @@ class DashboardManager {
                     title: String(node.dataset.title || '').trim() || 'Video',
                     by: String(node.dataset.by || '').trim(),
                     cover: String(node.dataset.cover || '').trim(),
-                    sourceId: String(node.dataset.sourceId || '').trim()
+                    sourceId: String(node.dataset.sourceId || '').trim(),
+                    likesCount: Number(node.dataset.likesCount || 0) || 0,
+                    commentsCount: Number(node.dataset.commentsCount || 0) || 0,
+                    viewsCount: Number(node.dataset.viewsCount || 0) || 0
                 })).filter((it)=> !!it.url);
                 if (!videos.length){
-                    this.openFullscreenMedia([{ type:'video', url: String(v.url || ''), title: String(v.title || 'Video'), by: String(v.authorName || ''), cover: String(v.thumbnailUrl || ''), sourceId: String(v.id || '') }], 0);
+                    this.openFullscreenMedia([{ type:'video', url: String(v.url || ''), title: String(v.title || 'Video'), by: String(v.authorName || ''), cover: String(v.thumbnailUrl || ''), sourceId: String(v.id || ''), likesCount: Number(v.likesCount || 0) || 0, commentsCount: Number(v.commentsCount || 0) || 0, viewsCount: Number(v.viewCount || 0) || 0 }], 0);
                     return;
                 }
                 const idx = Math.max(0, videos.findIndex((it)=> it.url === String(v.url || '')));
@@ -7980,7 +8022,7 @@ Do you want to proceed?`);
             this.ensureTranslationObserver();
             try{
                 // Hybrid i18n: keep curated labels + auto-translate all remaining UI chrome.
-                const root = document.getElementById('dashboard-content') || document.body;
+                const root = document.body;
                 window.LiberAutoUiTranslator?.translateRoot?.(root, lang);
             }catch(_){ }
             try{ window.secureChatApp?.applyChatLanguage?.(lang); }catch(_){ }

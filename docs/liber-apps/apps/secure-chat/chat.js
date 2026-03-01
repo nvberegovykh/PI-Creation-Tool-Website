@@ -654,6 +654,7 @@
           if (el.controls && !allowControlledVideo) return null;
           const recClass = el.classList.contains('video-recording-circular') || el.classList.contains('video-recording-mask');
           const recData = el.getAttribute('data-is-recording') === '1' || el.closest('[data-is-recording="1"]');
+          if (recClass || recData) return null; // Keep native chat playback for recordings.
           return { type: 'video', url: src, poster: String(el.poster || ''), title: String(el.getAttribute('data-title') || 'Video'), isRecording: !!(recClass || recData) };
         }
         return null;
@@ -1145,6 +1146,34 @@
         const hasCount = isGroupChat && count > 0;
         return `<span class="msg-reaction-badge" data-emoji="${String(emoji).replace(/"/g,'&quot;')}" data-msg-id="${mid}" data-conn-id="${cid}" data-has-count="${hasCount ? '1' : '0'}" title="Reacted"><span class="react-emoji">${safeEmoji}</span>${countSpan}</span>`;
       }).join('');
+    }
+
+    applyMessageReactionsToDom(connId, msgId, reactions, animate = false){
+      try{
+        const box = document.getElementById('messages');
+        if (!box) return;
+        const domId = this.buildMsgDomId(connId, msgId);
+        const msgEl = box.querySelector(`[data-msg-id="${String(domId).replace(/"/g,'\\"')}"]`) || box.querySelector(`[data-msg-id="${String(msgId).replace(/"/g,'\\"')}"]`);
+        if (!msgEl) return;
+        const html = this.getMessageReactionsHtml({ reactions: reactions || {} }, msgId, connId, this.isGroupChat(connId));
+        let row = msgEl.querySelector('.msg-reactions-row');
+        if (!html){
+          if (row) row.remove();
+          return;
+        }
+        if (!row){
+          row = document.createElement('div');
+          row.className = 'msg-reactions-row';
+          msgEl.appendChild(row);
+        }
+        row.innerHTML = html;
+        if (animate){
+          row.querySelectorAll('.msg-reaction-badge').forEach((badge)=>{
+            badge.classList.add('is-bump');
+            setTimeout(()=>{ try{ badge.classList.remove('is-bump'); }catch(_){ } }, 260);
+          });
+        }
+      }catch(_){ }
     }
 
     isGroupChat(connId){
@@ -1868,6 +1897,7 @@
         else list.push(this.currentUser.uid);
         if (list.length === 0) delete reactions[emoji];
         else reactions[emoji] = list;
+        this.applyMessageReactionsToDom(connId, msgId, reactions, true);
         await firebase.updateDoc(ref, { reactions, updatedAt: new Date().toISOString() });
       }catch(_){ }
     }
@@ -9046,13 +9076,18 @@
 
     isVideoRecordingMessage(message, fileName = ''){
       try{
-        if (message && message.isVideoRecording === true) return true;
         const n = String(fileName || '').toLowerCase().trim();
-        if (/^video\.webm$/i.test(n)) return true;
+        const isGenericRecordingName = /^video\.(webm|mp4|mov|mkv)$/i.test(n) || /^video\./i.test(n);
+        if (message && message.isVideoRecording === true){
+          // Guard against legacy mis-flagged uploaded videos.
+          if (n && !isGenericRecordingName) return false;
+          return true;
+        }
+        if (isGenericRecordingName) return true;
         const text = String(message?.text || '').trim();
-        if (/^\[video message\]/i.test(text)) return true;
+        if (!n && /^\[video message\]/i.test(text)) return true;
         const preview = String(message?.previewText || '').trim();
-        if (/^\[video message\]/i.test(preview)) return true;
+        if (!n && /^\[video message\]/i.test(preview)) return true;
         return false;
       }catch(_){ return false; }
     }
@@ -10107,7 +10142,11 @@
                   const salt = String(salts?.stableSalt || uid || '').trim();
                   const cid = msg?.connId || srcConn || uid;
                   if (salt && cid) {
-                    await firebase.updateDoc(firebase.doc(this.db,'chatMessages',cid,'messages',msg.id),{ attachmentKeySalt: salt, attachmentSourceConnId: cid, isVideoRecording: true });
+                    // Do not mutate recording flags here; only backfill key metadata.
+                    await firebase.updateDoc(
+                      firebase.doc(this.db,'chatMessages',cid,'messages',msg.id),
+                      { attachmentKeySalt: salt, attachmentSourceConnId: cid }
+                    );
                   }
                 }catch(_){}
               });

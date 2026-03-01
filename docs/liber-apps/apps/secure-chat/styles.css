@@ -519,10 +519,12 @@ button.call-status-badge:hover{
 .msg-reactions-row::-webkit-scrollbar{height:0;width:0}
 .msg-reaction-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-size:13px;cursor:pointer;transition:opacity .2s,transform .15s;animation:msg-reaction-badge-in .22s ease-out;flex:0 0 auto;max-width:100%}
 .msg-reaction-badge:hover{opacity:.95;transform:scale(1.02)}
+.msg-reaction-badge.is-bump{animation:msg-reaction-bump .24s ease-out}
 .msg-reaction-badge .react-emoji{line-height:1}
 .msg-reaction-badge .react-count{font-size:11px;opacity:.9;min-width:14px}
 .msg-reaction-badge .react-avatar{width:16px;height:16px;border-radius:50%;object-fit:cover;flex-shrink:0}
 @keyframes msg-reaction-badge-in{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+@keyframes msg-reaction-bump{0%{transform:scale(.88)}100%{transform:scale(1)}}
 .reactions-who-modal{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;animation:msg-context-fade-in .2s ease-out}
 .reactions-who-modal .reactions-who-panel{background:#1a1e28;border:1px solid rgba(255,255,255,.2);border-radius:12px;max-width:320px;width:100%;max-height:60vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px}
 .reactions-who-modal .reactions-who-title{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
