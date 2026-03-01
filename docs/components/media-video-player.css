@@ -9,6 +9,17 @@
   position:absolute; top:12px; right:12px; z-index:4; width:40px; height:40px;
   border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(12,16,24,.86); color:#fff; cursor:pointer;
 }
+.lvp-hide{
+  position:absolute; top:12px; right:58px; z-index:4; width:40px; height:40px;
+  border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(12,16,24,.86); color:#fff; cursor:pointer;
+}
+.lvp-restore-btn{
+  position:fixed; right:14px; bottom:92px; z-index:21600;
+  width:48px; height:48px; border-radius:999px; border:1px solid rgba(255,255,255,.2);
+  background:linear-gradient(135deg,#2563eb,#3b82f6); color:#fff; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  box-shadow:0 10px 24px rgba(0,0,0,.38);
+}
 .lvp-grid{ display:grid; grid-template-columns: minmax(220px, 340px) 1fr; gap:12px; height:100%; padding:12px 12px 18px; box-sizing:border-box; }
 .lvp-recommendations{
   border:1px solid rgba(255,255,255,.1); border-radius:12px; background:rgba(8,12,20,.62);
@@ -71,6 +82,7 @@
   border-radius:999px; padding:8px 12px; cursor:pointer; font-size:12px;
 }
 .lvp-mobile-meta{ display:none; }
+.lvp-mobile-rail{ display:none; }
 @media (max-width: 767px){
   .lvp-grid{ display:block; padding:0; }
   .lvp-recommendations{ display:none; }
@@ -79,6 +91,26 @@
   .lvp-video{ object-fit:cover; }
   .lvp-meta, .lvp-actions{ display:none; }
   .lvp-progress{ position:absolute; left:8px; right:8px; bottom:8px; z-index:5; }
+  .lvp-hide{ top:10px; right:56px; }
+  .lvp-mobile-rail{
+    display:flex; flex-direction:column; gap:10px;
+    position:absolute; right:8px; bottom:72px; z-index:6;
+  }
+  .lvp-rail-btn{
+    border:1px solid rgba(255,255,255,.2);
+    background:rgba(12,16,24,.78);
+    color:#fff;
+    border-radius:999px;
+    width:42px;
+    min-height:42px;
+    padding:6px 4px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+  }
+  .lvp-rail-count{ font-size:10px; opacity:.88; line-height:1; min-height:10px; }
   .lvp-mobile-meta{
     display:block; position:absolute; left:0; right:0; bottom:20px; z-index:4;
     padding:18px 12px 30px;
@@ -88,6 +120,8 @@
   .lvp-mobile-title{ font-size:15px; font-weight:600; margin-bottom:4px; }
   .lvp-mobile-desc{ font-size:12px; opacity:.88; max-height:36px; overflow:hidden; }
   .lvp-shell.ui-hidden .lvp-close,
+  .lvp-shell.ui-hidden .lvp-hide,
   .lvp-shell.ui-hidden .lvp-mobile-meta,
+  .lvp-shell.ui-hidden .lvp-mobile-rail,
   .lvp-shell.ui-hidden .lvp-progress{ opacity:0; pointer-events:none; transition:opacity .2s ease; }
 }

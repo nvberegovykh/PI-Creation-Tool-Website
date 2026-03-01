@@ -666,6 +666,7 @@
     <script src="./components/media-fullscreen-viewer.js"></script>
     <script src="./components/media-video-player.js"></script>
     <script src="./components/gallery-runtime.js"></script>
+    <script src="./components/auto-ui-translate.js"></script>
     <script src="./components/navbar-scroll.js"></script>
     <script src="./components/pricing-popup-content.js"></script>
     <script src="./components/navbar-submenu.js"></script>
@@ -691,6 +692,7 @@
           links.forEach((el)=>{ el.textContent = t.privacy; });
           const links2 = Array.from(document.querySelectorAll('a[href="./terms.html"],a[href="terms.html"]'));
           links2.forEach((el)=>{ el.textContent = t.terms; });
+          try{ window.LiberAutoUiTranslator?.translateRoot?.(document.body, code); }catch(_){ }
         };
         const remember = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
         select.value = remember;

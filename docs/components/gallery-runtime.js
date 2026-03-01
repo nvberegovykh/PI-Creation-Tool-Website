@@ -127,7 +127,12 @@
       if (player && typeof player.open === 'function'){
         const videos = items.filter((it) => it.type === 'video');
         const vIdx = Math.max(0, videos.findIndex((it) => it.url === selected.url));
-        return player.open({ items: videos, startIndex: vIdx, source: 'landing' }) === true;
+        const opened = player.open({ items: videos, startIndex: vIdx, source: 'landing' });
+        if (opened && typeof opened.then === 'function'){
+          opened.catch(()=>{});
+          return true;
+        }
+        return opened === true;
       }
     }
     const viewer = window.LiberMediaFullscreenViewer;
@@ -135,7 +140,12 @@
     const images = items.filter((it)=> it.type !== 'video');
     if (!images.length) return false;
     const iIdx = Math.max(0, images.findIndex((it)=> it.url === selected.url));
-    return viewer.open({ items: images, startIndex: iIdx >= 0 ? iIdx : 0 }) === true;
+    const opened = viewer.open({ items: images, startIndex: iIdx >= 0 ? iIdx : 0 });
+    if (opened && typeof opened.then === 'function'){
+      opened.catch(()=>{});
+      return true;
+    }
+    return opened === true;
   }
 
   const SUBTYPES_BY_TYPE = {

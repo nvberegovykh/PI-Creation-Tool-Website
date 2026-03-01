@@ -15,9 +15,12 @@
     descEl: null,
     likeBtn: null,
     commentsBtn: null,
+    authorBtn: null,
     shareBtn: null,
     mobileMeta: null,
     theaterBtn: null,
+    hideBtn: null,
+    restoreBtn: null,
     uiHidden: false,
     holdTimer: null,
     verticalStartY: 0,
@@ -45,7 +48,11 @@
       description: String(item.description || ''),
       poster: String(item.poster || item.cover || item.thumbnailUrl || ''),
       sourceId: String(item.sourceId || item.id || ''),
-      sourceType: String(item.sourceType || 'video')
+      sourceType: String(item.sourceType || 'video'),
+      likesCount: Number(item.likesCount || item.likes || 0) || 0,
+      commentsCount: Number(item.commentsCount || item.comments || 0) || 0,
+      viewsCount: Number(item.viewsCount || item.viewCount || 0) || 0,
+      authorId: String(item.authorId || '')
     };
   }
 
@@ -56,11 +63,47 @@
   }
 
   function close(){
-    if (!state.open) return;
+    if (!state.open && !state.overlay?.classList.contains('minimized')) return;
+    const v = getCurrentVideoNode();
+    if (v){
+      try{ v.pause(); }catch(_){ }
+      try{ v.currentTime = 0; }catch(_){ }
+    }
+    if (state.playerHost) state.playerHost.innerHTML = '';
+    if (state.restoreBtn) state.restoreBtn.remove();
+    state.restoreBtn = null;
     state.open = false;
+    if (state.overlay) state.overlay.classList.remove('minimized');
     if (state.overlay) state.overlay.classList.remove('open');
     if (state.overlay) state.overlay.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('lvp-open');
+  }
+
+  function hideToBackground(){
+    if (!state.open || !state.overlay) return;
+    state.open = false;
+    state.overlay.classList.remove('open');
+    state.overlay.classList.add('minimized');
+    state.overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('lvp-open');
+    if (!state.restoreBtn){
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lvp-restore-btn';
+      b.innerHTML = '<i class="fas fa-play"></i>';
+      b.title = 'Show player';
+      b.setAttribute('aria-label', 'Show player');
+      b.addEventListener('click', ()=>{
+        if (!state.overlay) return;
+        state.overlay.classList.remove('minimized');
+        state.overlay.classList.add('open');
+        state.overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('lvp-open');
+        state.open = true;
+      });
+      document.body.appendChild(b);
+      state.restoreBtn = b;
+    }
   }
 
   async function fetchRecommendations(current){
@@ -132,6 +175,7 @@
       const thumbHtml = thumb ? `<img class="lvp-rec-thumb" src="${thumb.replace(/"/g,'&quot;')}" alt="">` : '<span class="lvp-rec-thumb lvp-rec-thumb-fallback"><i class="fas fa-play"></i></span>';
       row.innerHTML = `${thumbHtml}<span class="lvp-rec-meta"><span class="lvp-rec-title">${item.title.replace(/</g,'&lt;')}</span><span class="lvp-rec-author">${item.author.replace(/</g,'&lt;')}</span></span>`;
       row.addEventListener('click', ()=>{
+        if (!state.open) return;
         setIndex(idx);
       });
       state.recList.appendChild(row);
@@ -158,8 +202,18 @@
     const item = state.items[state.index];
     if (!item) return;
     if (state.playerHost){
+      const current = getCurrentVideoNode();
+      if (current){
+        try{ current.pause(); }catch(_){ }
+      }
+      const nextVideo = buildVideoNode(item);
+      nextVideo.style.opacity = '0';
+      nextVideo.style.transition = 'opacity .22s ease';
       state.playerHost.innerHTML = '';
-      state.playerHost.appendChild(buildVideoNode(item));
+      state.playerHost.appendChild(nextVideo);
+      requestAnimationFrame(()=>{
+        nextVideo.style.opacity = '1';
+      });
     }
     try{
       window.firebaseService?.trackVideoInteraction?.({
@@ -170,6 +224,14 @@
       });
     }catch(_){ }
     updateMeta(item);
+    if (state.likeBtn) state.likeBtn.textContent = `Like ${item.likesCount > 0 ? item.likesCount : ''}`.trim();
+    if (state.commentsBtn) state.commentsBtn.textContent = `Comments ${item.commentsCount > 0 ? item.commentsCount : ''}`.trim();
+    if (state.overlay){
+      const railLike = state.overlay.querySelector('.lvp-mobile-rail .lvp-like .lvp-rail-count');
+      const railComments = state.overlay.querySelector('.lvp-mobile-rail .lvp-comments .lvp-rail-count');
+      if (railLike) railLike.textContent = item.likesCount > 0 ? String(item.likesCount) : '';
+      if (railComments) railComments.textContent = item.commentsCount > 0 ? String(item.commentsCount) : '';
+    }
     renderRecommendations(item.id);
     try{
       const recs = await fetchRecommendations(item);
@@ -236,6 +298,7 @@
     overlay.innerHTML = `
       <div class="lvp-shell" role="dialog" aria-modal="true" aria-label="Video player">
         <button class="lvp-close" type="button" aria-label="Close">×</button>
+        <button class="lvp-hide" type="button" aria-label="Hide player"><i class="fas fa-chevron-down"></i></button>
         <div class="lvp-grid">
           <aside class="lvp-recommendations">
             <div class="lvp-rec-head">Recommended</div>
@@ -252,10 +315,17 @@
             <div class="lvp-actions">
               <button type="button" class="lvp-action lvp-like">Like</button>
               <button type="button" class="lvp-action lvp-comments">Comments</button>
+              <button type="button" class="lvp-action lvp-author">Author</button>
               <button type="button" class="lvp-action lvp-share">Share</button>
               <button type="button" class="lvp-action lvp-theater">Theater</button>
             </div>
           </section>
+        </div>
+        <div class="lvp-mobile-rail">
+          <button type="button" class="lvp-rail-btn lvp-like"><i class="fas fa-heart"></i><span class="lvp-rail-count"></span></button>
+          <button type="button" class="lvp-rail-btn lvp-comments"><i class="fas fa-comment-dots"></i><span class="lvp-rail-count"></span></button>
+          <button type="button" class="lvp-rail-btn lvp-author"><i class="fas fa-user-circle"></i><span class="lvp-rail-count"></span></button>
+          <button type="button" class="lvp-rail-btn lvp-share"><i class="fas fa-paper-plane"></i><span class="lvp-rail-count"></span></button>
         </div>
         <div class="lvp-mobile-meta">
           <div class="lvp-mobile-author"></div>
@@ -274,16 +344,19 @@
     state.descEl = overlay.querySelector('.lvp-desc');
     state.likeBtn = overlay.querySelector('.lvp-like');
     state.commentsBtn = overlay.querySelector('.lvp-comments');
+    state.authorBtn = overlay.querySelector('.lvp-author');
     state.shareBtn = overlay.querySelector('.lvp-share');
     state.theaterBtn = overlay.querySelector('.lvp-theater');
+    state.hideBtn = overlay.querySelector('.lvp-hide');
     state.mobileMeta = overlay.querySelector('.lvp-mobile-meta');
 
     const closeBtn = overlay.querySelector('.lvp-close');
     if (closeBtn) closeBtn.addEventListener('click', close);
+    if (state.hideBtn) state.hideBtn.addEventListener('click', hideToBackground);
     overlay.addEventListener('click', (e)=>{
       const target = e.target;
       if (!(target instanceof Element)) return;
-      if (target.closest('.lvp-main,.lvp-recommendations,.lvp-mobile-meta,.lvp-close')) return;
+      if (target.closest('.lvp-main,.lvp-recommendations,.lvp-mobile-meta,.lvp-mobile-rail,.lvp-close,.lvp-hide')) return;
       close();
     });
     state.shareBtn?.addEventListener('click', async ()=>{
@@ -298,6 +371,9 @@
     state.commentsBtn?.addEventListener('click', ()=>{
       // Placeholder comment sheet integration point for both app and landing.
       try { window.dispatchEvent(new CustomEvent('liber-video-comments-open', { detail: state.items[state.index] || null })); } catch (_) { }
+    });
+    state.authorBtn?.addEventListener('click', ()=>{
+      try { window.dispatchEvent(new CustomEvent('liber-video-author-open', { detail: state.items[state.index] || null })); } catch (_) { }
     });
     state.likeBtn?.addEventListener('click', ()=>{
       const current = state.items[state.index];
@@ -316,6 +392,10 @@
       state.shell.classList.toggle('theater', next);
       state.theaterBtn.textContent = next ? 'Default' : 'Theater';
     });
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-like').forEach((b)=> b.addEventListener('click', ()=> state.likeBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> b.addEventListener('click', ()=> state.commentsBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> b.addEventListener('click', ()=> state.authorBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> b.addEventListener('click', ()=> state.shareBtn?.click()));
 
     const progress = overlay.querySelector('.lvp-progress');
     if (progress){
@@ -357,9 +437,14 @@
     ensureDom();
     const items = (Array.isArray(payload?.items) ? payload.items : []).map(normalizeItem).filter(Boolean);
     if (!items.length) return false;
+    if (state.restoreBtn){
+      try{ state.restoreBtn.remove(); }catch(_){ }
+      state.restoreBtn = null;
+    }
     state.items = items;
     state.index = clamp(Number(payload?.startIndex) || 0, 0, items.length - 1);
     state.source = String(payload?.source || 'app');
+    state.overlay.classList.remove('minimized');
     state.overlay.classList.add('open');
     state.overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('lvp-open');
