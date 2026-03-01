@@ -398,6 +398,20 @@ img, video, canvas, svg, iframe {
   border-radius:10px;
   overflow:hidden;
 }
+.wave-video-inline-cover{
+  position:absolute;
+  right:8px;
+  top:8px;
+  width:68px;
+  height:40px;
+  border-radius:8px;
+  object-fit:cover;
+  border:1px solid rgba(255,255,255,.28);
+  background:#0f1522;
+  box-shadow:0 4px 10px rgba(0,0,0,.35);
+  z-index:2;
+  pointer-events:none;
+}
 .video-open-player-btn{
   position:absolute;
   left:50%;
@@ -1063,11 +1077,17 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   }
   .video-item-header img,
   .video-item-header .picture-author-avatar{
-    width:22px !important;
-    height:22px !important;
-    min-width:22px !important;
+    width:18px !important;
+    height:18px !important;
+    min-width:18px !important;
     border-radius:999px !important;
     object-fit:cover;
+  }
+  .wave-video-inline-cover{
+    width:58px;
+    height:34px;
+    right:6px;
+    top:6px;
   }
   .video-item-header > div{
     width:auto;
