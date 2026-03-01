@@ -381,10 +381,23 @@
       (function(){
         const select = document.getElementById('landing-language-select');
         if (!select) return;
+        const LANDING_LANG_KEY = 'liber_landing_language';
+        const APP_LANG_KEY = 'liber_preferred_language';
+        const readLandingLang = ()=>{
+          const saved = String(localStorage.getItem(LANDING_LANG_KEY) || '').trim().toLowerCase();
+          if (saved) return saved;
+          // One-time migration from old shared key, then keep independent.
+          const legacy = String(localStorage.getItem(APP_LANG_KEY) || '').trim().toLowerCase();
+          if (legacy){
+            try{ localStorage.setItem(LANDING_LANG_KEY, legacy); }catch(_){ }
+            return legacy;
+          }
+          return 'en';
+        };
         const applyLang = (lang)=>{
           const code = String(lang || 'en').trim().toLowerCase() || 'en';
           document.documentElement.lang = code;
-          try{ localStorage.setItem('liber_preferred_language', code); }catch(_){ }
+          try{ localStorage.setItem(LANDING_LANG_KEY, code); }catch(_){ }
           const t = {
             en: { privacy:'Privacy Policy', terms:'Terms of Use' },
             es: { privacy:'Política de privacidad', terms:'Términos de uso' },
@@ -400,13 +413,13 @@
           links2.forEach((el)=>{ el.textContent = t.terms; });
           try{ window.LiberAutoUiTranslator?.translateRoot?.(document.body, code); }catch(_){ }
         };
-        const remember = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
+        const remember = readLandingLang();
         select.value = remember;
         applyLang(remember);
         select.addEventListener('change', ()=> applyLang(select.value));
         if (window.MutationObserver){
           const obs = new MutationObserver(()=>{
-            const code = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
+            const code = readLandingLang();
             try{ window.LiberAutoUiTranslator?.translateRoot?.(document.body, code); }catch(_){ }
           });
           obs.observe(document.body, { childList: true, subtree: true });

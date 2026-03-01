@@ -4,6 +4,8 @@
   const CACHE_KEY = 'liber_ui_translate_cache_v2';
   const SOURCE_ATTR = 'data-i18n-source';
   const ATTR_SOURCE_PREFIX = 'data-i18n-source-';
+  const MAX_TRANSLATABLE_TEXT_LENGTH = 2400;
+  const SPLIT_CHUNK_LENGTH = 320;
   let cache = null;
   let saveTimer = 0;
   const inFlightByLang = new Map();
@@ -56,7 +58,7 @@
     if (el.childElementCount > 0) return false;
     const text = String(el.getAttribute(SOURCE_ATTR) || el.textContent || '').trim();
     if (!text) return false;
-    if (text.length < 2 || text.length > 180) return false;
+    if (text.length < 2 || text.length > MAX_TRANSLATABLE_TEXT_LENGTH) return false;
     if (/^[\d\s.,:;!?()+\-/%#@&]+$/.test(text)) return false;
     return true;
   }
@@ -93,7 +95,7 @@
     if (el.closest('select')) return false;
     const raw = String(el.getAttribute(attr) || '').trim();
     if (!raw) return false;
-    if (raw.length < 2 || raw.length > 180) return false;
+    if (raw.length < 2 || raw.length > MAX_TRANSLATABLE_TEXT_LENGTH) return false;
     if (/^[\d\s.,:;!?()+\-/%#@&]+$/.test(raw)) return false;
     return true;
   }
@@ -162,6 +164,41 @@
     const endpoints = getTranslatorEndpoints();
     if (!endpoints.length) return {};
 
+    const splitLongText = (text, maxLen = SPLIT_CHUNK_LENGTH)=>{
+      const raw = String(text || '');
+      if (raw.length <= maxLen) return [raw];
+      const out = [];
+      let rest = raw;
+      while (rest.length > maxLen){
+        const scan = rest.slice(0, maxLen + 1);
+        const minBreak = Math.floor(maxLen * 0.55);
+        let cut = -1;
+        const preferredBreaks = ['\n\n', '\n', '. ', '! ', '? ', '; ', ', '];
+        preferredBreaks.forEach((marker)=>{
+          const idx = scan.lastIndexOf(marker);
+          if (idx >= minBreak) cut = Math.max(cut, idx + marker.length);
+        });
+        if (cut < 0){
+          const ws = scan.lastIndexOf(' ');
+          if (ws >= Math.floor(maxLen * 0.5)) cut = ws + 1;
+        }
+        if (cut < 0) cut = maxLen;
+        out.push(rest.slice(0, cut));
+        rest = rest.slice(cut);
+      }
+      if (rest) out.push(rest);
+      return out.filter((s)=> String(s || '').length > 0);
+    };
+
+    // Long strings are split to keep translator outputs stable and complete.
+    const expanded = [];
+    const plan = list.map((source)=>{
+      const parts = splitLongText(source, SPLIT_CHUNK_LENGTH);
+      const start = expanded.length;
+      expanded.push(...parts);
+      return { source, start, count: parts.length };
+    });
+
     for (const endpoint of endpoints){
       try{
         const resp = await fetch(endpoint, {
@@ -177,7 +214,7 @@
               },
               {
                 role: 'user',
-                content: JSON.stringify({ texts: list })
+                content: JSON.stringify({ texts: expanded })
               }
             ]
           })
@@ -187,11 +224,13 @@
         const content = String(data?.choices?.[0]?.message?.content || '').trim();
         const parsed = extractJsonObject(content);
         const translations = Array.isArray(parsed?.translations) ? parsed.translations : null;
-        if (!translations || translations.length !== list.length) continue;
+        if (!translations || translations.length !== expanded.length) continue;
         const out = {};
-        for (let i = 0; i < list.length; i++){
-          out[list[i]] = String(translations[i] || list[i]).trim() || list[i];
-        }
+        plan.forEach(({ source, start, count })=>{
+          const parts = translations.slice(start, start + count).map((x)=> String(x || ''));
+          const joined = parts.join('');
+          out[source] = joined || source;
+        });
         return out;
       }catch(_){ }
     }

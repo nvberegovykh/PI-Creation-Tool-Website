@@ -243,6 +243,18 @@
         if (railLike) railLike.textContent = String(Math.max(0, Number(likes || 0) || 0));
         if (railComments) railComments.textContent = String(Math.max(0, Number(comments || 0) || 0));
       }
+      try{
+        window.dispatchEvent(new CustomEvent('liber-video-engagement-sync', {
+          detail: {
+            kind: 'video',
+            url: String(current.url || ''),
+            sourceId: String(current.sourceId || ''),
+            likesCount: Number(likes || 0) || 0,
+            commentsCount: Number(comments || 0) || 0,
+            viewsCount: Number(current.viewsCount || 0) || 0
+          }
+        }));
+      }catch(_){ }
     }catch(_){ }
   }
 
