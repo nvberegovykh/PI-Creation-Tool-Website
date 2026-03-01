@@ -404,6 +404,13 @@
         select.value = remember;
         applyLang(remember);
         select.addEventListener('change', ()=> applyLang(select.value));
+        if (window.MutationObserver){
+          const obs = new MutationObserver(()=>{
+            const code = String(localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase() || 'en';
+            try{ window.LiberAutoUiTranslator?.translateRoot?.(document.body, code); }catch(_){ }
+          });
+          obs.observe(document.body, { childList: true, subtree: true });
+        }
       })();
     </script>
     <script>

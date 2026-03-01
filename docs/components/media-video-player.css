@@ -13,6 +13,14 @@
   position:absolute; top:12px; right:58px; z-index:4; width:40px; height:40px;
   border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(12,16,24,.86); color:#fff; cursor:pointer;
 }
+.lvp-fullscreen-top{
+  position:absolute; top:12px; right:104px; z-index:4; width:40px; height:40px;
+  border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(12,16,24,.86); color:#fff; cursor:pointer;
+}
+.lvp-overlay.lvp-native-fullscreen .lvp-fullscreen-top{
+  opacity:0;
+  pointer-events:none;
+}
 .lvp-restore-btn{
   position:fixed; right:14px; bottom:92px; z-index:21600;
   width:48px; height:48px; border-radius:999px; border:1px solid rgba(255,255,255,.2);
@@ -80,7 +88,12 @@
 .lvp-action{
   border:1px solid rgba(255,255,255,.2); background:rgba(11,15,23,.7); color:#ecf2ff;
   border-radius:999px; padding:8px 12px; cursor:pointer; font-size:12px;
+  display:inline-flex; align-items:center; gap:6px;
 }
+.lvp-action:disabled{ opacity:.86; cursor:default; }
+.lvp-action .lvp-action-count{ opacity:.85; min-width:10px; text-align:right; }
+.lvp-action .lvp-action-label{ white-space:nowrap; }
+.lvp-open #mini-player{ display:none !important; }
 .lvp-mobile-meta{ display:none; }
 .lvp-mobile-rail{ display:none; }
 @media (max-width: 767px){
@@ -92,9 +105,10 @@
   .lvp-meta, .lvp-actions{ display:none; }
   .lvp-progress{ position:absolute; left:8px; right:8px; bottom:8px; z-index:5; }
   .lvp-hide{ top:10px; right:56px; }
+  .lvp-fullscreen-top{ top:10px; right:102px; }
   .lvp-mobile-rail{
     display:flex; flex-direction:column; gap:10px;
-    position:absolute; right:8px; bottom:72px; z-index:6;
+    position:absolute; right:calc(8px + env(safe-area-inset-right, 0px)); bottom:72px; z-index:6;
   }
   .lvp-rail-btn{
     border:1px solid rgba(255,255,255,.2);
@@ -113,7 +127,7 @@
   .lvp-rail-count{ font-size:10px; opacity:.88; line-height:1; min-height:10px; }
   .lvp-mobile-meta{
     display:block; position:absolute; left:0; right:0; bottom:20px; z-index:4;
-    padding:18px 12px 30px;
+    padding:18px 12px calc(30px + env(safe-area-inset-bottom, 0px));
     background:linear-gradient(to top, rgba(0,0,0,.68), rgba(0,0,0,0));
   }
   .lvp-mobile-author{ font-size:12px; opacity:.85; margin-bottom:4px; }

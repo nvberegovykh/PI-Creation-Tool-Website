@@ -3,9 +3,12 @@
 
   const CACHE_KEY = 'liber_ui_translate_cache_v2';
   const SOURCE_ATTR = 'data-i18n-source';
+  const ATTR_SOURCE_PREFIX = 'data-i18n-source-';
   let cache = null;
   let saveTimer = 0;
   const inFlightByLang = new Map();
+  const nodeIds = new WeakMap();
+  let nodeIdSeq = 1;
 
   function normalizeLang(lang){
     const code = String(lang || 'en').trim().toLowerCase();
@@ -40,7 +43,7 @@
   function shouldSkipElement(el){
     if (!(el instanceof Element)) return true;
     const tag = String(el.tagName || '').toLowerCase();
-    if (['script','style','code','pre','noscript','svg','path'].includes(tag)) return true;
+    if (['script','style','code','pre','noscript','svg','path','option','optgroup'].includes(tag)) return true;
     if (el.matches('[data-no-auto-translate],[contenteditable="true"]')) return true;
     if (el.closest('[data-no-auto-translate],.message,.post-item,#global-feed,#space-feed,.messages,.chat-app,.code-block,[contenteditable="true"]')) return true;
     if (el.hasAttribute('data-i18n')) return true;
@@ -72,6 +75,60 @@
       out.push({ el, source });
     });
     return out;
+  }
+
+  function getNodeId(node){
+    if (!node || !(node instanceof Element || node instanceof Document)) return 'doc';
+    let id = nodeIds.get(node);
+    if (!id){
+      id = `n${nodeIdSeq++}`;
+      nodeIds.set(node, id);
+    }
+    return id;
+  }
+
+  function shouldTranslateAttr(el, attr){
+    if (shouldSkipElement(el)) return false;
+    if (el.closest('select')) return false;
+    const raw = String(el.getAttribute(attr) || '').trim();
+    if (!raw) return false;
+    if (raw.length < 2 || raw.length > 180) return false;
+    if (/^[\d\s.,:;!?()+\-/%#@&]+$/.test(raw)) return false;
+    return true;
+  }
+
+  function collectAttributeNodes(root){
+    const out = [];
+    const base = (root instanceof Element || root instanceof Document) ? root : document.body;
+    if (!base) return out;
+    const attrs = ['placeholder','title','aria-label'];
+    base.querySelectorAll('*').forEach((el)=>{
+      attrs.forEach((attr)=>{
+        if (!shouldTranslateAttr(el, attr)) return;
+        const sourceAttr = `${ATTR_SOURCE_PREFIX}${attr}`;
+        if (!el.getAttribute(sourceAttr)){
+          const src = String(el.getAttribute(attr) || '').trim();
+          if (src) el.setAttribute(sourceAttr, src);
+        }
+        const source = String(el.getAttribute(sourceAttr) || '').trim();
+        if (!source) return;
+        out.push({ el, source, attr });
+      });
+    });
+    return out;
+  }
+
+  function restoreProtectedSources(root){
+    try{
+      const base = (root instanceof Element || root instanceof Document) ? root : document.body;
+      if (!base) return;
+      base.querySelectorAll(`[${SOURCE_ATTR}]`).forEach((el)=>{
+        const tag = String(el.tagName || '').toLowerCase();
+        if (tag !== 'option' && tag !== 'optgroup') return;
+        const source = String(el.getAttribute(SOURCE_ATTR) || '').trim();
+        if (source) el.textContent = source;
+      });
+    }catch(_){ }
   }
 
   function extractJsonObject(text){
@@ -142,23 +199,31 @@
 
   async function translateRoot(root, lang){
     const code = normalizeLang(lang);
-    const runKey = `${code}::${root === document.body ? 'body' : 'node'}`;
+    const runKey = `${code}::${getNodeId(root || document.body)}`;
     if (inFlightByLang.has(runKey)) return inFlightByLang.get(runKey);
 
     const p = (async ()=>{
+      restoreProtectedSources(root || document.body);
       const nodes = collectLeafNodes(root || document.body);
-      if (!nodes.length) return;
+      const attrNodes = collectAttributeNodes(root || document.body);
+      if (!nodes.length && !attrNodes.length) return;
       const store = loadCache();
 
       // Restore original UI for English.
       if (code === 'en'){
         nodes.forEach(({ el, source })=>{ if (el && source) el.textContent = source; });
+        attrNodes.forEach(({ el, source, attr })=>{ if (el && source && attr) el.setAttribute(attr, source); });
         return;
       }
 
       const uniq = [];
       const seen = new Set();
       nodes.forEach(({ source })=>{
+        if (seen.has(source)) return;
+        seen.add(source);
+        uniq.push(source);
+      });
+      attrNodes.forEach(({ source })=>{
         if (seen.has(source)) return;
         seen.add(source);
         uniq.push(source);
@@ -178,6 +243,10 @@
       nodes.forEach(({ el, source })=>{
         const next = String(store[getCacheKey(code, source)] || source).trim() || source;
         if (el && next) el.textContent = next;
+      });
+      attrNodes.forEach(({ el, source, attr })=>{
+        const next = String(store[getCacheKey(code, source)] || source).trim() || source;
+        if (el && attr && next) el.setAttribute(attr, next);
       });
     })().finally(()=>{
       inFlightByLang.delete(runKey);

@@ -17,6 +17,9 @@
     commentsBtn: null,
     authorBtn: null,
     shareBtn: null,
+    viewsBtn: null,
+    fullscreenBtn: null,
+    fullscreenTopBtn: null,
     mobileMeta: null,
     theaterBtn: null,
     hideBtn: null,
@@ -64,6 +67,11 @@
 
   function close(){
     if (!state.open && !state.overlay?.classList.contains('minimized')) return;
+    try{
+      if (document.fullscreenElement || document.webkitFullscreenElement){
+        document.exitFullscreen?.().catch?.(()=>{});
+      }
+    }catch(_){ }
     const v = getCurrentVideoNode();
     if (v){
       try{ v.pause(); }catch(_){ }
@@ -75,8 +83,10 @@
     state.open = false;
     if (state.overlay) state.overlay.classList.remove('minimized');
     if (state.overlay) state.overlay.classList.remove('open');
+    if (state.overlay) state.overlay.classList.remove('lvp-native-fullscreen');
     if (state.overlay) state.overlay.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('lvp-open');
+    syncFullscreenUi();
   }
 
   function hideToBackground(){
@@ -129,15 +139,11 @@
     v.className = 'lvp-video';
     v.src = item.url;
     if (item.poster) v.poster = item.poster;
-    v.controls = false;
+    // Keep regular video UX: native play button, timeline, time, fullscreen.
+    v.controls = true;
     v.playsInline = true;
     v.autoplay = true;
     v.preload = 'metadata';
-    v.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      if (v.paused) v.play().catch(()=>{});
-      else v.pause();
-    });
     v.addEventListener('play', ()=> {
       try{
         window.firebaseService?.trackVideoInteraction?.({
@@ -196,6 +202,117 @@
     }
   }
 
+  function getCurrentItem(){
+    return state.items[state.index] || null;
+  }
+
+  async function refreshCurrentEngagementStats(){
+    try{
+      const current = getCurrentItem();
+      if (!current) return;
+      const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+      let likes = Number(current.likesCount || 0) || 0;
+      let comments = Number(current.commentsCount || 0) || 0;
+      if (dm && typeof dm.getAssetAggregatedLikeCount === 'function'){
+        try{ likes = Number(await dm.getAssetAggregatedLikeCount('video', current.url)) || likes; }catch(_){ }
+      }
+      if (dm && typeof dm.resolveAssetPostId === 'function' && window.firebaseService?.getPostStats){
+        try{
+          const pid = await dm.resolveAssetPostId({ kind: 'video', url: current.url, sourceId: current.sourceId, title: current.title });
+          if (pid){
+            const st = await window.firebaseService.getPostStats(pid);
+            comments = Number(st?.comments || 0) || comments;
+          }
+        }catch(_){ }
+      }
+      current.likesCount = likes;
+      current.commentsCount = comments;
+      if (state.viewsBtn){
+        const c = state.viewsBtn.querySelector('.lvp-action-count');
+        if (c) c.textContent = String(Math.max(0, Number(current.viewsCount || 0) || 0));
+      }
+      if (state.likeBtn){
+        const c = state.likeBtn.querySelector('.lvp-action-count');
+        if (c) c.textContent = likes > 0 ? String(likes) : '';
+      }
+      if (state.commentsBtn){
+        const c = state.commentsBtn.querySelector('.lvp-action-count');
+        if (c) c.textContent = comments > 0 ? String(comments) : '';
+      }
+      if (state.overlay){
+        const railLike = state.overlay.querySelector('.lvp-mobile-rail .lvp-like .lvp-rail-count');
+        const railComments = state.overlay.querySelector('.lvp-mobile-rail .lvp-comments .lvp-rail-count');
+        if (railLike) railLike.textContent = likes > 0 ? String(likes) : '';
+        if (railComments) railComments.textContent = comments > 0 ? String(comments) : '';
+      }
+    }catch(_){ }
+  }
+
+  async function toggleCurrentLike(){
+    try{
+      const current = getCurrentItem();
+      if (!current || !current.url) return;
+      const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+      if (!dm || typeof dm.getAssetLikeKeys !== 'function' || !window.firebaseService?.db){
+        return;
+      }
+      const me = await (window.firebaseService?.getCurrentUser?.() || Promise.resolve(window.firebaseService?.auth?.currentUser || null));
+      if (!me || !me.uid) return;
+      const keys = dm.getAssetLikeKeys('video', current.url) || [];
+      const primary = keys[0];
+      const refs = Array.from(new Set([primary, ...keys].filter(Boolean))).map((k)=> firebase.doc(window.firebaseService.db, 'assetLikes', k, 'likes', me.uid));
+      if (!refs.length) return;
+      let hasLike = false;
+      for (const ref of refs){
+        try{
+          const s = await firebase.getDoc(ref);
+          if (s.exists()){ hasLike = true; break; }
+        }catch(_){ }
+      }
+      if (hasLike){
+        await Promise.all(refs.map(async (ref)=>{ try{ await firebase.deleteDoc(ref); }catch(_){ } }));
+      } else {
+        await firebase.setDoc(refs[0], { uid: me.uid, createdAt: new Date().toISOString(), kind: 'video', url: current.url });
+      }
+      await refreshCurrentEngagementStats();
+    }catch(_){ }
+  }
+
+  function toggleVideoFullscreen(){
+    try{
+      const v = getCurrentVideoNode();
+      if (!v) return;
+      if (document.fullscreenElement){
+        document.exitFullscreen?.().catch?.(()=>{});
+        return;
+      }
+      if (v.requestFullscreen){
+        v.requestFullscreen().catch(()=>{});
+      } else if (v.webkitEnterFullscreen){
+        try{ v.webkitEnterFullscreen(); }catch(_){ }
+      } else if (state.shell?.requestFullscreen){
+        state.shell.requestFullscreen().catch(()=>{});
+      }
+    }catch(_){ }
+  }
+
+  function syncFullscreenUi(){
+    try{
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
+      const active = !!fsEl;
+      if (state.overlay) state.overlay.classList.toggle('lvp-native-fullscreen', active);
+      if (state.fullscreenTopBtn){
+        state.fullscreenTopBtn.innerHTML = active ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+        state.fullscreenTopBtn.title = active ? 'Exit fullscreen' : 'Fullscreen';
+        state.fullscreenTopBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
+      }
+      if (state.fullscreenBtn){
+        const lbl = state.fullscreenBtn.querySelector('.lvp-action-label');
+        if (lbl) lbl.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+      }
+    }catch(_){ }
+  }
+
   async function setIndex(next){
     if (!state.items.length) return;
     state.index = clamp(next, 0, state.items.length - 1);
@@ -224,13 +341,23 @@
       });
     }catch(_){ }
     updateMeta(item);
-    if (state.likeBtn) state.likeBtn.textContent = `Like ${item.likesCount > 0 ? item.likesCount : ''}`.trim();
-    if (state.commentsBtn) state.commentsBtn.textContent = `Comments ${item.commentsCount > 0 ? item.commentsCount : ''}`.trim();
+    if (state.likeBtn){
+      const c = state.likeBtn.querySelector('.lvp-action-count');
+      if (c) c.textContent = item.likesCount > 0 ? String(item.likesCount) : '';
+    }
+    if (state.commentsBtn){
+      const c = state.commentsBtn.querySelector('.lvp-action-count');
+      if (c) c.textContent = item.commentsCount > 0 ? String(item.commentsCount) : '';
+    }
     if (state.overlay){
       const railLike = state.overlay.querySelector('.lvp-mobile-rail .lvp-like .lvp-rail-count');
       const railComments = state.overlay.querySelector('.lvp-mobile-rail .lvp-comments .lvp-rail-count');
       if (railLike) railLike.textContent = item.likesCount > 0 ? String(item.likesCount) : '';
       if (railComments) railComments.textContent = item.commentsCount > 0 ? String(item.commentsCount) : '';
+    }
+    if (state.viewsBtn){
+      const c = state.viewsBtn.querySelector('.lvp-action-count');
+      if (c) c.textContent = String(Math.max(0, Number(item.viewsCount || 0) || 0));
     }
     renderRecommendations(item.id);
     try{
@@ -241,6 +368,7 @@
         renderRecommendations(item.id);
       }
     }catch(_){ }
+    refreshCurrentEngagementStats();
   }
 
   function onWheel(e){
@@ -299,6 +427,7 @@
       <div class="lvp-shell" role="dialog" aria-modal="true" aria-label="Video player">
         <button class="lvp-close" type="button" aria-label="Close">×</button>
         <button class="lvp-hide" type="button" aria-label="Hide player"><i class="fas fa-chevron-down"></i></button>
+        <button class="lvp-fullscreen-top" type="button" aria-label="Fullscreen"><i class="fas fa-expand"></i></button>
         <div class="lvp-grid">
           <aside class="lvp-recommendations">
             <div class="lvp-rec-head">Recommended</div>
@@ -313,10 +442,12 @@
               <p class="lvp-desc"></p>
             </div>
             <div class="lvp-actions">
-              <button type="button" class="lvp-action lvp-like">Like</button>
-              <button type="button" class="lvp-action lvp-comments">Comments</button>
-              <button type="button" class="lvp-action lvp-author">Author</button>
-              <button type="button" class="lvp-action lvp-share">Share</button>
+              <button type="button" class="lvp-action lvp-like"><i class="fas fa-heart"></i><span class="lvp-action-label">Like</span><span class="lvp-action-count"></span></button>
+              <button type="button" class="lvp-action lvp-comments"><i class="fas fa-comment-dots"></i><span class="lvp-action-label">Comments</span><span class="lvp-action-count"></span></button>
+              <button type="button" class="lvp-action lvp-views" disabled><i class="fas fa-eye"></i><span class="lvp-action-label">Views</span><span class="lvp-action-count">0</span></button>
+              <button type="button" class="lvp-action lvp-author"><i class="fas fa-user-circle"></i><span class="lvp-action-label">Author</span></button>
+              <button type="button" class="lvp-action lvp-share"><i class="fas fa-paper-plane"></i><span class="lvp-action-label">Share</span></button>
+              <button type="button" class="lvp-action lvp-fullscreen"><i class="fas fa-expand"></i><span class="lvp-action-label">Fullscreen</span></button>
               <button type="button" class="lvp-action lvp-theater">Theater</button>
             </div>
           </section>
@@ -326,6 +457,7 @@
           <button type="button" class="lvp-rail-btn lvp-comments"><i class="fas fa-comment-dots"></i><span class="lvp-rail-count"></span></button>
           <button type="button" class="lvp-rail-btn lvp-author"><i class="fas fa-user-circle"></i><span class="lvp-rail-count"></span></button>
           <button type="button" class="lvp-rail-btn lvp-share"><i class="fas fa-paper-plane"></i><span class="lvp-rail-count"></span></button>
+          <button type="button" class="lvp-rail-btn lvp-fullscreen"><i class="fas fa-expand"></i><span class="lvp-rail-count"></span></button>
         </div>
         <div class="lvp-mobile-meta">
           <div class="lvp-mobile-author"></div>
@@ -346,6 +478,9 @@
     state.commentsBtn = overlay.querySelector('.lvp-comments');
     state.authorBtn = overlay.querySelector('.lvp-author');
     state.shareBtn = overlay.querySelector('.lvp-share');
+    state.viewsBtn = overlay.querySelector('.lvp-views');
+    state.fullscreenBtn = overlay.querySelector('.lvp-fullscreen');
+    state.fullscreenTopBtn = overlay.querySelector('.lvp-fullscreen-top');
     state.theaterBtn = overlay.querySelector('.lvp-theater');
     state.hideBtn = overlay.querySelector('.lvp-hide');
     state.mobileMeta = overlay.querySelector('.lvp-mobile-meta');
@@ -386,7 +521,12 @@
           videoId: current.id
         });
       }catch(_){ }
+      toggleCurrentLike();
     });
+    state.fullscreenBtn?.addEventListener('click', toggleVideoFullscreen);
+    state.fullscreenTopBtn?.addEventListener('click', toggleVideoFullscreen);
+    document.addEventListener('fullscreenchange', syncFullscreenUi);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenUi);
     state.theaterBtn?.addEventListener('click', ()=>{
       const next = !state.shell.classList.contains('theater');
       state.shell.classList.toggle('theater', next);
@@ -396,6 +536,7 @@
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> b.addEventListener('click', ()=> state.commentsBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> b.addEventListener('click', ()=> state.authorBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> b.addEventListener('click', ()=> state.shareBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> b.addEventListener('click', ()=> state.fullscreenBtn?.click()));
 
     const progress = overlay.querySelector('.lvp-progress');
     if (progress){
@@ -449,6 +590,7 @@
     state.overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('lvp-open');
     state.open = true;
+    syncFullscreenUi();
     await setIndex(state.index);
     return true;
   }
