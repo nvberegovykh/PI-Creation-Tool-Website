@@ -417,9 +417,22 @@
                         <button id="wave-studio-btn" class="btn btn-secondary waveconnect-quick-btn" title="Studio" aria-label="Open studio manager"><i class="fas fa-sliders"></i></button>
                     </div>
                 </div>
+                <div id="wave-subnav" class="wave-subnav" role="tablist" aria-label="WaveConnect submenu">
+                    <button class="btn btn-secondary active" data-wave-subtab="home" aria-selected="true">Home</button>
+                    <button class="btn btn-secondary" data-wave-subtab="upload" aria-selected="false">Upload</button>
+                    <button class="btn btn-secondary" data-wave-subtab="studio" aria-selected="false">Studio</button>
+                    <button class="btn btn-secondary" data-wave-subtab="search" aria-selected="false">Search</button>
+                    <button class="btn btn-secondary" data-wave-subtab="library" aria-selected="false">Library</button>
+                </div>
 
                 <!-- Audio Pane -->
                 <div id="wave-audio-pane">
+                    <div id="wave-audio-home" class="settings-card" style="margin-top:10px">
+                        <h3>Audio Home</h3>
+                        <div id="wave-audio-highlights"></div>
+                        <div id="wave-audio-popular-month" style="margin-top:12px"></div>
+                        <div id="wave-audio-following" style="margin-top:12px"></div>
+                    </div>
                     <div class="section-header" style="margin-top:8px">
                         <div class="search-container">
                             <input type="text" id="wave-search" placeholder="Search audio...">
@@ -474,6 +487,10 @@
 
                 <!-- Video Pane -->
                 <div id="wave-video-pane" style="display:none">
+                    <div id="wave-video-home" class="settings-card" style="margin-top:10px">
+                        <h3>Video Home</h3>
+                        <div id="wave-video-home-cards"></div>
+                    </div>
                     <div class="settings-grid">
                         <div class="settings-card">
                             <h3>Upload Video (up to 5 hours)</h3>
@@ -519,6 +536,10 @@
 
                 <!-- Pictures Pane -->
                 <div id="wave-pictures-pane" style="display:none">
+                    <div id="wave-picture-home" class="settings-card" style="margin-top:10px">
+                        <h3>Pictures Home</h3>
+                        <div id="wave-picture-home-cards"></div>
+                    </div>
                     <div class="settings-grid">
                         <div class="settings-card">
                             <h3>Upload Picture</h3>

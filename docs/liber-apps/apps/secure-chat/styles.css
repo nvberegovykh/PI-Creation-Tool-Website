@@ -223,7 +223,7 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   0%,100%{ filter:brightness(1); transform:translateY(0) }
   50%{ filter:brightness(1.12); transform:translateY(-1px) }
 }
-.messages{flex:1 1 auto;min-height:0;overflow:auto;padding:20px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
+.messages{flex:1 1 auto;min-height:0;overflow:auto;padding:20px 20px 148px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
 .messages::-webkit-scrollbar{width:0;height:0}
 .message{max-width:min(72%, 100%);padding:12px 14px;border-radius:16px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .28s ease-out;min-width:0}
 @keyframes msg-fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -354,7 +354,7 @@ button.call-status-badge:hover{
   color:#a9c6e6;
   font-size:11px;
 }
-.composer{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-top:1px solid var(--border-color,#1f222a);background:linear-gradient(180deg,#0f1116 0%,#0b0d12 100%);align-items:flex-end;transition:background .2s ease;position:sticky;bottom:0;z-index:4;flex-shrink:0}
+.composer{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-top:1px solid var(--border-color,#1f222a);background:linear-gradient(180deg,#0f1116 0%,#0b0d12 100%);align-items:flex-end;transition:background .2s ease;position:sticky;bottom:0;z-index:8;flex-shrink:0}
 .composer-reply-preview{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:rgba(0,0,0,.35);border-left:3px solid #2563eb;border-radius:8px;margin-bottom:4px;animation:msg-context-fade-in .2s ease-out}
 .composer-reply-preview.hidden{display:none !important}
 .composer-reply-preview .composer-reply-icon{color:#6b9eff;font-size:14px}
@@ -370,7 +370,7 @@ button.call-status-badge:hover{
 .msg-reply-quote{display:block;padding:8px 10px;margin-bottom:8px;background:rgba(0,0,0,.35);border-left:3px solid rgba(255,255,255,.25);border-radius:6px;font-size:12px;color:#9ca8bd;cursor:pointer;transition:background .15s;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
 .msg-reply-quote:hover{background:rgba(0,0,0,.5)}
 .msg-reply-quote .reply-author{font-weight:600;color:#b8c5d8;margin-right:6px}
-.composer textarea{flex:1;resize:none;padding:12px 14px;border:1px solid var(--border-color,#1f222a);border-radius:14px;background:#14161b;color:#eaeaea;outline:none;max-height:160px;min-height:44px;font-size:16px}
+.composer textarea{flex:1;min-width:140px;resize:none;padding:12px 14px;border:1px solid var(--border-color,#1f222a);border-radius:14px;background:#14161b;color:#eaeaea;outline:none;max-height:160px;min-height:44px;font-size:16px}
 .chat-app input,.chat-app textarea{font-size:16px}
 .btn{background:#2563eb;border:none;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer;transition:transform .05s ease,opacity .2s ease}
 .btn:active{transform:translateY(1px)}
@@ -543,7 +543,7 @@ button.call-status-badge:hover{
   background:linear-gradient(180deg, rgba(24,33,50,.92), rgba(15,20,33,.92));
   position:sticky;
   bottom:72px;
-  z-index:3;
+  z-index:7;
 }
 .chat-pinned-bar.hidden{display:none !important}
 .chat-pinned-main{
@@ -592,7 +592,7 @@ button.call-status-badge:hover{
   background:linear-gradient(180deg, rgba(18,32,52,.94), rgba(11,20,34,.94));
   position:sticky;
   bottom:72px;
-  z-index:3;
+  z-index:7;
 }
 .chat-select-bar.hidden{display:none !important}
 .chat-select-count-wrap{min-width:0;flex:1}
@@ -612,6 +612,11 @@ button.call-status-badge:hover{
 .chat-select-actions .btn{
   padding:6px 10px;
   font-size:12px;
+}
+.composer-reply-preview,
+.composer-edit-preview{
+  position:relative;
+  z-index:9;
 }
 .file-preview video.video-recording-mask,
 .file-preview video.video-recording-circular,

@@ -23,6 +23,10 @@ class DashboardManager {
         this._waveMetaPendingByUrl = new Map();
         this._videoMetaByUrl = new Map();
         this._videoMetaPendingByUrl = new Map();
+        this._waveMainTab = 'audio';
+        this._waveSubTabByMain = { audio: 'home', video: 'home', pictures: 'home' };
+        this._pendingWaveUploadTags = { audio: [], video: [], pictures: [] };
+        this._waveFollowingNotificationPref = new Map();
         this._postLibrarySyncState = new Map();
         this._realtimeFeedUnsubs = new Map();
         this._realtimeFeedTimers = new Map();
@@ -5605,44 +5609,7 @@ class DashboardManager {
                 break;
             case 'waveconnect':
                 this.loadWaveConnect();
-                // Setup tabs
-                const tA = document.getElementById('wave-tab-audio');
-                const tV = document.getElementById('wave-tab-video');
-                const tP = document.getElementById('wave-tab-pictures');
-                const uploadQuick = document.getElementById('wave-upload-quick-btn');
-                const studioQuick = document.getElementById('wave-studio-btn');
-                const pA = document.getElementById('wave-audio-pane');
-                const pV = document.getElementById('wave-video-pane');
-                const pP = document.getElementById('wave-pictures-pane');
-                if (tA && tV && tP && pA && pV && pP && !tA._bound){
-                    tA._bound = tV._bound = tP._bound = true;
-                    const activate = (name)=>{
-                        tA.classList.toggle('active', name === 'audio');
-                        tV.classList.toggle('active', name === 'video');
-                        tP.classList.toggle('active', name === 'pictures');
-                        tA.setAttribute('aria-selected', name === 'audio' ? 'true' : 'false');
-                        tV.setAttribute('aria-selected', name === 'video' ? 'true' : 'false');
-                        tP.setAttribute('aria-selected', name === 'pictures' ? 'true' : 'false');
-                        // Keep CSS-controlled layout for audio pane (grid on desktop).
-                        pA.style.display = name === 'audio' ? '' : 'none';
-                        pV.style.display = name === 'video' ? 'block' : 'none';
-                        pP.style.display = name === 'pictures' ? 'block' : 'none';
-                        if (name === 'audio') this.loadWaveConnect();
-                        if (name === 'video') this.loadVideoHost();
-                        if (name === 'pictures') this.loadPictureHost();
-                    };
-                    tA.onclick = ()=> activate('audio');
-                    tV.onclick = ()=> activate('video');
-                    tP.onclick = ()=> activate('pictures');
-                }
-                if (uploadQuick && !uploadQuick._bound){
-                    uploadQuick._bound = true;
-                    uploadQuick.onclick = ()=> this.openWaveconnectQuickSheet('upload');
-                }
-                if (studioQuick && !studioQuick._bound){
-                    studioQuick._bound = true;
-                    studioQuick.onclick = ()=> this.openWaveconnectQuickSheet('studio');
-                }
+                this.bindWaveconnectTabsAndSubnav();
                 break;
             case 'profile':
                 this.loadProfile();
@@ -5658,71 +5625,352 @@ class DashboardManager {
         }
     }
 
-    openWaveconnectTabAndFocus(kind, mode = 'upload'){
+    bindWaveconnectTabsAndSubnav(){
+        const tA = document.getElementById('wave-tab-audio');
+        const tV = document.getElementById('wave-tab-video');
+        const tP = document.getElementById('wave-tab-pictures');
+        const pA = document.getElementById('wave-audio-pane');
+        const pV = document.getElementById('wave-video-pane');
+        const pP = document.getElementById('wave-pictures-pane');
+        const uploadQuick = document.getElementById('wave-upload-quick-btn');
+        const studioQuick = document.getElementById('wave-studio-btn');
+        const subnav = document.getElementById('wave-subnav');
+        if (tA && tV && tP && pA && pV && pP && !tA._boundMainTabs){
+            tA._boundMainTabs = tV._boundMainTabs = tP._boundMainTabs = true;
+            tA.onclick = ()=> this.setWaveMainTab('audio');
+            tV.onclick = ()=> this.setWaveMainTab('video');
+            tP.onclick = ()=> this.setWaveMainTab('pictures');
+        }
+        if (subnav && !subnav._boundSubtabs){
+            subnav._boundSubtabs = true;
+            subnav.querySelectorAll('[data-wave-subtab]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const sub = String(btn.getAttribute('data-wave-subtab') || 'home').trim().toLowerCase();
+                    this.setWaveSubtab(sub);
+                });
+            });
+        }
+        if (uploadQuick && !uploadQuick._bound){
+            uploadQuick._bound = true;
+            uploadQuick.onclick = ()=> this.openWaveUploadWizard(this._waveMainTab || 'audio');
+        }
+        if (studioQuick && !studioQuick._bound){
+            studioQuick._bound = true;
+            studioQuick.onclick = ()=> this.openWaveStudioModal(this._waveMainTab || 'audio');
+        }
+        this.setWaveMainTab(this._waveMainTab || 'audio');
+    }
+
+    setWaveMainTab(name){
+        const next = (name === 'video' || name === 'pictures') ? name : 'audio';
+        this._waveMainTab = next;
+        const tA = document.getElementById('wave-tab-audio');
+        const tV = document.getElementById('wave-tab-video');
+        const tP = document.getElementById('wave-tab-pictures');
+        const pA = document.getElementById('wave-audio-pane');
+        const pV = document.getElementById('wave-video-pane');
+        const pP = document.getElementById('wave-pictures-pane');
+        if (tA && tV && tP){
+            tA.classList.toggle('active', next === 'audio');
+            tV.classList.toggle('active', next === 'video');
+            tP.classList.toggle('active', next === 'pictures');
+            tA.setAttribute('aria-selected', next === 'audio' ? 'true' : 'false');
+            tV.setAttribute('aria-selected', next === 'video' ? 'true' : 'false');
+            tP.setAttribute('aria-selected', next === 'pictures' ? 'true' : 'false');
+        }
+        if (pA) pA.style.display = next === 'audio' ? '' : 'none';
+        if (pV) pV.style.display = next === 'video' ? 'block' : 'none';
+        if (pP) pP.style.display = next === 'pictures' ? 'block' : 'none';
+        if (next === 'audio') this.loadWaveConnect();
+        if (next === 'video') this.loadVideoHost();
+        if (next === 'pictures') this.loadPictureHost();
+        this.applyWaveSubtab();
+    }
+
+    setWaveSubtab(name){
+        const sub = String(name || 'home').trim().toLowerCase() || 'home';
+        if (sub === 'upload'){
+            this.openWaveUploadWizard(this._waveMainTab || 'audio');
+            return;
+        }
+        if (sub === 'studio'){
+            this.openWaveStudioModal(this._waveMainTab || 'audio');
+            return;
+        }
+        this._waveSubTabByMain[this._waveMainTab || 'audio'] = sub;
+        this.applyWaveSubtab();
+    }
+
+    applyWaveSubtab(){
+        const main = this._waveMainTab || 'audio';
+        const sub = String(this._waveSubTabByMain[main] || 'home');
+        const subnav = document.getElementById('wave-subnav');
+        if (subnav){
+            subnav.querySelectorAll('[data-wave-subtab]').forEach((btn)=>{
+                const key = String(btn.getAttribute('data-wave-subtab') || '');
+                const active = key === sub;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+        }
+        const pane = main === 'video' ? document.getElementById('wave-video-pane') : (main === 'pictures' ? document.getElementById('wave-pictures-pane') : document.getElementById('wave-audio-pane'));
+        if (!pane) return;
+        const show = (selector, visible)=>{
+            pane.querySelectorAll(selector).forEach((el)=> el.classList.toggle('wave-subtab-hidden', !visible));
+        };
+        pane.querySelectorAll('.settings-grid').forEach((grid)=> grid.classList.add('wave-subtab-hidden'));
+        show('#wave-audio-home,#wave-video-home,#wave-picture-home', sub === 'home');
+        show('#wave-audio-pane > .section-header,#wave-results,#wave-results-wrapper,#video-search-pane,#picture-search-pane', sub === 'search');
+        show('#wave-library-pane,#wave-library-posts-pane,#video-library-pane,#picture-library-pane,#wave-playlists', sub === 'library');
+        show('#video-suggestions-pane,#picture-suggestions-pane', sub === 'home');
+        if (sub === 'search'){
+            if (main === 'video'){
+                const paneSearch = document.getElementById('video-search-pane');
+                const paneLib = document.getElementById('video-library-pane');
+                const paneSug = document.getElementById('video-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'block';
+                if (paneLib) paneLib.style.display = 'none';
+                if (paneSug) paneSug.style.display = 'none';
+            } else if (main === 'pictures'){
+                const paneSearch = document.getElementById('picture-search-pane');
+                const paneLib = document.getElementById('picture-library-pane');
+                const paneSug = document.getElementById('picture-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'block';
+                if (paneLib) paneLib.style.display = 'none';
+                if (paneSug) paneSug.style.display = 'none';
+            }
+        } else if (sub === 'library'){
+            if (main === 'video'){
+                const paneSearch = document.getElementById('video-search-pane');
+                const paneLib = document.getElementById('video-library-pane');
+                const paneSug = document.getElementById('video-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'none';
+                if (paneLib) paneLib.style.display = 'block';
+                if (paneSug) paneSug.style.display = 'none';
+            } else if (main === 'pictures'){
+                const paneSearch = document.getElementById('picture-search-pane');
+                const paneLib = document.getElementById('picture-library-pane');
+                const paneSug = document.getElementById('picture-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'none';
+                if (paneLib) paneLib.style.display = 'block';
+                if (paneSug) paneSug.style.display = 'none';
+            }
+        } else {
+            if (main === 'video'){
+                const paneSearch = document.getElementById('video-search-pane');
+                const paneLib = document.getElementById('video-library-pane');
+                const paneSug = document.getElementById('video-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'none';
+                if (paneLib) paneLib.style.display = 'none';
+                if (paneSug) paneSug.style.display = 'block';
+            } else if (main === 'pictures'){
+                const paneSearch = document.getElementById('picture-search-pane');
+                const paneLib = document.getElementById('picture-library-pane');
+                const paneSug = document.getElementById('picture-suggestions-pane');
+                if (paneSearch) paneSearch.style.display = 'none';
+                if (paneLib) paneLib.style.display = 'none';
+                if (paneSug) paneSug.style.display = 'block';
+            }
+        }
+    }
+
+    async openWaveUploadWizard(kind = 'audio'){
         try{
-            const tabMap = {
-                audio: document.getElementById('wave-tab-audio'),
-                video: document.getElementById('wave-tab-video'),
-                pictures: document.getElementById('wave-tab-pictures')
-            };
-            const focusMap = {
-                upload: {
-                    audio: document.getElementById('wave-upload-card'),
-                    video: document.querySelector('#wave-video-pane .settings-card'),
-                    pictures: document.querySelector('#wave-pictures-pane .settings-card')
-                },
-                studio: {
-                    audio: document.getElementById('wave-library'),
-                    video: document.getElementById('video-library'),
-                    pictures: document.getElementById('picture-library')
-                }
-            };
             const k = (kind === 'video' || kind === 'pictures') ? kind : 'audio';
-            const tabBtn = tabMap[k];
-            if (tabBtn && typeof tabBtn.click === 'function') tabBtn.click();
-            setTimeout(()=>{
-                const target = focusMap[mode] && focusMap[mode][k];
-                if (target && typeof target.scrollIntoView === 'function'){
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }, 80);
+            const existing = document.getElementById('wave-upload-wizard');
+            if (existing) existing.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'wave-upload-wizard';
+            overlay.className = 'waveconnect-sheet';
+            const labels = { audio:'Audio', video:'Video', pictures:'Picture' };
+            overlay.innerHTML = `<div class="waveconnect-sheet-panel" style="max-width:640px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700">Upload ${labels[k]}</div><button type="button" class="btn btn-secondary" data-close>Close</button></div>
+              <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 1: choose file</div>
+              <input id="wiz-file" type="file" accept="${k === 'audio' ? 'audio/*' : (k === 'video' ? 'video/*' : 'image/*,video/*')}" style="margin-bottom:10px;width:100%">
+              <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 2: details</div>
+              <input id="wiz-title" type="text" placeholder="Title" style="width:100%;margin-bottom:8px">
+              <input id="wiz-cover" type="file" accept="image/*" style="margin-bottom:8px;width:100%">
+              <input id="wiz-tags" type="text" placeholder="Tags (comma separated, private for search)" style="width:100%;margin-bottom:8px">
+              <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 3: visibility</div>
+              <select id="wiz-visibility" style="width:100%;margin-bottom:12px"><option value="public">Public</option><option value="private">Private</option></select>
+              <div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="wiz-submit">Upload</button></div>
+            </div>`;
+            const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay || e.target?.matches?.('[data-close]')) close(); });
+            const submit = overlay.querySelector('#wiz-submit');
+            if (submit){
+                submit.addEventListener('click', async ()=>{
+                    const fileInput = overlay.querySelector('#wiz-file');
+                    const coverInput = overlay.querySelector('#wiz-cover');
+                    const titleInput = overlay.querySelector('#wiz-title');
+                    const tagsInput = overlay.querySelector('#wiz-tags');
+                    const visInput = overlay.querySelector('#wiz-visibility');
+                    const file = fileInput?.files?.[0];
+                    if (!file){ this.showError('Please choose a file'); return; }
+                    const cover = coverInput?.files?.[0] || null;
+                    const title = String(titleInput?.value || '').trim() || String(file.name || '');
+                    const tags = String(tagsInput?.value || '').split(',').map((t)=> t.trim().toLowerCase()).filter(Boolean).slice(0, 20);
+                    const visibility = String(visInput?.value || 'public') === 'private' ? 'private' : 'public';
+                    await this.runWaveUploadWizardSubmit(k, { file, cover, title, tags, visibility });
+                    close();
+                });
+            }
+            document.body.appendChild(overlay);
         }catch(_){ }
     }
 
-    openWaveconnectQuickSheet(mode = 'upload'){
+    async runWaveUploadWizardSubmit(kind, payload){
         try{
-            let sheet = document.getElementById('waveconnect-quick-sheet');
-            if (sheet) sheet.remove();
-            sheet = document.createElement('div');
-            sheet.id = 'waveconnect-quick-sheet';
-            sheet.className = 'waveconnect-sheet';
-            const title = mode === 'studio' ? 'Open Studio' : 'Quick Upload';
-            const label = mode === 'studio' ? 'Open manager for:' : 'Upload type:';
-            sheet.innerHTML = `<div class="waveconnect-sheet-panel">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
-                    <div style="font-weight:600">${title}</div>
-                    <button type="button" class="btn btn-secondary" data-close-sheet>Close</button>
-                </div>
-                <div style="font-size:12px;opacity:.78;margin-bottom:8px">${label}</div>
-                <div class="waveconnect-sheet-grid">
-                    <button type="button" class="btn btn-secondary" data-wave-kind="audio"><i class="fas fa-music"></i> Audio</button>
-                    <button type="button" class="btn btn-secondary" data-wave-kind="video"><i class="fas fa-video"></i> Video</button>
-                    <button type="button" class="btn btn-secondary" data-wave-kind="pictures"><i class="fas fa-image"></i> Pictures</button>
-                </div>
+            const k = (kind === 'video' || kind === 'pictures') ? kind : 'audio';
+            this._pendingWaveUploadTags[k] = Array.isArray(payload?.tags) ? payload.tags : [];
+            this._pendingWaveUploadTags[`${k}:visibility`] = String(payload?.visibility || 'public');
+            const assignFile = (inputId, file)=>{
+                const input = document.getElementById(inputId);
+                if (!input || !file) return;
+                try{
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    input.files = dt.files;
+                }catch(_){ }
+            };
+            if (k === 'audio'){
+                const titleEl = document.getElementById('wave-title');
+                if (titleEl) titleEl.value = String(payload?.title || '').trim();
+                assignFile('wave-file', payload?.file);
+                assignFile('wave-cover', payload?.cover);
+                const btn = document.getElementById('wave-upload-btn');
+                if (btn) btn.click();
+                return;
+            }
+            if (k === 'video'){
+                const titleEl = document.getElementById('video-title');
+                if (titleEl) titleEl.value = String(payload?.title || '').trim();
+                assignFile('video-file', payload?.file);
+                assignFile('video-cover', payload?.cover);
+                const btn = document.getElementById('video-upload-btn');
+                if (btn) btn.click();
+                return;
+            }
+            const titleEl = document.getElementById('picture-title');
+            if (titleEl) titleEl.value = String(payload?.title || '').trim();
+            assignFile('picture-file', payload?.file);
+            const btn = document.getElementById('picture-upload-btn');
+            if (btn) btn.click();
+        }catch(_){ this.showError('Upload failed'); }
+    }
+
+    async openWaveStudioModal(kind = 'audio'){
+        try{
+            const k = (kind === 'video' || kind === 'pictures') ? kind : 'audio';
+            const me = await this.resolveCurrentUser();
+            if (!me?.uid){ this.showError('Please sign in'); return; }
+            const old = document.getElementById('wave-studio-modal');
+            if (old) old.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'wave-studio-modal';
+            overlay.className = 'waveconnect-sheet';
+            overlay.innerHTML = `<div class="waveconnect-sheet-panel" style="width:min(1100px,100%);max-height:84vh;overflow:auto">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+                <div style="font-weight:700">${k[0].toUpperCase() + k.slice(1)} Studio</div>
+                <button type="button" class="btn btn-secondary" data-close>Close</button>
+              </div>
+              <div id="wave-studio-list" class="wave-home-grid"><div style="opacity:.8">Loading studio...</div></div>
             </div>`;
-            const close = ()=>{ try{ sheet.remove(); }catch(_){ } };
-            sheet.addEventListener('click', (e)=>{
-                const target = e.target;
-                if (!(target instanceof Element)) return;
-                if (target === sheet || target.matches('[data-close-sheet]')) return close();
-                const btn = target.closest('[data-wave-kind]');
-                if (!btn) return;
-                const kind = String(btn.getAttribute('data-wave-kind') || 'audio');
-                close();
-                this.openWaveconnectTabAndFocus(kind, mode);
+            const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
+            overlay.addEventListener('click', (e)=>{ if (e.target === overlay || e.target?.matches?.('[data-close]')) close(); });
+            document.body.appendChild(overlay);
+            const host = overlay.querySelector('#wave-studio-list');
+            const rows = await this.fetchWaveStudioRows(k, me.uid);
+            host.innerHTML = '';
+            if (!rows.length){
+                host.innerHTML = '<div style="opacity:.8">No media uploaded yet.</div>';
+                return;
+            }
+            rows.forEach((row)=> host.appendChild(this.buildWaveStudioCard(row, k)));
+        }catch(_){ this.showError('Unable to open studio'); }
+    }
+
+    async fetchWaveStudioRows(kind, uid){
+        const out = [];
+        if (kind === 'audio'){
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db, 'wave'), firebase.where('ownerId','==', uid), firebase.limit(400));
+                const s = await firebase.getDocs(q);
+                s.forEach((d)=> out.push({ id:d.id, ...(d.data() || {}) }));
+            }catch(_){ }
+            return out;
+        }
+        try{
+            const q = firebase.query(firebase.collection(window.firebaseService.db, 'videos'), firebase.where('owner','==', uid), firebase.limit(500));
+            const s = await firebase.getDocs(q);
+            s.forEach((d)=>{
+                const row = { id:d.id, ...(d.data() || {}) };
+                const resolvedKind = this.resolveVisualKind(row);
+                if (kind === 'pictures' ? resolvedKind === 'image' : resolvedKind === 'video') out.push(row);
             });
-            document.body.appendChild(sheet);
         }catch(_){ }
+        return out;
+    }
+
+    buildWaveStudioCard(row, kind){
+        const wrap = document.createElement('div');
+        wrap.className = 'wave-home-card';
+        const title = String(row?.title || 'Untitled');
+        const cover = String(row?.coverUrl || row?.thumbnailUrl || row?.url || 'images/default-bird.png');
+        const views = Number(row?.viewCount || row?.playCount || 0) || 0;
+        wrap.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+          <img src="${cover.replace(/"/g,'&quot;')}" alt="" style="width:46px;height:46px;border-radius:9px;object-fit:cover">
+          <div style="min-width:0;flex:1"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title.replace(/</g,'&lt;')}</div><div style="opacity:.7;font-size:12px">${views} ${kind === 'audio' ? 'plays' : 'views'}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+          <input type="text" data-studio-title value="${title.replace(/"/g,'&quot;')}" placeholder="Title">
+          <input type="text" data-studio-cover value="${String(cover || '').replace(/"/g,'&quot;')}" placeholder="Cover URL">
+          <select data-studio-visibility><option value="public"${String(row.visibility||'public')==='public'?' selected':''}>public</option><option value="private"${String(row.visibility||'public')==='private'?' selected':''}>private</option></select>
+          <button class="btn btn-secondary" data-studio-save>Save</button>
+        </div>
+        <div style="font-size:11px;opacity:.74" data-studio-metrics>Loading likes/comments/reposts...</div>`;
+        const saveBtn = wrap.querySelector('[data-studio-save]');
+        if (saveBtn){
+            saveBtn.addEventListener('click', async ()=>{
+                const t = String(wrap.querySelector('[data-studio-title]')?.value || '').trim() || 'Untitled';
+                const c = String(wrap.querySelector('[data-studio-cover]')?.value || '').trim();
+                const v = String(wrap.querySelector('[data-studio-visibility]')?.value || 'public');
+                try{
+                    const col = kind === 'audio' ? 'wave' : 'videos';
+                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')), {
+                        title: t,
+                        visibility: v === 'private' ? 'private' : 'public',
+                        ...(kind === 'audio' ? { coverUrl: c } : { thumbnailUrl: c }),
+                        updatedAt: new Date().toISOString(),
+                        updatedAtTS: firebase.serverTimestamp()
+                    });
+                    this.showSuccess('Studio item updated');
+                }catch(_){ this.showError('Failed to update item'); }
+            });
+        }
+        this.hydrateStudioMetrics(wrap, row).catch(()=>{});
+        return wrap;
+    }
+
+    async hydrateStudioMetrics(root, row){
+        const target = root?.querySelector?.('[data-studio-metrics]');
+        if (!target) return;
+        try{
+            const postId = await this.resolveAssetPostId({ sourceId: String(row?.id || ''), url: String(row?.url || '') });
+            if (!postId){ target.textContent = 'Likes 0 | Comments 0 | Reposts 0'; return; }
+            const stats = await window.firebaseService?.getPostStats?.(postId) || {};
+            let top = '';
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db, 'posts', postId, 'comments'), firebase.limit(3));
+                const s = await firebase.getDocs(q);
+                const snippets = [];
+                s.forEach((d)=> snippets.push(String((d.data() || {}).text || '').trim()));
+                top = snippets.filter(Boolean).slice(0, 2).join(' | ');
+            }catch(_){ }
+            target.textContent = `Likes ${Number(stats.likes || 0)} | Comments ${Number(stats.comments || 0)} | Reposts ${Number(stats.reposts || 0)}${top ? ` | Top: ${top.slice(0, 90)}` : ''}`;
+        }catch(_){
+            target.textContent = 'Likes 0 | Comments 0 | Reposts 0';
+        }
     }
 
     async resolveAssetPostId(asset = {}){
@@ -5936,6 +6184,8 @@ class DashboardManager {
                         const url = await firebase.getDownloadURL(ref);
                         let authorName = (await window.firebaseService.getUserData(me.uid))?.username || me.email || 'Unknown';
                         let coverUrl = (await window.firebaseService.getUserData(me.uid))?.avatarUrl || '';
+                        const pendingTags = Array.isArray(this._pendingWaveUploadTags?.audio) ? this._pendingWaveUploadTags.audio : [];
+                        const pendingVisibility = String(this._pendingWaveUploadTags?.['audio:visibility'] || 'public') === 'private' ? 'private' : 'public';
                         if (coverFile){
                             // Keep covers under /wave/{uid}/... so existing Storage rules allow owner writes.
                             const cRef = firebase.ref(s, `wave/${me.uid}/covers/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
@@ -5953,8 +6203,12 @@ class DashboardManager {
                             createdAtTS: firebase.serverTimestamp(),
                             authorId: me.uid,
                             authorName,
-                            coverUrl
+                            coverUrl,
+                            visibility: pendingVisibility,
+                            tagsPrivate: pendingTags
                         });
+                        this._pendingWaveUploadTags.audio = [];
+                        this._pendingWaveUploadTags['audio:visibility'] = 'public';
                         this.showSuccess('Uploaded');
                         this.renderWaveLibrary(me.uid);
                         this.renderPlaylists();
@@ -5974,7 +6228,8 @@ class DashboardManager {
                     snap.forEach((d)=>{
                         const w = d.data() || {};
                         if (!this.isWaveAudioItem(w)) return;
-                        if ((w.title || '').toLowerCase().includes(qStr)){
+                        const tags = Array.isArray(w.tagsPrivate) ? w.tagsPrivate.join(' ') : '';
+                        if ((w.title || '').toLowerCase().includes(qStr) || String(tags).toLowerCase().includes(qStr)){
                             res.appendChild(this.renderWaveItem(w));
                         }
                     });
@@ -6005,6 +6260,85 @@ class DashboardManager {
             await this.renderWavePostsLibrary(me.uid);
             this.setupWaveLibraryTabs();
             await this.renderPlaylists();
+            await this.renderWaveAudioHome(me.uid);
+            this.applyWaveSubtab();
+        }catch(_){ }
+    }
+
+    async getWaveFollowingUsers(uid){
+        const out = [];
+        try{
+            const q = firebase.query(firebase.collection(window.firebaseService.db, 'connections', uid, 'peers'), firebase.limit(240));
+            const s = await firebase.getDocs(q);
+            const peerIds = [];
+            s.forEach((d)=>{
+                const row = d.data() || {};
+                if (String(row.status || '').toLowerCase() === 'accepted'){
+                    peerIds.push(String(d.id || row.peerId || '').trim());
+                }
+            });
+            for (const pid of peerIds){
+                if (!pid) continue;
+                try{
+                    const u = await window.firebaseService.getUserData(pid);
+                    if (!u) continue;
+                    out.push({
+                        uid: pid,
+                        name: String(u.username || u.displayName || u.email || 'User'),
+                        avatar: String(u.avatarUrl || 'images/default-bird.png')
+                    });
+                }catch(_){ }
+            }
+        }catch(_){ }
+        return out;
+    }
+
+    async renderWaveAudioHome(uid){
+        try{
+            const highlights = document.getElementById('wave-audio-highlights');
+            const monthHost = document.getElementById('wave-audio-popular-month');
+            const followingHost = document.getElementById('wave-audio-following');
+            if (!highlights || !monthHost || !followingHost) return;
+            const [playlists, followingRows] = await Promise.all([
+                this.hydratePlaylistsFromCloud().catch(()=> []),
+                this.getWaveFollowingUsers(uid).catch(()=> [])
+            ]);
+            highlights.className = 'wave-home-grid';
+            const created = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') === String(uid));
+            const saved = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') !== String(uid));
+            const likedCount = 0;
+            highlights.innerHTML = `
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My Library</div><div style="font-size:22px;font-weight:700">${Number(this._waveLibraryVisible || 5)}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Liked media</div><div style="font-size:22px;font-weight:700">${likedCount}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Saved</div><div style="font-size:22px;font-weight:700">${Math.max(0, Number(this._waveLibraryVisible || 5))}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists created</div><div style="font-size:22px;font-weight:700">${created.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists added</div><div style="font-size:22px;font-weight:700">${saved.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Following</div><div style="font-size:22px;font-weight:700">${followingRows.length}</div></div>
+            `;
+            const audioRows = [];
+            try{
+                const q = firebase.query(firebase.collection(window.firebaseService.db, 'wave'), firebase.limit(320));
+                const s = await firebase.getDocs(q);
+                s.forEach((d)=> audioRows.push(d.data() || {}));
+            }catch(_){ }
+            const monthTop = audioRows
+                .filter((w)=> this.isWaveAudioItem(w))
+                .sort((a,b)=> (Number(b.playCount || 0) || 0) - (Number(a.playCount || 0) || 0))
+                .slice(0, 6);
+            monthHost.innerHTML = `<h4 style="margin:0 0 8px">Most Popular This Month</h4><div class="wave-home-grid">${monthTop.map((row)=> `<div class="wave-home-card"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(row.title || 'Track').replace(/</g,'&lt;')}</div><div style="opacity:.75;font-size:12px">${Number(row.playCount || 0)} plays</div></div>`).join('') || '<div style="opacity:.75">No popular tracks yet.</div>'}</div>`;
+            const prefRaw = localStorage.getItem(`liber_wave_follow_notify_${uid}`) || '{}';
+            let pref = {};
+            try{ pref = JSON.parse(prefRaw) || {}; }catch(_){ pref = {}; }
+            followingHost.innerHTML = `<h4 style="margin:0 0 8px">Following</h4>${followingRows.map((u)=> `<div class="wave-following-row"><div class="wave-following-meta"><img src="${String(u.avatar || 'images/default-bird.png').replace(/"/g,'&quot;')}" alt=""><span class="wave-following-name">${String(u.name || 'User').replace(/</g,'&lt;')}</span></div><button type="button" class="btn btn-secondary" data-follow-bell="${String(u.uid).replace(/"/g,'&quot;')}"><i class="fas ${pref[u.uid] === false ? 'fa-bell-slash' : 'fa-bell'}"></i></button></div>`).join('') || '<div style="opacity:.75">No followed accounts.</div>'}`;
+            followingHost.querySelectorAll('[data-follow-bell]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const id = String(btn.getAttribute('data-follow-bell') || '');
+                    pref[id] = pref[id] === false ? true : false;
+                    const icon = btn.querySelector('i');
+                    if (icon) icon.className = `fas ${pref[id] === false ? 'fa-bell-slash' : 'fa-bell'}`;
+                    try{ localStorage.setItem(`liber_wave_follow_notify_${uid}`, JSON.stringify(pref)); }catch(_){ }
+                });
+            });
         }catch(_){ }
     }
 
@@ -6529,13 +6863,17 @@ class DashboardManager {
                         const meProfile = await window.firebaseService.getUserData(me.uid);
                         const authorName = (meProfile && meProfile.username) || me.email || 'Unknown';
                         let thumbnailUrl = (meProfile && meProfile.avatarUrl) || '';
+                        const pendingTags = Array.isArray(this._pendingWaveUploadTags?.video) ? this._pendingWaveUploadTags.video : [];
+                        const pendingVisibility = String(this._pendingWaveUploadTags?.['video:visibility'] || 'public') === 'private' ? 'private' : 'public';
                         if (coverFile){
                             const cRef = firebase.ref(s, `video-covers/${me.uid}/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`);
                             await firebase.uploadBytes(cRef, coverFile, { contentType: coverFile.type || 'image/jpeg' });
                             thumbnailUrl = await firebase.getDownloadURL(cRef);
                         }
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
-                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: 'public', mediaType: 'video', authorId: me.uid, authorName, thumbnailUrl, originalAuthorId: me.uid, originalAuthorName: authorName });
+                        await firebase.setDoc(docRef, { id: docRef.id, owner: me.uid, title, url, createdAt: new Date().toISOString(), createdAtTS: firebase.serverTimestamp(), visibility: pendingVisibility, mediaType: 'video', authorId: me.uid, authorName, thumbnailUrl, originalAuthorId: me.uid, originalAuthorName: authorName, tagsPrivate: pendingTags });
+                        this._pendingWaveUploadTags.video = [];
+                        this._pendingWaveUploadTags['video:visibility'] = 'public';
                         this.showSuccess('Video uploaded');
                         this.renderVideoLibrary(me.uid);
                     }catch(e){ this.showError('Upload failed'); }
@@ -6552,13 +6890,15 @@ class DashboardManager {
                     if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
                     res.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
-                    snap.forEach(d=>{ const v=d.data(); if (this.resolveVisualKind(v) === 'video' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderVideoItem(v)); } });
+                    snap.forEach(d=>{ const v=d.data(); const tags = Array.isArray(v.tagsPrivate) ? v.tagsPrivate.join(' ') : ''; if (this.resolveVisualKind(v) === 'video' && (((v.title||'').toLowerCase().includes(qStr)) || String(tags).toLowerCase().includes(qStr))){ res.appendChild(this.renderVideoItem(v)); } });
                 };
             }
 
             await this.renderVideoLibrary(me.uid);
             await this.renderVideoSuggestions(me.uid);
+            await this.renderWaveVideoHome(me.uid);
             this.setupVideoHostTabs();
+            this.applyWaveSubtab();
         }catch(_){ }
     }
 
@@ -6627,8 +6967,30 @@ class DashboardManager {
         sug.innerHTML = '';
         sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
         try{
-            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-            const list = []; snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && this.resolveVisualKind(v) === 'video') list.push(v); });
+            const [snap, following, personalRec] = await Promise.all([
+                firebase.getDocs(firebase.collection(window.firebaseService.db,'videos')),
+                this.getWaveFollowingUsers(uid).catch(()=> []),
+                window.firebaseService?.getVideoRecommendations?.({ source:'app', sourceId:'', limit:80 }).catch(()=> [])
+            ]);
+            const personalIds = new Set((Array.isArray(personalRec) ? personalRec : []).map((r)=> String(r?.sourceId || r?.videoId || r?.id || '').trim()).filter(Boolean));
+            const followingIds = new Set((following || []).map((f)=> String(f.uid || '').trim()).filter(Boolean));
+            const list = [];
+            snap.forEach(d=>{
+                const v = d.data();
+                if (v.owner === uid || this.resolveVisualKind(v) !== 'video') return;
+                list.push(v);
+            });
+            list.sort((a, b)=>{
+                const score = (row)=>{
+                    let s = Number(row?.viewCount || 0) * 0.15;
+                    const rid = String(row?.id || '').trim();
+                    const aid = String(row?.authorId || row?.originalAuthorId || '').trim();
+                    if (personalIds.has(rid)) s += 1200;
+                    if (followingIds.has(aid)) s += 800;
+                    return s;
+                };
+                return score(b) - score(a);
+            });
             const visible = Math.max(5, Number(this._videoSuggestionsVisible || 5));
             list.slice(0, visible).forEach(v=> sug.appendChild(this.renderVideoItem(v)));
             if (list.length > visible){
@@ -6769,6 +7131,8 @@ class DashboardManager {
                         const authorName = (meProfile && meProfile.username) || me.email || 'Unknown';
                         const mediaType = String(f.type || '').startsWith('video/') ? 'video' : 'image';
                         const thumb = mediaType === 'image' ? url : ((meProfile && meProfile.avatarUrl) || '');
+                        const pendingTags = Array.isArray(this._pendingWaveUploadTags?.pictures) ? this._pendingWaveUploadTags.pictures : [];
+                        const pendingVisibility = String(this._pendingWaveUploadTags?.['pictures:visibility'] || 'public') === 'private' ? 'private' : 'public';
                         const docRef = firebase.doc(firebase.collection(window.firebaseService.db, 'videos'));
                         await firebase.setDoc(docRef, {
                             id: docRef.id,
@@ -6777,15 +7141,18 @@ class DashboardManager {
                             url,
                             createdAt: new Date().toISOString(),
                             createdAtTS: firebase.serverTimestamp(),
-                            visibility: 'public',
+                            visibility: pendingVisibility,
                             mediaType: 'image',
                             sourceMediaType: mediaType,
                             authorId: me.uid,
                             authorName,
                             thumbnailUrl: thumb,
                             originalAuthorId: me.uid,
-                            originalAuthorName: authorName
+                            originalAuthorName: authorName,
+                            tagsPrivate: pendingTags
                         });
+                        this._pendingWaveUploadTags.pictures = [];
+                        this._pendingWaveUploadTags['pictures:visibility'] = 'public';
                         this.showSuccess('Added to My Pictures');
                         this.renderPictureLibrary(me.uid);
                     }catch(_){ this.showError('Upload failed'); }
@@ -6800,13 +7167,61 @@ class DashboardManager {
                     res.innerHTML='';
                     if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-                    snap.forEach(d=>{ const v=d.data(); if ((v.mediaType||'') === 'image' && (v.title||'').toLowerCase().includes(qStr)){ res.appendChild(this.renderPictureItem(v)); } });
+                    snap.forEach(d=>{ const v=d.data(); const tags = Array.isArray(v.tagsPrivate) ? v.tagsPrivate.join(' ') : ''; if ((v.mediaType||'') === 'image' && (((v.title||'').toLowerCase().includes(qStr)) || String(tags).toLowerCase().includes(qStr))){ res.appendChild(this.renderPictureItem(v)); } });
                 };
             }
             await this.renderPictureLibrary(me.uid);
             await this.renderPictureSuggestions(me.uid);
+            await this.renderWavePictureHome(me.uid);
             this.setupPictureHostTabs();
+            this.applyWaveSubtab();
         }catch(_){ }
+    }
+
+    async renderWaveVideoHome(uid){
+        const host = document.getElementById('wave-video-home-cards');
+        if (!host) return;
+        try{
+            const following = await this.getWaveFollowingUsers(uid);
+            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos'));
+            const rows = [];
+            snap.forEach((d)=> rows.push(d.data() || {}));
+            const vids = rows.filter((v)=> this.resolveVisualKind(v) === 'video');
+            const my = vids.filter((v)=> String(v.owner || '') === String(uid));
+            const followingVids = vids.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
+            const popular = vids.slice().sort((a,b)=> (Number(b.viewCount || 0) || 0) - (Number(a.viewCount || 0) || 0)).slice(0, 8);
+            host.className = 'wave-home-grid';
+            host.innerHTML = `
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My videos</div><div style="font-size:22px;font-weight:700">${my.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">From following</div><div style="font-size:22px;font-weight:700">${followingVids.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Popular now</div><div style="font-size:22px;font-weight:700">${popular.length}</div></div>
+            `;
+        }catch(_){
+            host.innerHTML = '<div style="opacity:.75">Unable to load video home.</div>';
+        }
+    }
+
+    async renderWavePictureHome(uid){
+        const host = document.getElementById('wave-picture-home-cards');
+        if (!host) return;
+        try{
+            const following = await this.getWaveFollowingUsers(uid);
+            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos'));
+            const rows = [];
+            snap.forEach((d)=> rows.push(d.data() || {}));
+            const pics = rows.filter((v)=> this.resolveVisualKind(v) === 'image');
+            const my = pics.filter((v)=> String(v.owner || '') === String(uid));
+            const followingPics = pics.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
+            const popular = pics.slice().sort((a,b)=> (Number(b.viewCount || 0) || 0) - (Number(a.viewCount || 0) || 0)).slice(0, 8);
+            host.className = 'wave-home-grid';
+            host.innerHTML = `
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My pictures</div><div style="font-size:22px;font-weight:700">${my.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">From following</div><div style="font-size:22px;font-weight:700">${followingPics.length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Popular now</div><div style="font-size:22px;font-weight:700">${popular.length}</div></div>
+            `;
+        }catch(_){
+            host.innerHTML = '<div style="opacity:.75">Unable to load pictures home.</div>';
+        }
     }
 
     async renderPictureLibrary(uid){
@@ -6869,9 +7284,29 @@ class DashboardManager {
         sug.innerHTML = '';
         sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px';
         try{
-            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
+            const [snap, following, personalRec] = await Promise.all([
+                firebase.getDocs(firebase.collection(window.firebaseService.db,'videos')),
+                this.getWaveFollowingUsers(uid).catch(()=> []),
+                window.firebaseService?.getVideoRecommendations?.({ source:'app', sourceId:'', limit:80 }).catch(()=> [])
+            ]);
+            const personalIds = new Set((Array.isArray(personalRec) ? personalRec : []).map((r)=> String(r?.sourceId || r?.videoId || r?.id || '').trim()).filter(Boolean));
+            const followingIds = new Set((following || []).map((f)=> String(f.uid || '').trim()).filter(Boolean));
             const list = [];
-            snap.forEach(d=>{ const v=d.data(); if (v.owner !== uid && this.resolveVisualKind(v) === 'image') list.push(v); });
+            snap.forEach(d=>{
+                const v = d.data();
+                if (v.owner !== uid && this.resolveVisualKind(v) === 'image') list.push(v);
+            });
+            list.sort((a, b)=>{
+                const score = (row)=>{
+                    let s = Number(row?.viewCount || 0) * 0.12;
+                    const rid = String(row?.id || '').trim();
+                    const aid = String(row?.authorId || row?.originalAuthorId || '').trim();
+                    if (personalIds.has(rid)) s += 900;
+                    if (followingIds.has(aid)) s += 750;
+                    return s;
+                };
+                return score(b) - score(a);
+            });
             list.slice(0, Math.max(5, Number(this._videoSuggestionsVisible || 5))).forEach(v=> sug.appendChild(this.renderPictureItem(v)));
         }catch(_){ }
     }
@@ -7200,13 +7635,37 @@ Do you want to proceed?`);
                     waveconnect:'WaveConnect', profile:'My Profile', users:'User Management', settings:'Settings',
                     account:'Account', changePassword:'Change Password', connections:'Connections', username:'Username',
                     country:'Country', accountLanguage:'Account language', saveLanguageCountry:'Save Language & Country',
-                    forceReload:'Force Reload', updatePassword:'Update Password'
+                    forceReload:'Force Reload', updatePassword:'Update Password',
+                    tabAudio:'Audio', tabVideo:'Video', tabPictures:'Pictures',
+                    subHome:'Home', subUpload:'Upload', subStudio:'Studio', subSearch:'Search', subLibrary:'Library',
+                    quickUpload:'Upload', quickStudio:'Studio'
+                },
+                es: {
+                    waveconnect:'WaveConnect', profile:'Mi Perfil', users:'Gestión de usuarios', settings:'Configuración',
+                    account:'Cuenta', changePassword:'Cambiar contraseña', connections:'Conexiones', username:'Nombre de usuario',
+                    country:'País', accountLanguage:'Idioma de la cuenta', saveLanguageCountry:'Guardar idioma y país',
+                    forceReload:'Recarga forzada', updatePassword:'Actualizar contraseña',
+                    tabAudio:'Audio', tabVideo:'Video', tabPictures:'Imágenes',
+                    subHome:'Inicio', subUpload:'Subir', subStudio:'Studio', subSearch:'Buscar', subLibrary:'Biblioteca',
+                    quickUpload:'Subir', quickStudio:'Studio'
+                },
+                fr: {
+                    waveconnect:'WaveConnect', profile:'Mon Profil', users:'Gestion des utilisateurs', settings:'Paramètres',
+                    account:'Compte', changePassword:'Changer le mot de passe', connections:'Connexions', username:'Nom utilisateur',
+                    country:'Pays', accountLanguage:'Langue du compte', saveLanguageCountry:'Enregistrer langue et pays',
+                    forceReload:'Rechargement forcé', updatePassword:'Mettre à jour le mot de passe',
+                    tabAudio:'Audio', tabVideo:'Vidéo', tabPictures:'Images',
+                    subHome:'Accueil', subUpload:'Téléverser', subStudio:'Studio', subSearch:'Recherche', subLibrary:'Bibliothèque',
+                    quickUpload:'Téléverser', quickStudio:'Studio'
                 },
                 ru: {
                     waveconnect:'WaveConnect', profile:'Мой профиль', users:'Управление пользователями', settings:'Настройки',
                     account:'Аккаунт', changePassword:'Смена пароля', connections:'Контакты', username:'Имя пользователя',
                     country:'Страна', accountLanguage:'Язык аккаунта', saveLanguageCountry:'Сохранить язык и страну',
-                    forceReload:'Принудительная перезагрузка', updatePassword:'Обновить пароль'
+                    forceReload:'Принудительная перезагрузка', updatePassword:'Обновить пароль',
+                    tabAudio:'Аудио', tabVideo:'Видео', tabPictures:'Картинки',
+                    subHome:'Главная', subUpload:'Загрузка', subStudio:'Студия', subSearch:'Поиск', subLibrary:'Библиотека',
+                    quickUpload:'Загрузка', quickStudio:'Студия'
                 }
             };
             const t = dict[lang] || dict.en;
@@ -7236,6 +7695,27 @@ Do you want to proceed?`);
             if (saveLangBtn) saveLangBtn.textContent = t.saveLanguageCountry;
             if (reloadBtn) reloadBtn.textContent = t.forceReload;
             if (passBtn) passBtn.textContent = t.updatePassword;
+            const waveAudio = document.getElementById('wave-tab-audio');
+            const waveVideo = document.getElementById('wave-tab-video');
+            const wavePictures = document.getElementById('wave-tab-pictures');
+            if (waveAudio) waveAudio.innerHTML = `<i class="fas fa-music"></i> ${t.tabAudio}`;
+            if (waveVideo) waveVideo.innerHTML = `<i class="fas fa-video"></i> ${t.tabVideo}`;
+            if (wavePictures) wavePictures.innerHTML = `<i class="fas fa-image"></i> ${t.tabPictures}`;
+            const uploadQuick = document.getElementById('wave-upload-quick-btn');
+            const studioQuick = document.getElementById('wave-studio-btn');
+            if (uploadQuick){ uploadQuick.title = t.quickUpload; uploadQuick.setAttribute('aria-label', t.quickUpload); }
+            if (studioQuick){ studioQuick.title = t.quickStudio; studioQuick.setAttribute('aria-label', t.quickStudio); }
+            const subMap = {
+                home: t.subHome,
+                upload: t.subUpload,
+                studio: t.subStudio,
+                search: t.subSearch,
+                library: t.subLibrary
+            };
+            document.querySelectorAll('#wave-subnav [data-wave-subtab]').forEach((btn)=>{
+                const key = String(btn.getAttribute('data-wave-subtab') || '').trim().toLowerCase();
+                if (subMap[key]) btn.textContent = subMap[key];
+            });
             try{ window.secureChatApp?.applyChatLanguage?.(lang); }catch(_){ }
         }catch(_){ }
     }

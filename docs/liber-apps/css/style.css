@@ -459,6 +459,70 @@ img, video, canvas, svg, iframe {
   align-items:center;
   gap:10px;
 }
+.wave-subnav{
+  display:flex;
+  gap:8px;
+  margin:8px 0 12px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+#waveconnect-section .wave-subnav .btn{
+  border-radius:10px;
+  padding:8px 12px;
+}
+#waveconnect-section .wave-subnav .btn.active{
+  background:linear-gradient(135deg,#2563eb,#3b82f6);
+}
+.wave-subtab-hidden{
+  display:none !important;
+}
+#video-tab-library,
+#video-tab-suggestions,
+#video-tab-search,
+#picture-tab-library,
+#picture-tab-suggestions,
+#picture-tab-search{
+  display:none !important;
+}
+.wave-home-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:10px;
+}
+.wave-home-card{
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:12px;
+  background:#101828;
+  padding:10px;
+}
+.wave-following-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;
+  padding:8px 10px;
+  margin-bottom:8px;
+}
+.wave-following-meta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.wave-following-meta img{
+  width:30px;
+  height:30px;
+  border-radius:999px;
+  object-fit:cover;
+}
+.wave-following-name{
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:180px;
+}
 .waveconnect-tabs{
   background:rgba(20,26,40,.75);
   border:1px solid rgba(160,190,230,.22);
@@ -532,6 +596,9 @@ img, video, canvas, svg, iframe {
     flex-wrap:wrap;
     gap:8px;
   }
+  .wave-subnav{
+    justify-content:flex-start;
+  }
   #waveconnect-section .section-header .tabs,
   #waveconnect-section .section-header > div[style*="display:flex"]{
     flex-wrap:wrap;
@@ -573,7 +640,7 @@ img, video, canvas, svg, iframe {
     box-sizing:border-box;
   }
   #waveconnect-section .video-item{
-    max-width:min(calc(100vw - 24px), 360px);
+    max-width:100%;
     margin-left:auto;
     margin-right:auto;
   }
@@ -609,7 +676,7 @@ img, video, canvas, svg, iframe {
   #picture-library video{
     max-width:100% !important;
     max-height:min(50vh,240px) !important;
-    width:auto !important;
+    width:100% !important;
     height:auto !important;
     object-fit:contain;
   }
