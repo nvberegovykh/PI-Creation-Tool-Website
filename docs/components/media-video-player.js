@@ -18,8 +18,6 @@
     authorBtn: null,
     shareBtn: null,
     viewsBtn: null,
-    fullscreenBtn: null,
-    fullscreenTopBtn: null,
     mobileMeta: null,
     theaterBtn: null,
     hideBtn: null,
@@ -139,8 +137,8 @@
     v.className = 'lvp-video';
     v.src = item.url;
     if (item.poster) v.poster = item.poster;
-    // Keep regular video UX: native play button, timeline, time, fullscreen.
-    v.controls = true;
+    // Desktop: keep native controls. Mobile rail handles controls.
+    v.controls = !isMobile();
     v.playsInline = true;
     v.autoplay = true;
     v.preload = 'metadata';
@@ -233,17 +231,17 @@
       }
       if (state.likeBtn){
         const c = state.likeBtn.querySelector('.lvp-action-count');
-        if (c) c.textContent = likes > 0 ? String(likes) : '';
+        if (c) c.textContent = String(Math.max(0, Number(likes || 0) || 0));
       }
       if (state.commentsBtn){
         const c = state.commentsBtn.querySelector('.lvp-action-count');
-        if (c) c.textContent = comments > 0 ? String(comments) : '';
+        if (c) c.textContent = String(Math.max(0, Number(comments || 0) || 0));
       }
       if (state.overlay){
         const railLike = state.overlay.querySelector('.lvp-mobile-rail .lvp-like .lvp-rail-count');
         const railComments = state.overlay.querySelector('.lvp-mobile-rail .lvp-comments .lvp-rail-count');
-        if (railLike) railLike.textContent = likes > 0 ? String(likes) : '';
-        if (railComments) railComments.textContent = comments > 0 ? String(comments) : '';
+        if (railLike) railLike.textContent = String(Math.max(0, Number(likes || 0) || 0));
+        if (railComments) railComments.textContent = String(Math.max(0, Number(comments || 0) || 0));
       }
     }catch(_){ }
   }
@@ -301,14 +299,10 @@
       const fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
       const active = !!fsEl;
       if (state.overlay) state.overlay.classList.toggle('lvp-native-fullscreen', active);
-      if (state.fullscreenTopBtn){
-        state.fullscreenTopBtn.innerHTML = active ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
-        state.fullscreenTopBtn.title = active ? 'Exit fullscreen' : 'Fullscreen';
-        state.fullscreenTopBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
-      }
-      if (state.fullscreenBtn){
-        const lbl = state.fullscreenBtn.querySelector('.lvp-action-label');
-        if (lbl) lbl.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+      const rail = state.overlay?.querySelector('.lvp-mobile-rail .lvp-fullscreen');
+      if (rail){
+        rail.title = active ? 'Exit fullscreen' : 'Fullscreen';
+        rail.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
       }
     }catch(_){ }
   }
@@ -324,6 +318,7 @@
         try{ current.pause(); }catch(_){ }
       }
       const nextVideo = buildVideoNode(item);
+      nextVideo.controls = !isMobile();
       nextVideo.style.opacity = '0';
       nextVideo.style.transition = 'opacity .22s ease';
       state.playerHost.innerHTML = '';
@@ -343,17 +338,17 @@
     updateMeta(item);
     if (state.likeBtn){
       const c = state.likeBtn.querySelector('.lvp-action-count');
-      if (c) c.textContent = item.likesCount > 0 ? String(item.likesCount) : '';
+      if (c) c.textContent = String(Math.max(0, Number(item.likesCount || 0) || 0));
     }
     if (state.commentsBtn){
       const c = state.commentsBtn.querySelector('.lvp-action-count');
-      if (c) c.textContent = item.commentsCount > 0 ? String(item.commentsCount) : '';
+      if (c) c.textContent = String(Math.max(0, Number(item.commentsCount || 0) || 0));
     }
     if (state.overlay){
       const railLike = state.overlay.querySelector('.lvp-mobile-rail .lvp-like .lvp-rail-count');
       const railComments = state.overlay.querySelector('.lvp-mobile-rail .lvp-comments .lvp-rail-count');
-      if (railLike) railLike.textContent = item.likesCount > 0 ? String(item.likesCount) : '';
-      if (railComments) railComments.textContent = item.commentsCount > 0 ? String(item.commentsCount) : '';
+      if (railLike) railLike.textContent = String(Math.max(0, Number(item.likesCount || 0) || 0));
+      if (railComments) railComments.textContent = String(Math.max(0, Number(item.commentsCount || 0) || 0));
     }
     if (state.viewsBtn){
       const c = state.viewsBtn.querySelector('.lvp-action-count');
@@ -427,7 +422,6 @@
       <div class="lvp-shell" role="dialog" aria-modal="true" aria-label="Video player">
         <button class="lvp-close" type="button" aria-label="Close">×</button>
         <button class="lvp-hide" type="button" aria-label="Hide player"><i class="fas fa-chevron-down"></i></button>
-        <button class="lvp-fullscreen-top" type="button" aria-label="Fullscreen"><i class="fas fa-expand"></i></button>
         <div class="lvp-grid">
           <aside class="lvp-recommendations">
             <div class="lvp-rec-head">Recommended</div>
@@ -442,13 +436,12 @@
               <p class="lvp-desc"></p>
             </div>
             <div class="lvp-actions">
-              <button type="button" class="lvp-action lvp-like"><i class="fas fa-heart"></i><span class="lvp-action-label">Like</span><span class="lvp-action-count"></span></button>
-              <button type="button" class="lvp-action lvp-comments"><i class="fas fa-comment-dots"></i><span class="lvp-action-label">Comments</span><span class="lvp-action-count"></span></button>
-              <button type="button" class="lvp-action lvp-views" disabled><i class="fas fa-eye"></i><span class="lvp-action-label">Views</span><span class="lvp-action-count">0</span></button>
-              <button type="button" class="lvp-action lvp-author"><i class="fas fa-user-circle"></i><span class="lvp-action-label">Author</span></button>
-              <button type="button" class="lvp-action lvp-share"><i class="fas fa-paper-plane"></i><span class="lvp-action-label">Share</span></button>
-              <button type="button" class="lvp-action lvp-fullscreen"><i class="fas fa-expand"></i><span class="lvp-action-label">Fullscreen</span></button>
-              <button type="button" class="lvp-action lvp-theater">Theater</button>
+              <button type="button" class="lvp-action lvp-like has-count" title="Like" aria-label="Like"><i class="fas fa-heart"></i><span class="lvp-action-count">0</span></button>
+              <button type="button" class="lvp-action lvp-comments has-count" title="Comments" aria-label="Comments"><i class="fas fa-comment-dots"></i><span class="lvp-action-count">0</span></button>
+              <button type="button" class="lvp-action lvp-views has-count" disabled title="Views" aria-label="Views"><i class="fas fa-eye"></i><span class="lvp-action-count">0</span></button>
+              <button type="button" class="lvp-action lvp-author" title="Author" aria-label="Author"><i class="fas fa-user-circle"></i></button>
+              <button type="button" class="lvp-action lvp-share" title="Share" aria-label="Share"><i class="fas fa-paper-plane"></i></button>
+              <button type="button" class="lvp-action lvp-theater" title="Theater mode" aria-label="Theater mode"><i class="fas fa-expand"></i></button>
             </div>
           </section>
         </div>
@@ -479,8 +472,6 @@
     state.authorBtn = overlay.querySelector('.lvp-author');
     state.shareBtn = overlay.querySelector('.lvp-share');
     state.viewsBtn = overlay.querySelector('.lvp-views');
-    state.fullscreenBtn = overlay.querySelector('.lvp-fullscreen');
-    state.fullscreenTopBtn = overlay.querySelector('.lvp-fullscreen-top');
     state.theaterBtn = overlay.querySelector('.lvp-theater');
     state.hideBtn = overlay.querySelector('.lvp-hide');
     state.mobileMeta = overlay.querySelector('.lvp-mobile-meta');
@@ -523,20 +514,21 @@
       }catch(_){ }
       toggleCurrentLike();
     });
-    state.fullscreenBtn?.addEventListener('click', toggleVideoFullscreen);
-    state.fullscreenTopBtn?.addEventListener('click', toggleVideoFullscreen);
     document.addEventListener('fullscreenchange', syncFullscreenUi);
     document.addEventListener('webkitfullscreenchange', syncFullscreenUi);
     state.theaterBtn?.addEventListener('click', ()=>{
       const next = !state.shell.classList.contains('theater');
       state.shell.classList.toggle('theater', next);
-      state.theaterBtn.textContent = next ? 'Default' : 'Theater';
+      const icon = state.theaterBtn.querySelector('i');
+      if (icon) icon.className = `fas ${next ? 'fa-compress' : 'fa-expand'}`;
+      state.theaterBtn.title = next ? 'Default mode' : 'Theater mode';
+      state.theaterBtn.setAttribute('aria-label', next ? 'Default mode' : 'Theater mode');
     });
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-like').forEach((b)=> b.addEventListener('click', ()=> state.likeBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> b.addEventListener('click', ()=> state.commentsBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> b.addEventListener('click', ()=> state.authorBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> b.addEventListener('click', ()=> state.shareBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> b.addEventListener('click', ()=> state.fullscreenBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> b.addEventListener('click', toggleVideoFullscreen));
 
     const progress = overlay.querySelector('.lvp-progress');
     if (progress){
@@ -566,6 +558,10 @@
     overlay.addEventListener('touchstart', onTouchStart, { passive: true });
     overlay.addEventListener('touchmove', onTouchMove, { passive: false });
     overlay.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('resize', ()=>{
+      const v = getCurrentVideoNode();
+      if (v) v.controls = !isMobile();
+    });
     document.addEventListener('keydown', (e)=>{
       if (!state.open) return;
       if (e.key === 'Escape') close();

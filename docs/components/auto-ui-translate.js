@@ -8,6 +8,7 @@
   let saveTimer = 0;
   const inFlightByLang = new Map();
   const nodeIds = new WeakMap();
+  const latestLangByNode = new Map();
   let nodeIdSeq = 1;
 
   function normalizeLang(lang){
@@ -198,62 +199,88 @@
   }
 
   async function translateRoot(root, lang){
+    const targetRoot = root || document.body;
     const code = normalizeLang(lang);
-    const runKey = `${code}::${getNodeId(root || document.body)}`;
-    if (inFlightByLang.has(runKey)) return inFlightByLang.get(runKey);
+    const nodeId = getNodeId(targetRoot);
+    const runKey = `${code}::${nodeId}`;
+    latestLangByNode.set(nodeId, code);
 
-    const p = (async ()=>{
-      restoreProtectedSources(root || document.body);
-      const nodes = collectLeafNodes(root || document.body);
-      const attrNodes = collectAttributeNodes(root || document.body);
-      if (!nodes.length && !attrNodes.length) return;
-      const store = loadCache();
+    const existing = inFlightByLang.get(runKey);
+    if (existing){
+      existing.pending = true;
+      return existing.promise;
+    }
 
-      // Restore original UI for English.
-      if (code === 'en'){
-        nodes.forEach(({ el, source })=>{ if (el && source) el.textContent = source; });
-        attrNodes.forEach(({ el, source, attr })=>{ if (el && source && attr) el.setAttribute(attr, source); });
-        return;
-      }
+    const entry = { pending: false, promise: null };
+    inFlightByLang.set(runKey, entry);
 
-      const uniq = [];
-      const seen = new Set();
-      nodes.forEach(({ source })=>{
-        if (seen.has(source)) return;
-        seen.add(source);
-        uniq.push(source);
-      });
-      attrNodes.forEach(({ source })=>{
-        if (seen.has(source)) return;
-        seen.add(source);
-        uniq.push(source);
-      });
-      const missing = uniq.filter((s)=> !store[getCacheKey(code, s)]);
-      const chunkSize = 20;
-      for (let i = 0; i < missing.length; i += chunkSize){
-        const chunk = missing.slice(i, i + chunkSize);
-        const translated = await translateBatch(chunk, code);
-        chunk.forEach((src)=>{
-          const next = String(translated[src] || src).trim() || src;
-          store[getCacheKey(code, src)] = next;
-        });
-        saveCacheSoon();
-      }
-
+    const applyFromStore = (nodes, attrNodes, store, onlySources = null)=>{
+      const allow = onlySources instanceof Set ? onlySources : null;
+      if (latestLangByNode.get(nodeId) !== code) return false;
       nodes.forEach(({ el, source })=>{
+        if (allow && !allow.has(source)) return;
         const next = String(store[getCacheKey(code, source)] || source).trim() || source;
-        if (el && next) el.textContent = next;
+        if (el && next && el.textContent !== next) el.textContent = next;
       });
       attrNodes.forEach(({ el, source, attr })=>{
+        if (allow && !allow.has(source)) return;
         const next = String(store[getCacheKey(code, source)] || source).trim() || source;
-        if (el && attr && next) el.setAttribute(attr, next);
+        if (el && attr && next && el.getAttribute(attr) !== next) el.setAttribute(attr, next);
       });
+      return true;
+    };
+
+    entry.promise = (async ()=>{
+      do{
+        entry.pending = false;
+        restoreProtectedSources(targetRoot);
+        const nodes = collectLeafNodes(targetRoot);
+        const attrNodes = collectAttributeNodes(targetRoot);
+        if (!nodes.length && !attrNodes.length) continue;
+        const store = loadCache();
+
+        if (code === 'en'){
+          if (latestLangByNode.get(nodeId) !== code) continue;
+          nodes.forEach(({ el, source })=>{ if (el && source && el.textContent !== source) el.textContent = source; });
+          attrNodes.forEach(({ el, source, attr })=>{ if (el && source && attr && el.getAttribute(attr) !== source) el.setAttribute(attr, source); });
+          continue;
+        }
+
+        const uniq = [];
+        const seen = new Set();
+        nodes.forEach(({ source })=>{
+          if (seen.has(source)) return;
+          seen.add(source);
+          uniq.push(source);
+        });
+        attrNodes.forEach(({ source })=>{
+          if (seen.has(source)) return;
+          seen.add(source);
+          uniq.push(source);
+        });
+
+        // Apply cached translations immediately for snappy toggles.
+        if (!applyFromStore(nodes, attrNodes, store)) continue;
+
+        const missing = uniq.filter((s)=> !store[getCacheKey(code, s)]);
+        const chunkSize = 20;
+        for (let i = 0; i < missing.length; i += chunkSize){
+          if (latestLangByNode.get(nodeId) !== code) break;
+          const chunk = missing.slice(i, i + chunkSize);
+          const translated = await translateBatch(chunk, code);
+          chunk.forEach((src)=>{
+            const next = String(translated[src] || src).trim() || src;
+            store[getCacheKey(code, src)] = next;
+          });
+          saveCacheSoon();
+          applyFromStore(nodes, attrNodes, store, new Set(chunk));
+        }
+      } while (entry.pending && latestLangByNode.get(nodeId) === code);
     })().finally(()=>{
       inFlightByLang.delete(runKey);
     });
 
-    inFlightByLang.set(runKey, p);
-    return p;
+    return entry.promise;
   }
 
   window.LiberAutoUiTranslator = {
