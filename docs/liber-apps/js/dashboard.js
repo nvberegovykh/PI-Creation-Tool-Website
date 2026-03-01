@@ -2789,23 +2789,25 @@ class DashboardManager {
 
     async openAddToPlaylistPopup(track){
         const playlists = await this.hydratePlaylistsFromCloud();
+        const isImage = String(track?.kind || '').toLowerCase() === 'image';
+        const noun = isImage ? 'album' : 'playlist';
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:16px';
         const options = playlists.map((p)=> `<option value="${p.id}">${(p.name||'Playlist').replace(/</g,'&lt;')}</option>`).join('');
         overlay.innerHTML = `
           <div style="width:min(96vw,420px);background:#0f1724;border:1px solid #2b3445;border-radius:12px;padding:12px">
-            <div style="font-weight:700;margin-bottom:10px">Add to playlist</div>
+            <div style="font-weight:700;margin-bottom:10px">Add to ${noun}</div>
             <div style="margin-bottom:8px">
-              <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Existing playlist</label>
+              <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Existing ${noun}</label>
               <select id="pl-select" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445">
-                <option value="">Choose playlist...</option>
+                <option value="">Choose ${noun}...</option>
                 ${options}
               </select>
             </div>
             <div style="margin-bottom:10px">
               <label style="font-size:12px;opacity:.9;display:block;margin-bottom:4px">Or create new</label>
-              <input id="pl-new" type="text" placeholder="New playlist name" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445" />
+              <input id="pl-new" type="text" placeholder="New ${noun} name" style="width:100%;padding:8px;border-radius:8px;background:#121a28;color:#e8eefb;border:1px solid #2b3445" />
             </div>
             <div style="display:flex;justify-content:flex-end;gap:8px">
               <button id="pl-cancel" class="btn btn-secondary">Cancel</button>
@@ -2833,11 +2835,11 @@ class DashboardManager {
                 };
                 playlists.push(selected);
             }
-            if (!selected){ this.showError('Choose or create a playlist'); return; }
+            if (!selected){ this.showError(`Choose or create a ${noun}`); return; }
             if (!selected.items) selected.items = [];
             const exists = (selected.items || []).some((it)=> String(it?.src || '') === String(track?.src || ''));
             if (exists){
-                this.showSuccess('Already in playlist');
+                this.showSuccess(`Already in ${noun}`);
                 overlay.remove();
                 return;
             }
@@ -2851,7 +2853,7 @@ class DashboardManager {
             this.savePlaylists(playlists);
             this.renderPlaylists();
             overlay.remove();
-            this.showSuccess('Added to playlist');
+            this.showSuccess(`Added to ${noun}`);
         };
     }
 
@@ -3872,7 +3874,6 @@ class DashboardManager {
             window.addEventListener('liber-video-comments-open', async (e)=>{
                 try{
                     const item = e?.detail || {};
-                    try{ window.LiberVideoPlayer?.close?.(); }catch(_){ }
                     const postId = await this.ensureAssetDiscussionPost({
                         kind: 'video',
                         sourceId: String(item.sourceId || ''),
@@ -5742,6 +5743,7 @@ class DashboardManager {
         const pV = document.getElementById('wave-video-pane');
         const pP = document.getElementById('wave-pictures-pane');
         const studioQuick = document.getElementById('wave-studio-btn');
+        const studioSubnav = document.getElementById('wave-subnav-studio-btn');
         const mobileUpload = document.getElementById('mobile-wave-upload-btn');
         const subnav = document.getElementById('wave-subnav');
         if (tA && tV && tP && pA && pV && pP && !tA._boundMainTabs){
@@ -5762,6 +5764,10 @@ class DashboardManager {
         if (studioQuick && !studioQuick._bound){
             studioQuick._bound = true;
             studioQuick.onclick = ()=> this.openWaveStudioModal(this._waveMainTab || 'audio');
+        }
+        if (studioSubnav && !studioSubnav._bound){
+            studioSubnav._bound = true;
+            studioSubnav.onclick = ()=> this.openWaveStudioModal(this._waveMainTab || 'audio');
         }
         if (mobileUpload && !mobileUpload._bound){
             mobileUpload._bound = true;
@@ -6011,9 +6017,17 @@ class DashboardManager {
                 <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Reposts</div><div id="wave-studio-metric-reposts" style="font-size:22px;font-weight:700">0</div></div>
               </div>
               <div class="wave-home-card" style="margin-bottom:12px">
-                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
                   <div style="font-weight:600">Performance chart</div>
-                  <div style="font-size:11px;opacity:.75">Interactive D3 bars</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <label for="wave-studio-range" style="font-size:11px;opacity:.75">Range</label>
+                    <select id="wave-studio-range" style="font-size:12px;padding:4px 8px;border-radius:8px;background:#131a28;color:#e7efff;border:1px solid rgba(255,255,255,.16)">
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month" selected>Month</option>
+                      <option value="year">Year</option>
+                    </select>
+                  </div>
                 </div>
                 <div id="wave-studio-chart-host" style="width:100%;height:220px"></div>
               </div>
@@ -6031,6 +6045,11 @@ class DashboardManager {
             }
             await this.ensureD3Loaded();
             await this.renderWaveStudioAnalytics(overlay, rows);
+            const rangeSel = overlay.querySelector('#wave-studio-range');
+            if (rangeSel && !rangeSel._bound){
+                rangeSel._bound = true;
+                rangeSel.addEventListener('change', ()=> this.renderWaveStudioAnalytics(overlay, rows));
+            }
             rows.forEach((row)=> host.appendChild(this.buildWaveStudioCard(row, k)));
         }catch(_){ this.showError('Unable to open studio'); }
     }
@@ -6078,10 +6097,48 @@ class DashboardManager {
                 host.innerHTML = '<div style="font-size:12px;opacity:.8">Chart unavailable.</div>';
                 return;
             }
-            const data = rows.slice(0, 12).map((row)=> ({
-                title: String(row?.title || 'Untitled').slice(0, 16),
-                views: Number(row?.viewCount || row?.playCount || 0) || 0
-            }));
+            const range = String(overlay?.querySelector?.('#wave-studio-range')?.value || 'month').toLowerCase();
+            const grouped = new Map();
+            const toDate = (row)=>{
+                const ts = row?.createdAtTS?.toMillis?.();
+                if (Number.isFinite(Number(ts)) && Number(ts) > 0) return new Date(Number(ts));
+                const raw = String(row?.createdAt || row?.updatedAt || '').trim();
+                const t = Number(new Date(raw).getTime() || 0);
+                return t > 0 ? new Date(t) : new Date();
+            };
+            const weekStart = (d)=>{
+                const x = new Date(d);
+                const day = (x.getDay() + 6) % 7;
+                x.setDate(x.getDate() - day);
+                x.setHours(0, 0, 0, 0);
+                return x;
+            };
+            rows.forEach((row)=>{
+                const d = toDate(row);
+                let key = '';
+                let label = '';
+                if (range === 'day'){
+                    key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+                    label = `${d.getDate()}/${d.getMonth() + 1}`;
+                } else if (range === 'week'){
+                    const w = weekStart(d);
+                    key = `${w.getFullYear()}-${w.getMonth() + 1}-${w.getDate()}`;
+                    label = `W ${w.getDate()}/${w.getMonth() + 1}`;
+                } else if (range === 'year'){
+                    key = `${d.getFullYear()}`;
+                    label = key;
+                } else {
+                    key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                    label = `${d.getMonth() + 1}/${String(d.getFullYear()).slice(-2)}`;
+                }
+                const cur = grouped.get(key) || { title: label, views: 0 };
+                cur.views += Number(row?.viewCount || row?.playCount || 0) || 0;
+                grouped.set(key, cur);
+            });
+            const data = Array.from(grouped.entries())
+                .sort((a, b)=> a[0] < b[0] ? -1 : 1)
+                .slice(-12)
+                .map((x)=> x[1]);
             host.innerHTML = '';
             const width = Math.max(320, host.clientWidth || 320);
             const height = 220;
@@ -6147,6 +6204,7 @@ class DashboardManager {
           <input type="text" data-studio-title value="${title.replace(/"/g,'&quot;')}" placeholder="Title">
           <select data-studio-visibility><option value="public"${String(row.visibility||'public')==='public'?' selected':''}>public</option><option value="private"${String(row.visibility||'public')==='private'?' selected':''}>private</option></select>
           <input type="text" data-studio-tags value="${Array.isArray(row?.tagsPrivate) ? row.tagsPrivate.join(', ') : ''}" placeholder="Private tags (comma-separated)">
+          <input type="file" data-studio-cover accept="image/*" aria-label="Upload cover image">
         </div>
         <div class="wave-studio-actions">
           <button class="btn btn-secondary" data-studio-save>Save</button>
@@ -6168,19 +6226,38 @@ class DashboardManager {
                     .map((x)=> x.trim().toLowerCase())
                     .filter(Boolean)
                     .slice(0, 20);
+                const coverFile = wrap.querySelector('[data-studio-cover]')?.files?.[0] || null;
                 try{
                     saveBtn.disabled = true;
                     const col = kind === 'audio' ? 'wave' : 'videos';
-                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')), {
+                    const patch = {
                         title: t,
                         visibility: v === 'private' ? 'private' : 'public',
                         tagsPrivate: tags,
                         updatedAt: new Date().toISOString(),
                         updatedAtTS: firebase.serverTimestamp()
-                    });
+                    };
+                    if (coverFile){
+                        try{
+                            const me = this.currentUser || (await this.resolveCurrentUser());
+                            const uid = String(me?.uid || row?.owner || row?.ownerId || '').trim();
+                            const safeName = String(coverFile.name || 'cover.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+                            const dir = kind === 'audio' ? 'wave' : 'video-covers';
+                            const s = firebase.getStorage();
+                            const cRef = firebase.ref(s, `${dir}/${uid || 'shared'}/studio_${Date.now()}_${safeName}`);
+                            await firebase.uploadBytes(cRef, coverFile, { contentType: coverFile.type || 'image/jpeg' });
+                            const nextCover = await firebase.getDownloadURL(cRef);
+                            if (kind === 'audio') patch.coverUrl = nextCover;
+                            else patch.thumbnailUrl = nextCover;
+                        }catch(_){ }
+                    }
+                    await firebase.updateDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')), patch);
                     row.title = t;
                     row.visibility = v;
                     row.tagsPrivate = tags;
+                    if (patch.coverUrl) row.coverUrl = patch.coverUrl;
+                    if (patch.thumbnailUrl) row.thumbnailUrl = patch.thumbnailUrl;
+                    if (coverEl && (patch.coverUrl || patch.thumbnailUrl)) coverEl.src = String(patch.coverUrl || patch.thumbnailUrl);
                     this.showSuccess('Studio item updated');
                 }catch(_){ this.showError('Failed to update item'); }
                 finally{ saveBtn.disabled = false; }
@@ -6319,7 +6396,7 @@ class DashboardManager {
             if (layer) layer.remove();
             layer = document.createElement('div');
             layer.id = 'asset-comments-layer';
-            layer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1201;display:flex;justify-content:center;align-items:center;padding:14px';
+            layer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:22050;display:flex;justify-content:center;align-items:center;padding:14px';
             layer.innerHTML = `<div style="width:min(780px,100%);max-height:85vh;overflow:auto;background:#111722;border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
                     <div style="font-weight:600">${String(title || 'Comments').replace(/</g,'&lt;')}</div>
@@ -7557,7 +7634,7 @@ class DashboardManager {
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img src="${thumb}" alt="cover" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>
                          ${originalMark}
                          ${mediaHtml}
-                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-eye"></i></span><span class="asset-views-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">${Number(v.viewCount || 0) || 0}</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-eye"></i></span><span class="asset-views-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">${Number(v.viewCount || 0) || 0}</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="add-video-playlist-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Add to playlist"><i class="fas fa-list"></i></button><button class="share-video-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-video-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-video-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -7575,6 +7652,16 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
+        const addToPlaylistBtn = div.querySelector('.add-video-playlist-btn');
+        if (addToPlaylistBtn){
+            addToPlaylistBtn.onclick = ()=> this.openAddToPlaylistPopup({
+                kind: 'video',
+                src: String(v.url || ''),
+                title: String(v.title || 'Video'),
+                by: String(v.authorName || ''),
+                cover: String(v.thumbnailUrl || '')
+            });
+        }
         const vEl = div.querySelector('.liber-lib-video');
         const openPlayerBtn = div.querySelector('.video-open-player-btn');
         let holdTimer = 0;
@@ -7770,13 +7857,19 @@ class DashboardManager {
         const host = document.getElementById('wave-video-home-cards');
         if (!host) return;
         try{
-            const following = await this.getWaveFollowingUsers(uid);
-            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos'));
+            const [following, snap, playlists] = await Promise.all([
+                this.getWaveFollowingUsers(uid),
+                firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos')),
+                this.hydratePlaylistsFromCloud().catch(()=> [])
+            ]);
             const rows = [];
             snap.forEach((d)=> rows.push(d.data() || {}));
             const vids = rows.filter((v)=> this.resolveVisualKind(v) === 'video');
             const followingVids = vids.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
             const galleryRows = (followingVids.length ? followingVids : vids).slice(0, 12);
+            const videoPlaylists = (Array.isArray(playlists) ? playlists : [])
+                .filter((pl)=> Array.isArray(pl?.items) && pl.items.some((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'video'))
+                .slice(0, 8);
             host.className = '';
             host.innerHTML = `
               <div class="wave-home-section">
@@ -7793,7 +7886,32 @@ class DashboardManager {
                   }).join('')}
                 </div>
               </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Video Playlists</h4>
+                <div class="wave-home-row">
+                  ${videoPlaylists.map((pl)=>{
+                    const first = (pl.items || []).find((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'video') || {};
+                    const cover = String(first.cover || '').trim() || 'images/default-bird.png';
+                    const name = String(pl.name || 'Playlist').replace(/</g,'&lt;');
+                    return `<button type="button" class="wave-home-playlist-card" data-wave-video-playlist="${String(pl.id || '').replace(/"/g,'&quot;')}"><img src="${cover.replace(/"/g,'&quot;')}" alt="${name}"><span>${name}</span></button>`;
+                  }).join('') || '<div style="opacity:.75">No video playlists yet.</div>'}
+                </div>
+              </div>
             `;
+            const openPlaylistInPlayer = (pl)=>{
+                const list = (pl?.items || [])
+                    .filter((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'video')
+                    .map((it)=> ({
+                        type: 'video',
+                        url: String(it.src || ''),
+                        title: String(it.title || 'Video'),
+                        by: String(it.by || ''),
+                        cover: String(it.cover || '')
+                    }))
+                    .filter((x)=> !!x.url);
+                if (!list.length){ this.showError('Playlist has no videos'); return; }
+                this.openFullscreenMedia(list, 0);
+            };
             host.querySelectorAll('[data-wave-video-url]').forEach((btn)=>{
                 btn.addEventListener('click', ()=>{
                     const url = String(btn.getAttribute('data-wave-video-url') || '');
@@ -7812,6 +7930,13 @@ class DashboardManager {
                     if (items.length) this.openFullscreenMedia(items, idx);
                 });
             });
+            host.querySelectorAll('[data-wave-video-playlist]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const id = String(btn.getAttribute('data-wave-video-playlist') || '');
+                    const pl = videoPlaylists.find((x)=> String(x?.id || '') === id);
+                    if (pl) openPlaylistInPlayer(pl);
+                });
+            });
         }catch(_){
             host.innerHTML = '<div style="opacity:.75">Unable to load video home.</div>';
         }
@@ -7821,14 +7946,22 @@ class DashboardManager {
         const host = document.getElementById('wave-picture-home-cards');
         if (!host) return;
         try{
-            const following = await this.getWaveFollowingUsers(uid);
-            const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos'));
+            const [following, snap, playlists] = await Promise.all([
+                this.getWaveFollowingUsers(uid),
+                firebase.getDocs(firebase.collection(window.firebaseService.db, 'videos')),
+                this.hydratePlaylistsFromCloud().catch(()=> [])
+            ]);
             const rows = [];
             snap.forEach((d)=> rows.push(d.data() || {}));
             const pics = rows.filter((v)=> this.resolveVisualKind(v) === 'image');
             const followingPics = pics.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
-            const feed = (followingPics.length ? followingPics : pics).slice(0, 8);
+            const feed = (followingPics.length ? followingPics : pics).slice(0, 16);
             const featured = feed[0] || null;
+            const recents = feed.slice(0, 6);
+            const recommended = feed.slice(1, 7);
+            const pictureAlbums = (Array.isArray(playlists) ? playlists : [])
+                .filter((pl)=> Array.isArray(pl?.items) && pl.items.some((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'image'))
+                .slice(0, 8);
             host.className = '';
             if (!featured){
                 host.innerHTML = '<div style="opacity:.75">No pictures yet.</div>';
@@ -7844,7 +7977,42 @@ class DashboardManager {
                   <span class="wave-home-picture-caption">${title}</span>
                 </button>
               </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Recent</h4>
+                <div class="wave-home-row">
+                  ${recents.map((p)=> `<button type="button" class="wave-home-media-card" data-wave-picture-url="${String(p.url || '').replace(/"/g,'&quot;')}"><img src="${String(p.url || p.thumbnailUrl || p.coverUrl || 'images/default-bird.png').replace(/"/g,'&quot;')}" alt=""><div>${String(p.title || 'Picture').replace(/</g,'&lt;')}</div></button>`).join('')}
+                </div>
+              </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Recommended</h4>
+                <div class="wave-home-row">
+                  ${recommended.map((p)=> `<button type="button" class="wave-home-media-card" data-wave-picture-url="${String(p.url || '').replace(/"/g,'&quot;')}"><img src="${String(p.url || p.thumbnailUrl || p.coverUrl || 'images/default-bird.png').replace(/"/g,'&quot;')}" alt=""><div>${String(p.title || 'Picture').replace(/</g,'&lt;')}</div></button>`).join('') || '<div style="opacity:.75">No recommendations yet.</div>'}
+                </div>
+              </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Featured Albums</h4>
+                <div class="wave-home-row">
+                  ${pictureAlbums.map((pl)=>{
+                    const first = (pl.items || []).find((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'image') || {};
+                    const pTitle = String(pl.name || 'Album').replace(/</g,'&lt;');
+                    const pCover = String(first.cover || '').trim() || 'images/default-bird.png';
+                    return `<button type="button" class="wave-home-playlist-card" data-wave-picture-album="${String(pl.id || '').replace(/"/g,'&quot;')}"><img src="${pCover.replace(/"/g,'&quot;')}" alt="${pTitle}"><span>${pTitle}</span></button>`;
+                  }).join('') || '<div style="opacity:.75">No albums yet. Use "Add to album" on picture cards.</div>'}
+                </div>
+              </div>
             `;
+            const openPictureCollection = (items, url = '')=>{
+                const list = (items || []).map((x)=> ({
+                    type: this.inferMediaKindFromUrl(String(x?.src || '')) === 'video' ? 'video' : 'image',
+                    url: String(x?.src || x?.url || ''),
+                    title: String(x?.title || 'Picture'),
+                    by: String(x?.by || ''),
+                    cover: String(x?.cover || '')
+                })).filter((x)=> !!x.url);
+                if (!list.length){ this.showError('Collection is empty'); return; }
+                const idx = url ? Math.max(0, list.findIndex((x)=> x.url === url)) : 0;
+                this.openFullscreenMedia(list, idx);
+            };
             const openBtn = host.querySelector('.wave-home-picture-hero');
             if (openBtn){
                 openBtn.addEventListener('click', ()=>{
@@ -7861,6 +8029,22 @@ class DashboardManager {
                     if (items.length) this.openFullscreenMedia(items, idx);
                 });
             }
+            host.querySelectorAll('.wave-home-media-card[data-wave-picture-url]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const url = String(btn.getAttribute('data-wave-picture-url') || '');
+                    const item = feed.find((x)=> String(x?.url || '') === url) || null;
+                    if (item) openPictureCollection([{ src: String(item.url || ''), title: String(item.title || 'Picture'), by: String(item.authorName || ''), cover: String(item.thumbnailUrl || item.coverUrl || item.url || '') }], url);
+                });
+            });
+            host.querySelectorAll('[data-wave-picture-album]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const id = String(btn.getAttribute('data-wave-picture-album') || '');
+                    const pl = pictureAlbums.find((x)=> String(x?.id || '') === id);
+                    if (!pl) return;
+                    const imageItems = (pl.items || []).filter((it)=> this.inferMediaKindFromUrl(String(it?.src || '')) === 'image');
+                    openPictureCollection(imageItems, '');
+                });
+            });
         }catch(_){
             host.innerHTML = '<div style="opacity:.75">Unable to load pictures home.</div>';
         }
@@ -7970,7 +8154,7 @@ class DashboardManager {
         const removeBtnHtml = opts.allowRemove ? `<button class="remove-visual-btn" title="Remove from my library" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-trash"></i></button>` : '';
         div.innerHTML = `<div class="video-item-header" style="display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:130px;min-width:0"><img class="picture-author-avatar" src="${thumb}" alt="author" style="width:40px;height:40px;flex-shrink:0;border-radius:8px;object-fit:cover"><div style="min-width:0;flex:1;overflow:hidden"><div class="video-item-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(v.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div>${originalMark}
                          ${mediaHtml}
-                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
+                         <div class="video-item-actions" style="position:absolute;top:10px;right:8px;display:flex;gap:4px;align-items:center;z-index:5;flex-wrap:wrap;justify-content:flex-end"><button class="asset-like-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-comment-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="font-size:11px;opacity:.86;min-width:16px;text-align:center">0</span><button class="asset-share-chat-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="add-picture-album-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Add to album"><i class="fas fa-folder-plus"></i></button><button class="share-picture-btn" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb" title="Share"><i class="fas fa-share"></i></button><button class="repost-picture-btn" title="Repost" style="background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.9;color:#d6deeb"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-picture-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -7988,6 +8172,16 @@ class DashboardManager {
                 this.showSuccess('Reposted to your feed');
             }catch(_){ this.showError('Repost failed'); }
         }; }
+        const addToAlbumBtn = div.querySelector('.add-picture-album-btn');
+        if (addToAlbumBtn){
+            addToAlbumBtn.onclick = ()=> this.openAddToPlaylistPopup({
+                kind: 'image',
+                src: String(v.url || ''),
+                title: String(v.title || 'Picture'),
+                by: String(v.authorName || ''),
+                cover: String(v.thumbnailUrl || v.url || '')
+            });
+        }
         const avatarEl = div.querySelector('.picture-author-avatar');
         if (avatarEl && authorId){
             this.hydrateAuthorAvatarImage(avatarEl, authorId);
