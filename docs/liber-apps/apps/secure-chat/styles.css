@@ -223,16 +223,16 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
   0%,100%{ filter:brightness(1); transform:translateY(0) }
   50%{ filter:brightness(1.12); transform:translateY(-1px) }
 }
-.messages{flex:1 1 auto;min-height:0;overflow:auto;padding:20px 20px 148px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
+.messages{flex:1 1 auto;min-height:0;overflow:auto;padding:14px 12px 20px;display:flex;flex-direction:column-reverse;gap:10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overflow-anchor:none;scroll-behavior:auto}
 .messages::-webkit-scrollbar{width:0;height:0}
-.message{max-width:min(72%, 100%);padding:12px 14px;border-radius:16px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .28s ease-out;min-width:0}
+.message{max-width:min(72%, 100%);padding:12px 14px;border-radius:16px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:anywhere;contain:layout;animation:msg-fade-in .2s ease-out;min-width:0}
 @keyframes msg-fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .message,.connections-list li{word-break:break-word;overflow-wrap:anywhere}
 .message img,.message .file-link{max-width:100%}
 .message.self{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
 .message.other{align-self:flex-start;background:#151823;border-bottom-left-radius:4px}
 .message.msg-selected{outline:2px solid rgba(107,158,255,.9);outline-offset:2px}
-.message.reply-dragging{transition:transform .08s linear}
+.message.reply-dragging{transition:transform .05s linear;will-change:transform}
 .wave-video-preview{position:relative;border-radius:10px;overflow:hidden}
 .video-open-player-btn{
   position:absolute;
@@ -500,6 +500,8 @@ button.call-status-badge:hover{
 .message{position:relative}
 .msg-context-overlay{position:fixed;inset:0;z-index:200;pointer-events:none}
 .msg-context-overlay.active{pointer-events:auto}
+.msg-context-overlay[aria-hidden="true"]{pointer-events:none}
+.msg-context-overlay[aria-hidden="false"]{pointer-events:auto}
 .msg-context-overlay .msg-context-backdrop{position:absolute;inset:0;background:transparent}
 .msg-context-overlay .msg-context-stack{position:absolute;display:flex;flex-direction:column-reverse;align-items:center;gap:0;pointer-events:auto;animation:msg-context-fade-in .2s ease-out}
 .msg-context-overlay .msg-context-stack.hiding{animation:msg-context-fade-out .18s ease-out forwards}
@@ -965,7 +967,7 @@ button.call-status-badge:hover{
   .chat-app{flex-direction:column}
   .sidebar{width:100%;min-width:unset;border-right:none;border-bottom:1px solid var(--border-color,#1f222a)}
   .main{flex:1;min-height:0}
-  .messages{padding:10px 8px}
+  .messages{padding:10px 8px 12px}
   .message{max-width:92%}
   .dialogue-title-bar{display:none}
   .chat-header{padding:8px 10px}

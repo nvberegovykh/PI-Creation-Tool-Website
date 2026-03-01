@@ -3835,10 +3835,42 @@ class DashboardManager {
             btn.parentNode.replaceChild(newBtn, btn);
             if (newBtn.id === 'mobile-wall-e-btn') {
                 newBtn.addEventListener('click', () => this.toggleWallEWidget());
+            } else if (newBtn.id === 'mobile-wave-upload-btn') {
+                newBtn.addEventListener('click', ()=>{
+                    this.switchSection('waveconnect');
+                    this.openWaveUploadWizard(this._waveMainTab || 'audio');
+                });
             } else {
                 newBtn.addEventListener('click', () => this.switchSection(newBtn.dataset.section));
             }
         });
+        if (!this._videoPlayerEventBridgeBound){
+            this._videoPlayerEventBridgeBound = true;
+            window.addEventListener('liber-video-comments-open', async (e)=>{
+                try{
+                    const item = e?.detail || {};
+                    const postId = await this.resolveAssetPostId({ sourceId: String(item.sourceId || ''), url: String(item.url || ''), kind: 'video' });
+                    if (postId) await this.openAssetCommentsModal(postId, String(item.title || 'Comments'));
+                }catch(_){ }
+            });
+            window.addEventListener('liber-video-author-open', async (e)=>{
+                try{
+                    const item = e?.detail || {};
+                    let uid = String(item.authorId || '').trim();
+                    if (!uid){
+                        const sid = String(item.sourceId || '').trim();
+                        if (sid){
+                            const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'videos', sid));
+                            if (snap.exists()){
+                                const data = snap.data() || {};
+                                uid = String(data.authorId || data.owner || data.originalAuthorId || '').trim();
+                            }
+                        }
+                    }
+                    if (uid) this.showUserPreviewModal(uid);
+                }catch(_){ }
+            });
+        }
 
         // Logout button
         const logoutBtn = document.getElementById('logout-btn');
@@ -5632,8 +5664,8 @@ class DashboardManager {
         const pA = document.getElementById('wave-audio-pane');
         const pV = document.getElementById('wave-video-pane');
         const pP = document.getElementById('wave-pictures-pane');
-        const uploadQuick = document.getElementById('wave-upload-quick-btn');
         const studioQuick = document.getElementById('wave-studio-btn');
+        const mobileUpload = document.getElementById('mobile-wave-upload-btn');
         const subnav = document.getElementById('wave-subnav');
         if (tA && tV && tP && pA && pV && pP && !tA._boundMainTabs){
             tA._boundMainTabs = tV._boundMainTabs = tP._boundMainTabs = true;
@@ -5650,13 +5682,16 @@ class DashboardManager {
                 });
             });
         }
-        if (uploadQuick && !uploadQuick._bound){
-            uploadQuick._bound = true;
-            uploadQuick.onclick = ()=> this.openWaveUploadWizard(this._waveMainTab || 'audio');
-        }
         if (studioQuick && !studioQuick._bound){
             studioQuick._bound = true;
             studioQuick.onclick = ()=> this.openWaveStudioModal(this._waveMainTab || 'audio');
+        }
+        if (mobileUpload && !mobileUpload._bound){
+            mobileUpload._bound = true;
+            mobileUpload.onclick = ()=>{
+                if ((this.currentSection || '') !== 'waveconnect') this.switchSection('waveconnect');
+                this.openWaveUploadWizard(this._waveMainTab || 'audio');
+            };
         }
         this.setWaveMainTab(this._waveMainTab || 'audio');
     }
@@ -5689,14 +5724,7 @@ class DashboardManager {
 
     setWaveSubtab(name){
         const sub = String(name || 'home').trim().toLowerCase() || 'home';
-        if (sub === 'upload'){
-            this.openWaveUploadWizard(this._waveMainTab || 'audio');
-            return;
-        }
-        if (sub === 'studio'){
-            this.openWaveStudioModal(this._waveMainTab || 'audio');
-            return;
-        }
+        if (sub !== 'home' && sub !== 'search' && sub !== 'library') return;
         this._waveSubTabByMain[this._waveMainTab || 'audio'] = sub;
         this.applyWaveSubtab();
     }
@@ -5721,7 +5749,7 @@ class DashboardManager {
         pane.querySelectorAll('.settings-grid').forEach((grid)=> grid.classList.add('wave-subtab-hidden'));
         show('#wave-audio-home,#wave-video-home,#wave-picture-home', sub === 'home');
         show('#wave-audio-pane > .section-header,#wave-results,#wave-results-wrapper,#video-search-pane,#picture-search-pane', sub === 'search');
-        show('#wave-library-pane,#wave-library-posts-pane,#video-library-pane,#picture-library-pane,#wave-playlists', sub === 'library');
+        show('#wave-library-pane,#wave-library-uploaded-pane,#wave-library-saved-pane,#wave-library-liked-pane,#wave-library-playlists-pane,#video-library-pane,#picture-library-pane,#wave-playlists', sub === 'library');
         show('#video-suggestions-pane,#picture-suggestions-pane', sub === 'home');
         if (sub === 'search'){
             if (main === 'video'){
@@ -5786,12 +5814,17 @@ class DashboardManager {
             overlay.innerHTML = `<div class="waveconnect-sheet-panel" style="max-width:640px">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700">Upload ${labels[k]}</div><button type="button" class="btn btn-secondary" data-close>Close</button></div>
               <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 1: choose file</div>
+              <label for="wiz-file" style="font-size:12px;opacity:.82;display:block;margin-bottom:4px">Media file</label>
               <input id="wiz-file" type="file" accept="${k === 'audio' ? 'audio/*' : (k === 'video' ? 'video/*' : 'image/*,video/*')}" style="margin-bottom:10px;width:100%">
               <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 2: details</div>
+              <label for="wiz-title" style="font-size:12px;opacity:.82;display:block;margin-bottom:4px">Title</label>
               <input id="wiz-title" type="text" placeholder="Title" style="width:100%;margin-bottom:8px">
+              <label for="wiz-cover" style="font-size:12px;opacity:.82;display:block;margin-bottom:4px">Cover image (optional)</label>
               <input id="wiz-cover" type="file" accept="image/*" style="margin-bottom:8px;width:100%">
+              <label for="wiz-tags" style="font-size:12px;opacity:.82;display:block;margin-bottom:4px">Private tags</label>
               <input id="wiz-tags" type="text" placeholder="Tags (comma separated, private for search)" style="width:100%;margin-bottom:8px">
               <div style="font-size:12px;opacity:.78;margin-bottom:8px">Step 3: visibility</div>
+              <label for="wiz-visibility" style="font-size:12px;opacity:.82;display:block;margin-bottom:4px">Visibility</label>
               <select id="wiz-visibility" style="width:100%;margin-bottom:12px"><option value="public">Public</option><option value="private">Private</option></select>
               <div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="wiz-submit">Upload</button></div>
             </div>`;
@@ -5869,12 +5902,25 @@ class DashboardManager {
             const overlay = document.createElement('div');
             overlay.id = 'wave-studio-modal';
             overlay.className = 'waveconnect-sheet';
-            overlay.innerHTML = `<div class="waveconnect-sheet-panel" style="width:min(1100px,100%);max-height:84vh;overflow:auto">
+            overlay.innerHTML = `<div class="waveconnect-sheet-panel wave-studio-shell" style="width:min(1180px,100%);max-height:88vh;overflow:auto">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
                 <div style="font-weight:700">${k[0].toUpperCase() + k.slice(1)} Studio</div>
                 <button type="button" class="btn btn-secondary" data-close>Close</button>
               </div>
-              <div id="wave-studio-list" class="wave-home-grid"><div style="opacity:.8">Loading studio...</div></div>
+              <div id="wave-studio-analytics" class="wave-home-grid" style="margin-bottom:12px">
+                <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Views</div><div id="wave-studio-metric-views" style="font-size:22px;font-weight:700">0</div></div>
+                <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Likes</div><div id="wave-studio-metric-likes" style="font-size:22px;font-weight:700">0</div></div>
+                <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Comments</div><div id="wave-studio-metric-comments" style="font-size:22px;font-weight:700">0</div></div>
+                <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Reposts</div><div id="wave-studio-metric-reposts" style="font-size:22px;font-weight:700">0</div></div>
+              </div>
+              <div class="wave-home-card" style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">
+                  <div style="font-weight:600">Performance chart</div>
+                  <div style="font-size:11px;opacity:.75">Interactive D3 bars</div>
+                </div>
+                <div id="wave-studio-chart-host" style="width:100%;height:220px"></div>
+              </div>
+              <div id="wave-studio-list" class="wave-studio-rows"><div style="opacity:.8">Loading studio...</div></div>
             </div>`;
             const close = ()=>{ try{ overlay.remove(); }catch(_){ } };
             overlay.addEventListener('click', (e)=>{ if (e.target === overlay || e.target?.matches?.('[data-close]')) close(); });
@@ -5886,8 +5932,64 @@ class DashboardManager {
                 host.innerHTML = '<div style="opacity:.8">No media uploaded yet.</div>';
                 return;
             }
+            await this.ensureD3Loaded();
+            await this.renderWaveStudioAnalytics(overlay, rows);
             rows.forEach((row)=> host.appendChild(this.buildWaveStudioCard(row, k)));
         }catch(_){ this.showError('Unable to open studio'); }
+    }
+
+    async ensureD3Loaded(){
+        try{
+            if (window.d3) return true;
+            if (this._d3LoadPromise) return this._d3LoadPromise;
+            this._d3LoadPromise = new Promise((resolve)=>{
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+                script.async = true;
+                script.onload = ()=> resolve(true);
+                script.onerror = ()=> resolve(false);
+                document.head.appendChild(script);
+            });
+            return await this._d3LoadPromise;
+        }catch(_){ return false; }
+    }
+
+    async renderWaveStudioAnalytics(overlay, rows){
+        try{
+            const host = overlay?.querySelector?.('#wave-studio-chart-host');
+            if (!host) return;
+            const totals = rows.reduce((acc, row)=>{
+                acc.views += Number(row?.viewCount || row?.playCount || 0) || 0;
+                return acc;
+            }, { views:0 });
+            overlay.querySelector('#wave-studio-metric-views').textContent = String(totals.views);
+            if (!window.d3){
+                host.innerHTML = '<div style="font-size:12px;opacity:.8">Chart unavailable.</div>';
+                return;
+            }
+            const data = rows.slice(0, 12).map((row)=> ({
+                title: String(row?.title || 'Untitled').slice(0, 16),
+                views: Number(row?.viewCount || row?.playCount || 0) || 0
+            }));
+            host.innerHTML = '';
+            const width = Math.max(320, host.clientWidth || 320);
+            const height = 220;
+            const margin = { top: 16, right: 12, bottom: 36, left: 34 };
+            const svg = window.d3.select(host).append('svg').attr('width', width).attr('height', height);
+            const x = window.d3.scaleBand().domain(data.map((d)=> d.title)).range([margin.left, width - margin.right]).padding(0.2);
+            const y = window.d3.scaleLinear().domain([0, window.d3.max(data, (d)=> d.views) || 1]).nice().range([height - margin.bottom, margin.top]);
+            svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).call(window.d3.axisBottom(x).tickSizeOuter(0))
+                .selectAll('text').attr('fill','#d9e7ff').style('font-size','10px').attr('transform','rotate(-18)').style('text-anchor','end');
+            svg.append('g').attr('transform', `translate(${margin.left},0)`).call(window.d3.axisLeft(y).ticks(4))
+                .selectAll('text').attr('fill','#d9e7ff').style('font-size','10px');
+            svg.selectAll('.bar').data(data).enter().append('rect')
+                .attr('x', (d)=> x(d.title))
+                .attr('y', (d)=> y(d.views))
+                .attr('width', x.bandwidth())
+                .attr('height', (d)=> (height - margin.bottom) - y(d.views))
+                .attr('rx', 6)
+                .attr('fill', '#3b82f6');
+        }catch(_){ }
     }
 
     async fetchWaveStudioRows(kind, uid){
@@ -5914,7 +6016,7 @@ class DashboardManager {
 
     buildWaveStudioCard(row, kind){
         const wrap = document.createElement('div');
-        wrap.className = 'wave-home-card';
+        wrap.className = 'wave-home-card wave-studio-row';
         const title = String(row?.title || 'Untitled');
         const cover = String(row?.coverUrl || row?.thumbnailUrl || row?.url || 'images/default-bird.png');
         const views = Number(row?.viewCount || row?.playCount || 0) || 0;
@@ -5922,9 +6024,8 @@ class DashboardManager {
           <img src="${cover.replace(/"/g,'&quot;')}" alt="" style="width:46px;height:46px;border-radius:9px;object-fit:cover">
           <div style="min-width:0;flex:1"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title.replace(/</g,'&lt;')}</div><div style="opacity:.7;font-size:12px">${views} ${kind === 'audio' ? 'plays' : 'views'}</div></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 140px 90px;gap:6px;margin-bottom:8px">
           <input type="text" data-studio-title value="${title.replace(/"/g,'&quot;')}" placeholder="Title">
-          <input type="text" data-studio-cover value="${String(cover || '').replace(/"/g,'&quot;')}" placeholder="Cover URL">
           <select data-studio-visibility><option value="public"${String(row.visibility||'public')==='public'?' selected':''}>public</option><option value="private"${String(row.visibility||'public')==='private'?' selected':''}>private</option></select>
           <button class="btn btn-secondary" data-studio-save>Save</button>
         </div>
@@ -5933,14 +6034,12 @@ class DashboardManager {
         if (saveBtn){
             saveBtn.addEventListener('click', async ()=>{
                 const t = String(wrap.querySelector('[data-studio-title]')?.value || '').trim() || 'Untitled';
-                const c = String(wrap.querySelector('[data-studio-cover]')?.value || '').trim();
                 const v = String(wrap.querySelector('[data-studio-visibility]')?.value || 'public');
                 try{
                     const col = kind === 'audio' ? 'wave' : 'videos';
                     await firebase.updateDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')), {
                         title: t,
                         visibility: v === 'private' ? 'private' : 'public',
-                        ...(kind === 'audio' ? { coverUrl: c } : { thumbnailUrl: c }),
                         updatedAt: new Date().toISOString(),
                         updatedAtTS: firebase.serverTimestamp()
                     });
@@ -6256,8 +6355,8 @@ class DashboardManager {
                     this.renderPlaylists();
                 };
             }
+            this._waveAudioLibraryOwnerUid = String(me?.uid || '');
             await this.renderWaveLibrary(me.uid);
-            await this.renderWavePostsLibrary(me.uid);
             this.setupWaveLibraryTabs();
             await this.renderPlaylists();
             await this.renderWaveAudioHome(me.uid);
@@ -6299,18 +6398,23 @@ class DashboardManager {
             const monthHost = document.getElementById('wave-audio-popular-month');
             const followingHost = document.getElementById('wave-audio-following');
             if (!highlights || !monthHost || !followingHost) return;
-            const [playlists, followingRows] = await Promise.all([
+            const [playlists, followingRows, libraryRows, likedRows] = await Promise.all([
                 this.hydratePlaylistsFromCloud().catch(()=> []),
-                this.getWaveFollowingUsers(uid).catch(()=> [])
+                this.getWaveFollowingUsers(uid).catch(()=> []),
+                this.fetchWaveAudioLibraryRows(uid).catch(()=> []),
+                this.fetchLikedAudioRows(uid).catch(()=> [])
             ]);
             highlights.className = 'wave-home-grid';
             const created = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') === String(uid));
             const saved = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') !== String(uid));
-            const likedCount = 0;
+            const uploadedCount = (libraryRows || []).filter((w)=> !this.isPostLibraryItem(w)).length;
+            const savedCount = (libraryRows || []).filter((w)=> this.isPostLibraryItem(w)).length;
+            const likedCount = (likedRows || []).length;
             highlights.innerHTML = `
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My Library</div><div style="font-size:22px;font-weight:700">${Number(this._waveLibraryVisible || 5)}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My Library</div><div style="font-size:22px;font-weight:700">${(libraryRows || []).length}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Uploaded</div><div style="font-size:22px;font-weight:700">${uploadedCount}</div></div>
               <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Liked media</div><div style="font-size:22px;font-weight:700">${likedCount}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Saved</div><div style="font-size:22px;font-weight:700">${Math.max(0, Number(this._waveLibraryVisible || 5))}</div></div>
+              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Saved</div><div style="font-size:22px;font-weight:700">${savedCount}</div></div>
               <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists created</div><div style="font-size:22px;font-weight:700">${created.length}</div></div>
               <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists added</div><div style="font-size:22px;font-weight:700">${saved.length}</div></div>
               <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Following</div><div style="font-size:22px;font-weight:700">${followingRows.length}</div></div>
@@ -6343,21 +6447,52 @@ class DashboardManager {
     }
 
     setupWaveLibraryTabs(){
-        const tabDefault = document.getElementById('wave-lib-tab-default');
-        const tabPosts = document.getElementById('wave-lib-tab-posts');
-        const paneDefault = document.getElementById('wave-library-pane');
-        const panePosts = document.getElementById('wave-library-posts-pane');
-        if (!tabDefault || !tabPosts || !paneDefault || !panePosts || tabDefault._boundTabs) return;
-        tabDefault._boundTabs = true;
-        const open = (name)=>{
-            tabDefault.classList.toggle('active', name === 'default');
-            tabPosts.classList.toggle('active', name === 'posts');
-            paneDefault.style.display = name === 'default' ? 'block' : 'none';
-            panePosts.style.display = name === 'posts' ? 'block' : 'none';
+        const tabAll = document.getElementById('wave-lib-tab-all');
+        const tabUploaded = document.getElementById('wave-lib-tab-uploaded');
+        const tabSaved = document.getElementById('wave-lib-tab-saved');
+        const tabLiked = document.getElementById('wave-lib-tab-liked');
+        const tabPlaylists = document.getElementById('wave-lib-tab-playlists');
+        const paneAll = document.getElementById('wave-library-pane');
+        const paneUploaded = document.getElementById('wave-library-uploaded-pane');
+        const paneSaved = document.getElementById('wave-library-saved-pane');
+        const paneLiked = document.getElementById('wave-library-liked-pane');
+        const panePlaylists = document.getElementById('wave-library-playlists-pane');
+        if (!tabAll || !tabUploaded || !tabSaved || !tabLiked || !tabPlaylists || !paneAll || !paneUploaded || !paneSaved || !paneLiked || !panePlaylists || tabAll._boundTabs) return;
+        tabAll._boundTabs = true;
+        const open = async (name)=>{
+            tabAll.classList.toggle('active', name === 'all');
+            tabUploaded.classList.toggle('active', name === 'uploaded');
+            tabSaved.classList.toggle('active', name === 'saved');
+            tabLiked.classList.toggle('active', name === 'liked');
+            tabPlaylists.classList.toggle('active', name === 'playlists');
+            paneAll.style.display = name === 'all' ? 'block' : 'none';
+            paneUploaded.style.display = name === 'uploaded' ? 'block' : 'none';
+            paneSaved.style.display = name === 'saved' ? 'block' : 'none';
+            paneLiked.style.display = name === 'liked' ? 'block' : 'none';
+            panePlaylists.style.display = name === 'playlists' ? 'block' : 'none';
+            const uid = String(this._waveAudioLibraryOwnerUid || '').trim();
+            if (!uid) return;
+            try{ localStorage.setItem(`liber_wave_audio_lib_tab_${uid}`, name); }catch(_){ }
+            if (name === 'playlists'){
+                await this.renderPlaylists();
+            } else {
+                await this.renderWaveLibraryCategory(uid, name);
+            }
         };
-        tabDefault.onclick = ()=> open('default');
-        tabPosts.onclick = ()=> open('posts');
-        open('default');
+        tabAll.onclick = ()=> open('all');
+        tabUploaded.onclick = ()=> open('uploaded');
+        tabSaved.onclick = ()=> open('saved');
+        tabLiked.onclick = ()=> open('liked');
+        tabPlaylists.onclick = ()=> open('playlists');
+        const uid = String(this._waveAudioLibraryOwnerUid || '').trim();
+        let remembered = 'all';
+        try{
+            if (uid){
+                const raw = String(localStorage.getItem(`liber_wave_audio_lib_tab_${uid}`) || '').trim().toLowerCase();
+                if (raw === 'all' || raw === 'uploaded' || raw === 'saved' || raw === 'liked' || raw === 'playlists') remembered = raw;
+            }
+        }catch(_){ }
+        open(remembered);
     }
 
     setupFeedTabs(){
@@ -6636,19 +6771,38 @@ class DashboardManager {
     }
 
     async renderWaveLibrary(uid){
-        const lib = document.getElementById('wave-library'); if (!lib) return;
-        lib.innerHTML = '';
+        const activeTab = document.querySelector('#wave-lib-tab-all.active,#wave-lib-tab-uploaded.active,#wave-lib-tab-saved.active,#wave-lib-tab-liked.active,#wave-lib-tab-playlists.active');
+        const id = String(activeTab?.id || 'wave-lib-tab-all');
+        const map = {
+            'wave-lib-tab-all': 'all',
+            'wave-lib-tab-uploaded': 'uploaded',
+            'wave-lib-tab-saved': 'saved',
+            'wave-lib-tab-liked': 'liked',
+            'wave-lib-tab-playlists': 'playlists'
+        };
+        const next = map[id] || 'all';
+        if (next === 'playlists'){
+            await this.renderPlaylists();
+            return;
+        }
+        await this.renderWaveLibraryCategory(uid, next);
+    }
+
+    async fetchWaveAudioLibraryRows(uid){
         const items = [];
         try{
-            const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(50));
+            const q = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid), firebase.orderBy('createdAt','desc'), firebase.limit(120));
             const snap = await firebase.getDocs(q);
-            snap.forEach(d=> items.push(d.data()));
-        }catch{
-            const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
-            const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
+            snap.forEach((d)=> items.push(d.data() || {}));
+        }catch(_){
+            try{
+                const q2 = firebase.query(firebase.collection(window.firebaseService.db,'wave'), firebase.where('ownerId','==', uid));
+                const s2 = await firebase.getDocs(q2);
+                s2.forEach((d)=> items.push(d.data() || {}));
+            }catch(__){ }
         }
-        const audioItems = items.filter((w)=> this.isWaveAudioItem(w));
-        audioItems.forEach((w)=>{
+        const rows = items.filter((w)=> this.isWaveAudioItem(w));
+        rows.forEach((w)=>{
             const key = String(w?.url || '').trim();
             if (!key) return;
             this._waveMetaByUrl.set(key, {
@@ -6657,41 +6811,130 @@ class DashboardManager {
                 authorName: String(w?.authorName || '').trim()
             });
         });
-        const nonPost = audioItems.filter((w)=> !this.isPostLibraryItem(w));
-        const fromPosts = audioItems.filter((w)=> this.isPostLibraryItem(w));
-        const ordered = nonPost.concat(fromPosts);
-        const visible = Math.max(5, Number(this._waveLibraryVisible || 5));
-        let savedSeparatorShown = false;
-        let postSeparatorShown = false;
-        ordered.slice(0, visible).forEach((w)=>{
-            if (!savedSeparatorShown && !this.isPostLibraryItem(w)){
-                const sepSaved = document.createElement('div');
-                sepSaved.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
-                sepSaved.textContent = 'Saved';
-                lib.appendChild(sepSaved);
-                savedSeparatorShown = true;
+        return rows;
+    }
+
+    buildAudioQueueFromRows(rows = []){
+        return (Array.isArray(rows) ? rows : [])
+            .filter((w)=> String(w?.url || '').trim())
+            .map((w)=> ({
+                src: String(w.url || ''),
+                title: String(w.title || 'Track'),
+                by: String(w.authorName || ''),
+                cover: String(w.coverUrl || '')
+            }));
+    }
+
+    async fetchLikedAudioRows(uid){
+        const out = [];
+        try{
+            const snap = await firebase.getDocs(firebase.query(firebase.collection(window.firebaseService.db, 'posts'), firebase.limit(180)));
+            const candidates = [];
+            snap.forEach((d)=>{
+                const p = d.data() || {};
+                const mediaType = String(p.mediaType || '').toLowerCase();
+                const media = Array.isArray(p.media) ? p.media : [];
+                const firstAudio = media.find((m)=> String(m?.kind || '').toLowerCase() === 'audio' && String(m?.url || '').trim());
+                const url = firstAudio ? String(firstAudio.url || '').trim() : (mediaType === 'audio' ? String(p.mediaUrl || '').trim() : '');
+                if (!url) return;
+                candidates.push({
+                    postId: d.id,
+                    url,
+                    title: String(firstAudio?.title || firstAudio?.name || p.text || 'Audio').trim() || 'Audio',
+                    by: String(firstAudio?.by || p.authorName || '').trim(),
+                    cover: String(firstAudio?.cover || p.coverUrl || '').trim()
+                });
+            });
+            const checks = await Promise.all(candidates.map(async (c)=>{
+                try{
+                    const likeRef = firebase.doc(window.firebaseService.db, 'posts', c.postId, 'likes', uid);
+                    const likeSnap = await firebase.getDoc(likeRef);
+                    return likeSnap.exists() ? c : null;
+                }catch(_){ return null; }
+            }));
+            const dedupe = new Set();
+            checks.filter(Boolean).forEach((c)=>{
+                const key = `${c.postId}::${c.url}`;
+                if (dedupe.has(key)) return;
+                dedupe.add(key);
+                out.push({
+                    id: `liked_${c.postId}_${dedupe.size}`,
+                    title: c.title,
+                    url: c.url,
+                    authorName: c.by,
+                    coverUrl: c.cover,
+                    sourcePostId: c.postId,
+                    mediaType: 'audio',
+                    sourceMediaType: 'audio',
+                    ownerId: uid
+                });
+            });
+        }catch(_){ }
+        return out;
+    }
+
+    async renderWaveLibraryCategory(uid, category = 'all'){
+        const allHost = document.getElementById('wave-library');
+        const uploadedHost = document.getElementById('wave-library-uploaded');
+        const savedHost = document.getElementById('wave-library-saved');
+        const likedHost = document.getElementById('wave-library-liked');
+        if (!uid) return;
+        const rows = await this.fetchWaveAudioLibraryRows(uid);
+        const uploaded = rows.filter((w)=> !this.isPostLibraryItem(w));
+        const saved = rows.filter((w)=> this.isPostLibraryItem(w));
+        const all = uploaded.concat(saved);
+        const renderList = (host, list, emptyText, listName)=>{
+            if (!host) return;
+            host.innerHTML = '';
+            if (!list.length){
+                host.innerHTML = `<div style="opacity:.75;padding:8px">${emptyText}</div>`;
+                return;
             }
-            if (!postSeparatorShown && this.isPostLibraryItem(w)){
-                const sep = document.createElement('div');
-                sep.style.cssText = 'margin:10px 0 6px;font-size:12px;opacity:.8;border-top:1px solid rgba(255,255,255,.16);padding-top:8px';
-                sep.textContent = 'Posts';
-                lib.appendChild(sep);
-                postSeparatorShown = true;
+            const controls = document.createElement('div');
+            controls.className = 'wave-lib-list-controls';
+            controls.innerHTML = `<button type="button" class="btn btn-secondary wave-lib-play-all" data-i18n="playAll">Play all</button><button type="button" class="btn btn-secondary wave-lib-shuffle" data-i18n="shuffle">Shuffle</button>`;
+            const playAllBtn = controls.querySelector('.wave-lib-play-all');
+            const shuffleBtn = controls.querySelector('.wave-lib-shuffle');
+            if (playAllBtn){
+                playAllBtn.onclick = ()=>{
+                    const queue = this.buildAudioQueueFromRows(list);
+                    if (!queue.length) return;
+                    this._playQueue = queue;
+                    this.playQueueIndex(0, { restart: true });
+                };
             }
-            lib.appendChild(this.renderWaveItem(w, {
-            allowRemove: true,
-            onRemoved: ()=> this.renderWaveLibrary(uid)
-        }));
-        });
-        if (ordered.length > visible){
-            const more = document.createElement('button');
-            more.className = 'btn btn-secondary';
-            more.textContent = 'Show 5 more';
-            more.onclick = ()=>{
-                this._waveLibraryVisible = visible + 5;
-                this.renderWaveLibrary(uid);
-            };
-            lib.appendChild(more);
+            if (shuffleBtn){
+                shuffleBtn.onclick = ()=>{
+                    const queue = this.buildAudioQueueFromRows(list);
+                    if (!queue.length) return;
+                    const shuffled = queue.slice();
+                    for (let i = shuffled.length - 1; i > 0; i--){
+                        const j = Math.floor(Math.random() * (i + 1));
+                        const tmp = shuffled[i];
+                        shuffled[i] = shuffled[j];
+                        shuffled[j] = tmp;
+                    }
+                    this._playQueue = shuffled;
+                    this.playQueueIndex(0, { restart: true });
+                };
+            }
+            host.appendChild(controls);
+            list.forEach((w, idx)=>{
+                host.appendChild(this.renderWaveItem(w, {
+                    allowRemove: true,
+                    queueRows: list,
+                    queueIndex: idx,
+                    onRemoved: ()=> this.renderWaveLibraryCategory(uid, listName)
+                }));
+            });
+        };
+        if (category === 'all' || !category) renderList(allHost, all, 'No audio in your library yet.', 'all');
+        if (category === 'uploaded') renderList(uploadedHost, uploaded, 'No uploaded audio yet.', 'uploaded');
+        if (category === 'saved') renderList(savedHost, saved, 'No saved audio yet.', 'saved');
+        if (category === 'liked'){
+            if (likedHost) likedHost.innerHTML = '<div style="opacity:.75;padding:8px">Loading liked audio...</div>';
+            const likedRows = await this.fetchLikedAudioRows(uid);
+            renderList(likedHost, likedRows, 'No liked audio yet.', 'liked');
         }
     }
 
@@ -6804,6 +7047,12 @@ class DashboardManager {
             const host = div.querySelector('.wave-item-audio-host') || div;
             this.attachWaveAudioUI(a, host, { hideNative: true });
             a.addEventListener('play', ()=>{
+                const queueRows = Array.isArray(opts.queueRows) ? opts.queueRows : [];
+                const qIdx = Number.isFinite(Number(opts.queueIndex)) ? Math.max(0, Number(opts.queueIndex)) : -1;
+                if (queueRows.length && qIdx >= 0){
+                    this._playQueue = this.buildAudioQueueFromRows(queueRows);
+                    this._playQueueIndex = Math.min(this._playQueue.length - 1, qIdx);
+                }
                 this.showMiniPlayer(a, { title: w.title, by: w.authorName, cover: w.coverUrl });
                 this.incrementAssetViewCounter({ kind: 'audio', sourceId: w.id, url: w.url });
             });
@@ -6889,7 +7138,7 @@ class DashboardManager {
                     res.innerHTML='';
                     if (!qStr) return;
                     const snap = await firebase.getDocs(firebase.collection(window.firebaseService.db,'videos'));
-                    res.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
+                    res.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:10px;align-items:stretch';
                     snap.forEach(d=>{ const v=d.data(); const tags = Array.isArray(v.tagsPrivate) ? v.tagsPrivate.join(' ') : ''; if (this.resolveVisualKind(v) === 'video' && (((v.title||'').toLowerCase().includes(qStr)) || String(tags).toLowerCase().includes(qStr))){ res.appendChild(this.renderVideoItem(v)); } });
                 };
             }
@@ -6920,7 +7169,7 @@ class DashboardManager {
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
         const filtered = items.filter((v)=> this.resolveVisualKind(v) === 'video');
-        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
+        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:10px;align-items:stretch';
         const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
         const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
         const ordered = nonPost.concat(fromPosts);
@@ -6965,7 +7214,7 @@ class DashboardManager {
     async renderVideoSuggestions(uid){
         const sug = document.getElementById('video-suggestions'); if (!sug) return;
         sug.innerHTML = '';
-        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px';
+        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:10px;align-items:stretch';
         try{
             const [snap, following, personalRec] = await Promise.all([
                 firebase.getDocs(firebase.collection(window.firebaseService.db,'videos')),
@@ -7237,7 +7486,7 @@ class DashboardManager {
             const s2 = await firebase.getDocs(q2); s2.forEach(d=> items.push(d.data()));
         }
         const filtered = items.filter((v)=> this.resolveVisualKind(v) === 'image');
-        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px';
+        lib.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:10px;align-items:stretch';
         const nonPost = filtered.filter((v)=> !this.isPostLibraryItem(v));
         const fromPosts = filtered.filter((v)=> this.isPostLibraryItem(v));
         const ordered = nonPost.concat(fromPosts);
@@ -7282,7 +7531,7 @@ class DashboardManager {
     async renderPictureSuggestions(uid){
         const sug = document.getElementById('picture-suggestions'); if (!sug) return;
         sug.innerHTML = '';
-        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px';
+        sug.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:10px;align-items:stretch';
         try{
             const [snap, following, personalRec] = await Promise.all([
                 firebase.getDocs(firebase.collection(window.firebaseService.db,'videos')),
@@ -7637,8 +7886,10 @@ Do you want to proceed?`);
                     country:'Country', accountLanguage:'Account language', saveLanguageCountry:'Save Language & Country',
                     forceReload:'Force Reload', updatePassword:'Update Password',
                     tabAudio:'Audio', tabVideo:'Video', tabPictures:'Pictures',
-                    subHome:'Home', subUpload:'Upload', subStudio:'Studio', subSearch:'Search', subLibrary:'Library',
-                    quickUpload:'Upload', quickStudio:'Studio'
+                    subHome:'Home', subSearch:'Search', subLibrary:'Library', quickStudio:'Studio', quickUpload:'Upload',
+                    myLibraryTitle:'My Library', libraryAll:'All', libraryUploaded:'Uploaded', librarySaved:'Saved', libraryLiked:'Liked', libraryPlaylists:'Playlists',
+                    playAll:'Play all', shuffle:'Shuffle',
+                    navApps:'Apps', navSpace:'Personal Space', navWall:'Wall', navWaveconnect:'WaveConnect', navProfile:'My Profile', navUsers:'User Management', navSettings:'Settings'
                 },
                 es: {
                     waveconnect:'WaveConnect', profile:'Mi Perfil', users:'Gestión de usuarios', settings:'Configuración',
@@ -7646,8 +7897,10 @@ Do you want to proceed?`);
                     country:'País', accountLanguage:'Idioma de la cuenta', saveLanguageCountry:'Guardar idioma y país',
                     forceReload:'Recarga forzada', updatePassword:'Actualizar contraseña',
                     tabAudio:'Audio', tabVideo:'Video', tabPictures:'Imágenes',
-                    subHome:'Inicio', subUpload:'Subir', subStudio:'Studio', subSearch:'Buscar', subLibrary:'Biblioteca',
-                    quickUpload:'Subir', quickStudio:'Studio'
+                    subHome:'Inicio', subSearch:'Buscar', subLibrary:'Biblioteca', quickStudio:'Studio', quickUpload:'Subir',
+                    myLibraryTitle:'Mi biblioteca', libraryAll:'Todo', libraryUploaded:'Subido', librarySaved:'Guardado', libraryLiked:'Me gusta', libraryPlaylists:'Listas',
+                    playAll:'Reproducir todo', shuffle:'Aleatorio',
+                    navApps:'Aplicaciones', navSpace:'Espacio personal', navWall:'Muro', navWaveconnect:'WaveConnect', navProfile:'Mi perfil', navUsers:'Gestión de usuarios', navSettings:'Configuración'
                 },
                 fr: {
                     waveconnect:'WaveConnect', profile:'Mon Profil', users:'Gestion des utilisateurs', settings:'Paramètres',
@@ -7655,8 +7908,10 @@ Do you want to proceed?`);
                     country:'Pays', accountLanguage:'Langue du compte', saveLanguageCountry:'Enregistrer langue et pays',
                     forceReload:'Rechargement forcé', updatePassword:'Mettre à jour le mot de passe',
                     tabAudio:'Audio', tabVideo:'Vidéo', tabPictures:'Images',
-                    subHome:'Accueil', subUpload:'Téléverser', subStudio:'Studio', subSearch:'Recherche', subLibrary:'Bibliothèque',
-                    quickUpload:'Téléverser', quickStudio:'Studio'
+                    subHome:'Accueil', subSearch:'Recherche', subLibrary:'Bibliothèque', quickStudio:'Studio', quickUpload:'Téléverser',
+                    myLibraryTitle:'Ma bibliothèque', libraryAll:'Tout', libraryUploaded:'Importé', librarySaved:'Enregistré', libraryLiked:'Aimé', libraryPlaylists:'Playlists',
+                    playAll:'Tout lire', shuffle:'Aléatoire',
+                    navApps:'Applications', navSpace:'Espace personnel', navWall:'Mur', navWaveconnect:'WaveConnect', navProfile:'Mon profil', navUsers:'Gestion des utilisateurs', navSettings:'Paramètres'
                 },
                 ru: {
                     waveconnect:'WaveConnect', profile:'Мой профиль', users:'Управление пользователями', settings:'Настройки',
@@ -7664,8 +7919,10 @@ Do you want to proceed?`);
                     country:'Страна', accountLanguage:'Язык аккаунта', saveLanguageCountry:'Сохранить язык и страну',
                     forceReload:'Принудительная перезагрузка', updatePassword:'Обновить пароль',
                     tabAudio:'Аудио', tabVideo:'Видео', tabPictures:'Картинки',
-                    subHome:'Главная', subUpload:'Загрузка', subStudio:'Студия', subSearch:'Поиск', subLibrary:'Библиотека',
-                    quickUpload:'Загрузка', quickStudio:'Студия'
+                    subHome:'Главная', subSearch:'Поиск', subLibrary:'Библиотека', quickStudio:'Студия', quickUpload:'Загрузка',
+                    myLibraryTitle:'Моя библиотека', libraryAll:'Все', libraryUploaded:'Загружено', librarySaved:'Сохранено', libraryLiked:'Нравится', libraryPlaylists:'Плейлисты',
+                    playAll:'Воспроизвести все', shuffle:'Перемешать',
+                    navApps:'Приложения', navSpace:'Личное пространство', navWall:'Лента', navWaveconnect:'WaveConnect', navProfile:'Мой профиль', navUsers:'Управление пользователями', navSettings:'Настройки'
                 }
             };
             const t = dict[lang] || dict.en;
@@ -7701,22 +7958,74 @@ Do you want to proceed?`);
             if (waveAudio) waveAudio.innerHTML = `<i class="fas fa-music"></i> ${t.tabAudio}`;
             if (waveVideo) waveVideo.innerHTML = `<i class="fas fa-video"></i> ${t.tabVideo}`;
             if (wavePictures) wavePictures.innerHTML = `<i class="fas fa-image"></i> ${t.tabPictures}`;
-            const uploadQuick = document.getElementById('wave-upload-quick-btn');
             const studioQuick = document.getElementById('wave-studio-btn');
-            if (uploadQuick){ uploadQuick.title = t.quickUpload; uploadQuick.setAttribute('aria-label', t.quickUpload); }
             if (studioQuick){ studioQuick.title = t.quickStudio; studioQuick.setAttribute('aria-label', t.quickStudio); }
+            const mobileUploadBtn = document.getElementById('mobile-wave-upload-btn');
+            if (mobileUploadBtn){ mobileUploadBtn.title = t.quickUpload; mobileUploadBtn.setAttribute('aria-label', t.quickUpload); }
             const subMap = {
                 home: t.subHome,
-                upload: t.subUpload,
-                studio: t.subStudio,
                 search: t.subSearch,
                 library: t.subLibrary
             };
             document.querySelectorAll('#wave-subnav [data-wave-subtab]').forEach((btn)=>{
                 const key = String(btn.getAttribute('data-wave-subtab') || '').trim().toLowerCase();
-                if (subMap[key]) btn.textContent = subMap[key];
+                if (subMap[key]){
+                    btn.title = subMap[key];
+                    btn.setAttribute('aria-label', subMap[key]);
+                }
             });
+            this._activeUiLanguage = lang;
+            this._activeUiDict = t;
+            this.applyDynamicTranslations(document.body);
+            this.ensureTranslationObserver();
+            try{
+                // Hybrid i18n: keep curated labels + auto-translate all remaining UI chrome.
+                const root = document.getElementById('dashboard-content') || document.body;
+                window.LiberAutoUiTranslator?.translateRoot?.(root, lang);
+            }catch(_){ }
             try{ window.secureChatApp?.applyChatLanguage?.(lang); }catch(_){ }
+        }catch(_){ }
+    }
+
+    ensureTranslationObserver(){
+        try{
+            if (this._translationObserver || !window.MutationObserver) return;
+            this._translationObserver = new MutationObserver((mutations)=>{
+                mutations.forEach((m)=>{
+                    m.addedNodes?.forEach?.((n)=>{
+                        if (!(n instanceof Element)) return;
+                        this.applyDynamicTranslations(n);
+                        try{
+                            if (this._activeUiLanguage){
+                                window.LiberAutoUiTranslator?.translateRoot?.(n, this._activeUiLanguage);
+                            }
+                        }catch(_){ }
+                    });
+                });
+            });
+            this._translationObserver.observe(document.body, { childList: true, subtree: true });
+        }catch(_){ }
+    }
+
+    applyDynamicTranslations(root){
+        try{
+            const dict = this._activeUiDict || null;
+            if (!dict || !root) return;
+            const applyTo = (el)=>{
+                const key = String(el.getAttribute('data-i18n') || '').trim();
+                const pKey = String(el.getAttribute('data-i18n-placeholder') || '').trim();
+                const tKey = String(el.getAttribute('data-i18n-title') || '').trim();
+                if (key && dict[key]) el.textContent = dict[key];
+                if (pKey && dict[pKey]) el.setAttribute('placeholder', dict[pKey]);
+                if (tKey && dict[tKey]){
+                    el.setAttribute('title', dict[tKey]);
+                    el.setAttribute('aria-label', dict[tKey]);
+                }
+            };
+            if (root instanceof Element){
+                applyTo(root);
+                root.querySelectorAll('[data-i18n],[data-i18n-placeholder],[data-i18n-title]').forEach(applyTo);
+            }
         }catch(_){ }
     }
 

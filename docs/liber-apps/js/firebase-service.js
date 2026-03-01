@@ -1338,6 +1338,15 @@ class FirebaseService {
     async callFunction(name, payload = {}) {
         try {
             await this.waitForInit();
+            if (name === 'saveFcmToken' || name === 'saveSwitchToken'){
+                const user = this.auth?.currentUser || null;
+                if (!user) return null;
+                try{
+                    await user.getIdToken();
+                }catch(_){
+                    return null;
+                }
+            }
             // HTTP endpoints for callables that often 401 in iframe - use first
             if (name === 'sendProjectRespondEmail' && this.auth?.currentUser) {
                 try {
@@ -1424,6 +1433,12 @@ class FirebaseService {
             // For sendProjectRespondEmail, HTTP already tried above
             return null;
         } catch (e) {
+            const msg = String(e?.message || '').toLowerCase();
+            const code = String(e?.code || '').toLowerCase();
+            const authLike = msg.includes('unauth') || msg.includes('401') || code.includes('unauth') || code.includes('permission-denied');
+            if ((name === 'saveFcmToken' || name === 'saveSwitchToken') && authLike){
+                return null;
+            }
             console.warn('Callable function failed:', name, e?.message || e);
             if (name === 'sendProjectRespondEmail' || name === 'approveProject' || name === 'ensureProjectChat' || name === 'inviteProjectMemberByEmail' || name === 'removeProjectMember' || name === 'submitProjectRequest' || name === 'submitProjectReview' || name === 'deleteProjectReview' || name === 'adminDeleteUser') throw e;
             return null;

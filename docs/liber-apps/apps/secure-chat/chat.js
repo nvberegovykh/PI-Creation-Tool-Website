@@ -103,7 +103,7 @@
       this._setActiveSeq = 0;
       this._attachmentPreviewQueue = [];
       this._attachmentPreviewRunning = 0;
-      this._attachmentPreviewMax = 7;
+      this._attachmentPreviewMax = this.isMobileViewport() ? 4 : 6;
       this._chatAudioPlaylist = [];
       this._peerUidByConn = new Map();
       this._avatarCache = new Map();
@@ -1160,9 +1160,11 @@
       const picker = document.getElementById('msg-reaction-picker');
       const backdrop = document.getElementById('msg-context-backdrop');
       if (!overlay || !stack || !bubble || !picker) return;
+      this._msgContextReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       this._msgContextData = msgData;
       const rect = el.getBoundingClientRect();
       stack.style.display = 'flex';
+      overlay.removeAttribute('inert');
       const canModify = msgData.canModify;
       const t = this.getChatTextBundle();
       const items = [
@@ -1180,10 +1182,18 @@
       bubble.innerHTML = items.map(i=> `<button type="button" class="msg-context-item ${i.cls||''}" data-action="${i.id}"><i class="fas ${i.icon}"></i> ${i.label}</button>`).join('');
       picker.innerHTML = SecureChatApp.REACTION_EMOJIS.map(e=> `<button type="button" class="msg-react-btn" data-emoji="${e}" title="${e}">${e}</button>`).join('');
       const close = ()=>{
+        const active = document.activeElement;
+        if (active && overlay.contains(active) && typeof active.blur === 'function'){
+          try{ active.blur(); }catch(_){ }
+        }
         overlay.classList.remove('active');
         stack.classList.add('hiding');
         setTimeout(()=>{ stack.style.display = 'none'; stack.classList.remove('hiding'); }, 180);
         overlay.setAttribute('aria-hidden','true');
+        overlay.setAttribute('inert', '');
+        if (this._msgContextReturnFocusEl && this._msgContextReturnFocusEl.isConnected){
+          try{ this._msgContextReturnFocusEl.focus({ preventScroll: true }); }catch(_){ }
+        }
         backdrop.onclick = null;
       };
       backdrop.onclick = close;
@@ -1197,6 +1207,7 @@
       });
       overlay.classList.add('active');
       overlay.setAttribute('aria-hidden','false');
+      overlay.removeAttribute('inert');
       requestAnimationFrame(()=>{
         const stackRect = stack.getBoundingClientRect();
         const pad = 12;
@@ -1786,10 +1797,16 @@
       let dragStartX = 0;
       let dragReplyTriggered = false;
       let dragArmed = false;
+      let dragRaf = 0;
+      let lastPreviewDelta = 0;
       const getClientX = (e)=> (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
       const resetDragPreview = ()=>{
         el.classList.remove('reply-dragging');
         el.style.transform = '';
+        if (dragRaf){
+          cancelAnimationFrame(dragRaf);
+          dragRaf = 0;
+        }
       };
       const onDragStart = (e)=>{
         if (e.target.closest('.msg-reaction-badge, .msg-context-overlay, .msg-reply-quote')) return;
@@ -1807,7 +1824,13 @@
         const delta = x - dragStartX;
         const isSelf = el.classList.contains('self');
         const previewDelta = isSelf ? Math.max(-DRAG_PREVIEW_LIMIT, Math.min(0, delta)) : Math.min(DRAG_PREVIEW_LIMIT, Math.max(0, delta));
-        el.style.transform = `translateX(${previewDelta}px)`;
+        lastPreviewDelta = previewDelta;
+        if (!dragRaf){
+          dragRaf = requestAnimationFrame(()=>{
+            dragRaf = 0;
+            el.style.transform = `translate3d(${lastPreviewDelta}px,0,0)`;
+          });
+        }
         const triggered = isSelf ? delta < -DRAG_REPLY_THRESHOLD : delta > DRAG_REPLY_THRESHOLD;
         if (triggered){
           dragReplyTriggered = true;
@@ -1836,6 +1859,7 @@
         const ref = firebase.doc(this.db,'chatMessages',connId,'messages',msgId);
         const snap = await firebase.getDoc(ref);
         if (!snap.exists()) return;
+        if (!this.currentUser?.uid) return;
         const data = snap.data() || {};
         const reactions = { ...(data.reactions && typeof data.reactions === 'object' ? data.reactions : {}) };
         const list = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
@@ -1851,7 +1875,10 @@
     showReactionsWhoModal(emoji, uids, connId){
       const modal = document.getElementById('reactions-who-modal');
       if (!modal) return;
+      this._reactionsModalReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      modal.removeAttribute('inert');
       modal.innerHTML = `<div class="reactions-who-panel">
         <div class="reactions-who-title"><span class="emoji">${emoji}</span> Reacted</div>
         <div class="reactions-who-list"></div>
@@ -1866,8 +1893,21 @@
         item.innerHTML = `<img src="${avatar}" alt=""><span>${String(name).replace(/</g,'&lt;')}</span>`;
         list.appendChild(item);
       });
-      modal.querySelector('#reactions-who-close').onclick = ()=> modal.classList.add('hidden');
-      modal.onclick = (e)=> { if (e.target === modal) modal.classList.add('hidden'); };
+      const closeModal = ()=>{
+        const active = document.activeElement;
+        if (active && modal.contains(active) && typeof active.blur === 'function'){
+          try{ active.blur(); }catch(_){ }
+        }
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        modal.setAttribute('inert', '');
+        if (this._reactionsModalReturnFocusEl && this._reactionsModalReturnFocusEl.isConnected){
+          try{ this._reactionsModalReturnFocusEl.focus({ preventScroll: true }); }catch(_){ }
+        }
+      };
+      const closeBtn = modal.querySelector('#reactions-who-close');
+      if (closeBtn) closeBtn.onclick = closeModal;
+      modal.onclick = (e)=> { if (e.target === modal) closeModal(); };
     }
 
     getRecentAttachments(){
@@ -5525,7 +5565,7 @@
         return;
       }
       const activeConnId = this.activeConnection;
-      const visibleLimit = this.isMobileViewport() ? 120 : 160;
+      const visibleLimit = this.isMobileViewport() ? 80 : 120;
       const activeConnData = (this.connections || []).find((c)=> c && c.id === activeConnId) || null;
       const readMarkerMs = this.getEffectiveReadMarkerForConn(activeConnId, activeConnData);
       this._msgLoadSeq = (this._msgLoadSeq || 0) + 1;
@@ -5582,14 +5622,14 @@
             qOlder = firebase.query(
               firebase.collection(this.db,'chatMessages',connId,'messages'),
               firebase.orderBy('createdAtTS','desc'),
-              firebase.limit(200),
+              firebase.limit(120),
               firebase.startAfter(lastDoc)
             );
           }catch(_){
             qOlder = firebase.query(
               firebase.collection(this.db,'chatMessages',connId,'messages'),
               firebase.orderBy('createdAt','desc'),
-              firebase.limit(200),
+              firebase.limit(120),
               firebase.startAfter(lastDoc)
             );
           }
@@ -5600,7 +5640,7 @@
             return;
           }
           this._lastOldestDocSnapshotByConn.set(connId, rawOlder[rawOlder.length - 1]);
-          this._hasMoreOlderByConn.set(connId, rawOlder.length >= 200);
+          this._hasMoreOlderByConn.set(connId, rawOlder.length >= 120);
           const prevScrollTop = box.scrollTop;
           const appendContext = { lastRenderedDay: '' };
           const lastMsgEl = box.lastElementChild?.classList?.contains('message') ? box.lastElementChild : null;
@@ -6236,7 +6276,7 @@
           this._scheduleLiveSnapTimer = setTimeout(()=>{
             this._scheduleLiveSnapTimer = null;
             processLiveSnap().catch(()=>{});
-          }, 200);
+          }, 80);
         };
         // Core invariant: first paint must run inline for active chat (no queued async dependency).
         try{
@@ -6275,7 +6315,7 @@
               const s = await fetchLatestSnapWithTimeout(4500);
               await handleSnap(s, false);
             }catch(_){ }
-          }, 2500);
+          }, 1200);
           const snap = await fetchLatestSnapWithTimeout(4500); await handleSnap(snap, false);
         }
         loadWatchdog = setTimeout(async ()=>{

@@ -458,17 +458,28 @@ img, video, canvas, svg, iframe {
   display:flex;
   align-items:center;
   gap:10px;
+  justify-content:space-between;
+  width:100%;
 }
 .wave-subnav{
   display:flex;
   gap:8px;
   margin:8px 0 12px;
-  flex-wrap:wrap;
-  justify-content:flex-end;
+  flex-wrap:nowrap;
+  justify-content:flex-start;
 }
 #waveconnect-section .wave-subnav .btn{
-  border-radius:10px;
-  padding:8px 12px;
+  border-radius:12px;
+  width:42px;
+  height:42px;
+  min-width:42px;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+#waveconnect-section .wave-subnav .btn i{
+  margin:0;
 }
 #waveconnect-section .wave-subnav .btn.active{
   background:linear-gradient(135deg,#2563eb,#3b82f6);
@@ -494,6 +505,38 @@ img, video, canvas, svg, iframe {
   border-radius:12px;
   background:#101828;
   padding:10px;
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.wave-home-card:hover{
+  transform:translateY(-1px);
+  box-shadow:0 8px 20px rgba(0,0,0,.28);
+  border-color:rgba(91,169,255,.35);
+}
+.wave-lib-list-controls{
+  display:flex;
+  gap:8px;
+  margin:2px 0 8px;
+}
+#wave-lib-tab-all,
+#wave-lib-tab-uploaded,
+#wave-lib-tab-saved,
+#wave-lib-tab-liked,
+#wave-lib-tab-playlists{
+  transition:transform .14s ease, background-color .14s ease;
+}
+#wave-lib-tab-all:not(.active):hover,
+#wave-lib-tab-uploaded:not(.active):hover,
+#wave-lib-tab-saved:not(.active):hover,
+#wave-lib-tab-liked:not(.active):hover,
+#wave-lib-tab-playlists:not(.active):hover{
+  transform:translateY(-1px);
+}
+.wave-item{
+  transition:border-color .16s ease, box-shadow .16s ease;
+}
+.wave-item:hover{
+  border-color:rgba(91,169,255,.34) !important;
+  box-shadow:0 8px 20px rgba(0,0,0,.2);
 }
 .wave-following-row{
   display:flex;
@@ -588,6 +631,16 @@ img, video, canvas, svg, iframe {
   width:100%;
   justify-content:center;
 }
+.wave-studio-shell .wave-studio-rows{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));
+  gap:10px;
+}
+.wave-studio-row input,
+.wave-studio-row select{
+  width:100%;
+  min-width:0;
+}
 .video-item-header{ position:relative; z-index:1 }
 .video-item-actions{ pointer-events:auto }
 
@@ -598,6 +651,8 @@ img, video, canvas, svg, iframe {
   }
   .wave-subnav{
     justify-content:flex-start;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
   }
   #waveconnect-section .section-header .tabs,
   #waveconnect-section .section-header > div[style*="display:flex"]{
@@ -612,11 +667,21 @@ img, video, canvas, svg, iframe {
   .waveconnect-sheet-grid{
     grid-template-columns:repeat(2,minmax(0,1fr));
   }
+  #wave-audio-pane .settings-card > div[style*="display:flex;gap:8px;align-items:center"]{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    white-space:nowrap;
+    flex-wrap:nowrap !important;
+    padding-bottom:2px;
+  }
+  #wave-audio-pane .settings-card > div[style*="display:flex;gap:8px;align-items:center"] .btn{
+    flex:0 0 auto;
+  }
   #waveconnect-section .btn{
     padding:8px 10px;
     font-size:13px;
   }
-  #waveconnect-section .btn i{ margin-right:4px }
+  #waveconnect-section .waveconnect-tabs .btn i{ margin-right:4px }
   #wave-video-pane .btn,
   #wave-pictures-pane .btn{
     padding:8px 10px;

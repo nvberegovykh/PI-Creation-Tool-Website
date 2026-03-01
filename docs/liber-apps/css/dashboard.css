@@ -1026,6 +1026,24 @@
     overflow: hidden; /* Ensure inner icon never spills outside */
 }
 
+.mobile-nav-btn.mobile-upload-plus-btn{
+    background:#007bff;
+    color:#ffffff;
+    border-radius:50%;
+    width:56px;
+    height:56px;
+    flex:0 0 56px;
+    margin:0 10px;
+    box-shadow:0 6px 16px rgba(0,123,255,.45);
+    position:relative;
+    z-index:10;
+}
+
+.mobile-nav-btn.mobile-upload-plus-btn i{
+    font-size:22px;
+    color:#fff !important;
+}
+
 .mobile-nav-btn.wall-e-btn:hover {
     transform: scale(1.05);
     box-shadow: 0 6px 16px rgba(0, 123, 255, 0.5);

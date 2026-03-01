@@ -222,27 +222,27 @@
         <!-- Navigation -->
         <nav class="dashboard-nav">
             <button class="nav-btn active" data-section="apps" title="Apps">
-                <i class="fas fa-th"></i><span class="nav-label">Apps</span>
+                <i class="fas fa-th"></i><span class="nav-label" data-i18n="navApps">Apps</span>
             </button>
             <button class="nav-btn" data-section="space" title="Personal Space">
-                <i class="fas fa-id-badge"></i><span class="nav-label">Personal Space</span>
+                <i class="fas fa-id-badge"></i><span class="nav-label" data-i18n="navSpace">Personal Space</span>
                 <span id="nav-space-request-badge" class="nav-badge hidden" aria-hidden="true">0</span>
             </button>
             <button class="nav-btn" data-section="feed" title="Wall">
-                <i class="fas fa-stream"></i><span class="nav-label">Wall</span>
+                <i class="fas fa-stream"></i><span class="nav-label" data-i18n="navWall">Wall</span>
             </button>
             <button class="nav-btn" data-section="waveconnect" title="WaveConnect">
-                <i class="fas fa-music"></i><span class="nav-label">WaveConnect</span>
+                <i class="fas fa-music"></i><span class="nav-label" data-i18n="navWaveconnect">WaveConnect</span>
             </button>
             <button class="nav-btn" data-section="profile" title="My Profile">
-                <i class="fas fa-user"></i><span class="nav-label">My Profile</span>
+                <i class="fas fa-user"></i><span class="nav-label" data-i18n="navProfile">My Profile</span>
                 <span id="nav-profile-request-badge" class="nav-badge hidden" aria-hidden="true">0</span>
             </button>
             <button class="nav-btn admin-only" data-section="users" title="User Management">
-                <i class="fas fa-users"></i><span class="nav-label">User Management</span>
+                <i class="fas fa-users"></i><span class="nav-label" data-i18n="navUsers">User Management</span>
             </button>
             <button class="nav-btn admin-only" data-section="settings" title="Settings">
-                <i class="fas fa-cog"></i><span class="nav-label">Settings</span>
+                <i class="fas fa-cog"></i><span class="nav-label" data-i18n="navSettings">Settings</span>
             </button>
         </nav>
 
@@ -262,6 +262,9 @@
             </button>
             <button class="mobile-nav-btn" data-section="feed">
                 <i class="fas fa-stream"></i>
+            </button>
+            <button class="mobile-nav-btn mobile-upload-plus-btn" id="mobile-wave-upload-btn" title="Upload" aria-label="Upload to WaveConnect" data-i18n-title="quickUpload">
+                <i class="fas fa-plus"></i>
             </button>
             <button class="mobile-nav-btn" data-section="waveconnect">
                 <i class="fas fa-music"></i>
@@ -409,20 +412,17 @@
                     <h2>WaveConnect</h2>
                     <div class="waveconnect-header-actions">
                         <div class="tabs waveconnect-tabs" role="tablist" aria-label="WaveConnect content tabs">
-                            <button id="wave-tab-audio" class="btn btn-secondary active" role="tab" aria-selected="true"><i class="fas fa-music"></i> Audio</button>
-                            <button id="wave-tab-video" class="btn btn-secondary" role="tab" aria-selected="false"><i class="fas fa-video"></i> Video</button>
-                            <button id="wave-tab-pictures" class="btn btn-secondary" role="tab" aria-selected="false"><i class="fas fa-image"></i> Pictures</button>
+                            <button id="wave-tab-audio" class="btn btn-secondary active" role="tab" aria-selected="true" data-i18n-title="tabAudio"><i class="fas fa-music"></i> Audio</button>
+                            <button id="wave-tab-video" class="btn btn-secondary" role="tab" aria-selected="false" data-i18n-title="tabVideo"><i class="fas fa-video"></i> Video</button>
+                            <button id="wave-tab-pictures" class="btn btn-secondary" role="tab" aria-selected="false" data-i18n-title="tabPictures"><i class="fas fa-image"></i> Pictures</button>
                         </div>
-                        <button id="wave-upload-quick-btn" class="btn btn-secondary waveconnect-quick-btn" title="Upload" aria-label="Open upload actions"><i class="fas fa-cloud-arrow-up"></i></button>
-                        <button id="wave-studio-btn" class="btn btn-secondary waveconnect-quick-btn" title="Studio" aria-label="Open studio manager"><i class="fas fa-sliders"></i></button>
+                        <button id="wave-studio-btn" class="btn btn-secondary waveconnect-quick-btn" title="Studio" aria-label="Open studio manager" data-i18n-title="quickStudio"><i class="fas fa-sliders"></i></button>
                     </div>
                 </div>
                 <div id="wave-subnav" class="wave-subnav" role="tablist" aria-label="WaveConnect submenu">
-                    <button class="btn btn-secondary active" data-wave-subtab="home" aria-selected="true">Home</button>
-                    <button class="btn btn-secondary" data-wave-subtab="upload" aria-selected="false">Upload</button>
-                    <button class="btn btn-secondary" data-wave-subtab="studio" aria-selected="false">Studio</button>
-                    <button class="btn btn-secondary" data-wave-subtab="search" aria-selected="false">Search</button>
-                    <button class="btn btn-secondary" data-wave-subtab="library" aria-selected="false">Library</button>
+                    <button class="btn btn-secondary active" data-wave-subtab="home" aria-selected="true" title="Home" aria-label="Home" data-i18n-title="subHome"><i class="fas fa-house"></i></button>
+                    <button class="btn btn-secondary" data-wave-subtab="search" aria-selected="false" title="Search" aria-label="Search" data-i18n-title="subSearch"><i class="fas fa-magnifying-glass"></i></button>
+                    <button class="btn btn-secondary" data-wave-subtab="library" aria-selected="false" title="Library" aria-label="Library" data-i18n-title="subLibrary"><i class="fas fa-photo-film"></i></button>
                 </div>
 
                 <!-- Audio Pane -->
@@ -460,13 +460,28 @@
                         </div>
                     </div>
                     <div class="settings-card" style="margin-top:16px">
-                        <h3>My Library</h3>
+                        <h3 data-i18n="myLibraryTitle">My Library</h3>
                         <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-                            <button id="wave-lib-tab-default" class="btn btn-secondary active">Library</button>
-                            <button id="wave-lib-tab-posts" class="btn btn-secondary">From posts</button>
+                            <button id="wave-lib-tab-all" class="btn btn-secondary active" data-i18n="libraryAll">All</button>
+                            <button id="wave-lib-tab-uploaded" class="btn btn-secondary" data-i18n="libraryUploaded">Uploaded</button>
+                            <button id="wave-lib-tab-saved" class="btn btn-secondary" data-i18n="librarySaved">Saved</button>
+                            <button id="wave-lib-tab-liked" class="btn btn-secondary" data-i18n="libraryLiked">Liked</button>
+                            <button id="wave-lib-tab-playlists" class="btn btn-secondary" data-i18n="libraryPlaylists">Playlists</button>
                         </div>
                         <div id="wave-library-pane">
                             <div id="wave-library"></div>
+                        </div>
+                        <div id="wave-library-uploaded-pane" style="display:none">
+                            <div id="wave-library-uploaded"></div>
+                        </div>
+                        <div id="wave-library-saved-pane" style="display:none">
+                            <div id="wave-library-saved"></div>
+                        </div>
+                        <div id="wave-library-liked-pane" style="display:none">
+                            <div id="wave-library-liked"></div>
+                        </div>
+                        <div id="wave-library-playlists-pane" style="display:none">
+                            <div id="wave-playlists"></div>
                         </div>
                         <div id="wave-library-posts-pane" style="display:none">
                             <div id="wave-library-posts"></div>
@@ -477,7 +492,6 @@
                         <div style="display:flex;gap:8px;margin-bottom:10px">
                             <button id="wave-new-playlist-btn" class="btn btn-secondary"><i class="fas fa-plus"></i> New playlist</button>
                         </div>
-                        <div id="wave-playlists"></div>
                     </div>
                     <div class="settings-card" style="margin-top:16px">
                         <h3>Search Results</h3>
@@ -909,7 +923,7 @@
       window.LIBER_APP_VERSION = '20260228r23';
       (function loadVersionedScripts() {
         const v = encodeURIComponent(window.LIBER_APP_VERSION || 'dev');
-        const critical = ['js/crypto.js', 'js/secure-keys.js', 'js/email-service.js', 'js/firebase-service.js', 'js/auth.js', '../components/media-fullscreen-viewer.js', '../components/media-video-player.js', 'js/dashboard.js', 'js/apps.js', 'js/users.js', 'js/main.js'];
+        const critical = ['js/crypto.js', 'js/secure-keys.js', 'js/email-service.js', 'js/firebase-service.js', 'js/auth.js', '../components/auto-ui-translate.js', '../components/media-fullscreen-viewer.js', '../components/media-video-player.js', 'js/dashboard.js', 'js/apps.js', 'js/users.js', 'js/main.js'];
         const deferred = ['js/migration-helper.js', 'js/chatgpt-integration.js'];
         document.write(critical.map((src) => `<script src="${src}?v=${v}"><\/script>`).join(''));
         document.write(deferred.map((src) => `<script defer src="${src}?v=${v}"><\/script>`).join(''));
