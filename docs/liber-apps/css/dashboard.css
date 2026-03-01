@@ -20,6 +20,9 @@
 #users-section,
 #settings-section { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 
+/* Personal Space should always pan vertically */
+#space-section { touch-action: pan-y; }
+
 /* Dashboard Header */
 .dashboard-header { display:none }
 
@@ -1162,9 +1165,8 @@
 }
 #space-section .settings-grid {
   display: block;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  /* Keep Personal Space scrolling on the section itself */
+  overflow: visible;
 }
 
 @media (min-width: 768px) {
@@ -1220,9 +1222,9 @@
   .dashboard-content {
     grid-column: 2;
     padding: 24px 32px;
-    max-width: 1200px;
+    max-width: none;
     width: 100%;
-    justify-self: center;
+    justify-self: stretch;
     min-width: 0;
     box-sizing: border-box;
   }

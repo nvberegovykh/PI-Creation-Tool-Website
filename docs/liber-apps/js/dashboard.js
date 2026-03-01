@@ -2995,8 +2995,24 @@ class DashboardManager {
         if (!host) return;
         const playlists = await this.hydratePlaylistsFromCloud();
         host.innerHTML = '';
+        const controls = document.createElement('div');
+        controls.className = 'wave-lib-list-controls';
+        controls.style.marginBottom = '10px';
+        controls.innerHTML = '<button type="button" class="btn btn-secondary"><i class="fas fa-plus"></i> New playlist</button>';
+        const createBtn = controls.querySelector('button');
+        if (createBtn){
+            createBtn.onclick = async ()=>{
+                const uid = String(this._waveAudioLibraryOwnerUid || this.currentUser?.uid || '').trim();
+                const ownerName = String(this.currentUser?.email || '').trim();
+                await this.createWavePlaylistFromPrompt(uid, ownerName);
+            };
+        }
+        host.appendChild(controls);
         if (!playlists.length){
-            host.innerHTML = '<div style="opacity:.8">No playlists yet.</div>';
+            const empty = document.createElement('div');
+            empty.style.cssText = 'opacity:.8;padding:8px;border:1px solid var(--border-color);border-radius:10px;background:rgba(15,20,30,.4)';
+            empty.textContent = 'No playlists yet.';
+            host.appendChild(empty);
             return;
         }
         const visible = Math.max(5, Number(this._playlistsVisible || 5));
@@ -3004,6 +3020,7 @@ class DashboardManager {
             const pl = await this.resolvePlaylistForRender(plRaw);
             const wrap = document.createElement('div');
             wrap.className = 'playlist-card';
+            wrap.dataset.playlistId = String(plRaw?.id || '');
             wrap.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:8px;margin-bottom:10px;background:#0f1116';
             const head = document.createElement('div');
             head.className = 'playlist-head';
@@ -5757,6 +5774,18 @@ class DashboardManager {
         show('#wave-audio-pane > .section-header,#wave-results,#wave-results-wrapper,#video-search-pane,#picture-search-pane', sub === 'search');
         show('#wave-library-pane,#wave-library-uploaded-pane,#wave-library-saved-pane,#wave-library-liked-pane,#wave-library-playlists-pane,#video-library-pane,#picture-library-pane,#wave-playlists', sub === 'library');
         show('#video-suggestions-pane,#picture-suggestions-pane', sub === 'home');
+        if (main === 'audio'){
+            const showCard = (id, visible)=>{
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('wave-subtab-hidden', !visible);
+            };
+            // Audio: keep Home clean; show only relevant cards per subtab.
+            showCard('wave-audio-search-bar', sub === 'search');
+            showCard('wave-audio-search-card', sub === 'search');
+            showCard('wave-audio-library-card', sub === 'library');
+            showCard('wave-upload-card', false);
+        }
         if (sub === 'search'){
             if (main === 'video'){
                 const paneSearch = document.getElementById('video-search-pane');
@@ -6343,22 +6372,7 @@ class DashboardManager {
             if (newPlaylistBtn && !newPlaylistBtn._bound){
                 newPlaylistBtn._bound = true;
                 newPlaylistBtn.onclick = async ()=>{
-                    const name = String(prompt('Playlist name:') || '').trim();
-                    if (!name) return;
-                    const makePublic = confirm('Make this playlist public?');
-                    const playlists = await this.hydratePlaylistsFromCloud();
-                    playlists.push({
-                        id: `pl_${Date.now()}`,
-                        name,
-                        visibility: makePublic ? 'public' : 'private',
-                        owner: me.uid,
-                        ownerId: me.uid,
-                        ownerName: me.email || '',
-                        items: []
-                    });
-                    this.savePlaylists(playlists);
-                    await this.syncPlaylistsToCloud(playlists);
-                    this.renderPlaylists();
+                    await this.createWavePlaylistFromPrompt(me.uid, me.email || '');
                 };
             }
             this._waveAudioLibraryOwnerUid = String(me?.uid || '');
@@ -6410,34 +6424,32 @@ class DashboardManager {
                 this.fetchWaveAudioLibraryRows(uid).catch(()=> []),
                 this.fetchLikedAudioRows(uid).catch(()=> [])
             ]);
-            highlights.className = 'wave-home-grid';
-            const created = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') === String(uid));
-            const saved = (Array.isArray(playlists) ? playlists : []).filter((p)=> String(p.ownerId || p.owner || '') !== String(uid));
-            const uploadedCount = (libraryRows || []).filter((w)=> !this.isPostLibraryItem(w)).length;
-            const savedCount = (libraryRows || []).filter((w)=> this.isPostLibraryItem(w)).length;
-            const likedCount = (likedRows || []).length;
-            highlights.innerHTML = `
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My Library</div><div style="font-size:22px;font-weight:700">${(libraryRows || []).length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Uploaded</div><div style="font-size:22px;font-weight:700">${uploadedCount}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Liked media</div><div style="font-size:22px;font-weight:700">${likedCount}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Saved</div><div style="font-size:22px;font-weight:700">${savedCount}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists created</div><div style="font-size:22px;font-weight:700">${created.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Playlists added</div><div style="font-size:22px;font-weight:700">${saved.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Following</div><div style="font-size:22px;font-weight:700">${followingRows.length}</div></div>
-            `;
+            // Home should be media-first, without metric stat cards.
+            highlights.style.display = 'none';
+            highlights.innerHTML = '';
             const audioRows = [];
             try{
                 const q = firebase.query(firebase.collection(window.firebaseService.db, 'wave'), firebase.limit(320));
                 const s = await firebase.getDocs(q);
                 s.forEach((d)=> audioRows.push(d.data() || {}));
             }catch(_){ }
-            const monthTop = audioRows
+            const toPlayableAudioRows = (rows)=> (Array.isArray(rows) ? rows : [])
+                .filter((w)=> this.isWaveAudioItem(w))
+                .map((w)=> ({
+                    ...w,
+                    url: String(w?.url || '').trim(),
+                    title: String(w?.title || 'Track').trim() || 'Track',
+                    authorName: String(w?.authorName || w?.by || '').trim(),
+                    coverUrl: String(w?.coverUrl || w?.thumbnailUrl || '').trim()
+                }))
+                .filter((w)=> !!w.url);
+            const monthTop = toPlayableAudioRows(audioRows
                 .filter((w)=> this.isWaveAudioItem(w))
                 .sort((a,b)=> (Number(b.playCount || 0) || 0) - (Number(a.playCount || 0) || 0))
-                .slice(0, 6);
+                .slice(0, 6));
             const followingSet = new Set((followingRows || []).map((u)=> String(u.uid || '').trim()).filter(Boolean));
             const libraryAuthorSet = new Set((libraryRows || []).map((w)=> String(w.authorId || w.owner || '').trim()).filter(Boolean));
-            const recommendedTop = audioRows
+            const recommendedTop = toPlayableAudioRows(audioRows
                 .filter((w)=> this.isWaveAudioItem(w))
                 .map((row)=>{
                     const authorId = String(row.authorId || row.owner || '').trim();
@@ -6448,27 +6460,101 @@ class DashboardManager {
                 })
                 .sort((a,b)=> b.score - a.score)
                 .map((x)=> x.row)
-                .slice(0, 6);
-            const renderAudioHomeCard = (row)=>{
-                const coverSrc = String(row.coverUrl || row.thumbnailUrl || '').trim() || 'images/default-bird.png';
-                const title = String(row.title || 'Track').replace(/</g,'&lt;');
-                const plays = Number(row.playCount || 0) || 0;
-                return `<div class="wave-home-card wave-home-media-card">
-                  <div class="wave-home-media-head">
-                    <img src="${coverSrc.replace(/"/g,'&quot;')}" alt="cover" class="wave-home-media-cover">
-                    <div style="min-width:0;flex:1">
-                      <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-                      <div style="opacity:.75;font-size:12px">${plays} plays</div>
-                    </div>
-                  </div>
-                </div>`;
+                .slice(0, 6));
+            const fallbackFromLibrary = toPlayableAudioRows((libraryRows || []).slice(0, 6));
+            const recRows = recommendedTop.length ? recommendedTop : (monthTop.length ? monthTop : fallbackFromLibrary);
+            const recentRows = toPlayableAudioRows((libraryRows || [])
+                .slice()
+                .sort((a,b)=> {
+                    const ta = Number(new Date(a?.updatedAt || a?.createdAt || 0).getTime() || 0);
+                    const tb = Number(new Date(b?.updatedAt || b?.createdAt || 0).getTime() || 0);
+                    return tb - ta;
+                })
+                .slice(0, 8));
+            const homePlaylists = (Array.isArray(playlists) ? playlists : []).slice(0, 10);
+            const openPlaylistsLibrary = (playlistId = '')=>{
+                this.setWaveSubtab('library');
+                try{
+                    if (uid){
+                        localStorage.setItem(`liber_wave_audio_lib_tab_${uid}`, 'playlists');
+                    }
+                }catch(_){ }
+                const scrollToPlaylist = ()=>{
+                    const pid = String(playlistId || '').trim();
+                    if (!pid) return;
+                    const card = Array.from(document.querySelectorAll('#wave-playlists .playlist-card'))
+                        .find((el)=> String(el?.dataset?.playlistId || '') === pid);
+                    if (card && card.scrollIntoView){
+                        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                };
+                const tabBtn = document.getElementById('wave-lib-tab-playlists');
+                if (tabBtn){
+                    tabBtn.click();
+                    setTimeout(scrollToPlaylist, 90);
+                } else {
+                    this.setupWaveLibraryTabs();
+                    setTimeout(()=>{
+                        try{
+                            document.getElementById('wave-lib-tab-playlists')?.click();
+                            setTimeout(scrollToPlaylist, 90);
+                        }catch(_){ }
+                    }, 40);
+                }
+            };
+            const appendRichRow = (host, rows)=>{
+                if (!host) return;
+                host.innerHTML = '';
+                if (!rows.length){
+                    host.innerHTML = '<div style="opacity:.75">No tracks yet.</div>';
+                    return;
+                }
+                rows.forEach((row, idx)=>{
+                    const item = this.renderWaveItem({
+                        ...row,
+                        coverUrl: String(row.coverUrl || row.thumbnailUrl || '').trim() || 'images/default-bird.png',
+                        authorName: String(row.authorName || row.by || '').trim()
+                    }, {
+                        queueRows: rows,
+                        queueIndex: idx
+                    });
+                    item.classList.add('wave-home-audio-rich-card');
+                    host.appendChild(item);
+                });
             };
             monthHost.innerHTML = `
-              <h4 style="margin:0 0 8px">Recommended For You</h4>
-              <div class="wave-home-grid">${recommendedTop.map((row)=> renderAudioHomeCard(row)).join('') || '<div style="opacity:.75">No recommendations yet.</div>'}</div>
-              <h4 style="margin:12px 0 8px">Most Popular This Month</h4>
-              <div class="wave-home-grid">${monthTop.map((row)=> renderAudioHomeCard(row)).join('') || '<div style="opacity:.75">No popular tracks yet.</div>'}</div>
+              <div class="wave-home-section">
+                <h4 style="margin:0 0 8px">Recently Played</h4>
+                <div id="wave-home-recent-row" class="wave-home-row"></div>
+              </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Recommended For You</h4>
+                <div id="wave-home-recommended-row" class="wave-home-row"></div>
+              </div>
+              <div class="wave-home-section" style="margin-top:12px">
+                <h4 style="margin:0 0 8px">Playlists</h4>
+                <div class="wave-home-row">${homePlaylists.map((pl)=> {
+                    const name = String(pl?.name || 'Playlist').replace(/</g,'&lt;');
+                    const items = Array.isArray(pl?.items) ? pl.items : [];
+                    const cover = String(items[0]?.cover || items[0]?.coverUrl || 'images/default-bird.png').replace(/"/g,'&quot;');
+                    const count = items.length;
+                    return `<button type="button" class="wave-home-playlist-card" data-open-playlist-home="1" data-playlist-id="${String(pl?.id || '').replace(/"/g,'&quot;')}">
+                      <img src="${cover}" alt="playlist cover">
+                      <span class="wave-home-playlist-overlay">
+                        <span class="wave-home-playlist-title">${name}</span>
+                        <span class="wave-home-playlist-meta">${count} tracks</span>
+                      </span>
+                    </button>`;
+                }).join('') || '<div style="opacity:.75">No playlists yet.</div>'}</div>
+              </div>
             `;
+            appendRichRow(document.getElementById('wave-home-recent-row'), recentRows);
+            appendRichRow(document.getElementById('wave-home-recommended-row'), recRows);
+            monthHost.querySelectorAll('[data-open-playlist-home]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    openPlaylistsLibrary(String(btn.getAttribute('data-playlist-id') || ''));
+                });
+            });
             const prefRaw = localStorage.getItem(`liber_wave_follow_notify_${uid}`) || '{}';
             let pref = {};
             try{ pref = JSON.parse(prefRaw) || {}; }catch(_){ pref = {}; }
@@ -6532,6 +6618,28 @@ class DashboardManager {
             }
         }catch(_){ }
         open(remembered);
+    }
+
+    async createWavePlaylistFromPrompt(ownerUid = '', ownerName = ''){
+        const uid = String(ownerUid || this._waveAudioLibraryOwnerUid || this.currentUser?.uid || window.firebaseService?.auth?.currentUser?.uid || '').trim();
+        if (!uid) return false;
+        const name = String(prompt('Playlist name:') || '').trim();
+        if (!name) return false;
+        const makePublic = confirm('Make this playlist public?');
+        const playlists = await this.hydratePlaylistsFromCloud();
+        playlists.push({
+            id: `pl_${Date.now()}`,
+            name,
+            visibility: makePublic ? 'public' : 'private',
+            owner: uid,
+            ownerId: uid,
+            ownerName: ownerName || this.currentUser?.email || '',
+            items: []
+        });
+        this.savePlaylists(playlists);
+        await this.syncPlaylistsToCloud(playlists);
+        await this.renderPlaylists();
+        return true;
     }
 
     setupFeedTabs(){
@@ -7030,7 +7138,7 @@ class DashboardManager {
         const iconBtn = 'background:transparent;border:none;box-shadow:none;padding:2px 4px;min-width:auto;width:auto;height:auto;line-height:1;opacity:.92;color:#d6deeb';
         const editBtnHtml = `<button class="edit-wave-btn" style="${iconBtn}" title="Edit track"><i class="fas fa-pen"></i></button>`;
         const removeBtnHtml = allowRemove ? `<button class="remove-btn" style="${iconBtn}" title="Remove from my library"><i class="fas fa-trash"></i></button>` : '';
-        div.innerHTML = `<div style="display:flex;gap:10px;align-items:center"><img src="${cover}" alt="cover" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-comment-btn" style="${iconBtn}" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="min-width:18px;opacity:.88">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-headphones"></i></span><span class="asset-views-count" style="min-width:18px;opacity:.88">${Number(w.playCount || 0) || 0}</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="audio-download-btn" style="${iconBtn};border:1px solid rgba(255,255,255,.2);border-radius:999px" title="Download audio"><i class="fas fa-download"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
+        div.innerHTML = `<div class="wave-item-head" style="display:flex;gap:12px;align-items:center"><img src="${cover}" alt="cover" class="wave-item-cover" style="width:72px;height:72px;border-radius:12px;object-fit:cover"><div style="min-width:0;flex:1"><div class="audio-title">${(w.title||'Untitled').replace(/</g,'&lt;')}</div>${byline}</div></div><audio class="liber-lib-audio" src="${w.url}" style="display:none" data-title="${(w.title||'').replace(/"/g,'&quot;')}" data-by="${(w.authorName||'').replace(/"/g,'&quot;')}" data-cover="${(w.coverUrl||'').replace(/"/g,'&quot;')}"></audio><div class="wave-item-audio-host"></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="asset-like-btn" style="${iconBtn}" title="Like"><i class="fas fa-heart"></i></button><span class="asset-like-count" style="min-width:18px;opacity:.88">0</span><button class="asset-comment-btn" style="${iconBtn}" title="Comments"><i class="fas fa-comment-dots"></i></button><span class="asset-comments-count" style="min-width:18px;opacity:.88">0</span><span style="opacity:.64;font-size:11px"><i class="fas fa-headphones"></i></span><span class="asset-views-count" style="min-width:18px;opacity:.88">${Number(w.playCount || 0) || 0}</span><button class="asset-share-chat-btn" style="${iconBtn}" title="Share to chat"><i class="fas fa-paper-plane"></i></button><button class="audio-download-btn" style="${iconBtn};border:1px solid rgba(255,255,255,.2);border-radius:999px" title="Download audio"><i class="fas fa-download"></i></button><button class="share-btn" style="${iconBtn}" title="Share"><i class="fas fa-share"></i></button><button class="repost-btn" style="${iconBtn}" title="Repost"><i class="fas fa-retweet"></i></button>${editBtnHtml}${removeBtnHtml}</div>`;
         div.querySelector('.share-btn').onclick = async ()=>{
             try{
                 const me = await window.firebaseService.getCurrentUser();
@@ -7478,15 +7586,43 @@ class DashboardManager {
             const rows = [];
             snap.forEach((d)=> rows.push(d.data() || {}));
             const vids = rows.filter((v)=> this.resolveVisualKind(v) === 'video');
-            const my = vids.filter((v)=> String(v.owner || '') === String(uid));
             const followingVids = vids.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
-            const popular = vids.slice().sort((a,b)=> (Number(b.viewCount || 0) || 0) - (Number(a.viewCount || 0) || 0)).slice(0, 8);
-            host.className = 'wave-home-grid';
+            const galleryRows = (followingVids.length ? followingVids : vids).slice(0, 12);
+            host.className = '';
             host.innerHTML = `
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My videos</div><div style="font-size:22px;font-weight:700">${my.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">From following</div><div style="font-size:22px;font-weight:700">${followingVids.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Popular now</div><div style="font-size:22px;font-weight:700">${popular.length}</div></div>
+              <div class="wave-home-section">
+                <h4 style="margin:0 0 8px">Video Gallery</h4>
+                <div class="wave-home-tile-gallery">
+                  ${galleryRows.map((v)=> {
+                    const cover = String(v.thumbnailUrl || v.coverUrl || '').trim() || 'images/default-bird.png';
+                    const title = String(v.title || 'Video').replace(/</g,'&lt;');
+                    return `<button type="button" class="wave-home-video-tile" data-wave-video-url="${String(v.url || '').replace(/"/g,'&quot;')}">
+                      <img src="${cover.replace(/"/g,'&quot;')}" alt="cover">
+                      <span class="wave-home-video-overlay"><i class="fas fa-play"></i></span>
+                      <span class="wave-home-video-title">${title}</span>
+                    </button>`;
+                  }).join('')}
+                </div>
+              </div>
             `;
+            host.querySelectorAll('[data-wave-video-url]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const url = String(btn.getAttribute('data-wave-video-url') || '');
+                    const items = galleryRows.map((v)=> ({
+                        type: 'video',
+                        url: String(v.url || ''),
+                        title: String(v.title || 'Video'),
+                        by: String(v.authorName || ''),
+                        cover: String(v.thumbnailUrl || v.coverUrl || ''),
+                        sourceId: String(v.id || ''),
+                        likesCount: Number(v.likesCount || v.likes || 0) || 0,
+                        commentsCount: Number(v.commentsCount || v.comments || 0) || 0,
+                        viewsCount: Number(v.viewCount || v.views || 0) || 0
+                    })).filter((x)=> !!x.url);
+                    const idx = Math.max(0, items.findIndex((x)=> x.url === url));
+                    if (items.length) this.openFullscreenMedia(items, idx);
+                });
+            });
         }catch(_){
             host.innerHTML = '<div style="opacity:.75">Unable to load video home.</div>';
         }
@@ -7501,15 +7637,41 @@ class DashboardManager {
             const rows = [];
             snap.forEach((d)=> rows.push(d.data() || {}));
             const pics = rows.filter((v)=> this.resolveVisualKind(v) === 'image');
-            const my = pics.filter((v)=> String(v.owner || '') === String(uid));
             const followingPics = pics.filter((v)=> following.some((f)=> String(f.uid || '') === String(v.authorId || v.originalAuthorId || '')));
-            const popular = pics.slice().sort((a,b)=> (Number(b.viewCount || 0) || 0) - (Number(a.viewCount || 0) || 0)).slice(0, 8);
-            host.className = 'wave-home-grid';
+            const feed = (followingPics.length ? followingPics : pics).slice(0, 8);
+            const featured = feed[0] || null;
+            host.className = '';
+            if (!featured){
+                host.innerHTML = '<div style="opacity:.75">No pictures yet.</div>';
+                return;
+            }
+            const cover = String(featured.url || featured.thumbnailUrl || featured.coverUrl || '').trim() || 'images/default-bird.png';
+            const title = String(featured.title || 'Picture').replace(/</g,'&lt;');
             host.innerHTML = `
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">My pictures</div><div style="font-size:22px;font-weight:700">${my.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">From following</div><div style="font-size:22px;font-weight:700">${followingPics.length}</div></div>
-              <div class="wave-home-card"><div style="font-size:12px;opacity:.8">Popular now</div><div style="font-size:22px;font-weight:700">${popular.length}</div></div>
+              <div class="wave-home-section">
+                <h4 style="margin:0 0 8px">Featured Picture</h4>
+                <button type="button" class="wave-home-picture-hero" data-wave-picture-url="${String(featured.url || '').replace(/"/g,'&quot;')}">
+                  <img src="${cover.replace(/"/g,'&quot;')}" alt="featured picture">
+                  <span class="wave-home-picture-caption">${title}</span>
+                </button>
+              </div>
             `;
+            const openBtn = host.querySelector('.wave-home-picture-hero');
+            if (openBtn){
+                openBtn.addEventListener('click', ()=>{
+                    const url = String(openBtn.getAttribute('data-wave-picture-url') || '');
+                    const items = feed.map((v)=> ({
+                        type: this.resolveVisualKind(v) === 'video' ? 'video' : 'image',
+                        url: String(v.url || ''),
+                        title: String(v.title || 'Picture'),
+                        by: String(v.authorName || ''),
+                        cover: String(v.thumbnailUrl || v.coverUrl || ''),
+                        sourceId: String(v.id || '')
+                    })).filter((x)=> !!x.url);
+                    const idx = Math.max(0, items.findIndex((x)=> x.url === url));
+                    if (items.length) this.openFullscreenMedia(items, idx);
+                });
+            }
         }catch(_){
             host.innerHTML = '<div style="opacity:.75">Unable to load pictures home.</div>';
         }

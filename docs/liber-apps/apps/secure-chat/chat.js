@@ -167,15 +167,68 @@
 
     _chatCategoriesKey(){ return `liber_chat_categories_${this.currentUser?.uid || 'anon'}`; }
     _chatConnCategoriesKey(){ return `liber_chat_conn_categories_${this.currentUser?.uid || 'anon'}`; }
+    normalizeCategoryName(name){
+      const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 32);
+      return n;
+    }
+    sortCategoryNames(list){
+      return (Array.isArray(list) ? list : [])
+        .map((n)=> this.normalizeCategoryName(n))
+        .filter(Boolean)
+        .sort((a,b)=> a.localeCompare(b, 'en', { sensitivity:'base' }));
+    }
+    scheduleCloudCategorySync(){
+      try{
+        if (!this.currentUser?.uid || !this.db || !firebase?.setDoc) return;
+        if (this._catCloudSyncTimer) clearTimeout(this._catCloudSyncTimer);
+        this._catCloudSyncTimer = setTimeout(async ()=>{
+          this._catCloudSyncTimer = null;
+          try{
+            await firebase.setDoc(
+              firebase.doc(this.db, 'users', this.currentUser.uid),
+              {
+                chatCategories: this.sortCategoryNames(this.chatCategories),
+                chatConnCategories: { ...(this.connCategories || {}) },
+                updatedAt: new Date().toISOString()
+              },
+              { merge: true }
+            );
+          }catch(_){ }
+        }, 180);
+      }catch(_){ }
+    }
+    async syncCategoriesFromCloud(){
+      try{
+        if (!this.currentUser?.uid || !this.db || !firebase?.getDoc) return;
+        const snap = await firebase.getDoc(firebase.doc(this.db, 'users', this.currentUser.uid));
+        if (!snap.exists()) return;
+        const row = snap.data() || {};
+        const cloudCats = this.sortCategoryNames(Array.isArray(row.chatCategories) ? row.chatCategories : []);
+        const cloudConn = (row.chatConnCategories && typeof row.chatConnCategories === 'object') ? row.chatConnCategories : {};
+        if (cloudCats.length){
+          this.chatCategories = cloudCats;
+          this.saveChatCategories();
+        } else if (this.chatCategories.length){
+          this.scheduleCloudCategorySync();
+        }
+        if (Object.keys(cloudConn).length){
+          this.connCategories = cloudConn;
+          this.saveConnCategories();
+        } else if (Object.keys(this.connCategories || {}).length){
+          this.scheduleCloudCategorySync();
+        }
+      }catch(_){ }
+    }
     loadChatCategories(){
       try{
         const raw = localStorage.getItem(this._chatCategoriesKey());
         const arr = raw ? JSON.parse(raw) : [];
-        this.chatCategories = Array.isArray(arr) ? arr.filter((n)=> typeof n === 'string' && n.trim()) : [];
+        this.chatCategories = this.sortCategoryNames(Array.isArray(arr) ? arr : []);
       }catch(_){ this.chatCategories = []; }
     }
     saveChatCategories(){
-      try{ localStorage.setItem(this._chatCategoriesKey(), JSON.stringify(this.chatCategories)); }catch(_){}
+      try{ localStorage.setItem(this._chatCategoriesKey(), JSON.stringify(this.sortCategoryNames(this.chatCategories))); }catch(_){}
+      this.scheduleCloudCategorySync();
     }
     loadConnCategories(){
       try{
@@ -186,6 +239,7 @@
     }
     saveConnCategories(){
       try{ localStorage.setItem(this._chatConnCategoriesKey(), JSON.stringify(this.connCategories)); }catch(_){}
+      this.scheduleCloudCategorySync();
     }
 
     renderCategoryTabs(){
@@ -198,7 +252,7 @@
       const tabs = [
         { cat: 'all', label: 'All' },
         { cat: 'projects', label: 'Projects' },
-        ...this.chatCategories.map((c)=> ({ cat: c, label: c }))
+        ...this.sortCategoryNames(this.chatCategories).map((c)=> ({ cat: c, label: c }))
       ];
       const fragment = document.createDocumentFragment();
       tabs.forEach(({ cat, label })=>{
@@ -221,7 +275,7 @@
     addChatCategory(){
       const name = prompt('Category name');
       if (!name || !String(name).trim()) return;
-      const n = String(name).trim();
+      const n = this.normalizeCategoryName(name);
       if (this.chatCategories.includes(n)) return;
       this.chatCategories.push(n);
       this.saveChatCategories();
@@ -3827,6 +3881,7 @@
 
       this.loadChatCategories();
       this.loadConnCategories();
+      await this.syncCategoriesFromCloud();
       try { this.me = await window.firebaseService.getUserData(this.currentUser.uid); } catch { this.me = null; }
       this.loadPinnedState();
       const uiLang = String(this.me?.language || localStorage.getItem('liber_preferred_language') || 'en').trim().toLowerCase();

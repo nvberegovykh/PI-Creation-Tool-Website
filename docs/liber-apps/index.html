@@ -263,9 +263,6 @@
             <button class="mobile-nav-btn" data-section="feed">
                 <i class="fas fa-stream"></i>
             </button>
-            <button class="mobile-nav-btn mobile-upload-plus-btn" id="mobile-wave-upload-btn" title="Upload" aria-label="Upload to WaveConnect" data-i18n-title="quickUpload">
-                <i class="fas fa-plus"></i>
-            </button>
             <button class="mobile-nav-btn" data-section="waveconnect">
                 <i class="fas fa-music"></i>
             </button>
@@ -422,6 +419,7 @@
                 <div id="wave-subnav" class="wave-subnav" role="tablist" aria-label="WaveConnect submenu">
                     <button class="btn btn-secondary active" data-wave-subtab="home" aria-selected="true" title="Home" aria-label="Home" data-i18n-title="subHome"><i class="fas fa-house"></i></button>
                     <button class="btn btn-secondary" data-wave-subtab="search" aria-selected="false" title="Search" aria-label="Search" data-i18n-title="subSearch"><i class="fas fa-magnifying-glass"></i></button>
+                    <button class="btn btn-secondary wave-subnav-upload-btn" id="mobile-wave-upload-btn" type="button" title="Upload" aria-label="Upload to WaveConnect" data-i18n-title="quickUpload"><i class="fas fa-plus"></i></button>
                     <button class="btn btn-secondary" data-wave-subtab="library" aria-selected="false" title="Library" aria-label="Library" data-i18n-title="subLibrary"><i class="fas fa-photo-film"></i></button>
                 </div>
 
@@ -433,7 +431,7 @@
                         <div id="wave-audio-popular-month" style="margin-top:12px"></div>
                         <div id="wave-audio-following" style="margin-top:12px"></div>
                     </div>
-                    <div class="section-header" style="margin-top:8px">
+                    <div class="section-header" id="wave-audio-search-bar" style="margin-top:8px">
                         <div class="search-container">
                             <input type="text" id="wave-search" placeholder="Search audio...">
                             <i class="fas fa-search"></i>
@@ -459,41 +457,39 @@
                             </div>
                         </div>
                     </div>
-                    <div class="settings-card" style="margin-top:16px">
+                    <div class="settings-card" id="wave-audio-library-card" style="margin-top:16px">
                         <h3 data-i18n="myLibraryTitle">My Library</h3>
-                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-                            <button id="wave-lib-tab-all" class="btn btn-secondary active" data-i18n="libraryAll">All</button>
-                            <button id="wave-lib-tab-uploaded" class="btn btn-secondary" data-i18n="libraryUploaded">Uploaded</button>
-                            <button id="wave-lib-tab-saved" class="btn btn-secondary" data-i18n="librarySaved">Saved</button>
-                            <button id="wave-lib-tab-liked" class="btn btn-secondary" data-i18n="libraryLiked">Liked</button>
-                            <button id="wave-lib-tab-playlists" class="btn btn-secondary" data-i18n="libraryPlaylists">Playlists</button>
-                        </div>
-                        <div id="wave-library-pane">
-                            <div id="wave-library"></div>
-                        </div>
-                        <div id="wave-library-uploaded-pane" style="display:none">
-                            <div id="wave-library-uploaded"></div>
-                        </div>
-                        <div id="wave-library-saved-pane" style="display:none">
-                            <div id="wave-library-saved"></div>
-                        </div>
-                        <div id="wave-library-liked-pane" style="display:none">
-                            <div id="wave-library-liked"></div>
-                        </div>
-                        <div id="wave-library-playlists-pane" style="display:none">
-                            <div id="wave-playlists"></div>
-                        </div>
-                        <div id="wave-library-posts-pane" style="display:none">
-                            <div id="wave-library-posts"></div>
-                        </div>
-                    </div>
-                    <div class="settings-card" style="margin-top:16px">
-                        <h3>Playlists</h3>
-                        <div style="display:flex;gap:8px;margin-bottom:10px">
-                            <button id="wave-new-playlist-btn" class="btn btn-secondary"><i class="fas fa-plus"></i> New playlist</button>
+                        <div class="wave-lib-layout">
+                            <div class="wave-lib-menu" role="tablist" aria-label="Audio library categories">
+                                <button id="wave-lib-tab-all" class="btn btn-secondary active" data-i18n="libraryAll">All</button>
+                                <button id="wave-lib-tab-uploaded" class="btn btn-secondary" data-i18n="libraryUploaded">Uploaded</button>
+                                <button id="wave-lib-tab-saved" class="btn btn-secondary" data-i18n="librarySaved">Saved</button>
+                                <button id="wave-lib-tab-liked" class="btn btn-secondary" data-i18n="libraryLiked">Liked</button>
+                                <button id="wave-lib-tab-playlists" class="btn btn-secondary" data-i18n="libraryPlaylists">Playlists</button>
+                            </div>
+                            <div class="wave-lib-content">
+                                <div id="wave-library-pane">
+                                    <div id="wave-library"></div>
+                                </div>
+                                <div id="wave-library-uploaded-pane" style="display:none">
+                                    <div id="wave-library-uploaded"></div>
+                                </div>
+                                <div id="wave-library-saved-pane" style="display:none">
+                                    <div id="wave-library-saved"></div>
+                                </div>
+                                <div id="wave-library-liked-pane" style="display:none">
+                                    <div id="wave-library-liked"></div>
+                                </div>
+                                <div id="wave-library-playlists-pane" style="display:none">
+                                    <div id="wave-playlists"></div>
+                                </div>
+                                <div id="wave-library-posts-pane" style="display:none">
+                                    <div id="wave-library-posts"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="settings-card" style="margin-top:16px">
+                    <div class="settings-card" id="wave-audio-search-card" style="margin-top:16px">
                         <h3>Search Results</h3>
                         <div id="wave-results"></div>
                     </div>

@@ -999,6 +999,14 @@ button.call-status-badge:hover{
     background:#0f1116;
     bottom:calc(env(safe-area-inset-bottom) + 4px);
   }
+  .composer-reply-preview,
+  .composer-edit-preview{
+    grid-column:1 / -1;
+    width:100%;
+    margin:0 0 4px 0;
+    order:-2;
+    z-index:20;
+  }
   .chat-pinned-bar{bottom:84px}
   .composer textarea{
     border:none;
@@ -1131,6 +1139,16 @@ button.call-status-badge:hover{
   /* Keep only composer controls visible in the lower area */
   .chat-header .header-actions{
     display: none !important;
+  }
+
+  /* Keep reply/edit preview above composer controls on mobile */
+  .composer-reply-preview,
+  .composer-edit-preview{
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    order: -2 !important;
+    margin: 0 0 4px 0 !important;
+    z-index: 24 !important;
   }
 
   /* Stable expandable slider above the bottom bar */
