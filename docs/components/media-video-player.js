@@ -16,6 +16,7 @@
     likeBtn: null,
     commentsBtn: null,
     authorBtn: null,
+    authorRailBtn: null,
     shareBtn: null,
     viewsBtn: null,
     mobileMeta: null,
@@ -30,6 +31,7 @@
     verticalTouching: false,
     horizontalSwipe: null
   };
+  const authorAvatarCache = new Map();
 
   function clamp(v, min, max){
     return Math.max(min, Math.min(max, v));
@@ -54,7 +56,8 @@
       likesCount: Number(item.likesCount || item.likes || 0) || 0,
       commentsCount: Number(item.commentsCount || item.comments || 0) || 0,
       viewsCount: Number(item.viewsCount || item.viewCount || 0) || 0,
-      authorId: String(item.authorId || '')
+      authorId: String(item.authorId || ''),
+      authorAvatar: String(item.authorAvatar || item.avatarUrl || item.authorPhoto || '')
     };
   }
 
@@ -187,6 +190,56 @@
     });
   }
 
+  function escapeAttr(v){
+    return String(v || '').replace(/"/g, '&quot;');
+  }
+
+  async function resolveAuthorAvatar(item){
+    try{
+      if (!item) return '';
+      const own = String(item.authorAvatar || '').trim();
+      if (own) return own;
+      const uid = String(item.authorId || '').trim();
+      if (!uid) return '';
+      if (authorAvatarCache.has(uid)) return String(authorAvatarCache.get(uid) || '');
+      const data = await window.firebaseService?.getUserData?.(uid);
+      const url = String(data?.avatarUrl || '').trim();
+      authorAvatarCache.set(uid, url);
+      return url;
+    }catch(_){
+      return '';
+    }
+  }
+
+  async function updateAuthorButtons(item){
+    try{
+      const avatar = await resolveAuthorAvatar(item);
+      const title = String(item?.author || 'Author').trim() || 'Author';
+      const btnHtml = avatar
+        ? `<img src="${escapeAttr(avatar)}" alt="${escapeAttr(title)}" class="lvp-author-avatar">`
+        : '<i class="fas fa-user-circle"></i>';
+      if (state.authorBtn){
+        state.authorBtn.innerHTML = btnHtml;
+        state.authorBtn.title = title;
+        state.authorBtn.setAttribute('aria-label', title);
+      }
+      if (state.authorRailBtn){
+        const iconHost = state.authorRailBtn.querySelector('i, img.lvp-author-avatar');
+        if (iconHost){
+          if (avatar){
+            iconHost.outerHTML = `<img src="${escapeAttr(avatar)}" alt="${escapeAttr(title)}" class="lvp-author-avatar">`;
+          }else{
+            iconHost.outerHTML = '<i class="fas fa-user-circle"></i>';
+          }
+        }else{
+          state.authorRailBtn.insertAdjacentHTML('afterbegin', btnHtml);
+        }
+        state.authorRailBtn.title = title;
+        state.authorRailBtn.setAttribute('aria-label', title);
+      }
+    }catch(_){ }
+  }
+
   function updateMeta(item){
     if (state.titleEl) state.titleEl.textContent = item.title || 'Video';
     if (state.authorEl) state.authorEl.textContent = item.author ? `by ${item.author}` : '';
@@ -199,6 +252,7 @@
       if (a) a.textContent = item.author ? `@${item.author}` : '';
       if (d) d.textContent = item.description || '';
     }
+    updateAuthorButtons(item);
   }
 
   function getCurrentItem(){
@@ -212,6 +266,7 @@
       const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
       let likes = Number(current.likesCount || 0) || 0;
       let comments = Number(current.commentsCount || 0) || 0;
+      let views = Number(current.viewsCount || 0) || 0;
       if (dm && typeof dm.getAssetAggregatedLikeCount === 'function'){
         try{ likes = Number(await dm.getAssetAggregatedLikeCount('video', current.url)) || likes; }catch(_){ }
       }
@@ -221,14 +276,16 @@
           if (pid){
             const st = await window.firebaseService.getPostStats(pid);
             comments = Number(st?.comments || 0) || comments;
+            views = Number(st?.views || st?.viewCount || 0) || views;
           }
         }catch(_){ }
       }
       current.likesCount = likes;
       current.commentsCount = comments;
+      current.viewsCount = views;
       if (state.viewsBtn){
         const c = state.viewsBtn.querySelector('.lvp-action-count');
-        if (c) c.textContent = String(Math.max(0, Number(current.viewsCount || 0) || 0));
+        if (c) c.textContent = String(Math.max(0, Number(views || 0) || 0));
       }
       if (state.likeBtn){
         const c = state.likeBtn.querySelector('.lvp-action-count');
@@ -252,7 +309,7 @@
             sourceId: String(current.sourceId || ''),
             likesCount: Number(likes || 0) || 0,
             commentsCount: Number(comments || 0) || 0,
-            viewsCount: Number(current.viewsCount || 0) || 0
+            viewsCount: Number(views || 0) || 0
           }
         }));
       }catch(_){ }
@@ -282,9 +339,23 @@
       }
       if (hasLike){
         await Promise.all(refs.map(async (ref)=>{ try{ await firebase.deleteDoc(ref); }catch(_){ } }));
+        current.likesCount = Math.max(0, (Number(current.likesCount || 0) || 0) - 1);
       } else {
         await firebase.setDoc(refs[0], { uid: me.uid, createdAt: new Date().toISOString(), kind: 'video', url: current.url });
+        current.likesCount = Math.max(0, (Number(current.likesCount || 0) || 0) + 1);
       }
+      try{
+        window.dispatchEvent(new CustomEvent('liber-video-engagement-sync', {
+          detail: {
+            kind: 'video',
+            url: String(current.url || ''),
+            sourceId: String(current.sourceId || ''),
+            likesCount: Number(current.likesCount || 0) || 0,
+            commentsCount: Number(current.commentsCount || 0) || 0,
+            viewsCount: Number(current.viewsCount || 0) || 0
+          }
+        }));
+      }catch(_){ }
       await refreshCurrentEngagementStats();
     }catch(_){ }
   }
@@ -347,6 +418,19 @@
         sourceId: item.sourceId,
         videoId: item.id
       });
+    }catch(_){ }
+    item.viewsCount = Math.max(0, (Number(item.viewsCount || 0) || 0) + 1);
+    try{
+      window.dispatchEvent(new CustomEvent('liber-video-engagement-sync', {
+        detail: {
+          kind: 'video',
+          url: String(item.url || ''),
+          sourceId: String(item.sourceId || ''),
+          likesCount: Number(item.likesCount || 0) || 0,
+          commentsCount: Number(item.commentsCount || 0) || 0,
+          viewsCount: Number(item.viewsCount || 0) || 0
+        }
+      }));
     }catch(_){ }
     updateMeta(item);
     if (state.likeBtn){
@@ -497,11 +581,12 @@
     state.playerHost = overlay.querySelector('.lvp-video-host');
     state.recList = overlay.querySelector('.lvp-rec-list');
     state.titleEl = overlay.querySelector('.lvp-title');
-    state.authorEl = overlay.querySelector('.lvp-author');
+    state.authorEl = overlay.querySelector('.lvp-meta .lvp-author');
     state.descEl = overlay.querySelector('.lvp-desc');
     state.likeBtn = overlay.querySelector('.lvp-like');
     state.commentsBtn = overlay.querySelector('.lvp-comments');
-    state.authorBtn = overlay.querySelector('.lvp-author');
+    state.authorBtn = overlay.querySelector('.lvp-actions .lvp-author');
+    state.authorRailBtn = overlay.querySelector('.lvp-mobile-rail .lvp-author');
     state.shareBtn = overlay.querySelector('.lvp-share');
     state.viewsBtn = overlay.querySelector('.lvp-views');
     state.theaterBtn = overlay.querySelector('.lvp-theater');
@@ -520,6 +605,11 @@
     state.shareBtn?.addEventListener('click', async ()=>{
       const current = state.items[state.index];
       if (!current) return;
+      try{
+        const ev = new CustomEvent('liber-video-share-chat', { detail: current, cancelable: true });
+        const keepDefaultShare = window.dispatchEvent(ev);
+        if (!keepDefaultShare) return;
+      }catch(_){ }
       const shareData = { title: current.title || 'Video', text: current.description || '', url: current.url };
       try{
         if (navigator.share) await navigator.share(shareData);
@@ -575,7 +665,12 @@
     };
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-like').forEach((b)=> bindTapAction(b, ()=> state.likeBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> bindTapAction(b, ()=> state.commentsBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> bindTapAction(b, ()=> state.authorBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> bindTapAction(b, ()=>{
+      if (state.authorBtn) state.authorBtn.click();
+      else{
+        try { window.dispatchEvent(new CustomEvent('liber-video-author-open', { detail: state.items[state.index] || null })); } catch (_) { }
+      }
+    }));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> bindTapAction(b, ()=> state.shareBtn?.click()));
     overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> bindTapAction(b, toggleVideoFullscreen));
 
