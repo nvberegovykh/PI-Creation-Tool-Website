@@ -846,6 +846,39 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));
   gap:10px;
 }
+.wave-studio-row{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.wave-studio-head{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  min-width:0;
+}
+.wave-studio-cover{
+  width:52px;
+  height:52px;
+  border-radius:10px;
+  object-fit:cover;
+  border:1px solid rgba(255,255,255,.14);
+  background:#0f1522;
+  flex:0 0 auto;
+}
+.wave-studio-edit-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 120px;
+  gap:6px;
+}
+.wave-studio-edit-grid [data-studio-tags]{
+  grid-column:1 / -1;
+}
+.wave-studio-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
 .wave-studio-row input,
 .wave-studio-row select{
   width:100%;
@@ -863,6 +896,13 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
 }
 
 @media (max-width: 767px){
+  .wave-studio-edit-grid{
+    grid-template-columns:1fr;
+  }
+  .wave-studio-actions .btn{
+    flex:1 1 auto;
+    min-width:88px;
+  }
   #waveconnect-section .section-header{
     flex-wrap:wrap;
     gap:8px;
@@ -872,7 +912,7 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
     left:8px;
     right:8px;
     bottom:calc(66px + env(safe-area-inset-bottom, 0px));
-    z-index:11082;
+    z-index:980;
     margin:0;
     width:auto;
   }
@@ -897,12 +937,15 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   }
   .waveconnect-header-actions{
     width:100%;
-    justify-content:flex-start;
-    flex-wrap:nowrap;
+    display:grid;
+    grid-template-columns:1fr;
+    row-gap:8px;
+    justify-content:stretch;
+    align-items:start;
     min-width:0;
-    overflow:hidden;
   }
   #waveconnect-section .waveconnect-tabs{
+    width:100%;
     max-width:100%;
     overflow-x:auto;
     -webkit-overflow-scrolling:touch;
@@ -911,6 +954,11 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   }
   #waveconnect-section .waveconnect-tabs .btn{
     flex:0 0 auto;
+    min-width:96px;
+    justify-content:center;
+  }
+  #waveconnect-section #wave-studio-btn{
+    justify-self:end;
   }
   .wave-home-row{
     display:block;
@@ -1056,18 +1104,47 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
 }
 
 @media (min-width: 768px){
-  body.waveconnect-active #waveconnect-section.active .wave-subnav{
-    position:fixed;
-    left:84px;
-    right:16px;
-    top:10px;
-    z-index:11082;
-    margin:0;
+  #waveconnect-section .section-header{
+    justify-content:flex-start;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  #waveconnect-section .waveconnect-header-actions{
     width:auto;
     justify-content:flex-start;
+    gap:8px;
+  }
+  body.waveconnect-active #waveconnect-section.active .wave-subnav{
+    position:fixed;
+    left:74px;
+    top:0;
+    bottom:0;
+    right:auto;
+    width:64px;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:6px;
+    padding:12px 0;
+    border-radius:0;
+    border-right:1px solid rgba(160,190,230,.22);
+    border-left:none;
+    border-top:none;
+    border-bottom:none;
+    background:rgba(20,26,40,.9);
+    overflow-y:auto;
+    overflow-x:hidden;
+    z-index:980;
+    margin:0;
+  }
+  body.waveconnect-active #waveconnect-section.active .wave-subnav .btn{
+    width:42px;
+    height:42px;
+    min-width:42px;
   }
   body.waveconnect-active #waveconnect-section.active{
-    padding-top:66px;
+    padding-left:74px;
+    padding-top:0;
   }
 }
 

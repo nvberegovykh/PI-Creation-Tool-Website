@@ -3872,6 +3872,7 @@ class DashboardManager {
             window.addEventListener('liber-video-comments-open', async (e)=>{
                 try{
                     const item = e?.detail || {};
+                    try{ window.LiberVideoPlayer?.close?.(); }catch(_){ }
                     const postId = await this.ensureAssetDiscussionPost({
                         kind: 'video',
                         sourceId: String(item.sourceId || ''),
@@ -6057,8 +6058,22 @@ class DashboardManager {
             const totals = rows.reduce((acc, row)=>{
                 acc.views += Number(row?.viewCount || row?.playCount || 0) || 0;
                 return acc;
-            }, { views:0 });
+            }, { views:0, likes:0, comments:0, reposts:0 });
+            const rowsForTotals = rows.slice(0, 120);
+            await Promise.all(rowsForTotals.map(async (row)=>{
+                try{
+                    const postId = await this.resolveAssetPostId({ sourceId: String(row?.id || ''), url: String(row?.url || '') });
+                    if (!postId) return;
+                    const st = await window.firebaseService?.getPostStats?.(postId) || {};
+                    totals.likes += Number(st.likes || 0) || 0;
+                    totals.comments += Number(st.comments || 0) || 0;
+                    totals.reposts += Number(st.reposts || 0) || 0;
+                }catch(_){ }
+            }));
             overlay.querySelector('#wave-studio-metric-views').textContent = String(totals.views);
+            overlay.querySelector('#wave-studio-metric-likes').textContent = String(totals.likes);
+            overlay.querySelector('#wave-studio-metric-comments').textContent = String(totals.comments);
+            overlay.querySelector('#wave-studio-metric-reposts').textContent = String(totals.reposts);
             if (!window.d3){
                 host.innerHTML = '<div style="font-size:12px;opacity:.8">Chart unavailable.</div>';
                 return;
@@ -6114,33 +6129,94 @@ class DashboardManager {
         const wrap = document.createElement('div');
         wrap.className = 'wave-home-card wave-studio-row';
         const title = String(row?.title || 'Untitled');
-        const cover = String(row?.coverUrl || row?.thumbnailUrl || row?.url || 'images/default-bird.png');
+        const cover = (()=> {
+            const mediaKind = kind === 'audio' ? 'audio' : (kind === 'pictures' ? 'image' : this.resolveVisualKind(row));
+            if (mediaKind === 'audio') return String(row?.coverUrl || row?.thumbnailUrl || 'images/default-bird.png');
+            if (mediaKind === 'image') return String(row?.thumbnailUrl || row?.url || 'images/default-bird.png');
+            return String(row?.thumbnailUrl || row?.coverUrl || 'images/default-bird.png');
+        })();
         const views = Number(row?.viewCount || row?.playCount || 0) || 0;
-        wrap.innerHTML = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
-          <img src="${cover.replace(/"/g,'&quot;')}" alt="" style="width:46px;height:46px;border-radius:9px;object-fit:cover">
-          <div style="min-width:0;flex:1"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title.replace(/</g,'&lt;')}</div><div style="opacity:.7;font-size:12px">${views} ${kind === 'audio' ? 'plays' : 'views'}</div></div>
+        wrap.innerHTML = `<div class="wave-studio-head">
+          <img src="${cover.replace(/"/g,'&quot;')}" alt="" class="wave-studio-cover">
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title.replace(/</g,'&lt;')}</div>
+            <div style="opacity:.7;font-size:12px">${views} ${kind === 'audio' ? 'plays' : 'views'}</div>
+          </div>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(0,1fr) 140px 90px;gap:6px;margin-bottom:8px">
+        <div class="wave-studio-edit-grid">
           <input type="text" data-studio-title value="${title.replace(/"/g,'&quot;')}" placeholder="Title">
           <select data-studio-visibility><option value="public"${String(row.visibility||'public')==='public'?' selected':''}>public</option><option value="private"${String(row.visibility||'public')==='private'?' selected':''}>private</option></select>
+          <input type="text" data-studio-tags value="${Array.isArray(row?.tagsPrivate) ? row.tagsPrivate.join(', ') : ''}" placeholder="Private tags (comma-separated)">
+        </div>
+        <div class="wave-studio-actions">
           <button class="btn btn-secondary" data-studio-save>Save</button>
+          <button class="btn btn-secondary" data-studio-comments>Comments</button>
+          <button class="btn btn-secondary" data-studio-delete>Delete</button>
         </div>
         <div style="font-size:11px;opacity:.74" data-studio-metrics>Loading likes/comments/reposts...</div>`;
+        const coverEl = wrap.querySelector('.wave-studio-cover');
+        if (coverEl){
+            coverEl.addEventListener('error', ()=>{ coverEl.src = 'images/default-bird.png'; }, { once: true });
+        }
         const saveBtn = wrap.querySelector('[data-studio-save]');
         if (saveBtn){
             saveBtn.addEventListener('click', async ()=>{
                 const t = String(wrap.querySelector('[data-studio-title]')?.value || '').trim() || 'Untitled';
                 const v = String(wrap.querySelector('[data-studio-visibility]')?.value || 'public');
+                const tags = String(wrap.querySelector('[data-studio-tags]')?.value || '')
+                    .split(',')
+                    .map((x)=> x.trim().toLowerCase())
+                    .filter(Boolean)
+                    .slice(0, 20);
                 try{
+                    saveBtn.disabled = true;
                     const col = kind === 'audio' ? 'wave' : 'videos';
                     await firebase.updateDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')), {
                         title: t,
                         visibility: v === 'private' ? 'private' : 'public',
+                        tagsPrivate: tags,
                         updatedAt: new Date().toISOString(),
                         updatedAtTS: firebase.serverTimestamp()
                     });
+                    row.title = t;
+                    row.visibility = v;
+                    row.tagsPrivate = tags;
                     this.showSuccess('Studio item updated');
                 }catch(_){ this.showError('Failed to update item'); }
+                finally{ saveBtn.disabled = false; }
+            });
+        }
+        const commentsBtn = wrap.querySelector('[data-studio-comments]');
+        if (commentsBtn){
+            commentsBtn.addEventListener('click', async ()=>{
+                try{
+                    const postId = await this.ensureAssetDiscussionPost({
+                        kind: kind === 'pictures' ? 'image' : (kind === 'audio' ? 'audio' : 'video'),
+                        sourceId: String(row?.id || ''),
+                        url: String(row?.url || ''),
+                        title: String(row?.title || 'Media'),
+                        by: String(row?.authorName || ''),
+                        authorName: String(row?.authorName || ''),
+                        cover: String(row?.coverUrl || row?.thumbnailUrl || '')
+                    });
+                    if (!postId){ this.showError('Unable to open comments'); return; }
+                    await this.openAssetCommentsModal(postId, String(row?.title || 'Comments'));
+                    await this.hydrateStudioMetrics(wrap, row);
+                }catch(_){ this.showError('Unable to open comments'); }
+            });
+        }
+        const delBtn = wrap.querySelector('[data-studio-delete]');
+        if (delBtn){
+            delBtn.addEventListener('click', async ()=>{
+                try{
+                    if (!confirm('Delete this media item?')) return;
+                    delBtn.disabled = true;
+                    const col = kind === 'audio' ? 'wave' : 'videos';
+                    await firebase.deleteDoc(firebase.doc(window.firebaseService.db, col, String(row.id || '')));
+                    wrap.remove();
+                    this.showSuccess('Studio item deleted');
+                }catch(_){ this.showError('Failed to delete item'); }
+                finally{ delBtn.disabled = false; }
             });
         }
         this.hydrateStudioMetrics(wrap, row).catch(()=>{});
