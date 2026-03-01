@@ -54,7 +54,7 @@
   min-height:min(78vh, 960px);
 }
 .lvp-video-host{
-  flex:1 1 auto; min-height:240px; border-radius:14px; overflow:hidden;
+  flex:1 1 auto; min-height:240px; max-height:min(72vh, 820px); aspect-ratio:16/9; border-radius:14px; overflow:hidden;
   border:1px solid rgba(255,255,255,.1); background:#000;
   display:flex; align-items:center; justify-content:center;
 }
@@ -75,7 +75,8 @@
   .lvp-grid{ display:block; padding:0; }
   .lvp-recommendations{ display:none; }
   .lvp-main{ height:100%; }
-  .lvp-video-host{ border:none; border-radius:0; min-height:100%; }
+  .lvp-video-host{ border:none; border-radius:0; min-height:100dvh; max-height:100dvh; aspect-ratio:auto; }
+  .lvp-video{ object-fit:cover; }
   .lvp-meta, .lvp-actions{ display:none; }
   .lvp-progress{ position:absolute; left:8px; right:8px; bottom:8px; z-index:5; }
   .lvp-mobile-meta{
