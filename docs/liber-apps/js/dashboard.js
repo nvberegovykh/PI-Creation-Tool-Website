@@ -3872,8 +3872,58 @@ class DashboardManager {
             window.addEventListener('liber-video-comments-open', async (e)=>{
                 try{
                     const item = e?.detail || {};
-                    const postId = await this.resolveAssetPostId({ sourceId: String(item.sourceId || ''), url: String(item.url || ''), kind: 'video' });
+                    const postId = await this.ensureAssetDiscussionPost({
+                        kind: 'video',
+                        sourceId: String(item.sourceId || ''),
+                        url: String(item.url || ''),
+                        title: String(item.title || 'Video'),
+                        by: String(item.author || item.by || ''),
+                        authorName: String(item.author || item.by || ''),
+                        cover: String(item.poster || item.cover || '')
+                    });
                     if (postId) await this.openAssetCommentsModal(postId, String(item.title || 'Comments'));
+                }catch(_){ }
+            });
+            window.addEventListener('liber-video-engagement-sync', (e)=>{
+                try{
+                    const d = e?.detail || {};
+                    const kind = String(d.kind || 'video').toLowerCase();
+                    const normUrl = this.normalizeMediaUrl(String(d.url || ''));
+                    const sourceId = String(d.sourceId || '').trim();
+                    const likes = String(Math.max(0, Number(d.likesCount || 0) || 0));
+                    const comments = String(Math.max(0, Number(d.commentsCount || 0) || 0));
+                    const views = String(Math.max(0, Number(d.viewsCount || 0) || 0));
+                    document.querySelectorAll('.liber-lib-video').forEach((node)=>{
+                        try{
+                            const nodeUrl = this.normalizeMediaUrl(String(node.currentSrc || node.src || ''));
+                            const nodeSourceId = String(node.dataset.sourceId || '').trim();
+                            const match = (!!sourceId && nodeSourceId === sourceId) || this.urlsLikelySame(nodeUrl, normUrl);
+                            if (!match) return;
+                            node.dataset.likesCount = likes;
+                            node.dataset.commentsCount = comments;
+                            node.dataset.viewsCount = views;
+                            const card = node.closest('.video-item,.wave-item,[data-asset-like-kind][data-asset-like-url]');
+                            if (!card) return;
+                            const lc = card.querySelector('.asset-like-count');
+                            const cc = card.querySelector('.asset-comments-count');
+                            const vc = card.querySelector('.asset-views-count');
+                            if (lc) lc.textContent = likes;
+                            if (cc) cc.textContent = comments;
+                            if (vc) vc.textContent = views;
+                        }catch(_){ }
+                    });
+                    document.querySelectorAll('[data-asset-like-kind][data-asset-like-url]').forEach((host)=>{
+                        try{
+                            const k = String(host.getAttribute('data-asset-like-kind') || '').toLowerCase();
+                            const u = this.normalizeMediaUrl(String(host.getAttribute('data-asset-like-url') || ''));
+                            if (k !== kind) return;
+                            if (!this.urlsLikelySame(u, normUrl)) return;
+                            const lc = host.querySelector('.asset-like-count');
+                            const cc = host.querySelector('.asset-comments-count');
+                            if (lc) lc.textContent = likes;
+                            if (cc) cc.textContent = comments;
+                        }catch(_){ }
+                    });
                 }catch(_){ }
             });
             window.addEventListener('liber-video-author-open', async (e)=>{
@@ -5637,6 +5687,9 @@ class DashboardManager {
         if (target) target.classList.add('active');
 
         this.currentSection = section;
+        try{
+            document.body.classList.toggle('waveconnect-active', section === 'waveconnect');
+        }catch(_){ }
 
         // Persist last section and sync hash
         try{ localStorage.setItem('liber_last_section', section); if (window.location.hash !== `#${section}`) window.location.hash = section; }catch(_){ }
@@ -5769,22 +5822,30 @@ class DashboardManager {
         const show = (selector, visible)=>{
             pane.querySelectorAll(selector).forEach((el)=> el.classList.toggle('wave-subtab-hidden', !visible));
         };
+        const showCardById = (id, visible)=>{
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.toggle('wave-subtab-hidden', !visible);
+        };
         pane.querySelectorAll('.settings-grid').forEach((grid)=> grid.classList.add('wave-subtab-hidden'));
         show('#wave-audio-home,#wave-video-home,#wave-picture-home', sub === 'home');
         show('#wave-audio-pane > .section-header,#wave-results,#wave-results-wrapper,#video-search-pane,#picture-search-pane', sub === 'search');
         show('#wave-library-pane,#wave-library-uploaded-pane,#wave-library-saved-pane,#wave-library-liked-pane,#wave-library-playlists-pane,#video-library-pane,#picture-library-pane,#wave-playlists', sub === 'library');
         show('#video-suggestions-pane,#picture-suggestions-pane', sub === 'home');
         if (main === 'audio'){
-            const showCard = (id, visible)=>{
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.classList.toggle('wave-subtab-hidden', !visible);
-            };
             // Audio: keep Home clean; show only relevant cards per subtab.
-            showCard('wave-audio-search-bar', sub === 'search');
-            showCard('wave-audio-search-card', sub === 'search');
-            showCard('wave-audio-library-card', sub === 'library');
-            showCard('wave-upload-card', false);
+            showCardById('wave-audio-search-bar', sub === 'search');
+            showCardById('wave-audio-search-card', sub === 'search');
+            showCardById('wave-audio-library-card', sub === 'library');
+            showCardById('wave-upload-card', false);
+        }
+        if (main === 'video'){
+            // Hide the library/search container card on Home to avoid empty shell.
+            showCardById('wave-video-library-card', sub !== 'home');
+        }
+        if (main === 'pictures'){
+            // Hide the library/search container card on Home to avoid empty shell.
+            showCardById('wave-picture-library-card', sub !== 'home');
         }
         if (sub === 'search'){
             if (main === 'video'){
@@ -7039,7 +7100,7 @@ class DashboardManager {
             }
             const controls = document.createElement('div');
             controls.className = 'wave-lib-list-controls';
-            controls.innerHTML = `<button type="button" class="btn btn-secondary wave-lib-play-all" data-i18n="playAll">Play all</button><button type="button" class="btn btn-secondary wave-lib-shuffle" data-i18n="shuffle">Shuffle</button>`;
+            controls.innerHTML = `<button type="button" class="btn btn-secondary wave-lib-play-all" title="Play all" aria-label="Play all"><i class="fas fa-play"></i></button><button type="button" class="btn btn-secondary wave-lib-shuffle" title="Shuffle" aria-label="Shuffle"><i class="fas fa-shuffle"></i></button>`;
             const playAllBtn = controls.querySelector('.wave-lib-play-all');
             const shuffleBtn = controls.querySelector('.wave-lib-shuffle');
             if (playAllBtn){
@@ -7440,6 +7501,31 @@ class DashboardManager {
         }; }
         const vEl = div.querySelector('.liber-lib-video');
         const openPlayerBtn = div.querySelector('.video-open-player-btn');
+        let holdTimer = 0;
+        let previewing = false;
+        let holdTriggered = false;
+        const clearHoldTimer = ()=>{ try{ clearTimeout(holdTimer); }catch(_){ } holdTimer = 0; };
+        const stopPreview = ()=>{
+            clearHoldTimer();
+            if (!vEl) return;
+            if (previewing){
+                try{ vEl.pause(); }catch(_){ }
+                try{ vEl.currentTime = 0; }catch(_){ }
+                try{ vEl.loop = false; }catch(_){ }
+            }
+            previewing = false;
+        };
+        const startHold = ()=>{
+            if (!vEl) return;
+            clearHoldTimer();
+            holdTimer = setTimeout(()=>{
+                holdTriggered = true;
+                previewing = true;
+                try{ vEl.muted = true; vEl.volume = 0; vEl.loop = true; }catch(_){ }
+                try{ vEl.currentTime = 0; }catch(_){ }
+                try{ vEl.play().catch(()=>{}); }catch(_){ }
+            }, 220);
+        };
         const openInPlayer = ()=>{
             try{
                 const root = div.closest('#video-library,#video-suggestions,#video-search-results,#picture-library,#picture-suggestions,#global-feed,#space-feed,#waveconnect-section') || document;
@@ -7465,11 +7551,38 @@ class DashboardManager {
         };
         if (vEl){
             vEl.controls = false;
-            vEl.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openInPlayer(); });
-            vEl.addEventListener('play', ()=>{ try{ vEl.pause(); }catch(_){ } openInPlayer(); });
+            vEl.addEventListener('pointerdown', startHold);
+            vEl.addEventListener('pointerup', stopPreview);
+            vEl.addEventListener('pointercancel', stopPreview);
+            vEl.addEventListener('pointerleave', stopPreview);
+            vEl.addEventListener('touchstart', startHold, { passive: true });
+            vEl.addEventListener('touchend', stopPreview, { passive: true });
+            vEl.addEventListener('touchcancel', stopPreview, { passive: true });
+            vEl.addEventListener('click', (e)=>{
+                if (holdTriggered){
+                    holdTriggered = false;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                openInPlayer();
+            });
+            vEl.addEventListener('play', ()=>{
+                if (previewing) return;
+                try{ vEl.pause(); }catch(_){ }
+                openInPlayer();
+            });
         }
         if (openPlayerBtn){
-            openPlayerBtn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); openInPlayer(); };
+            openPlayerBtn.onclick = (e)=>{
+                stopPreview();
+                holdTriggered = false;
+                e.preventDefault();
+                e.stopPropagation();
+                openInPlayer();
+            };
         }
         const editBtn = div.querySelector('.edit-visual-btn');
         if (editBtn){
@@ -7805,6 +7918,31 @@ class DashboardManager {
         }
         const pVideo = div.querySelector('.liber-lib-video');
         const pOpenBtn = div.querySelector('.video-open-player-btn');
+        let picHoldTimer = 0;
+        let picPreviewing = false;
+        let picHoldTriggered = false;
+        const clearPicHold = ()=>{ try{ clearTimeout(picHoldTimer); }catch(_){ } picHoldTimer = 0; };
+        const stopPicPreview = ()=>{
+            clearPicHold();
+            if (!pVideo) return;
+            if (picPreviewing){
+                try{ pVideo.pause(); }catch(_){ }
+                try{ pVideo.currentTime = 0; }catch(_){ }
+                try{ pVideo.loop = false; }catch(_){ }
+            }
+            picPreviewing = false;
+        };
+        const startPicHold = ()=>{
+            if (!pVideo) return;
+            clearPicHold();
+            picHoldTimer = setTimeout(()=>{
+                picHoldTriggered = true;
+                picPreviewing = true;
+                try{ pVideo.muted = true; pVideo.volume = 0; pVideo.loop = true; }catch(_){ }
+                try{ pVideo.currentTime = 0; }catch(_){ }
+                try{ pVideo.play().catch(()=>{}); }catch(_){ }
+            }, 220);
+        };
         const openPictureVideoPlayer = ()=>{
             try{
                 const root = div.closest('#picture-library,#picture-suggestions,#picture-search-results,#waveconnect-section') || document;
@@ -7827,11 +7965,38 @@ class DashboardManager {
         };
         if (pVideo){
             pVideo.controls = false;
-            pVideo.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openPictureVideoPlayer(); });
-            pVideo.addEventListener('play', ()=>{ try{ pVideo.pause(); }catch(_){ } openPictureVideoPlayer(); });
+            pVideo.addEventListener('pointerdown', startPicHold);
+            pVideo.addEventListener('pointerup', stopPicPreview);
+            pVideo.addEventListener('pointercancel', stopPicPreview);
+            pVideo.addEventListener('pointerleave', stopPicPreview);
+            pVideo.addEventListener('touchstart', startPicHold, { passive: true });
+            pVideo.addEventListener('touchend', stopPicPreview, { passive: true });
+            pVideo.addEventListener('touchcancel', stopPicPreview, { passive: true });
+            pVideo.addEventListener('click', (e)=>{
+                if (picHoldTriggered){
+                    picHoldTriggered = false;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                openPictureVideoPlayer();
+            });
+            pVideo.addEventListener('play', ()=>{
+                if (picPreviewing) return;
+                try{ pVideo.pause(); }catch(_){ }
+                openPictureVideoPlayer();
+            });
         }
         if (pOpenBtn){
-            pOpenBtn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); openPictureVideoPlayer(); };
+            pOpenBtn.onclick = (e)=>{
+                stopPicPreview();
+                picHoldTriggered = false;
+                e.preventDefault();
+                e.stopPropagation();
+                openPictureVideoPlayer();
+            };
         }
         const removeBtn = div.querySelector('.remove-visual-btn');
         if (removeBtn){

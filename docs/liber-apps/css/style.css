@@ -465,6 +465,12 @@ img, video, canvas, svg, iframe {
   backdrop-filter:blur(6px);
 }
 .wave-subnav::-webkit-scrollbar{ width:0; height:0; }
+#waveconnect-section .wave-subnav{
+  display:none;
+}
+body.waveconnect-active #waveconnect-section.active .wave-subnav{
+  display:flex;
+}
 #waveconnect-section .wave-subnav .btn{
   border-radius:12px;
   width:42px;
@@ -861,33 +867,50 @@ img, video, canvas, svg, iframe {
     flex-wrap:wrap;
     gap:8px;
   }
-  .wave-subnav{
-    width:100%;
+  body.waveconnect-active #waveconnect-section.active .wave-subnav{
+    position:fixed;
+    left:8px;
+    right:8px;
+    bottom:calc(66px + env(safe-area-inset-bottom, 0px));
+    z-index:11082;
+    margin:0;
+    width:auto;
+  }
+  body.waveconnect-active #waveconnect-section.active{
+    padding-bottom:140px;
+  }
+  body.waveconnect-active .mini-player.show{
+    bottom:136px;
   }
   .wave-lib-layout{
     display:block;
   }
   .wave-lib-menu{
     display:flex;
-    flex-direction:row;
-    overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
-    white-space:nowrap;
+    flex-direction:column;
+    overflow:visible;
+    white-space:normal;
     margin-bottom:10px;
   }
   .wave-lib-menu .btn{
-    flex:0 0 auto;
-    width:auto;
-  }
-  #waveconnect-section .section-header .tabs,
-  #waveconnect-section .section-header > div[style*="display:flex"]{
-    flex-wrap:wrap;
-    gap:6px;
+    width:100%;
   }
   .waveconnect-header-actions{
     width:100%;
     justify-content:flex-start;
-    flex-wrap:wrap;
+    flex-wrap:nowrap;
+    min-width:0;
+    overflow:hidden;
+  }
+  #waveconnect-section .waveconnect-tabs{
+    max-width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    flex-wrap:nowrap;
+    min-width:0;
+  }
+  #waveconnect-section .waveconnect-tabs .btn{
+    flex:0 0 auto;
   }
   .wave-home-row{
     display:block;
@@ -970,13 +993,22 @@ img, video, canvas, svg, iframe {
     min-width:0;
   }
   .video-item-header{
-    flex-direction:column;
-    align-items:flex-start;
+    flex-direction:row;
+    align-items:center;
     padding-right:0 !important;
     margin-bottom:8px;
   }
+  .video-item-header img,
+  .video-item-header .picture-author-avatar{
+    width:26px !important;
+    height:26px !important;
+    min-width:26px !important;
+    border-radius:999px !important;
+    object-fit:cover;
+  }
   .video-item-header > div{
-    width:100%;
+    width:auto;
+    flex:1;
   }
   .video-item-actions{
     position:static !important;
@@ -1020,6 +1052,22 @@ img, video, canvas, svg, iframe {
   #wave-results .player-card{
     max-width:none;
     width:100%;
+  }
+}
+
+@media (min-width: 768px){
+  body.waveconnect-active #waveconnect-section.active .wave-subnav{
+    position:fixed;
+    left:84px;
+    right:16px;
+    top:10px;
+    z-index:11082;
+    margin:0;
+    width:auto;
+    justify-content:flex-start;
+  }
+  body.waveconnect-active #waveconnect-section.active{
+    padding-top:66px;
   }
 }
 
