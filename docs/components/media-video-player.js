@@ -24,6 +24,7 @@
     restoreBtn: null,
     uiHidden: false,
     holdTimer: null,
+    touchStartTs: 0,
     verticalStartY: 0,
     verticalStartX: 0,
     verticalTouching: false,
@@ -389,6 +390,7 @@
   function onTouchStart(e){
     if (!state.open || !e.touches || !e.touches[0]) return;
     const t = e.touches[0];
+    state.touchStartTs = Date.now();
     state.verticalStartY = t.clientY;
     state.verticalStartX = t.clientX;
     state.verticalTouching = true;
@@ -414,14 +416,32 @@
     if (state.uiHidden){
       state.uiHidden = false;
       if (state.shell) state.shell.classList.remove('ui-hidden');
+      state.verticalTouching = false;
       return;
     }
     if (!state.open || !state.verticalTouching || !e.changedTouches || !e.changedTouches[0]) return;
-    const y = e.changedTouches[0].clientY;
-    const delta = state.verticalStartY - y;
-    if (Math.abs(delta) > 50){
-      if (delta > 0) setIndex(state.index + 1);
+    const end = e.changedTouches[0];
+    const dx = Math.abs(end.clientX - state.verticalStartX);
+    const dy = Math.abs(end.clientY - state.verticalStartY);
+    const dt = Math.max(0, Date.now() - Number(state.touchStartTs || 0));
+    const deltaY = state.verticalStartY - end.clientY;
+
+    // Vertical swipe switches video.
+    if (Math.abs(deltaY) > 50){
+      if (deltaY > 0) setIndex(state.index + 1);
       else setIndex(state.index - 1);
+    } else {
+      // Simple tap on the video area toggles play/pause on mobile.
+      const target = e.target instanceof Element ? e.target : null;
+      const tapLike = dx <= 12 && dy <= 12 && dt <= 320;
+      const touchedVideoArea = !!target?.closest('.lvp-video-host,video.lvp-video');
+      if (tapLike && touchedVideoArea){
+        const v = getCurrentVideoNode();
+        if (v){
+          if (v.paused) v.play().catch(()=>{});
+          else v.pause();
+        }
+      }
     }
     state.verticalTouching = false;
   }
@@ -536,11 +556,28 @@
       state.theaterBtn.title = next ? 'Default mode' : 'Theater mode';
       state.theaterBtn.setAttribute('aria-label', next ? 'Default mode' : 'Theater mode');
     });
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-like').forEach((b)=> b.addEventListener('click', ()=> state.likeBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> b.addEventListener('click', ()=> state.commentsBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> b.addEventListener('click', ()=> state.authorBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> b.addEventListener('click', ()=> state.shareBtn?.click()));
-    overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> b.addEventListener('click', toggleVideoFullscreen));
+    const bindTapAction = (btn, action)=>{
+      if (!btn || typeof action !== 'function') return;
+      let touchHandled = false;
+      btn.addEventListener('touchend', (e)=>{
+        touchHandled = true;
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+        action();
+      }, { passive: false });
+      btn.addEventListener('click', (e)=>{
+        if (touchHandled){
+          touchHandled = false;
+          return;
+        }
+        try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+        action();
+      });
+    };
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-like').forEach((b)=> bindTapAction(b, ()=> state.likeBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-comments').forEach((b)=> bindTapAction(b, ()=> state.commentsBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-author').forEach((b)=> bindTapAction(b, ()=> state.authorBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-share').forEach((b)=> bindTapAction(b, ()=> state.shareBtn?.click()));
+    overlay.querySelectorAll('.lvp-mobile-rail .lvp-fullscreen').forEach((b)=> bindTapAction(b, toggleVideoFullscreen));
 
     const progress = overlay.querySelector('.lvp-progress');
     if (progress){
