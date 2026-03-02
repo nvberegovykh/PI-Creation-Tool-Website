@@ -1769,7 +1769,6 @@ Rules:
                 { role: 'system', content: [{ type: 'input_text', text: instructions }] },
                 { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
             ],
-            temperature: requireWeb ? 0.2 : 0.6,
             max_output_tokens: 1400
         };
         if (requireWeb) {
@@ -1811,8 +1810,7 @@ Rules:
                             content: message
                         }
                     ],
-                    max_completion_tokens: 1000,
-                    temperature: 0.7
+                    max_completion_tokens: 1000
                 })
             });
 
