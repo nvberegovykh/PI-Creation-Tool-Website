@@ -1488,6 +1488,21 @@ class ChatGPTIntegration {
         return hasAnalysisIntent && hasAddressLike;
     }
 
+    looksLikeClarificationInsteadOfReport(text) {
+        const s = String(text || '').toLowerCase();
+        if (!s) return false;
+        const cues = [
+            'quick confirmation',
+            'please confirm',
+            'do you mean',
+            'which do you want',
+            'if you want me to proceed',
+            'confirm borough',
+            'can you confirm'
+        ];
+        return cues.some((c) => s.includes(c));
+    }
+
     sanitizeFilename(input) {
         return String(input || 'zoning-report')
             .replace(/[^a-z0-9\-_.\s]/gi, ' ')
@@ -1635,7 +1650,20 @@ class ChatGPTIntegration {
             // OpenAI-recommended path: use Responses API for text and multimodal inputs.
             console.log('Using grounded responses API (text + files)');
             try {
-                return await this.callGroundedResponses(message, false, files);
+                let out = await this.callGroundedResponses(message, false, files);
+                // Force completion mode for address analyses: avoid "please confirm" loops.
+                if (this.isAddressAnalysisRequest(message)) {
+                    let attempts = 0;
+                    while (attempts < 2 && this.looksLikeClarificationInsteadOfReport(out)) {
+                        out = await this.callGroundedResponses(
+                            `${String(message || '')}\n\nReturn the full report now with assumptions, table + visual summary + air-rights calculations. Do not ask me to confirm anything.`,
+                            true,
+                            files
+                        );
+                        attempts += 1;
+                    }
+                }
+                return out;
             } catch (groundedErr) {
                 console.warn('Grounded responses failed:', groundedErr?.message || groundedErr);
                 // Do not silently drop multimodal inputs by downgrading to text-only fallback.
@@ -1937,6 +1965,43 @@ Rules:
         }
     }
 
+    async uploadFileToOpenAI(file) {
+        try {
+            const form = new FormData();
+            form.append('purpose', 'user_data');
+            form.append('file', file, String(file?.name || 'upload.bin'));
+            let resp = await this.openaiFetch('/v1/files', {
+                method: 'POST',
+                json: false,
+                timeoutMs: 60000,
+                body: form
+            });
+            if (!resp.ok) {
+                // Compatibility fallback with legacy purpose name.
+                const form2 = new FormData();
+                form2.append('purpose', 'assistants');
+                form2.append('file', file, String(file?.name || 'upload.bin'));
+                resp = await this.openaiFetch('/v1/files', {
+                    method: 'POST',
+                    json: false,
+                    timeoutMs: 60000,
+                    body: form2
+                });
+            }
+            if (!resp.ok) {
+                const msg = await resp.text().catch(() => '');
+                throw new Error(msg || `File upload failed (${resp.status})`);
+            }
+            const data = await resp.json();
+            const id = String(data?.id || '').trim();
+            if (!id) throw new Error('OpenAI file id missing');
+            return id;
+        } catch (err) {
+            console.warn('uploadFileToOpenAI failed:', err);
+            return '';
+        }
+    }
+
     async buildResponsesUserContent(message, files = []) {
         const content = [];
         const userText = String(message || '').trim();
@@ -1967,6 +2032,17 @@ Rules:
                     }
                 } catch (_) {}
                 notes.push(`Could not attach image "${name}".`);
+                continue;
+            }
+
+            if (type === 'application/pdf') {
+                const fileId = await this.uploadFileToOpenAI(file);
+                if (fileId) {
+                    content.push({ type: 'input_file', file_id: fileId });
+                    notes.push(`Included PDF as reference: "${name}".`);
+                    continue;
+                }
+                notes.push(`Could not upload PDF "${name}" for model reading.`);
                 continue;
             }
 
@@ -2030,10 +2106,14 @@ Rules:
 2) Current zoning district/overlays and use framework
 3) FAR/buildable area analysis with formulas and explicit assumptions
 4) Bulk controls summary (height, setbacks, lot coverage, yards, parking/loading if applicable)
-5) Maximum buildable options as scenarios (base / moderate / aggressive) with constraints
-6) Constraints/risks and filing considerations
-7) Practical next steps and data still needed
-8) A "References" section with source links inline and at the end.
+5) Air-rights analysis:
+   - Available development rights on lot (sq ft) = max zoning floor area - existing built floor area
+   - Potential added floor area from purchased air rights (sq ft) and resulting total achievable floor area
+   - Practical transferability caveats and constraints
+6) Maximum buildable options as scenarios (base / moderate / aggressive) with constraints
+7) Constraints/risks and filing considerations
+8) Practical next steps and data still needed
+9) A "References" section with source links inline and at the end.
 Formatting requirements:
 - Use clean section headers
 - Include at least one table for scenario comparison
