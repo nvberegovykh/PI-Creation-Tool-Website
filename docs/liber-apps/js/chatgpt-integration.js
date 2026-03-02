@@ -23,7 +23,7 @@ class ChatGPTIntegration {
         this.maxHistoryItems = 50; // Keep last 50 messages
         this.cryptoKey = null; // WebCrypto key for local chat encryption
         this.cryptoReady = false;
-        this.responsesModel = 'gpt-5-mini';
+        this.responsesModel = 'gpt-4.1';
         // Keep fallback on a chat-completions-native model for reliability.
         this.chatFallbackModel = 'gpt-4o-mini';
         this.generatedLocalReports = new Map();
@@ -1572,6 +1572,9 @@ class ChatGPTIntegration {
         if (!body) return true;
         if (this.looksLikeClarificationInsteadOfReport(body)) return true;
         if (/could not generate visible output/i.test(body)) return true;
+        const assumedCount = (body.match(/\bassum(ed|ption|ptions)\b/gi) || []).length;
+        const linkCount = (body.match(/https?:\/\//gi) || []).length;
+        if (assumedCount >= 4 && linkCount < 3) return true;
         const q = this.scoreAddressReportCompleteness(body);
         return !q.isComplete;
     }
@@ -1586,6 +1589,20 @@ Autonomous mode requirements:
 - Do NOT ask clarifying questions.
 - Include zoning district/overlays, FAR buildable area math, bulk controls, air-rights availability and purchase-impact math, scenario table (base/moderate/aggressive), visual summary bars, and references.
 - If a value cannot be verified online in this pass, proceed with explicit assumption and confidence note.`;
+    }
+
+    normalizeReportTextForPdf(text) {
+        const raw = String(text || '');
+        return raw
+            .replace(/\r\n/g, '\n')
+            .replace(/^#{1,6}\s*/gm, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/`(.*?)`/g, '$1')
+            .replace(/^\|\s*/gm, '')
+            .replace(/\s*\|\s*/g, '   ')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
     }
 
     inferAddressAutofillHint(message) {
@@ -1658,7 +1675,7 @@ Autonomous mode requirements:
         y += 6;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10.5);
-        const text = String(bodyText || '').replace(/\r\n/g, '\n');
+        const text = this.normalizeReportTextForPdf(bodyText);
         const lines = doc.splitTextToSize(text, maxW);
         lines.forEach((ln) => {
             if (y > pageH - margin) { doc.addPage(); y = margin; }
@@ -1785,6 +1802,29 @@ Must include: zoning designation/overlays, FAR math, air-rights math, scenario t
                 if (Array.isArray(files) && files.length > 0) {
                     throw new Error(`Responses failed for file/image input: ${groundedErr?.message || 'unknown error'}`);
                 }
+                if (this.isAddressAnalysisRequest(message)) {
+                    const forced = this.buildAutonomousAddressDirective(message);
+                    try {
+                        let out = await this.callGroundedResponses(forced, true, files, 'gpt-4o');
+                        let attempts = 0;
+                        while (attempts < 2 && this.needsAddressReportRegeneration(out)) {
+                            out = await this.callGroundedResponses(
+                                `${forced}
+
+Verification pass:
+- Rebuild the report with official-source citations for all numeric coefficients.
+- If unverified, mark UNVERIFIED and do not use those values in final totals.`,
+                                true,
+                                files,
+                                'gpt-4o'
+                            );
+                            attempts += 1;
+                        }
+                        if (String(out || '').trim()) return out;
+                    } catch (secondGroundedErr) {
+                        console.warn('Secondary grounded model failed:', secondGroundedErr?.message || secondGroundedErr);
+                    }
+                }
                 console.warn('Falling back to chat completions for text-only request');
                 if (this.isAddressAnalysisRequest(message)) {
                     const forced = this.buildAutonomousAddressDirective(message);
@@ -1800,6 +1840,9 @@ Regenerate as final report only. No questions. Include zoning/FAR/air-rights/sce
                         attempts += 1;
                     }
                     if (!String(out || '').trim()) throw new Error('Address analysis fallback returned empty output');
+                    if (this.needsAddressReportRegeneration(out)) {
+                        throw new Error('Address analysis could not be verified from reliable web-grounded sources. Please retry.');
+                    }
                     return out;
                 }
                 return await this.callChatCompletions(message);
@@ -2224,7 +2267,7 @@ Rules:
         }));
     }
 
-    async callGroundedResponses(message, forceRegulatory = false, files = []) {
+    async callGroundedResponses(message, forceRegulatory = false, files = [], modelOverride = '') {
         const systemPrompt = this.buildSystemPrompt();
         const requireWeb = forceRegulatory || this.isRegulatoryOrCodeQuery(message);
         const wantsAddressReport = this.isAddressAnalysisRequest(message);
@@ -2253,10 +2296,16 @@ Behavior requirements:
 - Do NOT ask for confirmation first; proceed with best-match interpretation and clearly state assumptions
 - If address ambiguity exists, continue with best likely parcel and list alternatives in assumptions.
 Do not omit references.`;
+            instructions += `\n\nData-verification requirements:
+- Pull zoning district and overlays from NYC ZoLa for the specific address.
+- For each numeric zoning coefficient used (FAR, height/setback/bulk controls), include an explicit NYC Zoning Resolution citation.
+- Do NOT invent coefficients. If exact value is not verified from official sources in this run, label it UNVERIFIED and exclude it from final max-buildable totals.
+- Include a "Source Snapshot" section with source URLs and retrieval date.`;
         }
         const userContent = await this.buildResponsesUserContent(message, files);
+        const modelName = String(modelOverride || this.responsesModel || 'gpt-4.1').trim();
         const payload = {
-            model: this.responsesModel || 'gpt-5-mini',
+            model: modelName,
             input: [
                 { role: 'system', content: [{ type: 'input_text', text: instructions }] },
                 ...(wantsAddressReport ? [] : this.buildResponsesHistoryInput(message)),
@@ -2265,7 +2314,7 @@ Do not omit references.`;
             max_output_tokens: 1400
         };
         if (requireWeb) {
-            payload.tools = [{ type: 'web_search_preview', search_context_size: 'medium' }];
+            payload.tools = [{ type: 'web_search_preview', search_context_size: 'high' }];
         }
         const response = await this.openaiFetch('/v1/responses', {
             method: 'POST',
@@ -2302,7 +2351,7 @@ Do not omit references.`;
         // If web-grounded call returned empty, retry once without tools to avoid blank replies.
         if (requireWeb) {
             const retryPayload = {
-                model: this.responsesModel || 'gpt-5-mini',
+                model: modelName,
                 input: [
                     { role: 'system', content: [{ type: 'input_text', text: `${systemPrompt}\n\nProvide the best possible answer now. If external lookup is unavailable, clearly state assumptions and required verification steps.` }] },
                     { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
@@ -2367,7 +2416,12 @@ Do not omit references.`;
             if (typeof content === 'string' && content.trim()) return content;
             if (Array.isArray(content)) {
                 const text = content
-                    .map((part) => String(part?.text || part?.content || part?.value || '').trim())
+                    .map((part) => {
+                        const t = part?.text;
+                        if (typeof t === 'string') return t.trim();
+                        if (t && typeof t === 'object') return String(t?.value || t?.content || '').trim();
+                        return String(part?.content || part?.value || '').trim();
+                    })
                     .filter(Boolean)
                     .join('\n\n');
                 if (text) return text;
