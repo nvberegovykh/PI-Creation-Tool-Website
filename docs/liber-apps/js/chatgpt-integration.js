@@ -1268,6 +1268,14 @@ class ChatGPTIntegration {
 
         messageDiv.innerHTML = messageHTML;
         messagesContainer.appendChild(messageDiv);
+        messageDiv.querySelectorAll('.wall-e-file-download').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const fileId = String(btn.getAttribute('data-file-id') || '').trim();
+                if (!fileId) return;
+                this.downloadGeneratedFile(fileId);
+            });
+        });
 
         // Scroll to bottom
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -1442,7 +1450,8 @@ class ChatGPTIntegration {
                 // Normal chat message
                 const response = await this.callWALLE(message, filesToSend);
                 this.removeTypingIndicator();
-                this.addMessage('assistant', response);
+                const safeResponse = String(response || '').trim() || 'I could not generate visible output for this request. Please retry, or ask me to return a concise text summary.';
+                this.addMessage('assistant', safeResponse);
             }
         } catch (error) {
             console.error('Error in sendMessage:', error);
@@ -1627,7 +1636,7 @@ class ChatGPTIntegration {
      * Build system prompt with base personality and page-specific guidelines
      */
     buildSystemPrompt() {
-        const base = `You are WALL-E, a friendly, straightforward, peaceful and calm part of the architectural team. You help both users and our team reach their goals using logic, research, math and actual solutions. You are patient and thoughtful—sometimes it's better to take time to think than to choose the fastest but incorrect approach. Your goal is to save everyone's time by finding correct approaches. Be warm and semi-formal; use "you" naturally.`;
+        const base = `You are WALL-E, a friendly, straightforward, calm expert assistant for LIBER. Be concise, practical, and natural. Keep continuity across turns: remember recent user intents, constraints, and unresolved asks. Prefer direct helpful answers over generic questions. If clarification is needed, ask one focused question and propose a best-effort assumption path in parallel.`;
         const guidelines = this.getContextGuidelines();
         const appKnowledge = `LIBER Control Panel quick map:
 - Apps icon (\`fa-th\`) => Apps grid
@@ -1649,7 +1658,55 @@ Rules:
 4) Prefer latest adopted text and note effective date if source provides it.
 5) For legal/safety-critical guidance, recommend licensed professional verification.
 6) For non-NYC regions, first confirm jurisdiction and code edition, then cite the relevant official source before giving compliance guidance.`;
-        return `${base}\n\n${appKnowledge}\n\n${regulatoryGrounding}\n\n**Current page context:**\n${guidelines}`;
+        const liveContext = this.getLiveUiContextSnapshot();
+        return `${base}\n\n${appKnowledge}\n\n${regulatoryGrounding}\n\n**Current page context:**\n${guidelines}\n\n**Live UI context snapshot:**\n${liveContext}`;
+    }
+
+    getLiveUiContextSnapshot() {
+        try {
+            const lines = [];
+            const path = String(window.location?.pathname || '/');
+            lines.push(`Path: ${path}`);
+            const shellOpen = !!document.body?.classList?.contains('app-shell-open');
+            lines.push(`App shell open: ${shellOpen ? 'yes' : 'no'}`);
+            const frame = document.getElementById('app-shell-frame');
+            if (shellOpen && frame) {
+                const src = String(frame.getAttribute('src') || frame.src || '').trim();
+                if (src) lines.push(`Current app iframe src: ${src}`);
+            }
+            const activeDesktop = document.querySelector('.nav-btn.active[data-section]');
+            if (activeDesktop) {
+                lines.push(`Active main section: ${String(activeDesktop.getAttribute('data-section') || '').trim()}`);
+            }
+            const activeWaveMain = document.querySelector('.waveconnect-tabs .btn.active');
+            if (activeWaveMain) {
+                lines.push(`WaveConnect main tab: ${String(activeWaveMain.textContent || '').trim()}`);
+            }
+            const activeWaveSub = document.querySelector('#wave-subnav .btn.active[data-wave-subtab]');
+            if (activeWaveSub) {
+                lines.push(`WaveConnect subtab: ${String(activeWaveSub.getAttribute('data-wave-subtab') || '').trim()}`);
+            }
+            return lines.join('\n');
+        } catch (_) {
+            return 'Unavailable';
+        }
+    }
+
+    getRecentConversationWindow(limit = 10) {
+        try {
+            const rows = Array.isArray(this.chatHistory) ? this.chatHistory : [];
+            const filtered = rows
+                .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+                .map((m) => ({
+                    role: m.role === 'assistant' ? 'assistant' : 'user',
+                    content: String(m.content || '').trim()
+                }))
+                .filter((m) => m.content.length > 0);
+            if (!filtered.length) return [];
+            return filtered.slice(-Math.max(1, Number(limit || 10)));
+        } catch (_) {
+            return [];
+        }
     }
 
     isRegulatoryOrCodeQuery(message) {
@@ -1666,24 +1723,45 @@ Rules:
 
     extractAssistantTextFromResponsesPayload(data) {
         try {
+            const fileIds = new Set();
             if (typeof data?.output_text === 'string' && data.output_text.trim()) {
                 return data.output_text.trim();
             }
             if (Array.isArray(data?.output_text)) {
-                const joined = data.output_text.map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+                const joined = data.output_text.map((x) => String(x?.text ?? x || '').trim()).filter(Boolean).join('\n\n');
                 if (joined) return joined;
             }
             const output = Array.isArray(data?.output) ? data.output : [];
             const parts = [];
             output.forEach((item) => {
+                const direct = String(item?.text?.value ?? item?.text ?? item?.output_text?.value ?? item?.output_text ?? '').trim();
+                if (direct) parts.push(direct);
                 const content = Array.isArray(item?.content) ? item.content : [];
                 content.forEach((c) => {
                     const rawText = c?.text?.value ?? c?.text ?? c?.output_text?.value ?? c?.output_text ?? '';
                     const t = String(rawText || '').trim();
                     if (t) parts.push(t);
+                    const refusal = String(c?.refusal?.value ?? c?.refusal ?? '').trim();
+                    if (refusal) parts.push(refusal);
+                    const directFileId = String(c?.file_id || '').trim();
+                    if (directFileId) fileIds.add(directFileId);
+                    const anns = Array.isArray(c?.annotations) ? c.annotations : [];
+                    anns.forEach((a) => {
+                        const ids = [
+                            a?.file_id,
+                            a?.file_path?.file_id,
+                            a?.file_citation?.file_id
+                        ].map((x) => String(x || '').trim()).filter(Boolean);
+                        ids.forEach((id) => fileIds.add(id));
+                    });
                 });
             });
-            if (parts.length) return parts.join('\n\n');
+            if (parts.length) {
+                const body = parts.join('\n\n');
+                if (!fileIds.size) return body;
+                const filesBlock = Array.from(fileIds).map((id) => `[Generated file: ${id}]`).join('\n');
+                return `${body}\n\nGenerated files:\n${filesBlock}`;
+            }
             const fallback = String(data?.choices?.[0]?.message?.content || '').trim();
             if (fallback) return fallback;
             const errType = String(data?.error?.type || '').trim();
@@ -1706,6 +1784,36 @@ Rules:
                 reject(err);
             }
         });
+    }
+
+    async downloadGeneratedFile(fileId) {
+        try {
+            const id = String(fileId || '').trim();
+            if (!id) return;
+            const resp = await this.openaiFetch(`/v1/files/${encodeURIComponent(id)}/content`, {
+                method: 'GET',
+                json: false,
+                timeoutMs: 45000
+            });
+            if (!resp.ok) {
+                const msg = await resp.text().catch(() => '');
+                throw new Error(msg || `Unable to download file (${resp.status})`);
+            }
+            const blob = await resp.blob();
+            const cd = String(resp.headers.get('content-disposition') || '');
+            const nameMatch = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+            const filename = decodeURIComponent(String(nameMatch?.[1] || '').trim() || `wall-e-generated-${id}.bin`);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 1000);
+        } catch (err) {
+            this.showError(`Generated file download failed: ${err?.message || err}`);
+        }
     }
 
     async fileToText(file, maxChars = 160000) {
@@ -1773,6 +1881,29 @@ Rules:
         return content;
     }
 
+    buildResponsesHistoryInput(currentMessage = '') {
+        const current = String(currentMessage || '').trim();
+        const history = this.getRecentConversationWindow(10);
+        if (!history.length) return [];
+        // Avoid duplicating the message just typed in this request.
+        const deduped = history.filter((m, idx) => !(idx === history.length - 1 && m.role === 'user' && m.content === current));
+        return deduped.map((m) => ({
+            role: m.role,
+            content: [{ type: 'input_text', text: m.content.slice(0, 3000) }]
+        }));
+    }
+
+    buildChatCompletionsHistory(currentMessage = '') {
+        const current = String(currentMessage || '').trim();
+        const history = this.getRecentConversationWindow(10);
+        if (!history.length) return [];
+        const deduped = history.filter((m, idx) => !(idx === history.length - 1 && m.role === 'user' && m.content === current));
+        return deduped.map((m) => ({
+            role: m.role,
+            content: m.content.slice(0, 3000)
+        }));
+    }
+
     async callGroundedResponses(message, forceRegulatory = false, files = []) {
         const systemPrompt = this.buildSystemPrompt();
         const requireWeb = forceRegulatory || this.isRegulatoryOrCodeQuery(message);
@@ -1784,6 +1915,7 @@ Rules:
             model: this.responsesModel || 'gpt-5-mini',
             input: [
                 { role: 'system', content: [{ type: 'input_text', text: instructions }] },
+                ...this.buildResponsesHistoryInput(message),
                 { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
             ],
             max_output_tokens: 1400
@@ -1802,11 +1934,51 @@ Rules:
             throw new Error(`Responses API failed: ${response.status} - ${errorData || response.statusText}`);
         }
         const data = await response.json();
-        const out = this.extractAssistantTextFromResponsesPayload(data);
-        if (!String(out || '').trim()) {
-            throw new Error('Empty model output from Responses API');
+        let out = this.extractAssistantTextFromResponsesPayload(data);
+        if (String(out || '').trim()) return out;
+
+        // Some responses finish asynchronously; try fetching by response id once.
+        const respId = String(data?.id || '').trim();
+        if (respId) {
+            try {
+                await new Promise((r) => setTimeout(r, 900));
+                const poll = await this.openaiFetch(`/v1/responses/${encodeURIComponent(respId)}`, {
+                    method: 'GET',
+                    json: false,
+                    timeoutMs: 15000
+                });
+                if (poll.ok) {
+                    const polledData = await poll.json();
+                    out = this.extractAssistantTextFromResponsesPayload(polledData);
+                    if (String(out || '').trim()) return out;
+                }
+            } catch (_) {}
         }
-        return out;
+
+        // If web-grounded call returned empty, retry once without tools to avoid blank replies.
+        if (requireWeb) {
+            const retryPayload = {
+                model: this.responsesModel || 'gpt-5-mini',
+                input: [
+                    { role: 'system', content: [{ type: 'input_text', text: `${systemPrompt}\n\nProvide the best possible answer now. If external lookup is unavailable, clearly state assumptions and required verification steps.` }] },
+                    { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
+                ],
+                max_output_tokens: 1400
+            };
+            const retry = await this.openaiFetch('/v1/responses', {
+                method: 'POST',
+                beta: null,
+                timeoutMs: 22000,
+                body: JSON.stringify(retryPayload)
+            });
+            if (retry.ok) {
+                const retryData = await retry.json();
+                out = this.extractAssistantTextFromResponsesPayload(retryData);
+                if (String(out || '').trim()) return out;
+            }
+        }
+
+        throw new Error('Empty model output from Responses API');
     }
 
     /**
@@ -1816,6 +1988,7 @@ Rules:
         try {
             console.log('Using chat completions API fallback (text-only)');
             const systemPrompt = this.buildSystemPrompt();
+            const historyMessages = this.buildChatCompletionsHistory(message);
             
             const response = await this.openaiFetch('/v1/chat/completions', {
                 method: 'POST',
@@ -1827,6 +2000,7 @@ Rules:
                             role: 'system',
                             content: systemPrompt
                         },
+                        ...historyMessages,
                         {
                             role: 'user',
                             content: message
@@ -2634,6 +2808,7 @@ Rules:
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
             .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\[Generated file:\s*([A-Za-z0-9_-]+)\]/g, '<button type="button" class="btn btn-secondary btn-sm wall-e-file-download" data-file-id="$1">Download generated file</button>')
             .replace(/\n/g, '<br>');
     }
 
