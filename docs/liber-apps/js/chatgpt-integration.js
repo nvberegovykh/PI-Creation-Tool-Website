@@ -1510,7 +1510,12 @@ class ChatGPTIntegration {
             try {
                 return await this.callGroundedResponses(message, false, files);
             } catch (groundedErr) {
-                console.warn('Grounded responses failed, falling back to chat completions:', groundedErr?.message || groundedErr);
+                console.warn('Grounded responses failed:', groundedErr?.message || groundedErr);
+                // Do not silently drop multimodal inputs by downgrading to text-only fallback.
+                if (Array.isArray(files) && files.length > 0) {
+                    throw new Error(`Responses failed for file/image input: ${groundedErr?.message || 'unknown error'}`);
+                }
+                console.warn('Falling back to chat completions for text-only request');
                 return await this.callChatCompletions(message);
             }
         } catch (error) {
@@ -1788,7 +1793,7 @@ Rules:
      */
     async callChatCompletions(message) {
         try {
-            console.log('Using chat completions API for text-only message');
+            console.log('Using chat completions API fallback (text-only)');
             const systemPrompt = this.buildSystemPrompt();
             
             const response = await this.openaiFetch('/v1/chat/completions', {
@@ -1806,7 +1811,7 @@ Rules:
                             content: message
                         }
                     ],
-                    max_tokens: 1000,
+                    max_completion_tokens: 1000,
                     temperature: 0.7
                 })
             });
