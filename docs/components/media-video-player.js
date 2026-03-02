@@ -32,6 +32,7 @@
     horizontalSwipe: null
   };
   const authorAvatarCache = new Map();
+  const authorInfoCache = new Map();
 
   function clamp(v, min, max){
     return Math.max(min, Math.min(max, v));
@@ -211,10 +212,75 @@
     }
   }
 
+  async function resolveAuthorInfo(item){
+    try{
+      if (!item) return { uid: '', avatar: '', name: String(item?.author || '') };
+      const directUid = String(item.authorId || '').trim();
+      const sourceId = String(item.sourceId || '').trim();
+      const normUrl = String(item.url || '').trim();
+      const cacheKey = directUid ? `uid:${directUid}` : (sourceId ? `sid:${sourceId}` : (normUrl ? `url:${normUrl}` : ''));
+      if (cacheKey && authorInfoCache.has(cacheKey)) return authorInfoCache.get(cacheKey);
+      const out = { uid: directUid, avatar: String(item.authorAvatar || '').trim(), name: String(item.author || '').trim() };
+      if (out.uid && (!out.avatar || !out.name)){
+        try{
+          const u = await window.firebaseService?.getUserData?.(out.uid);
+          out.avatar = out.avatar || String(u?.avatarUrl || '').trim();
+          out.name = out.name || String(u?.username || u?.displayName || '').trim();
+        }catch(_){ }
+      }
+      if (!out.uid && sourceId && window.firebaseService?.db){
+        try{
+          const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'videos', sourceId));
+          if (snap.exists()){
+            const v = snap.data() || {};
+            out.uid = String(v.authorId || v.owner || v.originalAuthorId || '').trim();
+            out.avatar = out.avatar || String(v.authorAvatar || v.avatarUrl || '').trim();
+            out.name = out.name || String(v.authorName || '').trim();
+          }
+        }catch(_){ }
+      }
+      if (!out.uid && normUrl && window.firebaseService?.db){
+        try{
+          const q = firebase.query(
+            firebase.collection(window.firebaseService.db, 'videos'),
+            firebase.where('url', '==', normUrl),
+            firebase.limit(1)
+          );
+          const s = await firebase.getDocs(q);
+          if (!s.empty){
+            const v = s.docs[0].data() || {};
+            out.uid = String(v.authorId || v.owner || v.originalAuthorId || '').trim();
+            out.avatar = out.avatar || String(v.authorAvatar || v.avatarUrl || '').trim();
+            out.name = out.name || String(v.authorName || '').trim();
+          }
+        }catch(_){ }
+      }
+      if (out.uid && (!out.avatar || !out.name)){
+        try{
+          const u = await window.firebaseService?.getUserData?.(out.uid);
+          out.avatar = out.avatar || String(u?.avatarUrl || '').trim();
+          out.name = out.name || String(u?.username || u?.displayName || '').trim();
+        }catch(_){ }
+      }
+      if (!out.avatar) out.avatar = await resolveAuthorAvatar({ ...item, authorId: out.uid || item.authorId, authorAvatar: out.avatar || item.authorAvatar });
+      if (!out.name) out.name = String(item.author || '').trim();
+      if (cacheKey) authorInfoCache.set(cacheKey, out);
+      return out;
+    }catch(_){
+      return { uid: String(item?.authorId || '').trim(), avatar: String(item?.authorAvatar || '').trim(), name: String(item?.author || '').trim() };
+    }
+  }
+
   async function updateAuthorButtons(item){
     try{
-      const avatar = await resolveAuthorAvatar(item);
-      const title = String(item?.author || 'Author').trim() || 'Author';
+      const info = await resolveAuthorInfo(item);
+      const avatar = String(info?.avatar || '').trim();
+      const title = String(info?.name || item?.author || 'Author').trim() || 'Author';
+      if (item){
+        item.authorId = String(info?.uid || item.authorId || '').trim();
+        item.authorAvatar = avatar || String(item.authorAvatar || '');
+        item.author = title || String(item.author || '');
+      }
       const btnHtml = avatar
         ? `<img src="${escapeAttr(avatar)}" alt="${escapeAttr(title)}" class="lvp-author-avatar">`
         : '<i class="fas fa-user-circle"></i>';
@@ -237,6 +303,48 @@
         state.authorRailBtn.title = title;
         state.authorRailBtn.setAttribute('aria-label', title);
       }
+    }catch(_){ }
+  }
+
+  async function shareExternally(current){
+    const shareData = { title: current.title || 'Video', text: current.description || '', url: current.url };
+    try{
+      if (navigator.share) await navigator.share(shareData);
+      else await navigator.clipboard?.writeText(current.url);
+    }catch(_){ }
+  }
+
+  function openShareMenu(current){
+    try{
+      const old = document.getElementById('lvp-share-menu');
+      if (old) old.remove();
+      const layer = document.createElement('div');
+      layer.id = 'lvp-share-menu';
+      layer.style.cssText = 'position:fixed;inset:0;z-index:22080;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;padding:14px';
+      layer.innerHTML = `
+        <div style="width:min(96vw,440px);background:#0f1724;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:10px;display:grid;gap:8px">
+          <div style="font-size:13px;opacity:.86;padding:2px 2px 4px">Share video</div>
+          <button type="button" class="btn btn-secondary" data-share-chat><i class="fas fa-comments"></i> Share to chat</button>
+          <button type="button" class="btn btn-secondary" data-share-external><i class="fas fa-arrow-up-right-from-square"></i> Share externally</button>
+          <button type="button" class="btn btn-secondary" data-share-copy><i class="fas fa-link"></i> Copy link</button>
+          <button type="button" class="btn btn-secondary" data-share-cancel>Cancel</button>
+        </div>`;
+      document.body.appendChild(layer);
+      const close = ()=>{ try{ layer.remove(); }catch(_){ } };
+      layer.addEventListener('click', (e)=>{ if (e.target === layer) close(); });
+      layer.querySelector('[data-share-cancel]')?.addEventListener('click', close);
+      layer.querySelector('[data-share-chat]')?.addEventListener('click', ()=>{
+        try { window.dispatchEvent(new CustomEvent('liber-video-share-chat', { detail: current })); } catch (_) { }
+        close();
+      });
+      layer.querySelector('[data-share-external]')?.addEventListener('click', async ()=>{
+        await shareExternally(current);
+        close();
+      });
+      layer.querySelector('[data-share-copy]')?.addEventListener('click', async ()=>{
+        try{ await navigator.clipboard?.writeText(String(current?.url || '')); }catch(_){ }
+        close();
+      });
     }catch(_){ }
   }
 
@@ -605,23 +713,24 @@
     state.shareBtn?.addEventListener('click', async ()=>{
       const current = state.items[state.index];
       if (!current) return;
-      try{
-        const ev = new CustomEvent('liber-video-share-chat', { detail: current, cancelable: true });
-        const keepDefaultShare = window.dispatchEvent(ev);
-        if (!keepDefaultShare) return;
-      }catch(_){ }
-      const shareData = { title: current.title || 'Video', text: current.description || '', url: current.url };
-      try{
-        if (navigator.share) await navigator.share(shareData);
-        else await navigator.clipboard?.writeText(current.url);
-      }catch(_){ }
+      openShareMenu(current);
     });
     state.commentsBtn?.addEventListener('click', ()=>{
       // Placeholder comment sheet integration point for both app and landing.
       try { window.dispatchEvent(new CustomEvent('liber-video-comments-open', { detail: state.items[state.index] || null })); } catch (_) { }
     });
-    state.authorBtn?.addEventListener('click', ()=>{
-      try { window.dispatchEvent(new CustomEvent('liber-video-author-open', { detail: state.items[state.index] || null })); } catch (_) { }
+    state.authorBtn?.addEventListener('click', async ()=>{
+      const current = state.items[state.index] || null;
+      try{
+        const info = await resolveAuthorInfo(current || {});
+        const uid = String(info?.uid || current?.authorId || '').trim();
+        const dm = window.dashboardManager || window.top?.dashboardManager || window.parent?.dashboardManager;
+        if (uid && dm && typeof dm.showUserPreviewModal === 'function'){
+          dm.showUserPreviewModal(uid);
+          return;
+        }
+      }catch(_){ }
+      try { window.dispatchEvent(new CustomEvent('liber-video-author-open', { detail: current })); } catch (_) { }
     });
     state.likeBtn?.addEventListener('click', ()=>{
       const current = state.items[state.index];
