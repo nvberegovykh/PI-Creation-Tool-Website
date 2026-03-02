@@ -1647,8 +1647,12 @@ Autonomous mode requirements:
     async maybeGenerateLocalPdfReportMarker(userMessage, assistantText) {
         try {
             if (!this.isAddressAnalysisRequest(userMessage)) return '';
+            const body = String(assistantText || '').trim();
+            if (!body) return '';
+            if (this.looksLikeClarificationInsteadOfReport(body)) return '';
+            if (/could not generate visible output/i.test(body)) return '';
             const title = `Zoning Analysis Report - ${String(userMessage || '').slice(0, 90)}`;
-            const reportBlob = await this.buildPdfBlobFromText(title, assistantText);
+            const reportBlob = await this.buildPdfBlobFromText(title, body);
             const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             const filename = `${this.sanitizeFilename(title)}.pdf`;
             this.generatedLocalReports.set(id, { blob: reportBlob, filename, createdAt: Date.now() });
@@ -2320,8 +2324,17 @@ Do not omit references.`;
 
             const data = await response.json();
             console.log('Chat completions response received');
-            
-            return data.choices[0].message.content;
+            const msg = data?.choices?.[0]?.message;
+            const content = msg?.content;
+            if (typeof content === 'string') return content;
+            if (Array.isArray(content)) {
+                const text = content
+                    .map((part) => String(part?.text || part?.content || part?.value || '').trim())
+                    .filter(Boolean)
+                    .join('\n\n');
+                if (text) return text;
+            }
+            return String(msg?.text || '').trim();
         } catch (error) {
             console.error('Chat completions error:', error);
             throw error;
