@@ -1544,9 +1544,25 @@ class ChatGPTIntegration {
         const text = String(message || '').toLowerCase();
         if (!text) return false;
         const hasAnalysisIntent = /(zoning|analysis|report|far|floor area|setback|lot|bbl|borough block lot)/i.test(text);
-        const hasAddressLike = /\b\d{1,6}\s+[a-z0-9.'-]+\s+(street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|place|pl|drive|dr|court|ct|terrace|ter|way)\b/i.test(text)
+        const hasAddressLike = /\b\d{1,6}\s+[a-z0-9.'\- ]+\s+(street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|place|pl|drive|dr|court|ct|terrace|ter|way)\b/i.test(text)
             || /\b(borough|block|lot)\b/i.test(text);
-        return hasAnalysisIntent && hasAddressLike;
+        if (hasAnalysisIntent && hasAddressLike) return true;
+        // Allow one-line address replies after WALL-E asks for parcel clarification.
+        if (hasAddressLike && this.wasAwaitingAddressClarification()) return true;
+        return false;
+    }
+
+    wasAwaitingAddressClarification() {
+        const history = this.getRecentConversationWindow(4);
+        if (!Array.isArray(history) || !history.length) return false;
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const msg = history[i];
+            if (msg?.role !== 'assistant') continue;
+            const body = String(msg?.content || '').toLowerCase();
+            return body.includes('quick clarification') &&
+                (body.includes('lock the parcel confidently') || body.includes('reply with one line'));
+        }
+        return false;
     }
 
     looksLikeClarificationInsteadOfReport(text) {
@@ -1663,21 +1679,15 @@ Autonomous mode requirements:
 
     buildSimpleAddressClarification(message, zoningCtx = null) {
         if (!this.isAddressAnalysisRequest(message)) return '';
-        const explicitProgram = this.inferExplicitProgramType(message);
         const address = this.extractAddressCandidate(message);
+        const hasBoroughHint = /\b(brooklyn|queens|manhattan|bronx|staten island)\b/i.test(String(message || ''));
         if (!zoningCtx || zoningCtx.ok !== true) {
+            if (hasBoroughHint) return '';
             return `Quick clarification: I could not lock the parcel confidently yet.\nPlease reply with one line: "${address || 'address'} , borough".\nExample: "565 Union Street, Brooklyn".`;
         }
         const missingCritical = Array.isArray(zoningCtx?.flags?.missingCritical) ? zoningCtx.flags.missingCritical : [];
         if (missingCritical.some((k) => ['bbl', 'zoningDistricts', 'lotAreaSqft'].includes(String(k)))) {
             return `Quick clarification: parcel data is incomplete for this address.\nPlease confirm borough + address in one line (example: "565 Union Street, Brooklyn") and I’ll continue automatically.`;
-        }
-        const z = Array.isArray(zoningCtx?.site?.zoningDistricts) ? zoningCtx.site.zoningDistricts : [];
-        const overlays = Array.isArray(zoningCtx?.site?.overlays) ? zoningCtx.site.overlays : [];
-        const special = Array.isArray(zoningCtx?.site?.specialDistricts) ? zoningCtx.site.specialDistricts : [];
-        const complexUseCase = z.some((v) => /^[MC]/i.test(String(v || ''))) || overlays.length > 0 || special.length > 0;
-        if (!explicitProgram && complexUseCase) {
-            return `Quick clarification: what is the planned building type?\n1) Residential\n2) Mixed-use\n3) Commercial\n4) Community facility\nReply with 1-4 (or the type), and I’ll run the full analysis.`;
         }
         return '';
     }
