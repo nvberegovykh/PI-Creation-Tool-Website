@@ -1992,6 +1992,7 @@ Autonomous mode requirements:
             { key: 'overlays_maps', ok: /(overlay|special district|map layer|flood|coastal)/i.test(s) },
             { key: 'site_conditions', ok: /(street tree|amenit|additional regulation|special district requirement)/i.test(s) },
             { key: 'district_scan', ok: /(district-specific rule scans|district \/ overlay|requirement scanned|zoningresolution\.planning\.nyc\.gov)/i.test(s) },
+            { key: 'metric_citations', ok: /(citations by metric|use_group|lot_area|max_zoning_floor_area|street_tree_requirement|height_setback)/i.test(s) },
             { key: 'set_ready_compliance', ok: /(permitted\/required|provided\/proposed|citation)/i.test(s) && /\|/.test(s) },
             { key: 'zoning_controls_table', ok: /(zoning controls|coefficient|far|table)/i.test(s) && /\|/.test(s) },
             { key: 'capacity_breakdown', ok: /(max possible|regular deduction|low energy|capacity breakdown)/i.test(s) && /\|/.test(s) },
@@ -2045,6 +2046,7 @@ Autonomous mode requirements:
         const specialReqs = Array.isArray(site?.specialDistrictRequirements) ? site.specialDistrictRequirements : [];
         const districtReqs = Array.isArray(site?.districtSpecificRequirements) ? site.districtSpecificRequirements : [];
         const zrRefs = Array.isArray(site?.zrReferences) ? site.zrReferences : [];
+        const metricCitations = zoningCtx?.citationsByMetric || {};
         const refs = Array.isArray(zoningCtx?.sourceSnapshot) ? zoningCtx.sourceSnapshot : [];
         const legal = Array.isArray(zoningCtx?.legalUpdates?.entries) ? zoningCtx.legalUpdates.entries : [];
         const candidates = Array.isArray(zoningCtx?.airRights?.candidates) ? zoningCtx.airRights.candidates.slice(0, 8) : [];
@@ -2057,10 +2059,17 @@ Autonomous mode requirements:
             ...coeffRows.map((r) => `| ${String(r?.key || '')} | ${r?.value == null ? 'UNVERIFIED' : r.value} | ${String(r?.citation || '')} |`)
         ].join('\n');
 
+        const metricCitationTable = [
+            '| Metric key | Citation label | URL | Status |',
+            '|---|---|---|---|',
+            ...Object.entries(metricCitations).map(([k, v]) =>
+                `| ${String(k)} | ${String(v?.citationLabel || '')} | ${String(v?.citationUrl || '')} | ${String(v?.status || '')} |`)
+        ].join('\n');
+
         const capacityTable = [
             '| Metric | Value (sq ft) | Notes |',
             '|---|---:|---|',
-            `| Max possible cap by envelope/FAR (net) | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : results.maxZoningFloorAreaSqft} | Target net cap from zoning/FAR envelope |`,
+            `| Max possible cap by envelope/FAR (net) | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : results.maxNetByEnvelopeOrFarSqft} | Target net cap from zoning/FAR envelope |`,
             `| Gross before regular deductions | ${results?.grossBeforeRegularDeductionsSqft == null ? 'UNVERIFIED' : results.grossBeforeRegularDeductionsSqft} | Gross area needed so deductions resolve to cap |`,
             `| Regular deductions (${results?.regularDeductionsPct ?? 'UNVERIFIED'}% of gross) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Difference between gross and net cap |`,
             `| Net after regular deductions (= cap) | ${results?.netAfterRegularDeductionsSqft == null ? 'UNVERIFIED' : results.netAfterRegularDeductionsSqft} | Should equal max possible cap by definition |`,
@@ -2100,11 +2109,11 @@ Autonomous mode requirements:
         const zoningComplianceTable = [
             '| Item | Permitted / Required | Provided / Proposed | Remarks | Citation |',
             '|---|---|---|---|---|',
-            `| Use group / occupancy | ${String(calc?.useGroup || 'UNVERIFIED')} | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} | Derived from adaptive rule profile + ZR scan sources | ${String(zrRefs.find((r) => /use group/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/article-ii')} |`,
+            `| Use group / occupancy | ${String(calc?.useGroup || 'UNVERIFIED')} | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} | Derived from adaptive rule profile + ZR scan sources | ${String(metricCitations?.use_group?.citationUrl || zrRefs.find((r) => /use group/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/article-ii')} |`,
             `| Lot area | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf (base)`} | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf`} | Baseline from parcel snapshot | NYC MapPLUTO lotarea |`,
-            `| Max zoning floor area | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf (net cap)`} | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf`} | Controlled by FAR cap and envelope constraints | MapPLUTO residfar + ZR district bulk rules |`,
-            `| Street tree requirement | ${results?.requiredStreetTreesCount == null ? 'UNVERIFIED' : `${results.requiredStreetTreesCount} tree(s) required`} | frontage=${results?.lotFrontageFt == null ? 'UNVERIFIED' : `${results.lotFrontageFt} ft`} | Formula: ${String(calc?.formulas?.streetTreesRequired || 'UNVERIFIED')} | ${String(zrRefs.find((r) => /street tree/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/search?search=street%20tree')} |`,
-            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (${String(calc?.envelope?.maxHeightSource || 'resolved')})` : 'UNVERIFIED'} | Includes ZR district baseline fallback when MapPLUTO height absent | ${String(zrRefs.find((r) => /district search/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/')} |`
+            `| Max zoning floor area | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf (net cap)`} | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf`} | Controlled by FAR cap and envelope constraints | ${String(metricCitations?.max_zoning_floor_area?.citationUrl || 'MapPLUTO/ZR')} |`,
+            `| Street tree requirement | ${results?.requiredStreetTreesCount == null ? 'UNVERIFIED' : `${results.requiredStreetTreesCount} tree(s) required`} | frontage=${results?.lotFrontageFt == null ? 'UNVERIFIED' : `${results.lotFrontageFt} ft`} | Formula: ${String(calc?.formulas?.streetTreesRequired || 'UNVERIFIED')} | ${String(metricCitations?.street_tree_requirement?.citationUrl || zrRefs.find((r) => /street tree/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/search?search=street%20tree')} |`,
+            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (${String(calc?.envelope?.maxHeightSource || 'resolved')})` : 'UNVERIFIED'} | Includes ZR district baseline fallback when MapPLUTO height absent | ${String(metricCitations?.height_setback?.citationUrl || zrRefs.find((r) => /district search/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/')} |`
         ].join('\n');
 
         const floorAreaInputTable = [
@@ -2198,6 +2207,7 @@ Autonomous mode requirements:
 
         const confidence = zoningCtx?.confidence?.level || 'low';
         const missing = Array.isArray(zoningCtx?.flags?.missingCritical) ? zoningCtx.flags.missingCritical : [];
+        const adaptiveHealth = zoningCtx?.adaptiveRuleProfileHealth || {};
 
         const sections = [
             `## Site Identity`,
@@ -2239,6 +2249,9 @@ Autonomous mode requirements:
             `## ZR Section References`,
             zrReferenceTable,
             '',
+            `## Citations By Metric`,
+            metricCitationTable,
+            '',
             `## Additional Possible Regulations`,
             additionalRegTable,
             '',
@@ -2266,6 +2279,7 @@ Autonomous mode requirements:
             `## Confidence And Flags`,
             `- Confidence: ${confidence}`,
             `- Missing critical fields: ${missing.length ? missing.join(', ') : 'none'}`,
+            `- Adaptive rule profile health: ${adaptiveHealth?.ok ? 'ok' : 'incomplete'}${adaptiveHealth?.missing?.length ? ` (missing: ${adaptiveHealth.missing.join(', ')})` : ''}`,
             '- Numeric values marked UNVERIFIED are excluded from final maximum conclusion.'
         ];
 
@@ -2447,6 +2461,7 @@ Autonomous mode requirements:
             const canonicalBody = this._lastZoningCtx
                 ? this.buildStructuredAddressReport(this._lastZoningCtx, '')
                 : body;
+            if (!this.isPdfSheetReady(this._lastZoningCtx, canonicalBody)) return '';
             const reportBlob = await this.buildPdfBlobFromText(title, canonicalBody, this._lastZoningCtx || null);
             const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             const filename = `${this.sanitizeFilename(title)}.pdf`;
@@ -2456,6 +2471,15 @@ Autonomous mode requirements:
             console.warn('Local report generation failed:', err);
             return '';
         }
+    }
+
+    isPdfSheetReady(zoningCtx, reportBody) {
+        const s = String(reportBody || '').toLowerCase();
+        if (!/zoning compliance matrix/i.test(s)) return false;
+        if (!/maximum capacity breakdown/i.test(s)) return false;
+        const d = this.extractPdfDrawingData(zoningCtx, reportBody);
+        if (!d || !d.address) return false;
+        return true;
     }
 
     downloadLocalReport(reportId) {
