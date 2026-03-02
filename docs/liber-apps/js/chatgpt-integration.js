@@ -1838,7 +1838,7 @@ Rules:
                 return data.output_text.trim();
             }
             if (Array.isArray(data?.output_text)) {
-                const joined = data.output_text.map((x) => String(x?.text ?? x || '').trim()).filter(Boolean).join('\n\n');
+                const joined = data.output_text.map((x) => String((x?.text ?? x ?? '')).trim()).filter(Boolean).join('\n\n');
                 if (joined) return joined;
             }
             const output = Array.isArray(data?.output) ? data.output : [];
