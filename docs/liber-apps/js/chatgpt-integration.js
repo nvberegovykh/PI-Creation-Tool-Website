@@ -1999,7 +1999,10 @@ Rules:
         const deduped = history.filter((m, idx) => !(idx === history.length - 1 && m.role === 'user' && m.content === current));
         return deduped.map((m) => ({
             role: m.role,
-            content: [{ type: 'input_text', text: m.content.slice(0, 3000) }]
+            content: [{
+                type: m.role === 'assistant' ? 'output_text' : 'input_text',
+                text: m.content.slice(0, 3000)
+            }]
         }));
     }
 
@@ -2027,9 +2030,17 @@ Rules:
 2) Current zoning district/overlays and use framework
 3) FAR/buildable area analysis with formulas and explicit assumptions
 4) Bulk controls summary (height, setbacks, lot coverage, yards, parking/loading if applicable)
-5) Constraints/risks and filing considerations
-6) Practical next steps and data still needed
-7) A "References" section with source links inline and at the end.
+5) Maximum buildable options as scenarios (base / moderate / aggressive) with constraints
+6) Constraints/risks and filing considerations
+7) Practical next steps and data still needed
+8) A "References" section with source links inline and at the end.
+Formatting requirements:
+- Use clean section headers
+- Include at least one table for scenario comparison
+- Include a simple visual summary (ASCII bar chart or score bars) for buildable options
+Behavior requirements:
+- Do NOT ask for confirmation first; proceed with best-match interpretation and clearly state assumptions
+- If address ambiguity exists, continue with best likely parcel and list alternatives in assumptions.
 Do not omit references.`;
         }
         const userContent = await this.buildResponsesUserContent(message, files);
