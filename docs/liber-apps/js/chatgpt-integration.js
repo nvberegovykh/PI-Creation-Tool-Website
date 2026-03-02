@@ -102,11 +102,19 @@ class ChatGPTIntegration {
     /**
      * Helper: perform fetch to OpenAI (or proxy) with sensible defaults
      */
-    async openaiFetch(path, { method = 'GET', headers = {}, body = undefined, beta = null, json = true } = {}) {
+    async openaiFetch(path, { method = 'GET', headers = {}, body = undefined, beta = null, json = true, timeoutMs = 45000 } = {}) {
         const base = this.getOpenAIBase();
         const url = path.startsWith('http') ? path : `${base}${path}`;
         const mergedHeaders = { ...this.buildOpenAIHeaders({ json, beta }), ...headers };
-        return fetch(url, { method, headers: mergedHeaders, body });
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            try { controller.abort(); } catch (_) {}
+        }, Math.max(5000, Number(timeoutMs || 45000)));
+        try {
+            return await fetch(url, { method, headers: mergedHeaders, body, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /**
@@ -1661,20 +1669,29 @@ Rules:
             if (typeof data?.output_text === 'string' && data.output_text.trim()) {
                 return data.output_text.trim();
             }
+            if (Array.isArray(data?.output_text)) {
+                const joined = data.output_text.map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+                if (joined) return joined;
+            }
             const output = Array.isArray(data?.output) ? data.output : [];
             const parts = [];
             output.forEach((item) => {
                 const content = Array.isArray(item?.content) ? item.content : [];
                 content.forEach((c) => {
-                    const t = String(c?.text || c?.output_text || '').trim();
+                    const rawText = c?.text?.value ?? c?.text ?? c?.output_text?.value ?? c?.output_text ?? '';
+                    const t = String(rawText || '').trim();
                     if (t) parts.push(t);
                 });
             });
             if (parts.length) return parts.join('\n\n');
             const fallback = String(data?.choices?.[0]?.message?.content || '').trim();
-            return fallback || 'No response received';
+            if (fallback) return fallback;
+            const errType = String(data?.error?.type || '').trim();
+            const errMsg = String(data?.error?.message || '').trim();
+            if (errType || errMsg) return `Model error${errType ? ` (${errType})` : ''}: ${errMsg || 'unknown error'}`;
+            return '';
         } catch (_) {
-            return 'No response received';
+            return '';
         }
     }
 
@@ -1772,11 +1789,12 @@ Rules:
             max_output_tokens: 1400
         };
         if (requireWeb) {
-            payload.tools = [{ type: 'web_search_preview', search_context_size: 'high' }];
+            payload.tools = [{ type: 'web_search_preview', search_context_size: 'medium' }];
         }
         const response = await this.openaiFetch('/v1/responses', {
             method: 'POST',
             beta: null,
+            timeoutMs: 35000,
             body: JSON.stringify(payload)
         });
         if (!response.ok) {
@@ -1784,7 +1802,11 @@ Rules:
             throw new Error(`Responses API failed: ${response.status} - ${errorData || response.statusText}`);
         }
         const data = await response.json();
-        return this.extractAssistantTextFromResponsesPayload(data);
+        const out = this.extractAssistantTextFromResponsesPayload(data);
+        if (!String(out || '').trim()) {
+            throw new Error('Empty model output from Responses API');
+        }
+        return out;
     }
 
     /**
