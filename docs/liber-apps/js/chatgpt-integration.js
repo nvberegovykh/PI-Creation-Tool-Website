@@ -1689,6 +1689,11 @@ Autonomous mode requirements:
             const n = Number(v);
             return Number.isFinite(n) ? n : null;
         };
+        const asPositive = (v) => {
+            const n = Number(v);
+            return (Number.isFinite(n) && n > 0) ? n : null;
+        };
+        const zrRefs = Array.isArray(site?.zrReferences) ? site.zrReferences : [];
         return {
             address: String(zoningCtx?.query?.address || site?.address || 'n/a'),
             borough: String(site?.borough || 'n/a'),
@@ -1700,12 +1705,23 @@ Autonomous mode requirements:
             frontageFt: asNum(site?.lotFrontageFt),
             depthFt: asNum(site?.lotDepthFt),
             lotAreaSf: asNum(site?.lotAreaSqft),
-            maxHeightFt: asNum(env?.maxHeightFt),
+            maxHeightFt: asPositive(env?.maxHeightFt),
             rearYardLabel: String((env?.setbacks?.[1]?.value) || 'UNVERIFIED'),
+            rearYardDepthFt: asNum(env?.rearYardDepthFt),
             footprintSf: asNum(env?.maxFootprintSqft) ?? metrics.lotFootprint,
+            buildableFootprintSf: asNum(env?.buildableFootprintSqft),
+            baseHeightFt: asPositive(env?.baseHeightFt),
+            upperStorySetbackReductionPct: asNum(env?.upperStorySetbackReductionPct),
+            baseStoriesEstimate: asNum(env?.baseStoriesEstimate),
+            towerStoriesEstimate: asNum(env?.towerStoriesEstimate),
+            towerFootprintSf: asNum(env?.towerFootprintSqft),
             maxNetSf: asNum(calc?.results?.maxNetByEnvelopeOrFarSqft) ?? metrics.maxCap,
             grossSf: asNum(calc?.results?.grossBeforeRegularDeductionsSqft) ?? metrics.gross,
-            bonusSf: asNum(calc?.results?.maxWithLowEnergyBonusSqft) ?? metrics.bonusMax
+            bonusSf: asNum(calc?.results?.maxWithLowEnergyBonusSqft) ?? metrics.bonusMax,
+            useGroup: String(calc?.useGroup || 'UNVERIFIED'),
+            requiredStreetTreesCount: asNum(calc?.results?.requiredStreetTreesCount),
+            maxHeightSource: String(env?.maxHeightSource || 'UNVERIFIED'),
+            zrRefsShort: zrRefs.slice(0, 3).map((r) => String(r?.url || '')).filter(Boolean)
         };
     }
 
@@ -1722,9 +1738,16 @@ Autonomous mode requirements:
             ['Borough / Block / Lot', `${data.borough} / ${data.block} / ${data.lot}`],
             ['BBL', data.bbl],
             ['District / Overlays', `${data.zoning} / ${data.overlays}`],
+            ['Use Group (Permitted)', data.useGroup || 'UNVERIFIED'],
             ['Lot (frontage x depth)', `${data.frontageFt ?? 'UNVERIFIED'} ft x ${data.depthFt ?? 'UNVERIFIED'} ft`],
             ['Lot Area', `${data.lotAreaSf ?? 'UNVERIFIED'} sf`],
-            ['Height Limit', data.maxHeightFt != null ? `${data.maxHeightFt} ft` : 'UNVERIFIED']
+            ['Rear Yard Setback', data.rearYardDepthFt != null ? `${data.rearYardDepthFt} ft` : String(data.rearYardLabel || 'UNVERIFIED')],
+            ['Base Height Before Setback', data.baseHeightFt != null ? `${data.baseHeightFt} ft` : 'UNVERIFIED'],
+            ['Upper-Story Setback Rule', data.upperStorySetbackReductionPct != null ? `${data.upperStorySetbackReductionPct}% footprint reduction above base height` : 'UNVERIFIED'],
+            ['Street Trees Required', data.requiredStreetTreesCount != null ? `${data.requiredStreetTreesCount}` : 'UNVERIFIED'],
+            ['Height Limit', data.maxHeightFt != null ? `${data.maxHeightFt} ft` : 'UNVERIFIED'],
+            ['Height Source', data.maxHeightSource || 'UNVERIFIED'],
+            ['ZR References', data.zrRefsShort.length ? data.zrRefsShort.join(' | ') : 'UNVERIFIED']
         ];
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9.2);
@@ -1767,15 +1790,24 @@ Autonomous mode requirements:
         const lotY = y + 24;
         doc.setDrawColor(30, 30, 30);
         doc.rect(lotX, lotY, lotW, lotH);
-        const setbackInset = Math.max(5, Math.min(lotW, lotH) * 0.08);
+        const rearYardDepthFt = Number(data.rearYardDepthFt || 0);
+        const rearInsetByDepth = (Number(data.depthFt || 0) > 0 && rearYardDepthFt > 0)
+            ? Math.max(4, (rearYardDepthFt / Number(data.depthFt)) * lotH)
+            : Math.max(5, Math.min(lotW, lotH) * 0.08);
+        const sideInset = Math.max(3, Math.min(lotW, lotH) * 0.04);
         if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([3, 2], 0);
-        doc.rect(lotX + setbackInset, lotY + setbackInset, Math.max(12, lotW - (setbackInset * 2)), Math.max(12, lotH - (setbackInset * 2)));
+        doc.rect(
+            lotX + sideInset,
+            lotY + sideInset,
+            Math.max(12, lotW - (sideInset * 2)),
+            Math.max(12, lotH - sideInset - rearInsetByDepth)
+        );
         if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([], 0);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8.3);
         doc.text(`Frontage: ${data.frontageFt ?? 'UNVERIFIED'} ft`, lotX, lotY + lotH + 12);
         doc.text(`Depth: ${data.depthFt ?? 'UNVERIFIED'} ft`, lotX + 120, lotY + lotH + 12);
-        doc.text(`Rear yard: ${data.rearYardLabel}`, lotX, lotY + lotH + 24);
+        doc.text(`Rear yard: ${data.rearYardDepthFt ?? data.rearYardLabel}`, lotX, lotY + lotH + 24);
 
         const secBaseY = y + eachH - 26;
         const secBaseX = secX + 18;
@@ -1784,15 +1816,18 @@ Autonomous mode requirements:
         const hFt = Math.max(10, Number(data.maxHeightFt || 80));
         const hScale = maxH / hFt;
         const drawH = Math.max(20, hFt * hScale);
+        const baseHeightFt = Number(data.baseHeightFt || 0);
+        const baseRatio = (baseHeightFt > 0 && hFt > 0) ? Math.max(0.05, Math.min(0.95, baseHeightFt / hFt)) : 0.65;
+        const setbackPlaneY = secBaseY - (drawH * baseRatio);
         doc.setDrawColor(55, 55, 55);
         doc.line(secBaseX, secBaseY, secBaseX + secW, secBaseY);
         doc.rect(secBaseX + 24, secBaseY - drawH, secW - 70, drawH);
         if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([3, 2], 0);
-        doc.line(secBaseX + 8, secBaseY - (drawH * 0.65), secBaseX + secW - 8, secBaseY - (drawH * 0.65));
+        doc.line(secBaseX + 8, setbackPlaneY, secBaseX + secW - 8, setbackPlaneY);
         if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([], 0);
         doc.setFontSize(8.3);
         doc.text(`Height: ${data.maxHeightFt ?? 'UNVERIFIED'} ft`, secBaseX + 4, secBaseY - drawH - 6);
-        doc.text('Dashed = setback plane', secBaseX + 120, secBaseY - drawH - 6);
+        doc.text(`Setback starts at base height: ${data.baseHeightFt ?? 'UNVERIFIED'} ft`, secBaseX + 120, secBaseY - drawH - 6);
 
         const ix = isoX + 28;
         const iy = y + eachH - 34;
@@ -1872,20 +1907,37 @@ Autonomous mode requirements:
         doc.text('LOT LINE', lotX + 4, lotY - 2);
         doc.text('MAX BUILDABLE FOOTPRINT', lotX + 16, lotY + 22);
         doc.text('DASHED: REQUIRED YARD / SETBACK LIMITS', lotX + 16, lotY + 34);
+        doc.text(`Rear yard: ${metrics?.rearYardDepthFt ?? 'UNVERIFIED'} ft`, lotX + 16, lotY + 46);
         // Envelope section (right)
         const envX = lotX + lotW + 14;
         const envW = Math.max(70, frameW - lotW - 14);
         const envY = lotY;
+        const baseHeightFt = Number(metrics?.baseHeightFt || 0);
+        const maxHeightFt = Math.max(10, Number(metrics?.maxHeightFt || 80));
+        const baseRatio = (baseHeightFt > 0 && maxHeightFt > 0) ? Math.max(0.05, Math.min(0.95, baseHeightFt / maxHeightFt)) : 0.65;
+        const baseBandY = envY + lotH - (lotH * baseRatio);
+        const upperReductionPct = Math.max(0, Math.min(80, Number(metrics?.upperStorySetbackReductionPct || 0)));
+        const towerInset = Math.max(2, (envW * upperReductionPct) / 200);
         doc.setDrawColor(70, 70, 70);
         doc.rect(envX, envY, envW, lotH);
-        doc.line(envX, envY + 24, envX + envW, envY + 24);
+        doc.rect(envX + towerInset, envY, Math.max(8, envW - (towerInset * 2)), Math.max(8, baseBandY - envY));
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([3, 2], 0);
+        doc.line(envX, baseBandY, envX + envW, baseBandY);
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([], 0);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.text('ROOF LINE', envX + 6, envY + 16);
-        doc.text('BUILDING MASS', envX + 6, envY + 42);
+        doc.text('ROOF LINE', envX + 6, envY + 14);
+        doc.text('TOWER MASS', envX + 6, envY + 28);
+        doc.text('BASE MASS', envX + 6, baseBandY + 14);
+        doc.text(`Base h: ${metrics?.baseHeightFt ?? 'UNVERIFIED'} ft`, envX + 6, baseBandY - 4);
+        doc.text(`Tower setback: ${metrics?.upperStorySetbackReductionPct ?? 'UNVERIFIED'}%`, envX + 6, baseBandY + 26);
         const lotTxt = Number.isFinite(metrics?.lotFootprint) ? `${Math.round(metrics.lotFootprint).toLocaleString()} sf` : 'UNVERIFIED';
+        const buildableTxt = Number.isFinite(metrics?.buildableFootprintSf) ? `${Math.round(metrics.buildableFootprintSf).toLocaleString()} sf` : 'UNVERIFIED';
+        const towerTxt = Number.isFinite(metrics?.towerFootprintSf) ? `${Math.round(metrics.towerFootprintSf).toLocaleString()} sf` : 'UNVERIFIED';
         doc.text(`Lot Footprint Cap: ${lotTxt}`, fx, fy + frameH + 14);
-        doc.text('Setback Regime: scaled yard/setback guide shown as dashed line', fx, fy + frameH + 26);
+        doc.text(`Buildable Footprint (after setbacks): ${buildableTxt}`, fx, fy + frameH + 26);
+        doc.text(`Tower Footprint (above base): ${towerTxt}`, fx, fy + frameH + 38);
+        doc.text('Setback Regime: dashed line marks base-height trigger', fx, fy + frameH + 50);
     }
 
     inferAddressAutofillHint(message) {
@@ -1992,6 +2044,7 @@ Autonomous mode requirements:
             { key: 'overlays_maps', ok: /(overlay|special district|map layer|flood|coastal)/i.test(s) },
             { key: 'site_conditions', ok: /(street tree|amenit|additional regulation|special district requirement)/i.test(s) },
             { key: 'district_scan', ok: /(district-specific rule scans|district \/ overlay|requirement scanned|zoningresolution\.planning\.nyc\.gov)/i.test(s) },
+            { key: 'zr_exact_sections', ok: /(zr exact sections applied|article-|zoningresolution\.planning\.nyc\.gov\/article-)/i.test(s) },
             { key: 'metric_citations', ok: /(citations by metric|use_group|lot_area|max_zoning_floor_area|street_tree_requirement|height_setback)/i.test(s) },
             { key: 'set_ready_compliance', ok: /(permitted\/required|provided\/proposed|citation)/i.test(s) && /\|/.test(s) },
             { key: 'zoning_controls_table', ok: /(zoning controls|coefficient|far|table)/i.test(s) && /\|/.test(s) },
@@ -2010,7 +2063,12 @@ Autonomous mode requirements:
         const lot = zoningCtx?.site?.lotAreaSqft != null ? `${zoningCtx.site.lotAreaSqft} sf` : 'UNVERIFIED';
         const frontage = zoningCtx?.site?.lotFrontageFt != null ? `${zoningCtx.site.lotFrontageFt} ft` : 'UNVERIFIED';
         const depth = zoningCtx?.site?.lotDepthFt != null ? `${zoningCtx.site.lotDepthFt} ft` : 'UNVERIFIED';
-        const rearYard = env?.setbacks?.[1]?.value || 'UNVERIFIED';
+        const rearYard = (typeof env?.rearYardDepthFt === 'number' && env.rearYardDepthFt >= 0)
+            ? `${env.rearYardDepthFt} ft`
+            : (env?.setbacks?.[1]?.value || 'UNVERIFIED');
+        const buildable = env?.buildableFootprintSqft != null ? `${env.buildableFootprintSqft} sf` : 'UNVERIFIED';
+        const baseHeight = (typeof env?.baseHeightFt === 'number' && env.baseHeightFt > 0) ? `${env.baseHeightFt} ft` : 'UNVERIFIED';
+        const postBaseSetback = (typeof env?.upperStorySetbackReductionPct === 'number' && env.upperStorySetbackReductionPct >= 0) ? `${env.upperStorySetbackReductionPct}%` : 'UNVERIFIED';
         return [
             '```text',
             'Scaled Lot Plan + Envelope (deterministic)',
@@ -2020,9 +2078,12 @@ Autonomous mode requirements:
             '|  +-------------------------------------+  |  Max Height: ' + maxHeight,
             '|  |            BUILDING MASS            |  |',
             '|  +-------------------------------------+  |',
-            '|  Rear yard baseline: ' + rearYard + '                      |',
+            '|  Rear yard setback: ' + rearYard + '                      |',
             '+-------------------------------------------+',
             ' Lot footprint cap: ' + lot,
+            ' Buildable footprint after setbacks: ' + buildable,
+            ' Base height before setback: ' + baseHeight,
+            ' Upper-story setback reduction above base: ' + postBaseSetback,
             ' Lot dimensions: frontage=' + frontage + ', depth=' + depth,
             '```'
         ].join('\n');
@@ -2046,6 +2107,9 @@ Autonomous mode requirements:
         const specialReqs = Array.isArray(site?.specialDistrictRequirements) ? site.specialDistrictRequirements : [];
         const districtReqs = Array.isArray(site?.districtSpecificRequirements) ? site.districtSpecificRequirements : [];
         const zrRefs = Array.isArray(site?.zrReferences) ? site.zrReferences : [];
+        const zrSections = Array.isArray(site?.zrSections) ? site.zrSections : [];
+        const ruleSignals = site?.ruleSignals || {};
+        const scanPlan = Array.isArray(zoningCtx?.scanPlan) ? zoningCtx.scanPlan : [];
         const metricCitations = zoningCtx?.citationsByMetric || {};
         const refs = Array.isArray(zoningCtx?.sourceSnapshot) ? zoningCtx.sourceSnapshot : [];
         const legal = Array.isArray(zoningCtx?.legalUpdates?.entries) ? zoningCtx.legalUpdates.entries : [];
@@ -2069,6 +2133,8 @@ Autonomous mode requirements:
         const capacityTable = [
             '| Metric | Value (sq ft) | Notes |',
             '|---|---:|---|',
+            `| FAR net capacity (before envelope min-control) | ${results?.farNetCapacitySqft == null ? 'UNVERIFIED' : results.farNetCapacitySqft} | lotArea x FAR |`,
+            `| Envelope net capacity (after setbacks/coverage/height) | ${results?.envelopeNetCapacitySqft == null ? 'UNVERIFIED' : results.envelopeNetCapacitySqft} | Deterministic geometry/envelope cap |`,
             `| Max possible cap by envelope/FAR (net) | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : results.maxNetByEnvelopeOrFarSqft} | Target net cap from zoning/FAR envelope |`,
             `| Gross before regular deductions | ${results?.grossBeforeRegularDeductionsSqft == null ? 'UNVERIFIED' : results.grossBeforeRegularDeductionsSqft} | Gross area needed so deductions resolve to cap |`,
             `| Regular deductions (${results?.regularDeductionsPct ?? 'UNVERIFIED'}% of gross) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Difference between gross and net cap |`,
@@ -2113,13 +2179,29 @@ Autonomous mode requirements:
             `| Lot area | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf (base)`} | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf`} | Baseline from parcel snapshot | NYC MapPLUTO lotarea |`,
             `| Max zoning floor area | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf (net cap)`} | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf`} | Controlled by FAR cap and envelope constraints | ${String(metricCitations?.max_zoning_floor_area?.citationUrl || 'MapPLUTO/ZR')} |`,
             `| Street tree requirement | ${results?.requiredStreetTreesCount == null ? 'UNVERIFIED' : `${results.requiredStreetTreesCount} tree(s) required`} | frontage=${results?.lotFrontageFt == null ? 'UNVERIFIED' : `${results.lotFrontageFt} ft`} | Formula: ${String(calc?.formulas?.streetTreesRequired || 'UNVERIFIED')} | ${String(metricCitations?.street_tree_requirement?.citationUrl || zrRefs.find((r) => /street tree/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/search?search=street%20tree')} |`,
-            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (${String(calc?.envelope?.maxHeightSource || 'resolved')})` : 'UNVERIFIED'} | Includes ZR district baseline fallback when MapPLUTO height absent | ${String(metricCitations?.height_setback?.citationUrl || zrRefs.find((r) => /district search/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/')} |`
+            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (${String(calc?.envelope?.maxHeightSource || 'resolved')})` : 'UNVERIFIED'} | Base height=${calc?.envelope?.baseHeightFt == null ? 'UNVERIFIED' : `${calc.envelope.baseHeightFt} ft`}; post-base setback=${calc?.envelope?.upperStorySetbackReductionPct == null ? 'UNVERIFIED' : `${calc.envelope.upperStorySetbackReductionPct}% reduction`} | ${String(metricCitations?.height_setback?.citationUrl || zrRefs.find((r) => /district search/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/')} |`
+        ].join('\n');
+
+        const appliedControlsTable = [
+            '| Order | Applied control | Basis | Value used | Governing source |',
+            '|---:|---|---|---|---|',
+            `| 1 | Parcel identity lock | BBL + district + geometry | BBL ${String(site?.bbl || 'UNVERIFIED')} | NYC MapPLUTO + geocode match |`,
+            `| 2 | Use group permitted | Program -> adaptive profile | ${String(calc?.useGroup || 'UNVERIFIED')} | ${String(metricCitations?.use_group?.citationUrl || 'https://zoningresolution.planning.nyc.gov/article-ii')} |`,
+            `| 3 | Height baseline | ltdheight or district baseline | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft` : 'UNVERIFIED'} | ${String(metricCitations?.height_setback?.citationUrl || 'https://zoningresolution.planning.nyc.gov/')} |`,
+            `| 4 | Setback / rear yard | adaptive profile district rule | ${calc?.envelope?.rearYardDepthFt == null ? 'UNVERIFIED' : `${calc.envelope.rearYardDepthFt} ft`} | ${(zrSections.find((z) => /rear\s*yard/i.test(String(z?.topic || '')))?.url) || String(metricCitations?.height_setback?.citationUrl || '') || 'UNVERIFIED'} |`,
+            `| 5 | Post-base-height setback | tower reduction above base height | base=${calc?.envelope?.baseHeightFt == null ? 'UNVERIFIED' : `${calc.envelope.baseHeightFt} ft`}; reduction=${calc?.envelope?.upperStorySetbackReductionPct == null ? 'UNVERIFIED' : `${calc.envelope.upperStorySetbackReductionPct}%`} | ${(zrSections.find((z) => /height factor|height|district/i.test(String(z?.topic || '')))?.url) || String(metricCitations?.height_setback?.citationUrl || '') || 'UNVERIFIED'} |`,
+            `| 6 | Envelope buildable footprint | geometry(frontage*depth-setback) ∩ lot coverage | ${calc?.envelope?.buildableFootprintSqft == null ? 'UNVERIFIED' : `${calc.envelope.buildableFootprintSqft} sf`} | Deterministic envelope engine |`,
+            `| 7 | Net capacity cap | min(FAR net cap, envelope net cap) | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf`} | MapPLUTO FAR + envelope controls |`
         ].join('\n');
 
         const floorAreaInputTable = [
             '| Floor Area Input | Area (sf) | Notes |',
             '|---|---:|---|',
             `| Existing built area | ${site?.existingBuiltSqft == null ? 'UNVERIFIED' : site.existingBuiltSqft} | Parcel baseline |`,
+            `| FAR net cap | ${results?.farNetCapacitySqft == null ? 'UNVERIFIED' : results.farNetCapacitySqft} | lotArea x FAR |`,
+            `| Envelope net cap | ${results?.envelopeNetCapacitySqft == null ? 'UNVERIFIED' : results.envelopeNetCapacitySqft} | Rear yard, lot coverage, stories by height |`,
+            `| Base height before setback | ${calc?.envelope?.baseHeightFt == null ? 'UNVERIFIED' : `${calc.envelope.baseHeightFt} ft`} | Street-wall/base envelope height |`,
+            `| Upper-story setback reduction | ${calc?.envelope?.upperStorySetbackReductionPct == null ? 'UNVERIFIED' : `${calc.envelope.upperStorySetbackReductionPct}%`} | Applies above base height to tower footprint |`,
             `| Max zoning floor area cap (net) | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : results.maxNetByEnvelopeOrFarSqft} | Net cap target after envelope/FAR min-control |`,
             `| Gross before deductions | ${results?.grossBeforeRegularDeductionsSqft == null ? 'UNVERIFIED' : results.grossBeforeRegularDeductionsSqft} | Gross envelope before regular deductions |`,
             `| Deductions (${results?.regularDeductionsPct ?? 'UNVERIFIED'}% of gross) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Gross-minus-cap difference |`,
@@ -2179,6 +2261,33 @@ Autonomous mode requirements:
                 : ['| ZR references | UNVERIFIED |'])
         ].join('\n');
 
+        const zrSectionTable = [
+            '| Topic | Exact section | URL | Status |',
+            '|---|---|---|---|',
+            ...(zrSections.length
+                ? zrSections.map((r) => `| ${String(r?.topic || '')} | ${String(r?.section || '')} | ${String(r?.url || '')} | ${String(r?.status || 'unknown')} |`)
+                : ['| n/a | UNVERIFIED | UNVERIFIED | unavailable |'])
+        ].join('\n');
+
+        const ruleSignalsTable = [
+            '| Signal | Value | Source |',
+            '|---|---|---|',
+            `| Use group (scan-derived) | ${String(ruleSignals?.useGroup || 'UNVERIFIED')} | ZR section text parsing |`,
+            `| Max height ft (scan-derived) | ${ruleSignals?.maxHeightFt == null ? 'UNVERIFIED' : ruleSignals.maxHeightFt} | ZR section text parsing |`,
+            `| Base height ft (scan-derived) | ${ruleSignals?.baseHeightFt == null ? 'UNVERIFIED' : ruleSignals.baseHeightFt} | ZR section text parsing |`,
+            `| Rear yard ft (scan-derived) | ${ruleSignals?.rearYardDepthFt == null ? 'UNVERIFIED' : ruleSignals.rearYardDepthFt} | ZR section text parsing |`,
+            `| Street-tree frontage ft/tree (scan-derived) | ${ruleSignals?.streetTreeFrontageFtPerTree == null ? 'UNVERIFIED' : ruleSignals.streetTreeFrontageFtPerTree} | ZR section text parsing |`,
+            `| Post-base-height setback reduction % (scan-derived) | ${ruleSignals?.upperStorySetbackReductionPct == null ? 'UNVERIFIED' : ruleSignals.upperStorySetbackReductionPct} | ZR section text parsing |`
+        ].join('\n');
+
+        const scanPlanTable = [
+            '| Step | Action | Status | Note |',
+            '|---:|---|---|---|',
+            ...(scanPlan.length
+                ? scanPlan.map((s) => `| ${String(s?.step ?? '')} | ${String(s?.action || '')} | ${String(s?.status || '')} | ${String(s?.note || '')} |`)
+                : ['| 1 | sequential scan | unavailable | Scan plan not returned by resolver |'])
+        ].join('\n');
+
         const additionalRegTable = [
             '| Additional regulation check | Status | Note |',
             '|---|---|---|',
@@ -2222,6 +2331,9 @@ Autonomous mode requirements:
             `## Zoning Compliance Matrix (Permitted/Required vs Provided/Proposed)`,
             zoningComplianceTable,
             '',
+            `## Applied Controls (Sorted By Governing Order)`,
+            appliedControlsTable,
+            '',
             `## Floor Area Inputs And Deductions`,
             floorAreaInputTable,
             '',
@@ -2248,6 +2360,15 @@ Autonomous mode requirements:
             '',
             `## ZR Section References`,
             zrReferenceTable,
+            '',
+            `## ZR Exact Sections Applied`,
+            zrSectionTable,
+            '',
+            `## Scan-Derived Rule Signals`,
+            ruleSignalsTable,
+            '',
+            `## Sequential Scan Execution Log`,
+            scanPlanTable,
             '',
             `## Citations By Metric`,
             metricCitationTable,
@@ -2392,7 +2513,7 @@ Autonomous mode requirements:
         const drawing = this.extractPdfDrawingData(zoningCtx, bodyText);
 
         // Locked Page 1 template: title block + scaled architectural diagrams.
-        const titleBlockH = 144;
+        const titleBlockH = 212;
         this.drawPdfTitleBlock(doc, margin, y, contentW, titleBlockH, drawing);
         y += titleBlockH + 12;
         const diagramsH = Math.max(220, pageH - y - margin);
@@ -2406,7 +2527,23 @@ Autonomous mode requirements:
         doc.setFillColor(251, 253, 255);
         doc.roundedRect(margin, y, contentW, 174, 6, 6, 'FD');
         this.renderPdfCapacityChart(doc, metrics, margin + 12, y + 10, Math.floor(contentW * 0.55), 150);
-        this.renderPdfEnvelopeSketch(doc, metrics, margin + Math.floor(contentW * 0.58), y + 10, Math.floor(contentW * 0.4), 150);
+        this.renderPdfEnvelopeSketch(
+            doc,
+            {
+                ...metrics,
+                lotFootprint: drawing?.footprintSf ?? metrics?.lotFootprint ?? null,
+                buildableFootprintSf: drawing?.buildableFootprintSf ?? null,
+                rearYardDepthFt: drawing?.rearYardDepthFt ?? null,
+                baseHeightFt: drawing?.baseHeightFt ?? null,
+                upperStorySetbackReductionPct: drawing?.upperStorySetbackReductionPct ?? null,
+                towerFootprintSf: drawing?.towerFootprintSf ?? null,
+                maxHeightFt: drawing?.maxHeightFt ?? null
+            },
+            margin + Math.floor(contentW * 0.58),
+            y + 10,
+            Math.floor(contentW * 0.4),
+            150
+        );
         y += 190;
 
         const text = this.normalizeReportTextForPdf(bodyText);
