@@ -794,6 +794,7 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   text-overflow:ellipsis;
   max-width:180px;
 }
+.liber-tab-selector,
 .waveconnect-tabs{
   background:rgba(20,26,40,.75);
   border:1px solid rgba(160,190,230,.22);
@@ -801,23 +802,34 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
   padding:4px;
   display:flex;
   align-items:center;
+  justify-content:center;
   gap:4px;
+  width:100%;
   backdrop-filter:blur(6px);
 }
-#waveconnect-section .waveconnect-tabs .btn{
+#waveconnect-section .waveconnect-tabs .btn,
+.liber-tab-selector .btn{
+  flex:1 1 0;
+  min-width:0;
   border-radius:999px;
   border:0;
   background:transparent;
   color:#c8d6ea;
   padding:8px 12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
   transition:transform .18s ease, background-color .18s ease, color .18s ease;
 }
-#waveconnect-section .waveconnect-tabs .btn.active{
+#waveconnect-section .waveconnect-tabs .btn.active,
+.liber-tab-selector .btn.active{
   background:linear-gradient(135deg,#2563eb,#3b82f6);
   color:#fff;
   box-shadow:0 6px 18px rgba(37,99,235,.35);
 }
-#waveconnect-section .waveconnect-tabs .btn:not(.active):hover{
+#waveconnect-section .waveconnect-tabs .btn:not(.active):hover,
+.liber-tab-selector .btn:not(.active):hover{
   background:rgba(74,102,145,.22);
   color:#e8f2ff;
   transform:translateY(-1px);
@@ -929,7 +941,7 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
     position:fixed;
     left:8px;
     right:8px;
-    bottom:calc(66px + env(safe-area-inset-bottom, 0px));
+    bottom:calc(74px + env(safe-area-inset-bottom, 0px));
     z-index:980;
     margin:0;
     width:auto;
@@ -938,10 +950,10 @@ body.waveconnect-active #waveconnect-section.active .wave-subnav{
     align-items:center;
   }
   body.waveconnect-active #waveconnect-section.active{
-    padding-bottom:140px;
+    padding-bottom:148px;
   }
   body.waveconnect-active .mini-player.show{
-    bottom:136px;
+    bottom:144px;
   }
   .wave-lib-layout{
     display:block;

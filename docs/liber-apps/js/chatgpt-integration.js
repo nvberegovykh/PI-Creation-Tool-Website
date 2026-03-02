@@ -23,6 +23,8 @@ class ChatGPTIntegration {
         this.maxHistoryItems = 50; // Keep last 50 messages
         this.cryptoKey = null; // WebCrypto key for local chat encryption
         this.cryptoReady = false;
+        this.responsesModel = 'gpt-5-mini';
+        this.chatFallbackModel = 'gpt-5-mini';
         
         // Thread management
         this.savedThreads = [];
@@ -39,16 +41,9 @@ class ChatGPTIntegration {
         try {
             await this.loadConfiguration();
             if (this.isEnabled) {
-                // Run these checks in parallel and don't let them block the widget
-                Promise.allSettled([
-                    this.ensureAssistantSupportsFiles(),
-                    this.checkAssistantConfig()
-                ]).then(results => {
-                    results.forEach((result, index) => {
-                        if (result.status === 'rejected') {
-                            console.warn(`⚠️ Assistant check ${index + 1} failed, but widget continues:`, result.reason);
-                        }
-                    });
+                // Assistants API is deprecated; keep startup lightweight and Responses-first.
+                Promise.resolve().then(() => {
+                    console.log('WALL-E startup: Responses API mode enabled');
                 });
             }
         } catch (error) {
@@ -571,6 +566,8 @@ class ChatGPTIntegration {
             if (keys && keys.openai) {
                 if (keys.openai.apiKey) this.apiKey = keys.openai.apiKey;
                 if (keys.openai.assistantId) this.assistantId = keys.openai.assistantId;
+                if (keys.openai.responsesModel) this.responsesModel = String(keys.openai.responsesModel || this.responsesModel);
+                if (keys.openai.chatFallbackModel) this.chatFallbackModel = String(keys.openai.chatFallbackModel || this.chatFallbackModel);
             }
 
             // Enable if either proxy or apiKey is available
@@ -1500,7 +1497,7 @@ class ChatGPTIntegration {
     }
 
     /**
-     * Call WALL-E Assistant API
+     * Call WALL-E using OpenAI Responses-first flow
      */
     async callWALLE(message, files = []) {
         try {
@@ -1508,33 +1505,14 @@ class ChatGPTIntegration {
             // Using proxy allows text-only without exposing apiKey
             if (!this.proxyUrl && !this.apiKey) throw new Error('WALL-E not configured (no proxy or key).');
 
-            // If no files, use chat completions API (more reliable for text-only)
-            if (!files || files.length === 0) {
-                console.log('No files detected, using chat completions API');
+            // OpenAI-recommended path: use Responses API for text and multimodal inputs.
+            console.log('Using grounded responses API (text + files)');
+            try {
+                return await this.callGroundedResponses(message, false, files);
+            } catch (groundedErr) {
+                console.warn('Grounded responses failed, falling back to chat completions:', groundedErr?.message || groundedErr);
                 return await this.callChatCompletions(message);
             }
-
-            // If files are present, use assistants API
-            console.log('Files detected, using assistants API');
-            if (!this.assistantId) {
-                throw new Error('File uploads require assistant configuration which is not set.');
-            }
-            
-            // Create or get thread
-            if (!this.threadId) {
-                this.threadId = await this.createThread();
-            }
-
-            // Add message to thread (with files if any)
-            await this.addMessageToThread(message, files);
-
-            // Run assistant
-            const runId = await this.runAssistant();
-
-            // Wait for completion and get response
-            const response = await this.waitForResponse(runId);
-
-            return response;
         } catch (error) {
             console.error('WALL-E API Error:', error);
             throw error;
@@ -1638,7 +1616,171 @@ class ChatGPTIntegration {
     buildSystemPrompt() {
         const base = `You are WALL-E, a friendly, straightforward, peaceful and calm part of the architectural team. You help both users and our team reach their goals using logic, research, math and actual solutions. You are patient and thoughtful—sometimes it's better to take time to think than to choose the fastest but incorrect approach. Your goal is to save everyone's time by finding correct approaches. Be warm and semi-formal; use "you" naturally.`;
         const guidelines = this.getContextGuidelines();
-        return `${base}\n\n**Current page context:**\n${guidelines}`;
+        const appKnowledge = `LIBER Control Panel quick map:
+- Apps icon (\`fa-th\`) => Apps grid
+- Personal Space (\`fa-id-badge\`) => personal profile and posting
+- Wall (\`fa-stream\`) => feed posts and suggestions
+- WaveConnect (\`fa-music\`) => media platform
+- Profile (\`fa-user\`) => my profile
+- Admin only: User Management (\`fa-users\`), Settings (\`fa-cog\`)
+- WaveConnect main tabs: Audio (\`fa-music\`), Video (\`fa-video\`), Pictures (\`fa-image\`)
+- WaveConnect secondary nav: Home (\`fa-house\`), Search (\`fa-magnifying-glass\`), Upload (\`fa-plus\`), Library (\`fa-user\`), Studio (\`fa-sliders\`)`;
+        const regulatoryGrounding = `When users ask about zoning/codes/filing/compliance, prioritize current official sources and cite them inline with markdown links:
+- NYC Zoning Resolution: https://zoningresolution.planning.nyc.gov/
+- NYC ZoLa zoning map: https://zola.planning.nyc.gov/about#9.72/40.7125/-73.733
+- NYC Buildings codes page: https://www.nyc.gov/site/buildings/codes/nyc-code.page
+Rules:
+1) Do not invent section numbers, FAR values, overlays, or filing requirements.
+2) If exact parcel analysis is requested, ask for borough/block/lot or address and any district/overlay shown in ZoLa.
+3) For exact zoning floor area calculations, show formula and assumptions, and clearly label values as verified vs assumed.
+4) Prefer latest adopted text and note effective date if source provides it.
+5) For legal/safety-critical guidance, recommend licensed professional verification.
+6) For non-NYC regions, first confirm jurisdiction and code edition, then cite the relevant official source before giving compliance guidance.`;
+        return `${base}\n\n${appKnowledge}\n\n${regulatoryGrounding}\n\n**Current page context:**\n${guidelines}`;
+    }
+
+    isRegulatoryOrCodeQuery(message) {
+        const text = String(message || '').toLowerCase();
+        if (!text) return false;
+        const keys = [
+            'zoning', 'zola', 'far', 'floor area', 'setback', 'overlay',
+            'nyc code', 'building code', 'fire code', 'dob', 'permit',
+            'filing', 'occupancy', 'egress', 'sprinkler', 'ceqr',
+            'special district', 'lot coverage', 'height factor'
+        ];
+        return keys.some((k) => text.includes(k));
+    }
+
+    extractAssistantTextFromResponsesPayload(data) {
+        try {
+            if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+                return data.output_text.trim();
+            }
+            const output = Array.isArray(data?.output) ? data.output : [];
+            const parts = [];
+            output.forEach((item) => {
+                const content = Array.isArray(item?.content) ? item.content : [];
+                content.forEach((c) => {
+                    const t = String(c?.text || c?.output_text || '').trim();
+                    if (t) parts.push(t);
+                });
+            });
+            if (parts.length) return parts.join('\n\n');
+            const fallback = String(data?.choices?.[0]?.message?.content || '').trim();
+            return fallback || 'No response received';
+        } catch (_) {
+            return 'No response received';
+        }
+    }
+
+    async fileToDataUrl(file) {
+        return await new Promise((resolve, reject) => {
+            try {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error(`Failed to read file: ${String(file?.name || 'unknown')}`));
+                reader.readAsDataURL(file);
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
+    async fileToText(file, maxChars = 160000) {
+        try {
+            const text = await file.text();
+            const safe = String(text || '');
+            if (safe.length <= maxChars) return safe;
+            return `${safe.slice(0, maxChars)}\n\n[Truncated to ${maxChars} chars]`;
+        } catch (_) {
+            return '';
+        }
+    }
+
+    async buildResponsesUserContent(message, files = []) {
+        const content = [];
+        const userText = String(message || '').trim();
+        if (userText) content.push({ type: 'input_text', text: userText });
+
+        if (!Array.isArray(files) || files.length === 0) return content;
+
+        const notes = [];
+        for (const file of files) {
+            if (!file || typeof file !== 'object') continue;
+            const name = String(file.name || 'file');
+            const type = String(file.type || '').toLowerCase();
+            const size = Number(file.size || 0);
+
+            // Keep request payloads predictable.
+            if (size > 8 * 1024 * 1024) {
+                notes.push(`Skipped large file "${name}" (${Math.round(size / (1024 * 1024))} MB). Please upload a smaller file.`);
+                continue;
+            }
+
+            if (type.startsWith('image/')) {
+                try {
+                    const dataUrl = await this.fileToDataUrl(file);
+                    if (dataUrl) {
+                        content.push({ type: 'input_image', image_url: dataUrl });
+                        notes.push(`Included image: "${name}".`);
+                        continue;
+                    }
+                } catch (_) {}
+                notes.push(`Could not attach image "${name}".`);
+                continue;
+            }
+
+            const isTextLike = type.startsWith('text/') || type === 'application/json' || type === 'application/xml' || type === 'text/csv';
+            if (isTextLike) {
+                const textBody = await this.fileToText(file);
+                if (textBody) {
+                    content.push({
+                        type: 'input_text',
+                        text: `File "${name}" (${type || 'text/plain'}) content:\n\n${textBody}`
+                    });
+                    continue;
+                }
+            }
+
+            notes.push(`File "${name}" (${type || 'unknown'}) attached as metadata only. If you need deep analysis, provide text content or image/PDF extract.`);
+        }
+
+        if (notes.length > 0) {
+            content.push({ type: 'input_text', text: `Attachment notes:\n- ${notes.join('\n- ')}` });
+        }
+        return content;
+    }
+
+    async callGroundedResponses(message, forceRegulatory = false, files = []) {
+        const systemPrompt = this.buildSystemPrompt();
+        const requireWeb = forceRegulatory || this.isRegulatoryOrCodeQuery(message);
+        const instructions = requireWeb
+            ? `${systemPrompt}\n\nFor this request, use web search grounding and include source links for factual claims. Keep structure concise and practical.`
+            : systemPrompt;
+        const userContent = await this.buildResponsesUserContent(message, files);
+        const payload = {
+            model: this.responsesModel || 'gpt-5-mini',
+            input: [
+                { role: 'system', content: [{ type: 'input_text', text: instructions }] },
+                { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
+            ],
+            temperature: requireWeb ? 0.2 : 0.6,
+            max_output_tokens: 1400
+        };
+        if (requireWeb) {
+            payload.tools = [{ type: 'web_search_preview', search_context_size: 'high' }];
+        }
+        const response = await this.openaiFetch('/v1/responses', {
+            method: 'POST',
+            beta: null,
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`Responses API failed: ${response.status} - ${errorData || response.statusText}`);
+        }
+        const data = await response.json();
+        return this.extractAssistantTextFromResponsesPayload(data);
     }
 
     /**
@@ -1653,7 +1795,7 @@ class ChatGPTIntegration {
                 method: 'POST',
                 beta: null,
                 body: JSON.stringify({
-                    model: 'gpt-4o-mini',
+                    model: this.chatFallbackModel || 'gpt-5-mini',
                     messages: [
                         {
                             role: 'system',

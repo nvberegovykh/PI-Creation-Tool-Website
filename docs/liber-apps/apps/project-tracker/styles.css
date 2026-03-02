@@ -385,28 +385,39 @@
 
 .library-tabs {
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
   margin-bottom: 12px;
+  background: rgba(20, 26, 40, 0.75);
+  border: 1px solid rgba(160, 190, 230, 0.22);
+  border-radius: 999px;
+  padding: 4px;
 }
 
 .lib-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   padding: 8px 16px;
-  background: #161a22;
-  border: 1px solid #2b3854;
-  color: #e8edff;
-  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #c8d6ea;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 13px;
 }
 
 .lib-tab:hover {
-  background: #1e3a5f;
-  border-color: var(--accent-color, #00d4ff);
+  background: rgba(74, 102, 145, 0.22);
+  color: #e8f2ff;
 }
 
 .lib-tab.active {
-  background: #1e3a5f;
-  border-color: var(--accent-color, #00d4ff);
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
 }
 
 .library-upload-wrap {

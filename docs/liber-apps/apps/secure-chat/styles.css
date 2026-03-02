@@ -61,11 +61,11 @@ html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;tex
 .connections-list li:hover{background:#161922}
 .connections-list li.active{background:#14161b}
 /* Category tabs - horizontal badges above connections list */
-.chat-category-tabs{display:flex;gap:6px;padding:8px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;flex-shrink:0;border-bottom:1px solid var(--border-color,#1f222a)}
+.chat-category-tabs{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;flex-shrink:0;background:rgba(20,26,40,.75);border:1px solid rgba(160,190,230,.22);border-radius:999px;margin:8px 12px}
 .chat-category-tabs::-webkit-scrollbar{display:none}
-.chat-category-tab{flex-shrink:0;padding:6px 12px;font-size:12px;font-weight:500;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:#14161b;color:#9ca3af;cursor:pointer;transition:background .2s,border-color .2s,color .2s;white-space:nowrap}
-.chat-category-tab:hover{background:#1a1e28;color:#e5e7eb;border-color:rgba(255,255,255,.3)}
-.chat-category-tab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.chat-category-tab{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:12px;font-weight:600;border-radius:999px;border:none;background:transparent;color:#c8d6ea;cursor:pointer;transition:background .2s,color .2s,transform .2s;white-space:nowrap}
+.chat-category-tab:hover{background:rgba(74,102,145,.22);color:#e8f2ff;transform:translateY(-1px)}
+.chat-category-tab.active{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;box-shadow:0 6px 18px rgba(37,99,235,.35)}
 .chat-category-tab.chat-category-add{padding:6px 10px;min-width:32px;display:flex;align-items:center;justify-content:center}
 /* Chat header title + category badge */
 .chat-header-title-wrap{display:flex;align-items:center;gap:8px;min-width:0;flex:1}

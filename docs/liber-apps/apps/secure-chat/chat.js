@@ -582,8 +582,8 @@
         const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
         app.style.setProperty('--chat-composer-height', `${ch}px`);
         if (messages){
-          const extra = 18;
-          messages.style.paddingBottom = `${Math.max(16, ch + kbOffset + extra)}px`;
+          // Keep default compact spacing; only add a small buffer while keyboard is open.
+          messages.style.paddingBottom = kbOffset > 0 ? `${Math.max(16, kbOffset + 14)}px` : '';
         }
       }catch(_){ }
     }

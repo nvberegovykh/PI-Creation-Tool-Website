@@ -1460,8 +1460,8 @@ class DashboardManager {
                 overlay.remove();
                 return true;
             };
-            const renderSection = (title, items, buildRow)=>{
-                if (!items.length) return;
+            const renderSection = (title, items, buildRow, mountHost)=>{
+                if (!mountHost || !items.length) return;
                 const sec = document.createElement('div');
                 sec.className = 'wave-home-card';
                 sec.style.margin = '0';
@@ -1473,7 +1473,7 @@ class DashboardManager {
                 items.slice(0, 40).forEach((it)=> wrap.appendChild(buildRow(it)));
                 sec.appendChild(h);
                 sec.appendChild(wrap);
-                list.appendChild(sec);
+                mountHost.appendChild(sec);
             };
             const mediaCard = (entry)=>{
                 const w = entry.data || {};
@@ -1514,11 +1514,51 @@ class DashboardManager {
                 });
                 return btn;
             };
-            renderSection('Audio', category.audio, mediaCard);
-            renderSection('Video', category.video, mediaCard);
-            renderSection('Pictures', category.picture, mediaCard);
-            renderSection('Playlists', category.playlists, (pl)=> playlistCard(pl, false));
-            renderSection('Albums', category.albums, (pl)=> playlistCard(pl, true));
+            const tabs = document.createElement('div');
+            tabs.className = 'liber-tab-selector';
+            tabs.style.margin = '2px 0 8px';
+            tabs.innerHTML = `
+              <button type="button" class="btn btn-secondary active" data-space-wave-tab="audio">Audio</button>
+              <button type="button" class="btn btn-secondary" data-space-wave-tab="video">Video</button>
+              <button type="button" class="btn btn-secondary" data-space-wave-tab="pictures">Pictures</button>
+            `;
+            const panes = document.createElement('div');
+            panes.innerHTML = `
+              <div data-space-wave-pane="audio" style="display:grid;gap:10px"></div>
+              <div data-space-wave-pane="video" style="display:none;gap:10px"></div>
+              <div data-space-wave-pane="pictures" style="display:none;gap:10px"></div>
+            `;
+            list.appendChild(tabs);
+            list.appendChild(panes);
+            const paneAudio = panes.querySelector('[data-space-wave-pane="audio"]');
+            const paneVideo = panes.querySelector('[data-space-wave-pane="video"]');
+            const panePics = panes.querySelector('[data-space-wave-pane="pictures"]');
+
+            renderSection('Audio', category.audio, mediaCard, paneAudio);
+            renderSection('Playlists', category.playlists.filter((pl)=> this.normalizePlaylistCategory(pl?.category || pl?.playlistCategory, pl?.items) === 'audio'), (pl)=> playlistCard(pl, false), paneAudio);
+            renderSection('Video', category.video, mediaCard, paneVideo);
+            renderSection('Video Playlists', category.playlists.filter((pl)=> this.normalizePlaylistCategory(pl?.category || pl?.playlistCategory, pl?.items) === 'video'), (pl)=> playlistCard(pl, false), paneVideo);
+            renderSection('Pictures', category.picture, mediaCard, panePics);
+            renderSection('Albums', category.albums, (pl)=> playlistCard(pl, true), panePics);
+
+            const ensureEmpty = (pane, text)=>{
+                if (!pane) return;
+                if (pane.children.length) return;
+                pane.innerHTML = `<div style="opacity:.75">${text}</div>`;
+            };
+            ensureEmpty(paneAudio, 'No audio items yet.');
+            ensureEmpty(paneVideo, 'No video items yet.');
+            ensureEmpty(panePics, 'No picture items yet.');
+
+            tabs.querySelectorAll('[data-space-wave-tab]').forEach((btn)=>{
+                btn.addEventListener('click', ()=>{
+                    const tab = String(btn.getAttribute('data-space-wave-tab') || 'audio');
+                    tabs.querySelectorAll('[data-space-wave-tab]').forEach((x)=> x.classList.toggle('active', x === btn));
+                    if (paneAudio) paneAudio.style.display = tab === 'audio' ? 'grid' : 'none';
+                    if (paneVideo) paneVideo.style.display = tab === 'video' ? 'grid' : 'none';
+                    if (panePics) panePics.style.display = tab === 'pictures' ? 'grid' : 'none';
+                });
+            });
             overlay.querySelector('#space-wave-picker-close').onclick = ()=> overlay.remove();
             overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove(); });
             document.body.appendChild(overlay);

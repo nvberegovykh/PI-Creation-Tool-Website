@@ -102,19 +102,27 @@
 /* Auth Tabs */
 .auth-tabs {
     display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     margin-bottom: 30px;
     background: var(--tertiary-bg);
-    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
     padding: 4px;
 }
 
 .tab-btn {
     flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: none;
     color: var(--secondary-text);
     padding: 12px 20px;
-    border-radius: calc(var(--border-radius) - 4px);
+    text-align: center;
+    border-radius: 999px;
     cursor: pointer;
     font-weight: 600;
     transition: var(--transition);
