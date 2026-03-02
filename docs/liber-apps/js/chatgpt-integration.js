@@ -1493,14 +1493,38 @@ class ChatGPTIntegration {
         if (!s) return false;
         const cues = [
             'quick confirmation',
+            'one short piece of clarification',
+            'clarification first',
             'please confirm',
             'do you mean',
             'which do you want',
             'if you want me to proceed',
             'confirm borough',
-            'can you confirm'
+            'can you confirm',
+            'verification rules',
+            'provide the bbl',
+            'or confirm that you mean'
         ];
         return cues.some((c) => s.includes(c));
+    }
+
+    inferAddressAutofillHint(message) {
+        const text = String(message || '').toLowerCase();
+        const byName = [
+            ['brooklyn', 'Brooklyn'],
+            ['queens', 'Queens'],
+            ['bronx', 'Bronx'],
+            ['manhattan', 'Manhattan'],
+            ['staten island', 'Staten Island']
+        ].find(([k]) => text.includes(k));
+        if (byName) return `Use borough=${byName[1]}. If BBL is unavailable, infer from ZoLa parcel lookup and continue.`;
+        const zip = (text.match(/\b(10\d{3}|11\d{3})\b/) || [])[1] || '';
+        if (zip.startsWith('112')) return 'Use borough=Brooklyn by default from ZIP pattern; continue without asking.';
+        if (zip.startsWith('111') || zip.startsWith('113') || zip.startsWith('114') || zip.startsWith('116')) return 'Use borough=Queens by default from ZIP pattern; continue without asking.';
+        if (zip.startsWith('104')) return 'Use borough=Bronx by default from ZIP pattern; continue without asking.';
+        if (zip.startsWith('103')) return 'Use borough=Staten Island by default from ZIP pattern; continue without asking.';
+        if (zip.startsWith('100') || zip.startsWith('101') || zip.startsWith('102')) return 'Use borough=Manhattan by default from ZIP pattern; continue without asking.';
+        return 'If borough is missing, proceed with best-match NYC parcel candidate and continue without requesting confirmation.';
     }
 
     sanitizeFilename(input) {
@@ -1655,8 +1679,9 @@ class ChatGPTIntegration {
                 if (this.isAddressAnalysisRequest(message)) {
                     let attempts = 0;
                     while (attempts < 2 && this.looksLikeClarificationInsteadOfReport(out)) {
+                        const autofill = this.inferAddressAutofillHint(message);
                         out = await this.callGroundedResponses(
-                            `${String(message || '')}\n\nReturn the full report now with assumptions, table + visual summary + air-rights calculations. Do not ask me to confirm anything.`,
+                            `${String(message || '')}\n\nAutofill directive: ${autofill}\n\nReturn the full report now with assumptions, table + visual summary + air-rights calculations. Do not ask me to confirm anything.`,
                             true,
                             files
                         );
@@ -2128,7 +2153,7 @@ Do not omit references.`;
             model: this.responsesModel || 'gpt-5-mini',
             input: [
                 { role: 'system', content: [{ type: 'input_text', text: instructions }] },
-                ...this.buildResponsesHistoryInput(message),
+                ...(wantsAddressReport ? [] : this.buildResponsesHistoryInput(message)),
                 { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
             ],
             max_output_tokens: 1400
