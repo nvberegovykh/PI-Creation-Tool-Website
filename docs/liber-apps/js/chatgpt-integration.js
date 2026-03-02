@@ -27,6 +27,7 @@ class ChatGPTIntegration {
         this.chatFallbackModel = 'gpt-5-mini';
         this.generatedLocalReports = new Map();
         this._jsPdfLoadPromise = null;
+        this.isFullscreen = false;
         
         // Thread management
         this.savedThreads = [];
@@ -718,6 +719,9 @@ class ChatGPTIntegration {
                         <button class="chatgpt-new-thread" id="chatgpt-new-thread" title="New Chat">
                             <i class="fas fa-plus"></i>
                         </button>
+                        <button class="chatgpt-fullscreen" id="chatgpt-fullscreen" title="Fullscreen">
+                            <i class="fas fa-expand"></i>
+                        </button>
                         <button class="chatgpt-thread-menu" id="chatgpt-thread-menu" title="Saved Chats">
                             <i class="fas fa-list"></i>
                         </button>
@@ -794,6 +798,7 @@ class ChatGPTIntegration {
         const fileInput = document.getElementById('chatgpt-file-input');
         const clearHistoryBtn = document.getElementById('chatgpt-clear-history');
         const newThreadBtn = document.getElementById('chatgpt-new-thread');
+        const fullscreenBtn = document.getElementById('chatgpt-fullscreen');
         const threadMenuBtn = document.getElementById('chatgpt-thread-menu');
         const threadSelector = document.getElementById('chatgpt-thread-selector');
         const threadSelectorClose = document.getElementById('thread-selector-close');
@@ -875,6 +880,20 @@ class ChatGPTIntegration {
                 this.toggleThreadSelector();
             });
         }
+
+        if (fullscreenBtn) {
+            fullscreenBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleFullscreen();
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.isFullscreen) {
+                this.toggleFullscreen(false);
+            }
+        });
 
         // Thread selector close button
         if (threadSelectorClose) {
@@ -1368,6 +1387,7 @@ class ChatGPTIntegration {
             icon.className = 'fas fa-chevron-up';
             widget.classList.remove('expanded');
             this.isExpanded = false;
+            if (this.isFullscreen) this.toggleFullscreen(false);
         }
         
         // Sync mobile button state
@@ -1386,6 +1406,27 @@ class ChatGPTIntegration {
                 mobileWallEBtn.classList.remove('active');
             }
         }
+    }
+
+    toggleFullscreen(force) {
+        const widget = document.getElementById('chatgpt-widget');
+        const body = document.getElementById('chatgpt-body');
+        const btn = document.getElementById('chatgpt-fullscreen');
+        const icon = btn ? btn.querySelector('i') : null;
+        if (!widget || !body) return;
+        if (!this.isExpanded) this.expandChat();
+        const next = typeof force === 'boolean' ? force : !this.isFullscreen;
+        this.isFullscreen = !!next;
+        widget.classList.toggle('fullscreen', this.isFullscreen);
+        if (btn) btn.title = this.isFullscreen ? 'Exit fullscreen' : 'Fullscreen';
+        if (icon) icon.className = this.isFullscreen ? 'fas fa-compress' : 'fas fa-expand';
+        if (this.isFullscreen) {
+            document.body.classList.add('chatgpt-fullscreen-open');
+        } else {
+            document.body.classList.remove('chatgpt-fullscreen-open');
+        }
+        const input = document.getElementById('chatgpt-input');
+        if (input) setTimeout(() => input.focus(), 50);
     }
 
     /**
@@ -1493,6 +1534,7 @@ class ChatGPTIntegration {
         if (!s) return false;
         const cues = [
             'quick confirmation',
+            'quick clarification first',
             'one short piece of clarification',
             'clarification first',
             'please confirm',
@@ -1503,9 +1545,23 @@ class ChatGPTIntegration {
             'can you confirm',
             'verification rules',
             'provide the bbl',
-            'or confirm that you mean'
+            'or confirm that you mean',
+            'do you want a full development potential analysis',
+            'or just the base zoning designation'
         ];
         return cues.some((c) => s.includes(c));
+    }
+
+    buildAutonomousAddressDirective(message) {
+        const autofill = this.inferAddressAutofillHint(message);
+        return `${String(message || '')}
+
+Autonomous mode requirements:
+- ${autofill}
+- Produce full development-potential analysis now.
+- Do NOT ask clarifying questions.
+- Include zoning district/overlays, FAR buildable area math, bulk controls, air-rights availability and purchase-impact math, scenario table (base/moderate/aggressive), visual summary bars, and references.
+- If a value cannot be verified online in this pass, proceed with explicit assumption and confidence note.`;
     }
 
     inferAddressAutofillHint(message) {
@@ -1696,6 +1752,14 @@ class ChatGPTIntegration {
                     throw new Error(`Responses failed for file/image input: ${groundedErr?.message || 'unknown error'}`);
                 }
                 console.warn('Falling back to chat completions for text-only request');
+                if (this.isAddressAnalysisRequest(message)) {
+                    const forced = this.buildAutonomousAddressDirective(message);
+                    let out = await this.callChatCompletions(forced, { skipHistory: true });
+                    if (this.looksLikeClarificationInsteadOfReport(out)) {
+                        out = await this.callChatCompletions(`${forced}\n\nRegenerate as final report only. No questions.`, { skipHistory: true });
+                    }
+                    return out;
+                }
                 return await this.callChatCompletions(message);
             }
         } catch (error) {
@@ -2222,11 +2286,11 @@ Do not omit references.`;
     /**
      * Use Chat Completions API for text-only messages
      */
-    async callChatCompletions(message) {
+    async callChatCompletions(message, opts = {}) {
         try {
             console.log('Using chat completions API fallback (text-only)');
             const systemPrompt = this.buildSystemPrompt();
-            const historyMessages = this.buildChatCompletionsHistory(message);
+            const historyMessages = opts?.skipHistory ? [] : this.buildChatCompletionsHistory(message);
             
             const response = await this.openaiFetch('/v1/chat/completions', {
                 method: 'POST',

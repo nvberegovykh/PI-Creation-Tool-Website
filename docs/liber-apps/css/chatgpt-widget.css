@@ -31,6 +31,19 @@
     height: 500px;
 }
 
+.chatgpt-widget.fullscreen {
+    inset: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    border-radius: 12px;
+    z-index: 99999;
+}
+.chatgpt-widget.fullscreen .chatgpt-body {
+    height: calc(100vh - 120px);
+    max-height: none;
+}
+
 /* Header */
 .chatgpt-header {
     display: flex;
@@ -914,7 +927,8 @@
 
 /* Thread Management Styles */
 .chatgpt-new-thread,
-.chatgpt-thread-menu {
+.chatgpt-thread-menu,
+.chatgpt-fullscreen {
     background: none;
     border: none;
     color: #fff;
@@ -925,9 +939,29 @@
     margin-right: 4px;
 }
 
+/* Fullscreen: small icon next to + */
+.chatgpt-fullscreen {
+    padding: 4px 6px;
+    min-width: 0;
+}
+.chatgpt-fullscreen i {
+    font-size: 11px;
+}
+
 .chatgpt-new-thread:hover,
-.chatgpt-thread-menu:hover {
+.chatgpt-thread-menu:hover,
+.chatgpt-fullscreen:hover {
     background-color: rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 768px) {
+    .chatgpt-widget.fullscreen {
+        inset: 0 !important;
+        border-radius: 0;
+    }
+    .chatgpt-widget.fullscreen .chatgpt-body {
+        height: calc(100vh - 64px);
+    }
 }
 
 .chatgpt-thread-selector {
