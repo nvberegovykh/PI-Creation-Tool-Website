@@ -24,7 +24,8 @@ class ChatGPTIntegration {
         this.cryptoKey = null; // WebCrypto key for local chat encryption
         this.cryptoReady = false;
         this.responsesModel = 'gpt-5-mini';
-        this.chatFallbackModel = 'gpt-5-mini';
+        // Keep fallback on a chat-completions-native model for reliability.
+        this.chatFallbackModel = 'gpt-4o-mini';
         this.generatedLocalReports = new Map();
         this._jsPdfLoadPromise = null;
         this.isFullscreen = false;
@@ -1552,6 +1553,29 @@ class ChatGPTIntegration {
         return cues.some((c) => s.includes(c));
     }
 
+    scoreAddressReportCompleteness(text) {
+        const s = String(text || '').toLowerCase();
+        if (!s.trim()) return { score: 0, isComplete: false };
+        const checks = [
+            /(zoning district|zoning designation|district[s]?|overlay[s]?)/i.test(s),
+            /(far|floor area ratio)/i.test(s) && /(buildable|zoning floor area|floor area)/i.test(s),
+            /(air rights|air-rights|development rights|transfer of development rights|tdr)/i.test(s),
+            (/(scenario|base|moderate|aggressive)/i.test(s) && /\|/.test(s)) || /(scenario comparison|comparison table)/i.test(s),
+            /(reference|sources?)/i.test(s) && /https?:\/\//i.test(s)
+        ];
+        const score = checks.filter(Boolean).length;
+        return { score, isComplete: score >= 4 };
+    }
+
+    needsAddressReportRegeneration(text) {
+        const body = String(text || '').trim();
+        if (!body) return true;
+        if (this.looksLikeClarificationInsteadOfReport(body)) return true;
+        if (/could not generate visible output/i.test(body)) return true;
+        const q = this.scoreAddressReportCompleteness(body);
+        return !q.isComplete;
+    }
+
     buildAutonomousAddressDirective(message) {
         const autofill = this.inferAddressAutofillHint(message);
         return `${String(message || '')}
@@ -1651,6 +1675,7 @@ Autonomous mode requirements:
             if (!body) return '';
             if (this.looksLikeClarificationInsteadOfReport(body)) return '';
             if (/could not generate visible output/i.test(body)) return '';
+            if (!this.scoreAddressReportCompleteness(body).isComplete) return '';
             const title = `Zoning Analysis Report - ${String(userMessage || '').slice(0, 90)}`;
             const reportBlob = await this.buildPdfBlobFromText(title, body);
             const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1738,16 +1763,21 @@ Autonomous mode requirements:
                 // Force completion mode for address analyses: avoid "please confirm" loops.
                 if (this.isAddressAnalysisRequest(message)) {
                     let attempts = 0;
-                    while (attempts < 2 && this.looksLikeClarificationInsteadOfReport(out)) {
+                    while (attempts < 3 && this.needsAddressReportRegeneration(out)) {
                         const autofill = this.inferAddressAutofillHint(message);
                         out = await this.callGroundedResponses(
-                            `${String(message || '')}\n\nAutofill directive: ${autofill}\n\nReturn the full report now with assumptions, table + visual summary + air-rights calculations. Do not ask me to confirm anything.`,
+                            `${String(message || '')}
+
+Autofill directive: ${autofill}
+Return a complete final report now. Do NOT ask clarification questions.
+Must include: zoning designation/overlays, FAR math, air-rights math, scenario table, visual summary bars, and references with links.`,
                             true,
                             files
                         );
                         attempts += 1;
                     }
                 }
+                if (!String(out || '').trim()) throw new Error('Address analysis returned empty output');
                 return out;
             } catch (groundedErr) {
                 console.warn('Grounded responses failed:', groundedErr?.message || groundedErr);
@@ -1759,9 +1789,17 @@ Autonomous mode requirements:
                 if (this.isAddressAnalysisRequest(message)) {
                     const forced = this.buildAutonomousAddressDirective(message);
                     let out = await this.callChatCompletions(forced, { skipHistory: true });
-                    if (this.looksLikeClarificationInsteadOfReport(out)) {
-                        out = await this.callChatCompletions(`${forced}\n\nRegenerate as final report only. No questions.`, { skipHistory: true });
+                    let attempts = 0;
+                    while (attempts < 3 && this.needsAddressReportRegeneration(out)) {
+                        out = await this.callChatCompletions(
+                            `${forced}
+
+Regenerate as final report only. No questions. Include zoning/FAR/air-rights/scenario table/references.`,
+                            { skipHistory: true }
+                        );
+                        attempts += 1;
                     }
+                    if (!String(out || '').trim()) throw new Error('Address analysis fallback returned empty output');
                     return out;
                 }
                 return await this.callChatCompletions(message);
@@ -2326,7 +2364,7 @@ Do not omit references.`;
             console.log('Chat completions response received');
             const msg = data?.choices?.[0]?.message;
             const content = msg?.content;
-            if (typeof content === 'string') return content;
+            if (typeof content === 'string' && content.trim()) return content;
             if (Array.isArray(content)) {
                 const text = content
                     .map((part) => String(part?.text || part?.content || part?.value || '').trim())
@@ -2334,7 +2372,9 @@ Do not omit references.`;
                     .join('\n\n');
                 if (text) return text;
             }
-            return String(msg?.text || '').trim();
+            const fallback = String(msg?.text || '').trim();
+            if (fallback) return fallback;
+            throw new Error('Empty model output from Chat Completions');
         } catch (error) {
             console.error('Chat completions error:', error);
             throw error;
