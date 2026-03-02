@@ -25,6 +25,8 @@ class ChatGPTIntegration {
         this.cryptoReady = false;
         this.responsesModel = 'gpt-5-mini';
         this.chatFallbackModel = 'gpt-5-mini';
+        this.generatedLocalReports = new Map();
+        this._jsPdfLoadPromise = null;
         
         // Thread management
         this.savedThreads = [];
@@ -1450,7 +1452,9 @@ class ChatGPTIntegration {
                 // Normal chat message
                 const response = await this.callWALLE(message, filesToSend);
                 this.removeTypingIndicator();
-                const safeResponse = String(response || '').trim() || 'I could not generate visible output for this request. Please retry, or ask me to return a concise text summary.';
+                let safeResponse = String(response || '').trim() || 'I could not generate visible output for this request. Please retry, or ask me to return a concise text summary.';
+                const localReportMarker = await this.maybeGenerateLocalPdfReportMarker(message, safeResponse);
+                if (localReportMarker) safeResponse += `\n\n${localReportMarker}`;
                 this.addMessage('assistant', safeResponse);
             }
         } catch (error) {
@@ -1473,6 +1477,112 @@ class ChatGPTIntegration {
         
         const lowerMessage = message.toLowerCase();
         return imageKeywords.some(keyword => lowerMessage.includes(keyword));
+    }
+
+    isAddressAnalysisRequest(message) {
+        const text = String(message || '').toLowerCase();
+        if (!text) return false;
+        const hasAnalysisIntent = /(zoning|analysis|report|far|floor area|setback|lot|bbl|borough block lot)/i.test(text);
+        const hasAddressLike = /\b\d{1,6}\s+[a-z0-9.'-]+\s+(street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|place|pl|drive|dr|court|ct|terrace|ter|way)\b/i.test(text)
+            || /\b(borough|block|lot)\b/i.test(text);
+        return hasAnalysisIntent && hasAddressLike;
+    }
+
+    sanitizeFilename(input) {
+        return String(input || 'zoning-report')
+            .replace(/[^a-z0-9\-_.\s]/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 80)
+            .replace(/\s/g, '_') || 'zoning-report';
+    }
+
+    async ensureJsPdfLoaded() {
+        if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
+        if (this._jsPdfLoadPromise) return this._jsPdfLoadPromise;
+        this._jsPdfLoadPromise = new Promise((resolve, reject) => {
+            try {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+                s.async = true;
+                s.onload = () => {
+                    if (window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
+                    else reject(new Error('jsPDF loaded but unavailable'));
+                };
+                s.onerror = () => reject(new Error('Failed to load jsPDF'));
+                document.head.appendChild(s);
+            } catch (err) {
+                reject(err);
+            }
+        }).finally(() => {
+            this._jsPdfLoadPromise = null;
+        });
+        return this._jsPdfLoadPromise;
+    }
+
+    async buildPdfBlobFromText(title, bodyText) {
+        const jsPDFCtor = await this.ensureJsPdfLoaded();
+        const doc = new jsPDFCtor({ unit: 'pt', format: 'a4' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const margin = 44;
+        const maxW = pageW - margin * 2;
+        let y = margin;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        const titleLines = doc.splitTextToSize(String(title || 'Zoning Analysis Report'), maxW);
+        titleLines.forEach((ln) => {
+            if (y > pageH - margin) { doc.addPage(); y = margin; }
+            doc.text(String(ln), margin, y);
+            y += 18;
+        });
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10.5);
+        const text = String(bodyText || '').replace(/\r\n/g, '\n');
+        const lines = doc.splitTextToSize(text, maxW);
+        lines.forEach((ln) => {
+            if (y > pageH - margin) { doc.addPage(); y = margin; }
+            doc.text(String(ln), margin, y);
+            y += 14;
+        });
+        return doc.output('blob');
+    }
+
+    async maybeGenerateLocalPdfReportMarker(userMessage, assistantText) {
+        try {
+            if (!this.isAddressAnalysisRequest(userMessage)) return '';
+            const title = `Zoning Analysis Report - ${String(userMessage || '').slice(0, 90)}`;
+            const reportBlob = await this.buildPdfBlobFromText(title, assistantText);
+            const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const filename = `${this.sanitizeFilename(title)}.pdf`;
+            this.generatedLocalReports.set(id, { blob: reportBlob, filename, createdAt: Date.now() });
+            return `[Local report: ${id}|Download zoning analysis PDF]`;
+        } catch (err) {
+            console.warn('Local report generation failed:', err);
+            return '';
+        }
+    }
+
+    downloadLocalReport(reportId) {
+        try {
+            const id = String(reportId || '').trim();
+            const item = this.generatedLocalReports.get(id);
+            if (!item || !item.blob) {
+                this.showError('Report is unavailable. Please regenerate.');
+                return;
+            }
+            const url = URL.createObjectURL(item.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = item.filename || `zoning-report-${id}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 1200);
+        } catch (err) {
+            this.showError(`Failed to download local report: ${err?.message || err}`);
+        }
     }
 
     /**
@@ -1907,9 +2017,21 @@ Rules:
     async callGroundedResponses(message, forceRegulatory = false, files = []) {
         const systemPrompt = this.buildSystemPrompt();
         const requireWeb = forceRegulatory || this.isRegulatoryOrCodeQuery(message);
-        const instructions = requireWeb
+        const wantsAddressReport = this.isAddressAnalysisRequest(message);
+        let instructions = requireWeb
             ? `${systemPrompt}\n\nFor this request, use web search grounding and include source links for factual claims. Keep structure concise and practical.`
             : systemPrompt;
+        if (wantsAddressReport) {
+            instructions += `\n\nGenerate a comprehensive zoning analysis report for the provided address. Include:
+1) Property identification and assumptions used
+2) Current zoning district/overlays and use framework
+3) FAR/buildable area analysis with formulas and explicit assumptions
+4) Bulk controls summary (height, setbacks, lot coverage, yards, parking/loading if applicable)
+5) Constraints/risks and filing considerations
+6) Practical next steps and data still needed
+7) A "References" section with source links inline and at the end.
+Do not omit references.`;
+        }
         const userContent = await this.buildResponsesUserContent(message, files);
         const payload = {
             model: this.responsesModel || 'gpt-5-mini',
@@ -2619,6 +2741,22 @@ Rules:
 
         messageDiv.innerHTML = messageHTML;
         messagesContainer.appendChild(messageDiv);
+        messageDiv.querySelectorAll('.wall-e-file-download').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const fileId = String(btn.getAttribute('data-file-id') || '').trim();
+                if (!fileId) return;
+                this.downloadGeneratedFile(fileId);
+            });
+        });
+        messageDiv.querySelectorAll('.wall-e-local-report-download').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const reportId = String(btn.getAttribute('data-local-report-id') || '').trim();
+                if (!reportId) return;
+                this.downloadLocalReport(reportId);
+            });
+        });
 
         // Scroll to bottom
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -2809,6 +2947,7 @@ Rules:
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
             .replace(/`(.*?)`/g, '<code>$1</code>')
             .replace(/\[Generated file:\s*([A-Za-z0-9_-]+)\]/g, '<button type="button" class="btn btn-secondary btn-sm wall-e-file-download" data-file-id="$1">Download generated file</button>')
+            .replace(/\[Local report:\s*([A-Za-z0-9_-]+)\|([^\]]+)\]/g, '<button type="button" class="btn btn-secondary btn-sm wall-e-local-report-download" data-local-report-id="$1">$2</button>')
             .replace(/\n/g, '<br>');
     }
 
