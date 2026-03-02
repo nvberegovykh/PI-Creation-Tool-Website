@@ -1636,9 +1636,9 @@ Autonomous mode requirements:
             .replace(/^#{1,6}\s*/gm, '')
             .replace(/\*\*(.*?)\*\*/g, '$1')
             .replace(/\*(.*?)\*/g, '$1')
-            .replace(/`(.*?)`/g, '$1')
-            .replace(/^\|\s*/gm, '')
-            .replace(/\s*\|\s*/g, '   ')
+            .replace(/```(?:text|markdown)?\s*/gi, '')
+            .replace(/```/g, '')
+            .replace(/`([^`\n]+)`/g, '$1')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
     }
@@ -1759,7 +1759,7 @@ Autonomous mode requirements:
 
     buildDeterministicEnvelopeDiagram(zoningCtx) {
         const env = zoningCtx?.deterministicAnalysis?.envelope || {};
-        const maxHeight = env?.maxHeightFt != null ? `${env.maxHeightFt} ft` : 'UNVERIFIED';
+        const maxHeight = (typeof env?.maxHeightFt === 'number' && env.maxHeightFt > 0) ? `${env.maxHeightFt} ft` : 'UNVERIFIED';
         const lot = zoningCtx?.site?.lotAreaSqft != null ? `${zoningCtx.site.lotAreaSqft} sf` : 'UNVERIFIED';
         return [
             '```text',
@@ -1847,7 +1847,7 @@ Autonomous mode requirements:
             `| Lot area | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf (base)`} | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf`} | Baseline from parcel snapshot | NYC MapPLUTO lotarea |`,
             `| Max zoning floor area | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | Envelope/FAR ceiling | MapPLUTO residfar + ZR district bulk rules |`,
             `| Street tree requirement | 1 tree per 25 ft frontage (verify) | ${streetTrees?.nearbyCount > 0 ? `${streetTrees.nearbyCount} nearby tree(s) detected` : 'UNVERIFIED'} | Frontage requirement must be checked with final frontage length | ZR street tree planting provisions + NYC Street Tree Census |`,
-            `| Height / setback | District-specific limits required | ${calc?.envelope?.maxHeightFt == null ? 'UNVERIFIED' : `${calc.envelope.maxHeightFt} ft (snapshot)`} | Final zoning envelope must be verified from current ZR text | ZR district bulk + mapped context provisions |`
+            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (snapshot)` : 'UNVERIFIED'} | Final zoning envelope must be verified from current ZR text | ZR district bulk + mapped context provisions |`
         ].join('\n');
 
         const floorAreaInputTable = [
@@ -2036,11 +2036,43 @@ Autonomous mode requirements:
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10.5);
         const text = this.normalizeReportTextForPdf(bodyText);
-        const lines = doc.splitTextToSize(text, maxW);
-        lines.forEach((ln) => {
-            if (y > pageH - margin) { doc.addPage(); y = margin; }
-            doc.text(String(ln), margin, y);
-            y += 14;
+        const rows = text.split('\n');
+        const isTableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+        const isTableRow = (line) => line.trim().startsWith('|');
+        const isAsciiDiagram = (line) => /^[\s|+\-_/\\]{4,}$/.test(line.trim()) || /diagram/i.test(line);
+
+        rows.forEach((row) => {
+            const line = String(row || '');
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                y += 8;
+                if (y > pageH - margin) { doc.addPage(); y = margin; }
+                return;
+            }
+
+            const isSection = /^##\s*/.test(line);
+            const mono = isTableRow(line) || isTableSeparator(line) || isAsciiDiagram(line);
+
+            if (isSection) {
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11.5);
+            } else if (mono) {
+                doc.setFont('courier', 'normal');
+                doc.setFontSize(9.4);
+            } else {
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10.5);
+            }
+
+            const printable = isSection ? line.replace(/^##\s*/, '') : line;
+            const wrapped = doc.splitTextToSize(printable, maxW);
+            const lineHeight = isSection ? 15 : (mono ? 11 : 13);
+            wrapped.forEach((ln) => {
+                if (y > pageH - margin) { doc.addPage(); y = margin; }
+                doc.text(String(ln), margin, y);
+                y += lineHeight;
+            });
         });
         return doc.output('blob');
     }
