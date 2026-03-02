@@ -20,6 +20,10 @@ class ChatGPTIntegration {
         this.threadId = null;
         this.configLoaded = false;
         this.currentUserId = null;
+        this.functionsRegion = 'europe-west1';
+        this.projectId = 'liber-apps-cca20';
+        this.functionsBaseUrl = '';
+        this.nycResolverUrl = '';
         this.maxHistoryItems = 50; // Keep last 50 messages
         this.cryptoKey = null; // WebCrypto key for local chat encryption
         this.cryptoReady = false;
@@ -85,6 +89,13 @@ class ChatGPTIntegration {
      */
     getOpenAIBase() {
         return this.proxyUrl || 'https://api.openai.com';
+    }
+
+    getFunctionsBase() {
+        if (this.functionsBaseUrl) return this.functionsBaseUrl;
+        const region = String(this.functionsRegion || 'europe-west1').trim();
+        const pid = String(this.projectId || 'liber-apps-cca20').trim();
+        return `https://${region}-${pid}.cloudfunctions.net`;
     }
 
     /**
@@ -571,8 +582,12 @@ class ChatGPTIntegration {
             // 1) Configure secure proxy URL (preferred)
             const region = (keys && keys.firebase && keys.firebase.functionsRegion) || 'europe-west1';
             const projectId = (keys && keys.firebase && keys.firebase.projectId) || 'liber-apps-cca20';
+            this.functionsRegion = String(region || 'europe-west1');
+            this.projectId = String(projectId || 'liber-apps-cca20');
+            this.functionsBaseUrl = `https://${this.functionsRegion}-${this.projectId}.cloudfunctions.net`;
             const defaultProxy = `https://${region}-${projectId}.cloudfunctions.net/openaiProxy`;
             this.proxyUrl = (keys && keys.aiProxyUrl) || defaultProxy;
+            this.nycResolverUrl = `${this.functionsBaseUrl}/resolveNycZoningContext`;
 
             // 2) Optional direct keys (not required when proxy is present)
             if (keys && keys.openai) {
@@ -588,6 +603,10 @@ class ChatGPTIntegration {
             console.log(this.isEnabled ? 'WALL-E configured (proxy or key present)' : 'WALL-E not configured');
         } catch (error) {
             // Fallback: derive proxy URL from known project/region so widget still works
+            this.functionsRegion = 'europe-west1';
+            this.projectId = 'liber-apps-cca20';
+            this.functionsBaseUrl = `https://${this.functionsRegion}-${this.projectId}.cloudfunctions.net`;
+            this.nycResolverUrl = `${this.functionsBaseUrl}/resolveNycZoningContext`;
             this.proxyUrl = 'https://europe-west1-liber-apps-cca20.cloudfunctions.net/openaiProxy';
             this.apiKey = null;
             this.assistantId = null;
@@ -1535,6 +1554,7 @@ class ChatGPTIntegration {
         if (!s) return false;
         const cues = [
             'quick confirmation',
+            'quick clarification',
             'quick clarification first',
             'one short piece of clarification',
             'clarification first',
@@ -1560,7 +1580,7 @@ class ChatGPTIntegration {
             /(zoning district|zoning designation|district[s]?|overlay[s]?)/i.test(s),
             /(far|floor area ratio)/i.test(s) && /(buildable|zoning floor area|floor area)/i.test(s),
             /(air rights|air-rights|development rights|transfer of development rights|tdr)/i.test(s),
-            (/(scenario|base|moderate|aggressive)/i.test(s) && /\|/.test(s)) || /(scenario comparison|comparison table)/i.test(s),
+            (/(max possible|regular deduction|low energy|envelope)/i.test(s) && /\|/.test(s)) || /(capacity breakdown|comparison table)/i.test(s),
             /(reference|sources?)/i.test(s) && /https?:\/\//i.test(s)
         ];
         const score = checks.filter(Boolean).length;
@@ -1572,6 +1592,8 @@ class ChatGPTIntegration {
         if (!body) return true;
         if (this.looksLikeClarificationInsteadOfReport(body)) return true;
         if (/could not generate visible output/i.test(body)) return true;
+        const schema = this.validateAddressReportSchema(body);
+        if (!schema.valid) return true;
         const assumedCount = (body.match(/\bassum(ed|ption|ptions)\b/gi) || []).length;
         const linkCount = (body.match(/https?:\/\//gi) || []).length;
         if (assumedCount >= 4 && linkCount < 3) return true;
@@ -1587,7 +1609,7 @@ Autonomous mode requirements:
 - ${autofill}
 - Produce full development-potential analysis now.
 - Do NOT ask clarifying questions.
-- Include zoning district/overlays, FAR buildable area math, bulk controls, air-rights availability and purchase-impact math, scenario table (base/moderate/aggressive), visual summary bars, and references.
+- Include zoning district/overlays, FAR buildable area math, bulk controls, max-possible capacity breakdown, regular deductions, 5% low-energy bonus case, air-rights availability and purchase-impact math, visual summary bars, and references.
 - If a value cannot be verified online in this pass, proceed with explicit assumption and confidence note.`;
     }
 
@@ -1622,6 +1644,334 @@ Autonomous mode requirements:
         if (zip.startsWith('103')) return 'Use borough=Staten Island by default from ZIP pattern; continue without asking.';
         if (zip.startsWith('100') || zip.startsWith('101') || zip.startsWith('102')) return 'Use borough=Manhattan by default from ZIP pattern; continue without asking.';
         return 'If borough is missing, proceed with best-match NYC parcel candidate and continue without requesting confirmation.';
+    }
+
+    inferRequestedProgramType(message) {
+        const explicit = this.inferExplicitProgramType(message);
+        if (explicit) return explicit;
+        return 'residential-new-building';
+    }
+
+    inferExplicitProgramType(message) {
+        const text = String(message || '').toLowerCase();
+        if (/(mixed[-\s]?use|mixed use)/i.test(text)) return 'mixed-use-new-building';
+        if (/(commercial|office|retail|manufacturing|industrial)/i.test(text)) return 'commercial-new-building';
+        if (/(community facility|facility|school|hospital|clinic|religious)/i.test(text)) return 'community-facility-new-building';
+        if (/(residential|apartment|housing|multi[-\s]?family|single[-\s]?family)/i.test(text)) return 'residential-new-building';
+        return '';
+    }
+
+    buildSimpleAddressClarification(message, zoningCtx = null) {
+        if (!this.isAddressAnalysisRequest(message)) return '';
+        const explicitProgram = this.inferExplicitProgramType(message);
+        const address = this.extractAddressCandidate(message);
+        if (!zoningCtx || zoningCtx.ok !== true) {
+            return `Quick clarification: I could not lock the parcel confidently yet.\nPlease reply with one line: "${address || 'address'} , borough".\nExample: "565 Union Street, Brooklyn".`;
+        }
+        const missingCritical = Array.isArray(zoningCtx?.flags?.missingCritical) ? zoningCtx.flags.missingCritical : [];
+        if (missingCritical.some((k) => ['bbl', 'zoningDistricts', 'lotAreaSqft'].includes(String(k)))) {
+            return `Quick clarification: parcel data is incomplete for this address.\nPlease confirm borough + address in one line (example: "565 Union Street, Brooklyn") and I’ll continue automatically.`;
+        }
+        const z = Array.isArray(zoningCtx?.site?.zoningDistricts) ? zoningCtx.site.zoningDistricts : [];
+        const overlays = Array.isArray(zoningCtx?.site?.overlays) ? zoningCtx.site.overlays : [];
+        const special = Array.isArray(zoningCtx?.site?.specialDistricts) ? zoningCtx.site.specialDistricts : [];
+        const complexUseCase = z.some((v) => /^[MC]/i.test(String(v || ''))) || overlays.length > 0 || special.length > 0;
+        if (!explicitProgram && complexUseCase) {
+            return `Quick clarification: what is the planned building type?\n1) Residential\n2) Mixed-use\n3) Commercial\n4) Community facility\nReply with 1-4 (or the type), and I’ll run the full analysis.`;
+        }
+        return '';
+    }
+
+    extractAddressCandidate(message) {
+        const text = String(message || '').trim();
+        if (!text) return '';
+        const m = text.match(/\b\d{1,6}\s+[A-Za-z0-9.'\- ]+\s(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Place|Pl|Drive|Dr|Court|Ct|Terrace|Ter|Way)\b(?:,\s*[A-Za-z ]+)?(?:\s+NY)?(?:\s+\d{5})?/i);
+        if (m && m[0]) return m[0].replace(/\s+/g, ' ').trim();
+        return text;
+    }
+
+    safeJsonForPrompt(obj, maxChars = 16000) {
+        try {
+            const str = JSON.stringify(obj || {}, null, 2);
+            if (str.length <= maxChars) return str;
+            return `${str.slice(0, maxChars)}\n... [truncated for prompt length]`;
+        } catch (_) {
+            return '{}';
+        }
+    }
+
+    async fetchNycZoningContext(message) {
+        if (!this.isAddressAnalysisRequest(message)) return null;
+        const address = this.extractAddressCandidate(message);
+        if (!address) return null;
+        const programType = this.inferRequestedProgramType(message);
+        const endpoint = this.nycResolverUrl || `${this.getFunctionsBase()}/resolveNycZoningContext`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            try { controller.abort(); } catch (_) {}
+        }, 25000);
+        try {
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ address, programType }),
+                signal: controller.signal
+            });
+            if (!resp.ok) {
+                const txt = await resp.text();
+                throw new Error(`resolver_failed_${resp.status}: ${txt || resp.statusText}`);
+            }
+            const data = await resp.json();
+            if (!data || data.ok !== true) return null;
+            return data;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    validateAddressReportSchema(text) {
+        const s = String(text || '').toLowerCase();
+        if (!s.trim()) return { valid: false, missing: ['empty'] };
+        const required = [
+            { key: 'site_identity', ok: /(property identification|site identity|bbl|borough|block|lot)/i.test(s) },
+            { key: 'overlays_maps', ok: /(overlay|special district|map layer|flood|coastal)/i.test(s) },
+            { key: 'site_conditions', ok: /(street tree|amenit|additional regulation|special district requirement)/i.test(s) },
+            { key: 'set_ready_compliance', ok: /(permitted\/required|provided\/proposed|citation)/i.test(s) && /\|/.test(s) },
+            { key: 'zoning_controls_table', ok: /(zoning controls|coefficient|far|table)/i.test(s) && /\|/.test(s) },
+            { key: 'capacity_breakdown', ok: /(max possible|regular deduction|low energy|capacity breakdown)/i.test(s) && /\|/.test(s) },
+            { key: 'envelope', ok: /(envelope|max footprint|setback|height)/i.test(s) },
+            { key: 'air_rights', ok: /(air rights|transfer)/i.test(s) },
+            { key: 'references', ok: /(references|source snapshot)/i.test(s) && /https?:\/\//i.test(s) }
+        ];
+        const missing = required.filter((r) => !r.ok).map((r) => r.key);
+        return { valid: missing.length === 0, missing };
+    }
+
+    buildDeterministicEnvelopeDiagram(zoningCtx) {
+        const env = zoningCtx?.deterministicAnalysis?.envelope || {};
+        const maxHeight = env?.maxHeightFt != null ? `${env.maxHeightFt} ft` : 'UNVERIFIED';
+        const lot = zoningCtx?.site?.lotAreaSqft != null ? `${zoningCtx.site.lotAreaSqft} sf` : 'UNVERIFIED';
+        return [
+            '```text',
+            'Envelope Diagram (deterministic scaffold)',
+            '+------------------------------+',
+            '|          ROOF LINE           |  Max Height: ' + maxHeight,
+            '|------------------------------|',
+            '|         BUILDING MASS        |',
+            '|                              |',
+            '|                              |',
+            '+------------------------------+',
+            ' Lot Footprint Cap: ' + lot,
+            ' Setback Regime: UNVERIFIED (district-specific ZR lookup required)',
+            '```'
+        ].join('\n');
+    }
+
+    buildStructuredAddressReport(zoningCtx, modelNarrative = '') {
+        const site = zoningCtx?.site || {};
+        const calc = zoningCtx?.deterministicAnalysis || {};
+        const coeffRows = Array.isArray(calc?.coefficients) ? calc.coefficients : [];
+        const results = calc?.results || {};
+        const layers = Array.isArray(site?.mapLayers) ? site.mapLayers : [];
+        const uses = site?.uses || {};
+        const siteConditions = site?.siteConditions || {};
+        const streetTrees = siteConditions?.streetTrees || {};
+        const amenities = siteConditions?.amenities || {};
+        const amenityCounts = amenities?.counts || {};
+        const topAmenities = Object.entries(amenityCounts)
+            .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+            .slice(0, 10);
+        const additionalRegs = Array.isArray(zoningCtx?.additionalRegulations) ? zoningCtx.additionalRegulations : [];
+        const specialReqs = Array.isArray(site?.specialDistrictRequirements) ? site.specialDistrictRequirements : [];
+        const refs = Array.isArray(zoningCtx?.sourceSnapshot) ? zoningCtx.sourceSnapshot : [];
+        const legal = Array.isArray(zoningCtx?.legalUpdates?.entries) ? zoningCtx.legalUpdates.entries : [];
+        const candidates = Array.isArray(zoningCtx?.airRights?.candidates) ? zoningCtx.airRights.candidates.slice(0, 8) : [];
+
+        const coeffTable = [
+            '| Coefficient | Value | Citation |',
+            '|---|---:|---|',
+            ...coeffRows.map((r) => `| ${String(r?.key || '')} | ${r?.value == null ? 'UNVERIFIED' : r.value} | ${String(r?.citation || '')} |`)
+        ].join('\n');
+
+        const capacityTable = [
+            '| Metric | Value (sq ft) | Notes |',
+            '|---|---:|---|',
+            `| Max possible by envelope/FAR | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : results.maxZoningFloorAreaSqft} | Core maximum before deductions/bonuses |`,
+            `| Regular deductions (${results?.regularDeductionsPct ?? 'UNVERIFIED'}%) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Typical planning deduction bucket |`,
+            `| Net after regular deductions | ${results?.netAfterRegularDeductionsSqft == null ? 'UNVERIFIED' : results.netAfterRegularDeductionsSqft} | Max minus regular deductions |`,
+            `| Low-energy bonus (+${results?.lowEnergyBonusPct ?? 5}%) | ${results?.lowEnergyBonusSqft == null ? 'UNVERIFIED' : results.lowEnergyBonusSqft} | Bonus shown separately |`,
+            `| Max with low-energy bonus | ${results?.maxWithLowEnergyBonusSqft == null ? 'UNVERIFIED' : results.maxWithLowEnergyBonusSqft} | Envelope/FAR plus energy bonus case |`
+        ].join('\n');
+
+        const airRightsSummaryTable = [
+            '| Air-rights metric | Value (sq ft) | Notes |',
+            '|---|---:|---|',
+            `| On-site area available by envelope to max out | ${results?.airRightsNeededToMaxEnvelopeSqft == null ? 'UNVERIFIED' : results.airRightsNeededToMaxEnvelopeSqft} | Residual development rights on subject lot |`,
+            `| Neighboring sites transferable total (sellable) | ${results?.neighboringTransferableSqftTotal == null ? 'UNVERIFIED' : results.neighboringTransferableSqftTotal} | Sum of screened nearby transfer candidates |`
+        ].join('\n');
+
+        const mapTable = [
+            '| Map Layer | Values | Source |',
+            '|---|---|---|',
+            ...layers.map((l) => `| ${String(l?.label || l?.id || '')} | ${(Array.isArray(l?.values) && l.values.length) ? l.values.join(', ') : 'none listed'} | ${String(l?.source || '')} |`)
+        ].join('\n');
+
+        const filingProjectInfo = [
+            '| Item | Value |',
+            '|---|---|',
+            `| Address | ${String(zoningCtx?.query?.address || site?.address || 'n/a')} |`,
+            `| Borough | ${String(site?.borough || 'n/a')} |`,
+            `| Block | ${String(site?.block || 'n/a')} |`,
+            `| Lot | ${String(site?.lot || 'n/a')} |`,
+            `| BBL | ${String(site?.bbl || 'n/a')} |`,
+            `| Zoning district(s) | ${(Array.isArray(site?.zoningDistricts) && site.zoningDistricts.length) ? site.zoningDistricts.join(', ') : 'UNVERIFIED'} |`,
+            `| Overlay(s) | ${(Array.isArray(site?.overlays) && site.overlays.length) ? site.overlays.join(', ') : 'none listed'} |`,
+            `| Special district(s) | ${(Array.isArray(site?.specialDistricts) && site.specialDistricts.length) ? site.specialDistricts.join(', ') : 'none listed'} |`,
+            `| Program | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} |`
+        ].join('\n');
+
+        const zoningComplianceTable = [
+            '| Item | Permitted / Required | Provided / Proposed | Remarks | Citation |',
+            '|---|---|---|---|---|',
+            `| Use group / occupancy | UNVERIFIED (derive from district + program) | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} | Requires district-specific use group verification | ZR Article II/III/IV + current DOB code tables |`,
+            `| Lot area | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf (base)`} | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf`} | Baseline from parcel snapshot | NYC MapPLUTO lotarea |`,
+            `| Max zoning floor area | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | Envelope/FAR ceiling | MapPLUTO residfar + ZR district bulk rules |`,
+            `| Street tree requirement | 1 tree per 25 ft frontage (verify) | ${streetTrees?.nearbyCount > 0 ? `${streetTrees.nearbyCount} nearby tree(s) detected` : 'UNVERIFIED'} | Frontage requirement must be checked with final frontage length | ZR street tree planting provisions + NYC Street Tree Census |`,
+            `| Height / setback | District-specific limits required | ${calc?.envelope?.maxHeightFt == null ? 'UNVERIFIED' : `${calc.envelope.maxHeightFt} ft (snapshot)`} | Final zoning envelope must be verified from current ZR text | ZR district bulk + mapped context provisions |`
+        ].join('\n');
+
+        const floorAreaInputTable = [
+            '| Floor Area Input | Area (sf) | Notes |',
+            '|---|---:|---|',
+            `| Existing built area | ${site?.existingBuiltSqft == null ? 'UNVERIFIED' : site.existingBuiltSqft} | Parcel baseline |`,
+            `| Max zoning floor area | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : results.maxZoningFloorAreaSqft} | Ceiling before deductions/bonuses |`,
+            `| Deductions assumption (${results?.regularDeductionsPct ?? 'UNVERIFIED'}%) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Planning assumption bucket |`,
+            `| Low-energy bonus (+${results?.lowEnergyBonusPct ?? 5}%) | ${results?.lowEnergyBonusSqft == null ? 'UNVERIFIED' : results.lowEnergyBonusSqft} | Separate bonus track |`,
+            `| Max with low-energy bonus | ${results?.maxWithLowEnergyBonusSqft == null ? 'UNVERIFIED' : results.maxWithLowEnergyBonusSqft} | Bonus-inclusive ceiling |`
+        ].join('\n');
+
+        const usesTable = [
+            '| Use signal | Value |',
+            '|---|---|',
+            `| Land use code | ${String(uses?.landUseCode || 'n/a')} |`,
+            `| Building class | ${String(uses?.buildingClass || 'n/a')} |`,
+            `| Residential units | ${uses?.unitsResidential == null ? 'n/a' : uses.unitsResidential} |`,
+            `| Total units | ${uses?.unitsTotal == null ? 'n/a' : uses.unitsTotal} |`
+        ].join('\n');
+
+        const siteConditionsTable = [
+            '| Site condition | Value | Notes |',
+            '|---|---|---|',
+            `| Street trees nearby | ${streetTrees?.nearbyCount == null ? 'n/a' : streetTrees.nearbyCount} | Radius ${streetTrees?.radiusMeters || 'n/a'}m; source: NYC Street Tree Census |`,
+            `| Amenity categories nearby | ${topAmenities.length} | Radius ${amenities?.radiusMeters || 'n/a'}m; source: OSM Overpass snapshot |`
+        ].join('\n');
+
+        const amenitiesTable = [
+            '| Amenity type | Count |',
+            '|---|---:|',
+            ...(topAmenities.length ? topAmenities.map(([k, v]) => `| ${String(k)} | ${Number(v || 0)} |`) : ['| none captured | 0 |'])
+        ].join('\n');
+
+        const specialDistrictReqsTable = [
+            '| Special district | Requirement |',
+            '|---|---|',
+            ...(specialReqs.length ? specialReqs.map((r) => `| ${String(r?.district || '')} | ${String(r?.requirement || '')} |`) : ['| none listed | No mapped special district requirement in current snapshot |'])
+        ].join('\n');
+
+        const additionalRegTable = [
+            '| Additional regulation check | Status | Note |',
+            '|---|---|---|',
+            ...(additionalRegs.length ? additionalRegs.map((r) => `| ${String(r?.title || r?.id || '')} | ${String(r?.status || 'review_required')} | ${String(r?.note || '')} |`) : ['| none listed | review_required | Manual jurisdictional checks still required |'])
+        ].join('\n');
+
+        const exceptionsAndTriggersTable = [
+            '| Exception / Trigger | Status | Note |',
+            '|---|---|---|',
+            `| Secondary means of egress trigger | review_required | Check final story count/height/occupant load against current BC egress triggers |`,
+            `| Sustainable roofing / solar / green roof requirements | review_required | Validate rooftop exclusions, occupiable roof, and sustainable roof zone exceptions |`,
+            `| Special district supplemental controls | ${(specialReqs.length ? 'review_required' : 'none_mapped')} | ${(specialReqs.length ? 'Mapped special district controls present' : 'No mapped special district in current snapshot')} |`,
+            `| Site-specific environmental/flood constraints | review_required | Confirm flood/coastal + CEQR/(E) designations and DEP requirements where applicable |`
+        ].join('\n');
+
+        const airRightsTable = [
+            '| Candidate BBL | Address | Transferable Sq Ft (est.) | Eligibility |',
+            '|---|---|---:|---|',
+            ...(candidates.length ? candidates.map((c) => `| ${String(c?.bbl || '')} | ${String(c?.address || '')} | ${Number(c?.transferableSqftEstimate || 0)} | ${String(c?.eligibility || '')} |`) : ['| n/a | n/a | 0 | none identified |'])
+        ].join('\n');
+
+        const refsList = [
+            ...refs.map((r) => `- ${String(r?.id || 'source')}: ${String(r?.url || '')} (${String(r?.status || 'unknown')}, ${String(r?.retrievedAt || '')})`),
+            ...legal.map((l) => `- legal update ${String(l?.id || '')}: ${String(l?.url || '')} (${String(l?.status || '')}, ${String(l?.checkedAt || '')})`)
+        ].filter(Boolean).join('\n');
+
+        const confidence = zoningCtx?.confidence?.level || 'low';
+        const missing = Array.isArray(zoningCtx?.flags?.missingCritical) ? zoningCtx.flags.missingCritical : [];
+
+        const sections = [
+            `## Site Identity`,
+            `- Address: ${String(zoningCtx?.query?.address || site?.address || 'n/a')}`,
+            `- Borough / Block / Lot: ${String(site?.borough || 'n/a')} / ${String(site?.block || 'n/a')} / ${String(site?.lot || 'n/a')}`,
+            `- BBL: ${String(site?.bbl || 'n/a')}`,
+            `- Program mode: ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')}`,
+            '',
+            `## Filing Set Ready Input Packet`,
+            filingProjectInfo,
+            '',
+            `## Zoning Compliance Matrix (Permitted/Required vs Provided/Proposed)`,
+            zoningComplianceTable,
+            '',
+            `## Floor Area Inputs And Deductions`,
+            floorAreaInputTable,
+            '',
+            `## Overlays And Maps`,
+            mapTable,
+            '',
+            `## Uses`,
+            usesTable,
+            '',
+            `## Site Conditions`,
+            siteConditionsTable,
+            '',
+            `## Nearby Amenities Snapshot`,
+            amenitiesTable,
+            '',
+            `## Special District Requirements`,
+            specialDistrictReqsTable,
+            '',
+            `## Additional Possible Regulations`,
+            additionalRegTable,
+            '',
+            `## Exceptions And Trigger Checks`,
+            exceptionsAndTriggersTable,
+            '',
+            `## Zoning Controls Table`,
+            coeffTable,
+            '',
+            `## Maximum Capacity Breakdown`,
+            capacityTable,
+            '',
+            `## Envelope And Setback Diagram`,
+            this.buildDeterministicEnvelopeDiagram(zoningCtx),
+            '',
+            `## Air Rights Summary`,
+            airRightsSummaryTable,
+            '',
+            `## Air Rights Transfer Screening (Off-Site)`,
+            airRightsTable,
+            '',
+            `## Source Snapshot`,
+            refsList || '- No source snapshot available',
+            '',
+            `## Confidence And Flags`,
+            `- Confidence: ${confidence}`,
+            `- Missing critical fields: ${missing.length ? missing.join(', ') : 'none'}`,
+            '- Numeric values marked UNVERIFIED are excluded from final maximum conclusion.',
+            '',
+            `## Model Narrative`,
+            String(modelNarrative || '').trim() || 'Narrative unavailable.'
+        ];
+
+        return sections.join('\n');
     }
 
     sanitizeFilename(input) {
@@ -1772,13 +2122,24 @@ Autonomous mode requirements:
             // Validate configuration
             // Using proxy allows text-only without exposing apiKey
             if (!this.proxyUrl && !this.apiKey) throw new Error('WALL-E not configured (no proxy or key).');
+            const isAddressMode = this.isAddressAnalysisRequest(message);
+            let zoningCtx = null;
+            if (isAddressMode) {
+                try {
+                    zoningCtx = await this.fetchNycZoningContext(message);
+                } catch (resolverErr) {
+                    console.warn('NYC zoning resolver failed:', resolverErr?.message || resolverErr);
+                }
+                const quickClarification = this.buildSimpleAddressClarification(message, zoningCtx);
+                if (quickClarification) return quickClarification;
+            }
 
             // OpenAI-recommended path: use Responses API for text and multimodal inputs.
             console.log('Using grounded responses API (text + files)');
             try {
-                let out = await this.callGroundedResponses(message, false, files);
+                let out = await this.callGroundedResponses(message, false, files, '', zoningCtx);
                 // Force completion mode for address analyses: avoid "please confirm" loops.
-                if (this.isAddressAnalysisRequest(message)) {
+                if (isAddressMode) {
                     let attempts = 0;
                     while (attempts < 3 && this.needsAddressReportRegeneration(out)) {
                         const autofill = this.inferAddressAutofillHint(message);
@@ -1787,14 +2148,19 @@ Autonomous mode requirements:
 
 Autofill directive: ${autofill}
 Return a complete final report now. Do NOT ask clarification questions.
-Must include: zoning designation/overlays, FAR math, air-rights math, scenario table, visual summary bars, and references with links.`,
+Must include: zoning designation/overlays, FAR math, max-possible capacity breakdown, regular deductions, 5% low-energy bonus case, air-rights math, visual summary bars, and references with links.`,
                             true,
-                            files
+                            files,
+                            '',
+                            zoningCtx
                         );
                         attempts += 1;
                     }
                 }
                 if (!String(out || '').trim()) throw new Error('Address analysis returned empty output');
+                if (isAddressMode && zoningCtx) {
+                    out = this.buildStructuredAddressReport(zoningCtx, out);
+                }
                 return out;
             } catch (groundedErr) {
                 console.warn('Grounded responses failed:', groundedErr?.message || groundedErr);
@@ -1802,10 +2168,10 @@ Must include: zoning designation/overlays, FAR math, air-rights math, scenario t
                 if (Array.isArray(files) && files.length > 0) {
                     throw new Error(`Responses failed for file/image input: ${groundedErr?.message || 'unknown error'}`);
                 }
-                if (this.isAddressAnalysisRequest(message)) {
+                if (isAddressMode) {
                     const forced = this.buildAutonomousAddressDirective(message);
                     try {
-                        let out = await this.callGroundedResponses(forced, true, files, 'gpt-4o');
+                        let out = await this.callGroundedResponses(forced, true, files, 'gpt-4o', zoningCtx);
                         let attempts = 0;
                         while (attempts < 2 && this.needsAddressReportRegeneration(out)) {
                             out = await this.callGroundedResponses(
@@ -1816,17 +2182,21 @@ Verification pass:
 - If unverified, mark UNVERIFIED and do not use those values in final totals.`,
                                 true,
                                 files,
-                                'gpt-4o'
+                                'gpt-4o',
+                                zoningCtx
                             );
                             attempts += 1;
                         }
-                        if (String(out || '').trim()) return out;
+                        if (String(out || '').trim()) {
+                            if (zoningCtx) out = this.buildStructuredAddressReport(zoningCtx, out);
+                            return out;
+                        }
                     } catch (secondGroundedErr) {
                         console.warn('Secondary grounded model failed:', secondGroundedErr?.message || secondGroundedErr);
                     }
                 }
                 console.warn('Falling back to chat completions for text-only request');
-                if (this.isAddressAnalysisRequest(message)) {
+                if (isAddressMode) {
                     const forced = this.buildAutonomousAddressDirective(message);
                     let out = await this.callChatCompletions(forced, { skipHistory: true });
                     let attempts = 0;
@@ -1834,7 +2204,7 @@ Verification pass:
                         out = await this.callChatCompletions(
                             `${forced}
 
-Regenerate as final report only. No questions. Include zoning/FAR/air-rights/scenario table/references.`,
+Regenerate as final report only. No questions. Include zoning/FAR/max-possible capacity breakdown/deductions/5%-low-energy/air-rights/references.`,
                             { skipHistory: true }
                         );
                         attempts += 1;
@@ -1843,6 +2213,7 @@ Regenerate as final report only. No questions. Include zoning/FAR/air-rights/sce
                     if (this.needsAddressReportRegeneration(out)) {
                         throw new Error('Address analysis could not be verified from reliable web-grounded sources. Please retry.');
                     }
+                    if (zoningCtx) out = this.buildStructuredAddressReport(zoningCtx, out);
                     return out;
                 }
                 return await this.callChatCompletions(message);
@@ -2267,7 +2638,7 @@ Rules:
         }));
     }
 
-    async callGroundedResponses(message, forceRegulatory = false, files = [], modelOverride = '') {
+    async callGroundedResponses(message, forceRegulatory = false, files = [], modelOverride = '', zoningCtx = null) {
         const systemPrompt = this.buildSystemPrompt();
         const requireWeb = forceRegulatory || this.isRegulatoryOrCodeQuery(message);
         const wantsAddressReport = this.isAddressAnalysisRequest(message);
@@ -2275,6 +2646,7 @@ Rules:
             ? `${systemPrompt}\n\nFor this request, use web search grounding and include source links for factual claims. Keep structure concise and practical.`
             : systemPrompt;
         if (wantsAddressReport) {
+            const program = zoningCtx?.query?.requestedProgramType || this.inferRequestedProgramType(message);
             instructions += `\n\nGenerate a comprehensive zoning analysis report for the provided address. Include:
 1) Property identification and assumptions used
 2) Current zoning district/overlays and use framework
@@ -2284,15 +2656,27 @@ Rules:
    - Available development rights on lot (sq ft) = max zoning floor area - existing built floor area
    - Potential added floor area from purchased air rights (sq ft) and resulting total achievable floor area
    - Practical transferability caveats and constraints
-6) Maximum buildable options as scenarios (base / moderate / aggressive) with constraints
-7) Constraints/risks and filing considerations
-8) Practical next steps and data still needed
-9) A "References" section with source links inline and at the end.
+6) Maximum buildable capacity breakdown with constraints:
+   - Max possible by envelope/FAR
+   - Regular deductions (show as separate line item)
+   - 5% low-energy bonus case (separate line item)
+   - Final max line after each adjustment path
+7) Filing-set-ready zoning matrix table with columns:
+   - Item
+   - Permitted/Required
+   - Provided/Proposed
+   - Remarks
+   - Citation
+8) Constraints/risks and filing considerations
+9) Practical next steps and data still needed
+10) A "References" section with source links inline and at the end.
 Formatting requirements:
 - Use clean section headers
-- Include at least one table for scenario comparison
+- Include at least one table for capacity breakdown
+- Include at least one compliance matrix table in filing-set format (Permitted/Required vs Provided/Proposed)
 - Include a simple visual summary (ASCII bar chart or score bars) for buildable options
 Behavior requirements:
+- Default development scenario is "${program}" unless the user explicitly requested another program.
 - Do NOT ask for confirmation first; proceed with best-match interpretation and clearly state assumptions
 - If address ambiguity exists, continue with best likely parcel and list alternatives in assumptions.
 Do not omit references.`;
@@ -2301,14 +2685,27 @@ Do not omit references.`;
 - For each numeric zoning coefficient used (FAR, height/setback/bulk controls), include an explicit NYC Zoning Resolution citation.
 - Do NOT invent coefficients. If exact value is not verified from official sources in this run, label it UNVERIFIED and exclude it from final max-buildable totals.
 - Include a "Source Snapshot" section with source URLs and retrieval date.`;
+            if (zoningCtx && zoningCtx.ok) {
+                instructions += `\n\nDeterministic NYC context is provided below. Treat its numeric values as authoritative for calculations unless flagged missing/unverified. Use these values in your analysis tables and cite provided sources.`;
+            }
         }
         const userContent = await this.buildResponsesUserContent(message, files);
         const modelName = String(modelOverride || this.responsesModel || 'gpt-4.1').trim();
+        const deterministicContextText = (wantsAddressReport && zoningCtx && zoningCtx.ok)
+            ? this.safeJsonForPrompt(zoningCtx, 22000)
+            : '';
         const payload = {
             model: modelName,
             input: [
                 { role: 'system', content: [{ type: 'input_text', text: instructions }] },
                 ...(wantsAddressReport ? [] : this.buildResponsesHistoryInput(message)),
+                ...(deterministicContextText ? [{
+                    role: 'system',
+                    content: [{
+                        type: 'input_text',
+                        text: `Deterministic NYC zoning context JSON:\n${deterministicContextText}`
+                    }]
+                }] : []),
                 { role: 'user', content: userContent.length ? userContent : [{ type: 'input_text', text: String(message || '') }] }
             ],
             max_output_tokens: 1400
