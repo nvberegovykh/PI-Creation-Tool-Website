@@ -1680,6 +1680,136 @@ Autonomous mode requirements:
         };
     }
 
+    extractPdfDrawingData(zoningCtx, reportText = '') {
+        const site = zoningCtx?.site || {};
+        const calc = zoningCtx?.deterministicAnalysis || {};
+        const env = calc?.envelope || {};
+        const metrics = this.extractPdfMetrics(reportText);
+        const asNum = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
+        return {
+            address: String(zoningCtx?.query?.address || site?.address || 'n/a'),
+            borough: String(site?.borough || 'n/a'),
+            block: String(site?.block || 'n/a'),
+            lot: String(site?.lot || 'n/a'),
+            bbl: String(site?.bbl || 'n/a'),
+            zoning: Array.isArray(site?.zoningDistricts) && site.zoningDistricts.length ? site.zoningDistricts.join(', ') : 'UNVERIFIED',
+            overlays: Array.isArray(site?.overlays) && site.overlays.length ? site.overlays.join(', ') : 'none',
+            frontageFt: asNum(site?.lotFrontageFt),
+            depthFt: asNum(site?.lotDepthFt),
+            lotAreaSf: asNum(site?.lotAreaSqft),
+            maxHeightFt: asNum(env?.maxHeightFt),
+            rearYardLabel: String((env?.setbacks?.[1]?.value) || 'UNVERIFIED'),
+            footprintSf: asNum(env?.maxFootprintSqft) ?? metrics.lotFootprint,
+            maxNetSf: asNum(calc?.results?.maxNetByEnvelopeOrFarSqft) ?? metrics.maxCap,
+            grossSf: asNum(calc?.results?.grossBeforeRegularDeductionsSqft) ?? metrics.gross,
+            bonusSf: asNum(calc?.results?.maxWithLowEnergyBonusSqft) ?? metrics.bonusMax
+        };
+    }
+
+    drawPdfTitleBlock(doc, x, y, w, h, data) {
+        doc.setDrawColor(60, 70, 90);
+        doc.setFillColor(248, 250, 254);
+        doc.rect(x, y, w, h, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('Filing-Sheet Title Block', x + 10, y + 16);
+        const rows = [
+            ['Project', 'NYC Zoning Analysis'],
+            ['Address', data.address],
+            ['Borough / Block / Lot', `${data.borough} / ${data.block} / ${data.lot}`],
+            ['BBL', data.bbl],
+            ['District / Overlays', `${data.zoning} / ${data.overlays}`],
+            ['Lot (frontage x depth)', `${data.frontageFt ?? 'UNVERIFIED'} ft x ${data.depthFt ?? 'UNVERIFIED'} ft`],
+            ['Lot Area', `${data.lotAreaSf ?? 'UNVERIFIED'} sf`],
+            ['Height Limit', data.maxHeightFt != null ? `${data.maxHeightFt} ft` : 'UNVERIFIED']
+        ];
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9.2);
+        let ry = y + 30;
+        rows.forEach(([k, v]) => {
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${k}:`, x + 10, ry);
+            doc.setFont('helvetica', 'normal');
+            doc.text(String(v || 'n/a'), x + 150, ry);
+            ry += 13;
+        });
+    }
+
+    drawScaledPlanSectionIso(doc, x, y, w, h, data) {
+        const gap = 10;
+        const eachW = Math.floor((w - (gap * 2)) / 3);
+        const eachH = h;
+        const planX = x;
+        const secX = x + eachW + gap;
+        const isoX = x + (eachW + gap) * 2;
+
+        const box = (bx, title) => {
+            doc.setDrawColor(90, 100, 120);
+            doc.setFillColor(252, 253, 255);
+            doc.rect(bx, y, eachW, eachH, 'FD');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text(title, bx + 8, y + 14);
+        };
+        box(planX, 'Plan View (scaled)');
+        box(secX, 'Section View (scaled)');
+        box(isoX, 'Isometric Massing');
+
+        const frontage = Math.max(20, Number(data.frontageFt || 50));
+        const depth = Math.max(20, Number(data.depthFt || 100));
+        const lotScale = Math.min((eachW - 30) / frontage, (eachH - 52) / depth);
+        const lotW = frontage * lotScale;
+        const lotH = depth * lotScale;
+        const lotX = planX + 12;
+        const lotY = y + 24;
+        doc.setDrawColor(30, 30, 30);
+        doc.rect(lotX, lotY, lotW, lotH);
+        const setbackInset = Math.max(5, Math.min(lotW, lotH) * 0.08);
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([3, 2], 0);
+        doc.rect(lotX + setbackInset, lotY + setbackInset, Math.max(12, lotW - (setbackInset * 2)), Math.max(12, lotH - (setbackInset * 2)));
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([], 0);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.3);
+        doc.text(`Frontage: ${data.frontageFt ?? 'UNVERIFIED'} ft`, lotX, lotY + lotH + 12);
+        doc.text(`Depth: ${data.depthFt ?? 'UNVERIFIED'} ft`, lotX + 120, lotY + lotH + 12);
+        doc.text(`Rear yard: ${data.rearYardLabel}`, lotX, lotY + lotH + 24);
+
+        const secBaseY = y + eachH - 26;
+        const secBaseX = secX + 18;
+        const secW = eachW - 36;
+        const maxH = Math.max(40, eachH - 62);
+        const hFt = Math.max(10, Number(data.maxHeightFt || 80));
+        const hScale = maxH / hFt;
+        const drawH = Math.max(20, hFt * hScale);
+        doc.setDrawColor(55, 55, 55);
+        doc.line(secBaseX, secBaseY, secBaseX + secW, secBaseY);
+        doc.rect(secBaseX + 24, secBaseY - drawH, secW - 70, drawH);
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([3, 2], 0);
+        doc.line(secBaseX + 8, secBaseY - (drawH * 0.65), secBaseX + secW - 8, secBaseY - (drawH * 0.65));
+        if (typeof doc.setLineDashPattern === 'function') doc.setLineDashPattern([], 0);
+        doc.setFontSize(8.3);
+        doc.text(`Height: ${data.maxHeightFt ?? 'UNVERIFIED'} ft`, secBaseX + 4, secBaseY - drawH - 6);
+        doc.text('Dashed = setback plane', secBaseX + 120, secBaseY - drawH - 6);
+
+        const ix = isoX + 28;
+        const iy = y + eachH - 34;
+        const iw = eachW - 80;
+        const ih = Math.max(34, eachH - 84);
+        doc.setDrawColor(40, 40, 40);
+        doc.line(ix, iy, ix + iw, iy - 18);
+        doc.line(ix + iw, iy - 18, ix + iw, iy - ih - 18);
+        doc.line(ix, iy, ix, iy - ih);
+        doc.line(ix, iy - ih, ix + iw, iy - ih - 18);
+        doc.line(ix + iw, iy - ih - 18, ix + iw, iy - 18);
+        doc.line(ix, iy - ih, ix + iw, iy - ih - 18);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.3);
+        doc.text(`Net Cap: ${data.maxNetSf ?? 'UNVERIFIED'} sf`, isoX + 10, y + eachH - 8);
+    }
+
     renderPdfCapacityChart(doc, metrics, x, y, w, h) {
         const vals = [
             { key: 'maxCap', label: 'Net Cap', color: [46, 134, 222] },
@@ -1727,11 +1857,21 @@ Autonomous mode requirements:
         doc.setDrawColor(30, 30, 30);
         doc.rect(lotX, lotY, lotW, lotH);
         doc.setDrawColor(90, 90, 90);
-        doc.rect(lotX + 12, lotY + 10, Math.max(40, lotW - 24), Math.max(34, lotH - 20));
+        const setX = lotX + 12;
+        const setY = lotY + 10;
+        const setW = Math.max(40, lotW - 24);
+        const setH = Math.max(34, lotH - 20);
+        doc.rect(setX, setY, setW, setH);
+        if (typeof doc.setLineDashPattern === 'function') {
+            doc.setLineDashPattern([3, 2], 0);
+            doc.rect(setX + 7, setY + 7, Math.max(12, setW - 14), Math.max(12, setH - 14));
+            doc.setLineDashPattern([], 0);
+        }
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8.5);
         doc.text('LOT LINE', lotX + 4, lotY - 2);
         doc.text('MAX BUILDABLE FOOTPRINT', lotX + 16, lotY + 22);
+        doc.text('DASHED: REQUIRED YARD / SETBACK LIMITS', lotX + 16, lotY + 34);
         // Envelope section (right)
         const envX = lotX + lotW + 14;
         const envW = Math.max(70, frameW - lotW - 14);
@@ -1745,7 +1885,7 @@ Autonomous mode requirements:
         doc.text('BUILDING MASS', envX + 6, envY + 42);
         const lotTxt = Number.isFinite(metrics?.lotFootprint) ? `${Math.round(metrics.lotFootprint).toLocaleString()} sf` : 'UNVERIFIED';
         doc.text(`Lot Footprint Cap: ${lotTxt}`, fx, fy + frameH + 14);
-        doc.text('Setback Regime: district-specific verification required', fx, fy + frameH + 26);
+        doc.text('Setback Regime: scaled yard/setback guide shown as dashed line', fx, fy + frameH + 26);
     }
 
     inferAddressAutofillHint(message) {
@@ -1867,18 +2007,22 @@ Autonomous mode requirements:
         const env = zoningCtx?.deterministicAnalysis?.envelope || {};
         const maxHeight = (typeof env?.maxHeightFt === 'number' && env.maxHeightFt > 0) ? `${env.maxHeightFt} ft` : 'UNVERIFIED';
         const lot = zoningCtx?.site?.lotAreaSqft != null ? `${zoningCtx.site.lotAreaSqft} sf` : 'UNVERIFIED';
+        const frontage = zoningCtx?.site?.lotFrontageFt != null ? `${zoningCtx.site.lotFrontageFt} ft` : 'UNVERIFIED';
+        const depth = zoningCtx?.site?.lotDepthFt != null ? `${zoningCtx.site.lotDepthFt} ft` : 'UNVERIFIED';
+        const rearYard = env?.setbacks?.[1]?.value || 'UNVERIFIED';
         return [
             '```text',
-            'Envelope Diagram (deterministic scaffold)',
-            '+------------------------------+',
-            '|          ROOF LINE           |  Max Height: ' + maxHeight,
-            '|------------------------------|',
-            '|         BUILDING MASS        |',
-            '|                              |',
-            '|                              |',
-            '+------------------------------+',
-            ' Lot Footprint Cap: ' + lot,
-            ' Setback Regime: UNVERIFIED (district-specific ZR lookup required)',
+            'Scaled Lot Plan + Envelope (deterministic)',
+            '+-------------------------------------------+',
+            '|<-------------- lot frontage ------------->|',
+            '|  . . . . . . dashed setback zone . . . .  |',
+            '|  +-------------------------------------+  |  Max Height: ' + maxHeight,
+            '|  |            BUILDING MASS            |  |',
+            '|  +-------------------------------------+  |',
+            '|  Rear yard baseline: ' + rearYard + '                      |',
+            '+-------------------------------------------+',
+            ' Lot footprint cap: ' + lot,
+            ' Lot dimensions: frontage=' + frontage + ', depth=' + depth,
             '```'
         ].join('\n');
     }
@@ -1900,9 +2044,12 @@ Autonomous mode requirements:
         const additionalRegs = Array.isArray(zoningCtx?.additionalRegulations) ? zoningCtx.additionalRegulations : [];
         const specialReqs = Array.isArray(site?.specialDistrictRequirements) ? site.specialDistrictRequirements : [];
         const districtReqs = Array.isArray(site?.districtSpecificRequirements) ? site.districtSpecificRequirements : [];
+        const zrRefs = Array.isArray(site?.zrReferences) ? site.zrReferences : [];
         const refs = Array.isArray(zoningCtx?.sourceSnapshot) ? zoningCtx.sourceSnapshot : [];
         const legal = Array.isArray(zoningCtx?.legalUpdates?.entries) ? zoningCtx.legalUpdates.entries : [];
         const candidates = Array.isArray(zoningCtx?.airRights?.candidates) ? zoningCtx.airRights.candidates.slice(0, 8) : [];
+        const unitsTotal = Number(uses?.unitsTotal);
+        const amenityBaselineSqft = Number.isFinite(unitsTotal) && unitsTotal > 0 ? (unitsTotal * 40) : null;
 
         const coeffTable = [
             '| Coefficient | Value | Citation |',
@@ -1924,7 +2071,7 @@ Autonomous mode requirements:
         const airRightsSummaryTable = [
             '| Air-rights metric | Value (sq ft) | Notes |',
             '|---|---:|---|',
-            `| On-site area available by envelope to max out | ${results?.airRightsNeededToMaxEnvelopeSqft == null ? 'UNVERIFIED' : results.airRightsNeededToMaxEnvelopeSqft} | Residual development rights on subject lot |`,
+            `| On-site area available by envelope to max out | ${results?.airRightsNeededToMaxEnvelopeSqft == null ? 'UNVERIFIED' : results.airRightsNeededToMaxEnvelopeSqft} | Capped by min(FAR net cap, envelope net capacity) minus existing built area |`,
             `| Neighboring sites transferable total (sellable) | ${results?.neighboringTransferableSqftTotal == null ? 'UNVERIFIED' : results.neighboringTransferableSqftTotal} | Sum of screened nearby transfer candidates |`,
             `| Merged zoning-lot max floor area with top donor | ${results?.mergedZoningLotMaxFloorAreaWithBestDonorSqft == null ? 'UNVERIFIED' : results.mergedZoningLotMaxFloorAreaWithBestDonorSqft} | Combined max floor area estimate (subject + top donor) |`,
             `| Subject-side potential with top donor merged | ${results?.subjectPotentialWithBestDonorSqft == null ? 'UNVERIFIED' : results.subjectPotentialWithBestDonorSqft} | Donor keeps as-built area; unused rights shift to merged zoning lot plan |`
@@ -1953,18 +2100,18 @@ Autonomous mode requirements:
         const zoningComplianceTable = [
             '| Item | Permitted / Required | Provided / Proposed | Remarks | Citation |',
             '|---|---|---|---|---|',
-            `| Use group / occupancy | UNVERIFIED (derive from district + program) | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} | Requires district-specific use group verification | ZR Article II/III/IV + current DOB code tables |`,
+            `| Use group / occupancy | ${String(calc?.useGroup || 'UNVERIFIED')} | ${String(calc?.programType || zoningCtx?.query?.requestedProgramType || 'residential-new-building')} | Derived from adaptive rule profile + ZR scan sources | ${String(zrRefs.find((r) => /use group/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/article-ii')} |`,
             `| Lot area | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf (base)`} | ${site?.lotAreaSqft == null ? 'UNVERIFIED' : `${site.lotAreaSqft} sf`} | Baseline from parcel snapshot | NYC MapPLUTO lotarea |`,
-            `| Max zoning floor area | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : `${results.maxZoningFloorAreaSqft} sf`} | Envelope/FAR ceiling | MapPLUTO residfar + ZR district bulk rules |`,
-            `| Street tree requirement | 1 tree per 25 ft frontage (verify) | ${String(streetTrees?.status || '').startsWith('ok') ? `${streetTrees?.nearbyCount ?? 0} nearby tree(s) detected` : 'UNVERIFIED'} | Frontage requirement must be checked with final frontage length | ZR street tree planting provisions + NYC Street Tree Census |`,
-            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (snapshot)` : 'UNVERIFIED'} | Final zoning envelope must be verified from current ZR text | ZR district bulk + mapped context provisions |`
+            `| Max zoning floor area | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf (net cap)`} | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : `${results.maxNetByEnvelopeOrFarSqft} sf`} | Controlled by FAR cap and envelope constraints | MapPLUTO residfar + ZR district bulk rules |`,
+            `| Street tree requirement | ${results?.requiredStreetTreesCount == null ? 'UNVERIFIED' : `${results.requiredStreetTreesCount} tree(s) required`} | frontage=${results?.lotFrontageFt == null ? 'UNVERIFIED' : `${results.lotFrontageFt} ft`} | Formula: ${String(calc?.formulas?.streetTreesRequired || 'UNVERIFIED')} | ${String(zrRefs.find((r) => /street tree/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/search?search=street%20tree')} |`,
+            `| Height / setback | District-specific limits required | ${(typeof calc?.envelope?.maxHeightFt === 'number' && calc.envelope.maxHeightFt > 0) ? `${calc.envelope.maxHeightFt} ft (${String(calc?.envelope?.maxHeightSource || 'resolved')})` : 'UNVERIFIED'} | Includes ZR district baseline fallback when MapPLUTO height absent | ${String(zrRefs.find((r) => /district search/i.test(String(r?.label || '')))?.url || 'https://zoningresolution.planning.nyc.gov/')} |`
         ].join('\n');
 
         const floorAreaInputTable = [
             '| Floor Area Input | Area (sf) | Notes |',
             '|---|---:|---|',
             `| Existing built area | ${site?.existingBuiltSqft == null ? 'UNVERIFIED' : site.existingBuiltSqft} | Parcel baseline |`,
-            `| Max zoning floor area cap (net) | ${results?.maxZoningFloorAreaSqft == null ? 'UNVERIFIED' : results.maxZoningFloorAreaSqft} | Net cap target |`,
+            `| Max zoning floor area cap (net) | ${results?.maxNetByEnvelopeOrFarSqft == null ? 'UNVERIFIED' : results.maxNetByEnvelopeOrFarSqft} | Net cap target after envelope/FAR min-control |`,
             `| Gross before deductions | ${results?.grossBeforeRegularDeductionsSqft == null ? 'UNVERIFIED' : results.grossBeforeRegularDeductionsSqft} | Gross envelope before regular deductions |`,
             `| Deductions (${results?.regularDeductionsPct ?? 'UNVERIFIED'}% of gross) | ${results?.regularDeductionsSqft == null ? 'UNVERIFIED' : results.regularDeductionsSqft} | Gross-minus-cap difference |`,
             `| Low-energy bonus (+${results?.lowEnergyBonusPct ?? 5}%) | ${results?.lowEnergyBonusSqft == null ? 'UNVERIFIED' : results.lowEnergyBonusSqft} | Separate bonus track |`,
@@ -1974,6 +2121,7 @@ Autonomous mode requirements:
         const usesTable = [
             '| Use signal | Value |',
             '|---|---|',
+            `| Mapped use group | ${String(calc?.useGroup || 'UNVERIFIED')} |`,
             `| Land use code | ${String(uses?.landUseCode || 'n/a')} |`,
             `| Building class | ${String(uses?.buildingClass || 'n/a')} |`,
             `| Residential units | ${uses?.unitsResidential == null ? 'n/a' : uses.unitsResidential} |`,
@@ -1984,13 +2132,20 @@ Autonomous mode requirements:
             '| Site condition | Value | Notes |',
             '|---|---|---|',
             `| Street trees nearby | ${String(streetTrees?.status || '').startsWith('ok') ? String(streetTrees?.nearbyCount ?? 0) : 'UNVERIFIED'} | Radius ${streetTrees?.radiusMeters || 'n/a'}m; source: NYC Street Tree Census (${streetTrees?.status || 'unknown'}) |`,
-            `| Amenity categories nearby | ${amenities?.status === 'ok' ? String(topAmenities.length) : 'UNVERIFIED'} | Radius ${amenities?.radiusMeters || 'n/a'}m; source: OSM Overpass snapshot (${amenities?.status || 'unknown'}) |`
+            `| Amenity categories nearby | ${String(amenities?.status || '').startsWith('ok') ? String(topAmenities.length) : 'UNVERIFIED'} | Radius ${amenities?.radiusMeters || 'n/a'}m; source: OSM Overpass snapshot (${amenities?.status || 'unknown'}) |`
         ].join('\n');
 
         const amenitiesTable = [
             '| Amenity type | Count |',
             '|---|---:|',
             ...(topAmenities.length ? topAmenities.map(([k, v]) => `| ${String(k)} | ${Number(v || 0)} |`) : ['| none captured | 0 |'])
+        ].join('\n');
+
+        const amenitySpaceTable = [
+            '| Amenity space item | Value | Basis |',
+            '|---|---:|---|',
+            `| Residential units (baseline) | ${Number.isFinite(unitsTotal) ? unitsTotal : 'UNVERIFIED'} | MapPLUTO unitstotal snapshot |`,
+            `| Required amenity/recreation baseline area | ${amenityBaselineSqft == null ? 'UNVERIFIED' : amenityBaselineSqft} | Planning baseline = 40 sf/unit (confirm district program and ZR article) |`
         ].join('\n');
 
         const specialDistrictReqsTable = [
@@ -2005,6 +2160,14 @@ Autonomous mode requirements:
             ...(districtReqs.length
                 ? districtReqs.map((r) => `| ${String(r?.district || '')} | ${String(r?.requirement || '')} | ${String(r?.source || '')} | ${String(r?.status || 'unknown')} |`)
                 : ['| n/a | No district-specific scans available | n/a | unavailable |'])
+        ].join('\n');
+
+        const zrReferenceTable = [
+            '| Topic | Reference |',
+            '|---|---|',
+            ...(zrRefs.length
+                ? zrRefs.map((r) => `| ${String(r?.label || '')} | ${String(r?.url || '')} |`)
+                : ['| ZR references | UNVERIFIED |'])
         ].join('\n');
 
         const additionalRegTable = [
@@ -2064,11 +2227,17 @@ Autonomous mode requirements:
             `## Nearby Amenities Snapshot`,
             amenitiesTable,
             '',
+            `## Required Amenity Space Baseline`,
+            amenitySpaceTable,
+            '',
             `## Special District Requirements`,
             specialDistrictReqsTable,
             '',
             `## District-Specific Rule Scans`,
             districtSpecificReqTable,
+            '',
+            `## ZR Section References`,
+            zrReferenceTable,
             '',
             `## Additional Possible Regulations`,
             additionalRegTable,
@@ -2097,10 +2266,7 @@ Autonomous mode requirements:
             `## Confidence And Flags`,
             `- Confidence: ${confidence}`,
             `- Missing critical fields: ${missing.length ? missing.join(', ') : 'none'}`,
-            '- Numeric values marked UNVERIFIED are excluded from final maximum conclusion.',
-            '',
-            `## Narrative Notes`,
-            this.summarizeModelNarrative(modelNarrative)
+            '- Numeric values marked UNVERIFIED are excluded from final maximum conclusion.'
         ];
 
         return sections.join('\n');
@@ -2138,7 +2304,7 @@ Autonomous mode requirements:
         return this._jsPdfLoadPromise;
     }
 
-    async buildPdfBlobFromText(title, bodyText) {
+    async buildPdfBlobFromText(title, bodyText, zoningCtx = null) {
         const jsPDFCtor = await this.ensureJsPdfLoaded();
         const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'pt', format: 'a3' });
         const pageW = doc.internal.pageSize.getWidth();
@@ -2209,6 +2375,18 @@ Autonomous mode requirements:
 
         drawHeader();
         const metrics = this.extractPdfMetrics(bodyText);
+        const drawing = this.extractPdfDrawingData(zoningCtx, bodyText);
+
+        // Locked Page 1 template: title block + scaled architectural diagrams.
+        const titleBlockH = 144;
+        this.drawPdfTitleBlock(doc, margin, y, contentW, titleBlockH, drawing);
+        y += titleBlockH + 12;
+        const diagramsH = Math.max(220, pageH - y - margin);
+        this.drawScaledPlanSectionIso(doc, margin, y, contentW, diagramsH, drawing);
+
+        // Locked Page 2 template starts with capacity panel; tables continue after.
+        doc.addPage();
+        drawHeader();
         ensureSpace(190);
         doc.setDrawColor(190, 196, 205);
         doc.setFillColor(251, 253, 255);
@@ -2269,7 +2447,7 @@ Autonomous mode requirements:
             const canonicalBody = this._lastZoningCtx
                 ? this.buildStructuredAddressReport(this._lastZoningCtx, '')
                 : body;
-            const reportBlob = await this.buildPdfBlobFromText(title, canonicalBody);
+            const reportBlob = await this.buildPdfBlobFromText(title, canonicalBody, this._lastZoningCtx || null);
             const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             const filename = `${this.sanitizeFilename(title)}.pdf`;
             this.generatedLocalReports.set(id, { blob: reportBlob, filename, createdAt: Date.now() });
@@ -2886,19 +3064,22 @@ Rules:
    - Potential added floor area from purchased air rights (sq ft) and resulting total achievable floor area
    - Practical transferability caveats and constraints
 6) Maximum buildable capacity breakdown with constraints:
-   - Max possible by envelope/FAR
+   - Max net by envelope/FAR min-control
    - Regular deductions (show as separate line item)
    - 5% low-energy bonus case (separate line item)
    - Final max line after each adjustment path
-7) Filing-set-ready zoning matrix table with columns:
+7) Explicit use-group row derived from current ZR/adaptive profile sources
+8) Street-tree requirement computed from lot frontage using active rule profile formula
+9) District-specific ZR scans with direct source URLs
+10) Filing-set-ready zoning matrix table with columns:
    - Item
    - Permitted/Required
    - Provided/Proposed
    - Remarks
    - Citation
-8) Constraints/risks and filing considerations
-9) Practical next steps and data still needed
-10) A "References" section with source links inline and at the end.
+11) Constraints/risks and filing considerations
+12) Practical next steps and data still needed
+13) A "References" section with source links inline and at the end.
 Formatting requirements:
 - Use clean section headers
 - Include at least one table for capacity breakdown
