@@ -563,7 +563,7 @@
         const messages = document.getElementById('messages');
         if (!app) return;
         const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
-        const baseOffset = Math.max(72, ch + 16);
+        const baseOffset = Math.max(88, ch + 28);
         if (!this.isMobileViewport()){
           app.style.setProperty('--chat-kb-offset', '0px');
           app.style.setProperty('--chat-composer-height', `${ch}px`);
@@ -781,8 +781,8 @@
         const app = document.getElementById('chat-app') || document.body;
         const styles = getComputedStyle(app);
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
-        const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
-        host.style.bottom = `${base + kb}px`;
+        const base = Math.max(88, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '88'), 10) || 88));
+        host.style.bottom = `calc(${base + kb}px + env(safe-area-inset-bottom))`;
         this.syncBottomUiHostState();
         this.refreshFloatingPanelsPositions();
       }catch(_){ }
@@ -793,7 +793,7 @@
         const app = document.getElementById('chat-app') || document.body;
         const styles = getComputedStyle(app);
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
-        const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
+        const base = Math.max(88, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '88'), 10) || 88));
         const px = Math.max(54, base + kb + Math.max(0, Number(extra) || 0));
         return `calc(${px}px + env(safe-area-inset-bottom))`;
       }catch(_){
@@ -1441,12 +1441,30 @@
       return `<a href="#" class="msg-reply-quote" data-reply-target="${targetDomId.replace(/"/g,'&quot;')}" role="button"><span class="reply-author">${sender}</span>${preview ? ': ' + preview.replace(/</g,'&lt;') : ''}</a>`;
     }
 
-    scrollToMessage(domMsgId){
+    async scrollToMessage(domMsgId){
       if (!domMsgId) return;
       const box = document.getElementById('messages');
       if (!box) return;
-      const el = box.querySelector(`[data-msg-id="${String(domMsgId).replace(/"/g,'\\"')}"]`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const findTarget = ()=>{
+        const id = String(domMsgId).trim();
+        const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return box.querySelector(`[data-msg-id="${escaped}"]`) || box.querySelector(`[data-msg-id$=":${escaped.split(':').pop()}"]`);
+      };
+      let el = findTarget();
+      if (!el && box._maybeLoadOlder && this.activeConnection){
+        const maxAttempts = 10;
+        for (let i = 0; i < maxAttempts; i++){
+          const scrollTop = box.scrollTop;
+          const nearTop = scrollTop >= Math.max(0, (box.scrollHeight - box.clientHeight - 150));
+          if (!nearTop) box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight - 100);
+          await box._maybeLoadOlder();
+          await this.yieldToUi();
+          el = findTarget();
+          if (el) break;
+          if (!this._hasMoreOlderByConn.get(this.activeConnection)) break;
+        }
+      }
+      if (el) this.scrollMessageIntoViewSafely(el, { smooth: true });
     }
 
     getMessageReactionsHtml(m, msgId, sourceConnId, isGroupChat){
@@ -4332,7 +4350,7 @@
             e.preventDefault();
             e.stopPropagation();
             const target = replyQuote.getAttribute('data-reply-target');
-            if (target) this.scrollToMessage(target);
+            if (target) this.scrollToMessage(target).catch(()=>{});
             return;
           }
           const badge = e.target.closest('.msg-reaction-badge');
