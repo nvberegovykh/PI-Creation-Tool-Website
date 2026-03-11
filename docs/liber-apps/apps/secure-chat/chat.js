@@ -656,6 +656,123 @@
       }
     }
 
+    _isUiElementShown(el){
+      try{
+        if (!el) return false;
+        if (el.classList?.contains('hidden')) return false;
+        const cs = window.getComputedStyle(el);
+        if (!cs || cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity || 1) <= 0) return false;
+        return true;
+      }catch(_){ return false; }
+    }
+
+    hasBlockingFloatingPanelOpen(){
+      try{
+        const ids = [
+          'attachment-quick-actions',
+          'chat-attachments-sheet',
+          'msg-share-sheet',
+          'sticker-panel',
+          'group-panel',
+          'recording-preview-overlay'
+        ];
+        for (const id of ids){
+          const el = document.getElementById(id);
+          if (this._isUiElementShown(el)) return true;
+        }
+        const contextOverlay = document.getElementById('msg-context-overlay');
+        if (contextOverlay && !contextOverlay.classList.contains('hidden') && !contextOverlay.hasAttribute('inert')) return true;
+        const reactionsModal = document.getElementById('reactions-who-modal');
+        if (reactionsModal && !reactionsModal.classList.contains('hidden')) return true;
+        return false;
+      }catch(_){ return false; }
+    }
+
+    syncBottomUiHostState(){
+      try{
+        const host = this.ensureBottomUiHost();
+        if (!host) return;
+        const incomingPrompt = document.getElementById('incoming-call-prompt');
+        const showBtn = document.getElementById('show-call-btn');
+        const toBottomBtn = document.getElementById('chat-scroll-bottom-btn');
+        if (incomingPrompt) incomingPrompt.style.order = '1';
+        if (showBtn) showBtn.style.order = '2';
+        if (toBottomBtn) toBottomBtn.style.order = '3';
+        const incomingVisible = this._isUiElementShown(incomingPrompt);
+        if (showBtn){
+          // Keep only one call-related CTA visible when incoming prompt is active.
+          if (incomingVisible) showBtn.style.display = 'none';
+        }
+        const blockingPanel = this.hasBlockingFloatingPanelOpen();
+        host.classList.toggle('overlay-open', blockingPanel);
+      }catch(_){ }
+    }
+
+    bindBottomUiOverlayWatcher(){
+      if (this._bottomUiOverlayWatcherBound) return;
+      this._bottomUiOverlayWatcherBound = true;
+      const refresh = ()=>{
+        try{
+          if (this._bottomUiOverlayWatcherRaf) cancelAnimationFrame(this._bottomUiOverlayWatcherRaf);
+          this._bottomUiOverlayWatcherRaf = requestAnimationFrame(()=>{
+            this._bottomUiOverlayWatcherRaf = 0;
+            this.layoutBottomUi();
+          });
+        }catch(_){ this.layoutBottomUi(); }
+      };
+      try{
+        this._bottomUiOverlayObserver = new MutationObserver((muts)=>{
+          for (const m of muts){
+            if (m.type === 'attributes'){
+              const id = String(m.target?.id || '');
+              if (
+                id === 'attachment-quick-actions'
+                || id === 'chat-attachments-sheet'
+                || id === 'msg-share-sheet'
+                || id === 'sticker-panel'
+                || id === 'group-panel'
+                || id === 'recording-preview-overlay'
+                || id === 'msg-context-overlay'
+                || id === 'reactions-who-modal'
+                || id === 'show-call-btn'
+                || id === 'incoming-call-prompt'
+                || id === 'chat-scroll-bottom-btn'
+              ){
+                refresh();
+                return;
+              }
+            }
+            if (m.type === 'childList'){
+              const touched = [...(m.addedNodes || []), ...(m.removedNodes || [])];
+              const hasInterestingNode = touched.some((n)=>{
+                const id = String(n?.id || '');
+                if (!id) return false;
+                return id === 'attachment-quick-actions'
+                  || id === 'chat-attachments-sheet'
+                  || id === 'msg-share-sheet'
+                  || id === 'sticker-panel'
+                  || id === 'group-panel'
+                  || id === 'recording-preview-overlay'
+                  || id === 'show-call-btn'
+                  || id === 'incoming-call-prompt'
+                  || id === 'chat-scroll-bottom-btn';
+              });
+              if (hasInterestingNode){ refresh(); return; }
+            }
+          }
+        });
+        this._bottomUiOverlayObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'style', 'inert']
+        });
+      }catch(_){ }
+      try{ window.addEventListener('resize', refresh, { passive: true }); }catch(_){ }
+      setTimeout(refresh, 0);
+      setTimeout(refresh, 120);
+    }
+
     layoutBottomUi(){
       try{
         const host = this.ensureBottomUiHost();
@@ -665,6 +782,7 @@
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
         const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
         host.style.bottom = this.isMobileViewport() ? `${base + kb}px` : '84px';
+        this.syncBottomUiHostState();
         this.refreshFloatingPanelsPositions();
       }catch(_){ }
     }
@@ -4452,6 +4570,7 @@
       });
       if (this.isMobileViewport()) this.setMobileMenuOpen(false);
       this.bindMobileComposerLayoutSync();
+      this.bindBottomUiOverlayWatcher();
       this.syncMobileComposerLayout();
       this.bindVoiceTopStrip();
       this.bindChatTitleProfileOpen();
@@ -5825,7 +5944,10 @@
         toBottomBtn.style.cssText = '';
         toBottomBtn.setAttribute('aria-label', 'Scroll to latest');
       }
-      this.ensureBottomUiHost();
+      const bottomUiHost = this.ensureBottomUiHost();
+      if (bottomUiHost && toBottomBtn.parentElement !== bottomUiHost){
+        bottomUiHost.appendChild(toBottomBtn);
+      }
       this.layoutBottomUi();
       const updateBottomUi = ()=>{
         // column-reverse chat: end-of-chat is near scrollTop = 0.

@@ -2,7 +2,7 @@
   .dashboard-content {
     padding-left: 10px !important;
     padding-right: 10px !important;
-    padding-top: 10px !important;
+    padding-top: calc(max(env(safe-area-inset-top, 0px), 16px) + 8px) !important;
   }
   #apps-section,
   #space-section,

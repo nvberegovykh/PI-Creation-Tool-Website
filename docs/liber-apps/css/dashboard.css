@@ -1264,16 +1264,17 @@
 @media (max-width: 767px) {
   :root{
     --mobile-dashboard-nav-offset: calc(72px + env(safe-area-inset-bottom));
+    --mobile-dashboard-top-offset: max(env(safe-area-inset-top), 16px);
   }
   .dashboard {
     min-height: 100dvh;
     height: 100dvh;
     padding: 0;
-    padding-top: env(safe-area-inset-top);
+    padding-top: var(--mobile-dashboard-top-offset);
   }
   .dashboard-content {
     width: 100%;
-    padding: 8px 10px var(--mobile-dashboard-nav-offset) !important;
+    padding: calc(var(--mobile-dashboard-top-offset) + 8px) 10px var(--mobile-dashboard-nav-offset) !important;
     margin: 0;
   }
   .content-section,

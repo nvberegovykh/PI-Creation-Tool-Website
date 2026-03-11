@@ -207,6 +207,7 @@ class DashboardManager {
         if (kind === 'audio') this.setWaveMainTab('audio');
         else if (kind === 'video') this.setWaveMainTab('video');
         else if (kind === 'picture' || kind === 'image') this.setWaveMainTab('pictures');
+        this.setWaveSubtab('home');
         await new Promise((r)=> setTimeout(r, 260));
         const match = ()=>{
             const byId = sourceId
@@ -218,13 +219,46 @@ class DashboardManager {
             const normHref = this.normalizeMediaUrl(href);
             return all.find((el)=> this.urlsLikelySame(String(el.getAttribute('data-asset-url') || ''), normHref)) || null;
         };
-        for (let i = 0; i < 8; i++){
+        const openTargetPopup = (host)=>{
+            if (!host) return false;
+            try{
+                const vid = host.querySelector('.liber-lib-video');
+                if (vid){
+                    const src = String(vid.currentSrc || vid.src || '').trim();
+                    if (src){
+                        this.openFullscreenMedia([{
+                            type: 'video',
+                            url: src,
+                            title: String(vid.dataset.title || host.querySelector('.video-item-title')?.textContent || 'Video').trim(),
+                            by: String(vid.dataset.by || '').trim(),
+                            cover: String(vid.dataset.cover || '').trim(),
+                            sourceId: String(vid.dataset.sourceId || sourceId || '').trim()
+                        }], 0);
+                        return true;
+                    }
+                }
+                const img = host.querySelector('img[data-fullscreen-image="1"]');
+                if (img){
+                    const src = String(img.currentSrc || img.src || '').trim();
+                    if (src){
+                        this.openFullscreenImage(src, String(img.alt || 'Picture'));
+                        return true;
+                    }
+                }
+            }catch(_){ }
+            return false;
+        };
+        for (let i = 0; i < 12; i++){
             const el = match();
             if (el){
                 try{ el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); }catch(_){ el.scrollIntoView(); }
+                const expectedKind = kind || this.inferMediaKindFromUrl(String(href || ''));
+                if (expectedKind === 'video' || expectedKind === 'image' || expectedKind === 'picture'){
+                    setTimeout(()=> openTargetPopup(el), 80);
+                }
                 return;
             }
-            await new Promise((r)=> setTimeout(r, 220));
+            await new Promise((r)=> setTimeout(r, 240));
         }
     }
 
