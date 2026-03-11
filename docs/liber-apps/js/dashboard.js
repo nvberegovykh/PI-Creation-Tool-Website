@@ -5779,7 +5779,11 @@ class DashboardManager {
             filteredList.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
             const renderList = [];
             const seenMediaKeys = new Set();
+            const seenIds = new Set();
             for (const p of filteredList){
+                const pid = String(p?.id || '').trim();
+                if (pid && seenIds.has(pid)) continue;
+                if (pid) seenIds.add(pid);
                 const mediaKey = this.normalizeMediaUrl(String(p?.media || p?.mediaUrl || '').trim());
                 if (mediaKey){
                     if (seenMediaKeys.has(mediaKey)) continue;
@@ -5828,21 +5832,25 @@ class DashboardManager {
             this.applyHorizontalMasonryOrder(feedEl);
             if (suggEl){
                 try{
-                    const trending = await window.firebaseService.getTrendingPosts(term || '', 20);
-                    const filteredTrending = term
+                    const meUser = await this.resolveCurrentUserWithRetry(800);
+                    const excludeUid = meUser?.uid || '';
+                    const trending = await window.firebaseService.getTrendingPosts(excludeUid, 20);
+                    let filteredTrending = term
                         ? (trending || []).filter((tp)=>{
                             const text = String(tp?.text || '').toLowerCase();
                             const author = String(tp?.authorName || '').toLowerCase();
                             return text.includes(term) || author.includes(term);
                         })
                         : (trending || []);
+                    const mainIds = new Set(renderList.map((p)=> String(p?.id || '')));
+                    filteredTrending = filteredTrending.filter((tp)=> tp && tp.id && !mainIds.has(String(tp.id)));
                     suggEl.innerHTML = '';
                     const top = filteredTrending.slice(0, 10);
                     for (const tp of top){
                         if (!tp || !tp.id) continue;
                         try{ await this.primeWaveMetaForMedia(tp?.media || tp?.mediaUrl); }catch(_){ }
                         const card = await this.buildRealtimeFeedPostElement(tp, {});
-                        suggEl.appendChild(card);
+                        if (card) suggEl.appendChild(card);
                     }
                     this.bindUserPreviewTriggers(suggEl);
                     this.activatePlayers(suggEl);

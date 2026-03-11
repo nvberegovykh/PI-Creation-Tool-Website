@@ -554,6 +554,7 @@
         tip.setAttribute('aria-label', next ? 'Collapse chat menu' : 'Expand chat menu');
       }
       this.syncMobileComposerLayout();
+      if (next) setTimeout(()=> this.syncMobileComposerLayout(), 350);
     }
 
     syncMobileComposerLayout(){
