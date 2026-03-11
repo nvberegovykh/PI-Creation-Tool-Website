@@ -563,7 +563,8 @@
         const messages = document.getElementById('messages');
         if (!app) return;
         const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
-        const baseOffset = Math.max(88, ch + 28);
+        const sidebarH = this.isMobileViewport() ? (document.querySelector('.sidebar-header')?.offsetHeight || 0) + (document.querySelector('.mobile-sidebar-tip')?.offsetHeight || 0) : 0;
+        const baseOffset = Math.max(130, ch + 48 + sidebarH);
         if (!this.isMobileViewport()){
           app.style.setProperty('--chat-kb-offset', '0px');
           app.style.setProperty('--chat-composer-height', `${ch}px`);
@@ -781,7 +782,7 @@
         const app = document.getElementById('chat-app') || document.body;
         const styles = getComputedStyle(app);
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
-        const base = Math.max(88, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '88'), 10) || 88));
+        const base = Math.max(130, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '130'), 10) || 130));
         host.style.bottom = `calc(${base + kb}px + env(safe-area-inset-bottom))`;
         this.syncBottomUiHostState();
         this.refreshFloatingPanelsPositions();
@@ -793,7 +794,7 @@
         const app = document.getElementById('chat-app') || document.body;
         const styles = getComputedStyle(app);
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
-        const base = Math.max(88, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '88'), 10) || 88));
+        const base = Math.max(130, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '130'), 10) || 130));
         const px = Math.max(54, base + kb + Math.max(0, Number(extra) || 0));
         return `calc(${px}px + env(safe-area-inset-bottom))`;
       }catch(_){
