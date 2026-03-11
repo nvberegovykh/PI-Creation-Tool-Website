@@ -563,7 +563,12 @@
         const messages = document.getElementById('messages');
         if (!app) return;
         const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
-        const sidebarH = this.isMobileViewport() ? (document.querySelector('.sidebar-header')?.offsetHeight || 0) + (document.querySelector('.mobile-sidebar-tip')?.offsetHeight || 0) : 0;
+        let sidebarH = 0;
+        if (this.isMobileViewport()){
+          sidebarH += (document.querySelector('.sidebar-header')?.offsetHeight || 0) + (document.querySelector('.mobile-sidebar-tip')?.offsetHeight || 0);
+          const panel = document.querySelector('.sidebar.open .connections-panel');
+          if (panel) sidebarH += Math.round(Number(panel.offsetHeight || 0) || 0);
+        }
         const baseOffset = Math.max(130, ch + 48 + sidebarH);
         if (!this.isMobileViewport()){
           app.style.setProperty('--chat-kb-offset', '0px');
@@ -726,7 +731,12 @@
         this._bottomUiOverlayObserver = new MutationObserver((muts)=>{
           for (const m of muts){
             if (m.type === 'attributes'){
-              const id = String(m.target?.id || '');
+              const node = m.target;
+              if (node?.classList?.contains('sidebar') && m.attributeName === 'class'){
+                refresh();
+                return;
+              }
+              const id = String(node?.id || '');
               if (
                 id === 'attachment-quick-actions'
                 || id === 'chat-attachments-sheet'
@@ -769,6 +779,17 @@
           attributes: true,
           attributeFilter: ['class', 'style', 'inert']
         });
+      }catch(_){ }
+      try{
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar){
+          const panel = document.getElementById('connections-panel');
+          if (panel){
+            const ro = new ResizeObserver(()=> refresh());
+            ro.observe(panel);
+            this._connectionsPanelResizeObserver = ro;
+          }
+        }
       }catch(_){ }
       try{ window.addEventListener('resize', refresh, { passive: true }); }catch(_){ }
       setTimeout(refresh, 0);
