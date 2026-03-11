@@ -8,6 +8,15 @@
   "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "portrait-primary",
+  "share_target": {
+    "action": "/liber-apps/index.html?share_target=1",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "icons": [
     {
       "src": "/liber-apps/images/LIBER LOGO.png",

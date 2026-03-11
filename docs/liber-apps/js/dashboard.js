@@ -66,6 +66,229 @@ class DashboardManager {
         return user;
     }
 
+    isPublicContentRecord(row){
+        const visibility = String(row?.visibility || '').trim().toLowerCase();
+        if (visibility === 'public' || visibility === 'pub') return true;
+        if (row?.isPublic === true || row?.public === true) return true;
+        if (String(row?.privacy || '').trim().toLowerCase() === 'public') return true;
+        return false;
+    }
+
+    getShareBaseUrl(){
+        try{
+            const u = new URL(window.location.href);
+            u.hash = '';
+            u.search = '';
+            if (!/\/[^/]+\.[a-z0-9]+$/i.test(u.pathname || '')){
+                const clean = String(u.pathname || '').replace(/\/$/, '');
+                u.pathname = `${clean || '/'}${clean ? '/' : ''}index.html`;
+            }
+            return u.toString();
+        }catch(_){
+            return `${window.location.origin}${window.location.pathname}`;
+        }
+    }
+
+    buildPublicShareLink(target = {}, extras = {}){
+        try{
+            const base = new URL(this.getShareBaseUrl());
+            const kind = String(target?.kind || '').trim().toLowerCase();
+            if (kind === 'post'){
+                const id = String(target?.id || target?.postId || '').trim();
+                if (id){
+                    base.searchParams.set('open', 'post');
+                    base.searchParams.set('id', id);
+                }
+            } else if (kind === 'wave'){
+                const type = String(target?.type || '').trim().toLowerCase();
+                const id = String(target?.id || '').trim();
+                const url = String(target?.url || '').trim();
+                base.searchParams.set('open', 'wave');
+                if (type) base.searchParams.set('type', type);
+                if (id) base.searchParams.set('id', id);
+                if (!id && url) base.searchParams.set('u', url);
+            } else if (kind === 'chat'){
+                const connId = String(target?.connId || '').trim();
+                if (connId){
+                    base.searchParams.set('open', 'chat');
+                    base.searchParams.set('connId', connId);
+                }
+            }
+            Object.entries(extras || {}).forEach(([k, v])=>{
+                const key = String(k || '').trim();
+                if (!key) return;
+                const val = String(v ?? '').trim();
+                if (!val) return;
+                base.searchParams.set(key, val);
+            });
+            return base.toString();
+        }catch(_){
+            return this.getShareBaseUrl();
+        }
+    }
+
+    async copyShareLinkToClipboard(url, okMsg = 'Link copied'){
+        try{
+            const next = String(url || '').trim();
+            if (!next) return false;
+            await navigator.clipboard.writeText(next);
+            this.showSuccess(okMsg);
+            return true;
+        }catch(_){
+            this.showError('Failed to copy');
+            return false;
+        }
+    }
+
+    async shareOrCopyLink(url, { title = '', text = '', copiedMsg = 'Link copied' } = {}){
+        const next = String(url || '').trim();
+        if (!next) return false;
+        if (navigator.share){
+            try{
+                await navigator.share({
+                    title: String(title || '').trim(),
+                    text: String(text || '').trim(),
+                    url: next
+                });
+                return true;
+            }catch(_){ }
+        }
+        return this.copyShareLinkToClipboard(next, copiedMsg);
+    }
+
+    async focusPostCardInFeeds(postId, maxAttempts = 8){
+        const id = String(postId || '').trim();
+        if (!id) return false;
+        for (let i = 0; i < maxAttempts; i++){
+            const sel = `.post-item[data-post-id="${id.replace(/"/g,'\\"')}"]`;
+            const card = document.querySelector(`#global-feed ${sel}`) || document.querySelector(`#space-feed ${sel}`) || document.querySelector(sel);
+            if (card){
+                try{ card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); }catch(_){ card.scrollIntoView(); }
+                try{
+                    const prev = card.style.boxShadow;
+                    card.style.boxShadow = '0 0 0 2px rgba(107,158,255,.9)';
+                    setTimeout(()=>{ try{ card.style.boxShadow = prev || ''; }catch(_){ } }, 1400);
+                }catch(_){ }
+                return true;
+            }
+            await new Promise((r)=> setTimeout(r, 220));
+        }
+        return false;
+    }
+
+    async openSharedPostLink(postId){
+        const id = String(postId || '').trim();
+        if (!id) return;
+        try{
+            const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'posts', id));
+            if (!snap.exists()){
+                this.showError('This content is private.');
+                return;
+            }
+            const row = snap.data() || {};
+            if (!this.isPublicContentRecord(row)){
+                this.showError('This content is private.');
+                return;
+            }
+        }catch(_){
+            this.showError('This content is private.');
+            return;
+        }
+        this.switchSection('feed');
+        try{ await this.loadGlobalFeed(this._wallSearchTerm || ''); }catch(_){ }
+        await this.focusPostCardInFeeds(id, 10);
+    }
+
+    async openSharedWaveLink({ type = '', id = '', url = '' } = {}){
+        const kind = String(type || '').trim().toLowerCase();
+        const sourceId = String(id || '').trim();
+        const href = String(url || '').trim();
+        this.switchSection('waveconnect');
+        if (kind === 'audio') this.setWaveMainTab('audio');
+        else if (kind === 'video') this.setWaveMainTab('video');
+        else if (kind === 'picture' || kind === 'image') this.setWaveMainTab('pictures');
+        await new Promise((r)=> setTimeout(r, 260));
+        const match = ()=>{
+            const byId = sourceId
+                ? document.querySelector(`[data-asset-id="${sourceId.replace(/"/g,'\\"')}"]`)
+                : null;
+            if (byId) return byId;
+            if (!href) return null;
+            const all = Array.from(document.querySelectorAll('[data-asset-url]'));
+            const normHref = this.normalizeMediaUrl(href);
+            return all.find((el)=> this.urlsLikelySame(String(el.getAttribute('data-asset-url') || ''), normHref)) || null;
+        };
+        for (let i = 0; i < 8; i++){
+            const el = match();
+            if (el){
+                try{ el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); }catch(_){ el.scrollIntoView(); }
+                return;
+            }
+            await new Promise((r)=> setTimeout(r, 220));
+        }
+    }
+
+    async handleIncomingShareIntent(){
+        try{
+            const params = new URLSearchParams(window.location.search || '');
+            const fromTarget = String(params.get('share_target') || '').trim() === '1';
+            if (!fromTarget) return;
+            const sharedUrl = String(params.get('url') || '').trim();
+            const title = String(params.get('title') || '').trim();
+            const text = String(params.get('text') || '').trim();
+            if (!sharedUrl && !title && !text) return;
+            await this.openShareToChatSheet({
+                type: 'external-link',
+                asset: {
+                    kind: 'link',
+                    url: sharedUrl,
+                    title: title || sharedUrl || 'Shared link',
+                    text
+                }
+            });
+        }catch(_){ }
+    }
+
+    async handleIncomingDeepLink(){
+        try{
+            const params = new URLSearchParams(window.location.search || '');
+            const hash = String(window.location.hash || '').replace(/^#/, '').trim();
+            let open = String(params.get('open') || '').trim().toLowerCase();
+            if (!open && /^post[-_:]/i.test(hash)) open = 'post';
+            if (open === 'post'){
+                const id = String(params.get('id') || params.get('postId') || hash.replace(/^post[-_:]/i, '') || '').trim();
+                if (id) await this.openSharedPostLink(id);
+                return;
+            }
+            if (open === 'wave'){
+                await this.openSharedWaveLink({
+                    type: String(params.get('type') || '').trim().toLowerCase(),
+                    id: String(params.get('id') || '').trim(),
+                    url: String(params.get('u') || params.get('url') || '').trim()
+                });
+                return;
+            }
+            if (open === 'chat'){
+                const connId = String(params.get('connId') || '').trim();
+                const me = await this.resolveCurrentUser();
+                if (!me || !me.uid){
+                    this.showError('This chat content is private. Please log in.');
+                    try{
+                        if (window.authManager && typeof window.authManager.showAuthScreen === 'function'){
+                            window.authManager.showAuthScreen();
+                        }
+                    }catch(_){ }
+                    return;
+                }
+                if (connId && window.appsManager && typeof window.appsManager.openAppInShell === 'function'){
+                    const q = new URLSearchParams({ connId });
+                    const full = new URL(`apps/secure-chat/index.html?${q.toString()}`, window.location.href).href;
+                    window.appsManager.openAppInShell({ id: 'secure-chat', name: 'Connections' }, full);
+                }
+            }
+        }catch(_){ }
+    }
+
     openFullscreenMedia(items, startIndex = 0){
         try{
             const normalized = (Array.isArray(items) ? items : [])
@@ -4043,6 +4266,8 @@ class DashboardManager {
             if ((returnTo === 'chat' || returnTo === 'tracker') && window.appsManager && typeof window.appsManager.loadApps === 'function'){
                 setTimeout(()=> window.appsManager.loadApps(), 300);
             }
+            setTimeout(()=>{ this.handleIncomingDeepLink().catch(()=>{}); }, 260);
+            setTimeout(()=>{ this.handleIncomingShareIntent().catch(()=>{}); }, 420);
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         // Mobile Chrome/PWA can hydrate auth state slightly later; retry nav role gate.
@@ -4274,6 +4499,38 @@ class DashboardManager {
                         thumbnailUrl: String(item.poster || item.cover || ''),
                         sourceId: String(item.sourceId || '')
                     });
+                }catch(_){ }
+            });
+            window.addEventListener('liber-video-copy-link', async (e)=>{
+                try{
+                    const item = e?.detail || {};
+                    const link = this.buildPublicShareLink({
+                        kind: 'wave',
+                        type: 'video',
+                        id: String(item.sourceId || item.id || '').trim(),
+                        url: String(item.url || '').trim()
+                    });
+                    await this.copyShareLinkToClipboard(link, 'Video link copied');
+                    try{ item.__liberShareHandled = true; }catch(_){ }
+                }catch(_){ this.showError('Failed to copy'); }
+            });
+            window.addEventListener('liber-video-share-external', async (e)=>{
+                try{
+                    const item = e?.detail || {};
+                    const link = this.buildPublicShareLink({
+                        kind: 'wave',
+                        type: 'video',
+                        id: String(item.sourceId || item.id || '').trim(),
+                        url: String(item.url || '').trim()
+                    });
+                    const title = String(item.title || 'Video').trim() || 'Video';
+                    const text = String(item.description || '').trim();
+                    if (navigator.share){
+                        await navigator.share({ title, text, url: link });
+                    } else {
+                        await this.copyShareLinkToClipboard(link, 'Video link copied');
+                    }
+                    try{ item.__liberShareHandled = true; }catch(_){ }
                 }catch(_){ }
             });
         }
@@ -5059,11 +5316,8 @@ class DashboardManager {
                 }
                 if (menuBtn){
                     menuBtn.onclick = async ()=>{
-                        try{
-                            const loc = `${location.origin}${location.pathname}#post-${postId}`;
-                            await navigator.clipboard.writeText(loc);
-                            this.showSuccess('Post link copied');
-                        }catch(_){ this.showError('Failed to copy'); }
+                        const loc = this.buildPublicShareLink({ kind: 'post', id: postId });
+                        await this.shareOrCopyLink(loc, { title: 'Post', copiedMsg: 'Post link copied' });
                     };
                 }
                 if (editBtn){
@@ -5546,7 +5800,7 @@ class DashboardManager {
                     const visBtn = pa.querySelector('.visibility-btn');
                     const commentBtn = pa.querySelector('.comment-btn');
                     if (!canEditPost){ if (editBtn) editBtn.style.display='none'; if (delBtn) delBtn.style.display='none'; if (visBtn) visBtn.style.display='none'; }
-                    if (menuBtn){ menuBtn.onclick = async ()=>{ try{ const loc = `${location.origin}${location.pathname}#post-${postId}`; await navigator.clipboard.writeText(loc); this.showSuccess('Post link copied'); }catch(_){ this.showError('Failed to copy'); } }; }
+                    if (menuBtn){ menuBtn.onclick = async ()=>{ const loc = this.buildPublicShareLink({ kind: 'post', id: postId }); await this.shareOrCopyLink(loc, { title: 'Post', copiedMsg: 'Post link copied' }); }; }
                     if (visBtn && canEditPost){ visBtn.onclick = async ()=>{ try{ const ref = firebase.doc(window.firebaseService.db,'posts', postId); const doc = await firebase.getDoc(ref); const p=doc.data()||{}; const next = p.visibility==='public'?'private':'public'; await firebase.updateDoc(ref, { visibility: next, updatedAt:new Date().toISOString() }); visBtn.textContent = next==='public'?'Make Private':'Make Public'; }catch(_){ } }; }
                     if (editBtn && canEditPost){ editBtn.onclick = async ()=>{ const container = pa.closest('.post-item'); const textDiv = container && container.querySelector('.post-text'); const current = textDiv ? textDiv.textContent : ''; const newText = prompt('Edit post:', current); if (newText===null) return; await window.firebaseService.updatePost(postId, { text: newText.trim() }); this.loadGlobalFeed(); }; }
                     if (delBtn && canEditPost){ delBtn.onclick = async ()=>{ if (!confirm('Delete this post?')) return; const postEl = pa.closest('.post-item'); await this.dissolveOutRemove(postEl, 240); await window.firebaseService.deletePost(postId); this.loadGlobalFeed(); }; }
@@ -5740,11 +5994,8 @@ class DashboardManager {
                 }
                 if (menuBtn){
                     menuBtn.onclick = async ()=>{
-                        try{
-                            const loc = `${location.origin}${location.pathname}#post-${postId}`;
-                            await navigator.clipboard.writeText(loc);
-                            this.showSuccess('Post link copied');
-                        }catch(_){ this.showError('Failed to copy'); }
+                        const loc = this.buildPublicShareLink({ kind: 'post', id: postId });
+                        await this.shareOrCopyLink(loc, { title: 'Post', copiedMsg: 'Post link copied' });
                     };
                 }
                 commentBtn.onclick = async ()=>{
@@ -7715,6 +7966,9 @@ class DashboardManager {
         const div = document.createElement('div');
         div.className = 'wave-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:8px 0;display:flex;flex-direction:column;gap:10px;align-items:stretch;justify-content:flex-start';
+        div.dataset.assetKind = 'audio';
+        if (w?.id) div.dataset.assetId = String(w.id);
+        if (w?.url) div.dataset.assetUrl = this.normalizeMediaUrl(String(w.url));
         const cover = w.coverUrl || 'images/default-bird.png';
         const allowRemove = !!opts.allowRemove;
         const byline = w.authorName
@@ -7992,6 +8246,9 @@ class DashboardManager {
         const div = document.createElement('div');
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
+        div.dataset.assetKind = 'video';
+        if (v?.id) div.dataset.assetId = String(v.id);
+        if (v?.url) div.dataset.assetUrl = this.normalizeMediaUrl(String(v.url));
         const thumb = v.thumbnailUrl || 'images/default-bird.png';
         const cardCover = String(v.thumbnailUrl || v.coverUrl || thumb || 'images/default-bird.png');
         const sourceType = String(v.sourceMediaType || '').toLowerCase();
@@ -8499,6 +8756,9 @@ class DashboardManager {
         const div = document.createElement('div');
         div.className = 'video-item';
         div.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px;margin:0;position:relative;background:var(--secondary-bg);height:100%';
+        div.dataset.assetKind = 'picture';
+        if (v?.id) div.dataset.assetId = String(v.id);
+        if (v?.url) div.dataset.assetUrl = this.normalizeMediaUrl(String(v.url));
         const authorId = String(v.authorId || v.originalAuthorId || '').trim();
         const thumb = this.getAuthorAvatarFromCache(authorId, 'images/default-bird.png');
         const sourceType = String(v.sourceMediaType || '').toLowerCase();

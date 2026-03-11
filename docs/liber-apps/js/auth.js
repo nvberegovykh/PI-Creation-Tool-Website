@@ -58,9 +58,55 @@ class AuthManager {
             
             // Clean any legacy local users and disable auto test creation
             try { localStorage.removeItem('liber_users'); } catch {}
+
+            if (!this.currentUser && this.shouldOpenPublicShareView()){
+                this.showPublicSharedContentView();
+            }
             
         } catch (error) {
             console.error('Auth initialization error:', error);
+        }
+    }
+
+    shouldOpenPublicShareView(){
+        try{
+            const params = new URLSearchParams(window.location.search || '');
+            const open = String(params.get('open') || '').trim().toLowerCase();
+            if (open === 'post' || open === 'wave') return true;
+            // PWA share-target payload can be handled without login too.
+            if (String(params.get('share_target') || '').trim() === '1') return true;
+            const hash = String(window.location.hash || '').replace(/^#/, '').trim().toLowerCase();
+            if (/^post[-_:]/.test(hash)) return true;
+            return false;
+        }catch(_){ return false; }
+    }
+
+    applyPublicShareReadOnlyUi(){
+        try{
+            document.body.classList.add('liber-public-share-mode');
+            const hide = (sel)=> document.querySelectorAll(sel).forEach((el)=>{ el.style.display = 'none'; });
+            hide('#logout-btn,#space-logout-btn,#switch-accounts-btn,#account-switcher,#add-account-btn');
+            hide('.nav-btn[data-section="space"],.nav-btn[data-section="profile"],.nav-btn[data-section="users"],.nav-btn[data-section="settings"]');
+            hide('.mobile-nav-btn[data-section="space"],.mobile-nav-btn[data-section="profile"],.mobile-nav-btn[data-section="users"],.mobile-nav-btn[data-section="settings"]');
+            hide('#dashboard-chat-btn');
+
+            // Keep guest mode read-only: disable create/upload/edit actions.
+            document.querySelectorAll('#space-section input,#space-section textarea,#space-section button,#profile-section input,#profile-section textarea,#profile-section button').forEach((el)=>{
+                el.setAttribute('disabled', 'disabled');
+            });
+            document.querySelectorAll('#wave-upload-btn,#video-upload-btn,#picture-upload-btn,#mobile-wave-upload-btn,#wave-subnav-studio-btn,.edit-wave-btn,.edit-visual-btn,.remove-btn,.remove-visual-btn').forEach((el)=>{
+                el.style.display = 'none';
+            });
+        }catch(_){ }
+    }
+
+    showPublicSharedContentView(){
+        document.getElementById('auth-screen').classList.add('hidden');
+        document.getElementById('dashboard').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        this.applyPublicShareReadOnlyUi();
+        if (window.dashboardManager) {
+            window.dashboardManager.init();
         }
     }
 

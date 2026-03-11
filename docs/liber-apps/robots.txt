@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+# App shell page can be indexed. Public content is loaded by share links.

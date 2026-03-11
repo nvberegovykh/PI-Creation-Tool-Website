@@ -565,7 +565,9 @@
         if (!this.isMobileViewport()){
           app.style.setProperty('--chat-kb-offset', '0px');
           app.style.setProperty('--chat-composer-height', '64px');
+          app.style.setProperty('--chat-bottom-ui-base', '84px');
           if (messages) messages.style.paddingBottom = '';
+          this.layoutBottomUi();
           return;
         }
         let kbOffset = 0;
@@ -581,17 +583,29 @@
         app.style.setProperty('--chat-kb-offset', `${kbOffset}px`);
         const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
         app.style.setProperty('--chat-composer-height', `${ch}px`);
+        app.style.setProperty('--chat-bottom-ui-base', `${ch + 14}px`);
         if (messages){
-          // Keep default compact spacing; only add a small buffer while keyboard is open.
-          messages.style.paddingBottom = kbOffset > 0 ? `${Math.max(16, kbOffset + 14)}px` : '';
+          const floor = Math.max(20, ch + 12);
+          messages.style.paddingBottom = `${floor}px`;
         }
+        this.layoutBottomUi();
       }catch(_){ }
     }
 
     bindMobileComposerLayoutSync(){
       if (this._mobileComposerLayoutBound) return;
       this._mobileComposerLayoutBound = true;
-      const sync = ()=> this.syncMobileComposerLayout();
+      const sync = ()=>{
+        try{
+          if (this._mobileComposerLayoutRaf) cancelAnimationFrame(this._mobileComposerLayoutRaf);
+          this._mobileComposerLayoutRaf = requestAnimationFrame(()=>{
+            this._mobileComposerLayoutRaf = 0;
+            this.syncMobileComposerLayout();
+          });
+        }catch(_){
+          this.syncMobileComposerLayout();
+        }
+      };
       this._mobileComposerLayoutSync = sync;
       try{ window.addEventListener('resize', sync, { passive: true }); }catch(_){ }
       try{ window.addEventListener('orientationchange', sync, { passive: true }); }catch(_){ }
@@ -619,6 +633,69 @@
       }catch(_){ }
       setTimeout(sync, 0);
       setTimeout(sync, 120);
+    }
+
+    ensureBottomUiHost(){
+      try{
+        const main = document.querySelector('.main') || document.body;
+        if (!main) return null;
+        let host = document.getElementById('chat-bottom-ui');
+        if (!host){
+          host = document.createElement('div');
+          host.id = 'chat-bottom-ui';
+          host.className = 'chat-bottom-ui';
+          main.appendChild(host);
+        }
+        ['incoming-call-prompt', 'show-call-btn', 'chat-scroll-bottom-btn'].forEach((id)=>{
+          const el = document.getElementById(id);
+          if (el && el.parentElement !== host) host.appendChild(el);
+        });
+        return host;
+      }catch(_){
+        return null;
+      }
+    }
+
+    layoutBottomUi(){
+      try{
+        const host = this.ensureBottomUiHost();
+        if (!host) return;
+        const app = document.getElementById('chat-app') || document.body;
+        const styles = getComputedStyle(app);
+        const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
+        const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
+        host.style.bottom = this.isMobileViewport() ? `${base + kb}px` : '84px';
+        this.refreshFloatingPanelsPositions();
+      }catch(_){ }
+    }
+
+    getBottomOverlayOffsetCss(extra = 0){
+      try{
+        const app = document.getElementById('chat-app') || document.body;
+        const styles = getComputedStyle(app);
+        const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
+        const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
+        const px = Math.max(54, base + kb + Math.max(0, Number(extra) || 0));
+        return `calc(${px}px + env(safe-area-inset-bottom))`;
+      }catch(_){
+        return `calc(${90 + Math.max(0, Number(extra) || 0)}px + env(safe-area-inset-bottom))`;
+      }
+    }
+
+    refreshFloatingPanelsPositions(){
+      try{
+        const quick = document.getElementById('attachment-quick-actions');
+        if (quick) quick.style.bottom = this.getBottomOverlayOffsetCss(26);
+        const sheet = document.getElementById('chat-attachments-sheet');
+        if (sheet && this.isMobileViewport()) sheet.style.bottom = this.getBottomOverlayOffsetCss(8);
+        const share = document.getElementById('msg-share-sheet');
+        if (share) share.style.bottom = this.getBottomOverlayOffsetCss(12);
+        const sticker = document.getElementById('sticker-panel');
+        if (sticker && this.isMobileViewport()){
+          sticker.style.setProperty('bottom', this.getBottomOverlayOffsetCss(56), 'important');
+          sticker.style.setProperty('max-height', 'min(52vh, 360px)', 'important');
+        }
+      }catch(_){ }
     }
 
     updateSidebarSearchState(hasResults){
@@ -2090,7 +2167,8 @@
       backdrop.style.cssText = 'position:fixed;inset:0;z-index:96;background:transparent';
       const panel = document.createElement('div');
       panel.id = 'attachment-quick-actions';
-      panel.style.cssText = 'position:fixed;left:8px;right:8px;bottom:calc(118px + env(safe-area-inset-bottom));z-index:97;background:#10141c;border:1px solid #2a2f36;border-radius:10px;padding:8px;max-height:58vh;overflow:auto';
+      panel.style.cssText = 'position:fixed;left:8px;right:8px;z-index:97;background:#10141c;border:1px solid #2a2f36;border-radius:10px;padding:8px;max-height:58vh;overflow:auto';
+      panel.style.bottom = this.getBottomOverlayOffsetCss(26);
       const upload = document.createElement('button');
       upload.className = 'btn secondary';
       upload.textContent = 'Choose files';
@@ -2248,6 +2326,7 @@
         .forEach((a)=> panel.appendChild(makeRow(a)));
       const root = document.body;
       if (root){ root.appendChild(backdrop); root.appendChild(panel); }
+      this.refreshFloatingPanelsPositions();
       backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
       panel.addEventListener('click', (e)=> e.stopPropagation());
     }
@@ -2510,8 +2589,9 @@
       const panel = document.createElement('div');
       panel.id = 'chat-attachments-sheet';
       panel.style.cssText = this.isMobileViewport()
-        ? 'position:fixed;left:10px;right:10px;bottom:calc(90px + env(safe-area-inset-bottom));max-height:min(70vh,620px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:105;padding:10px'
+        ? 'position:fixed;left:10px;right:10px;max-height:min(70vh,620px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:105;padding:10px'
         : 'position:fixed;left:50%;transform:translateX(-50%);top:76px;width:min(920px,calc(100vw - 30px));max-height:min(76vh,760px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:105;padding:10px';
+      if (this.isMobileViewport()) panel.style.bottom = this.getBottomOverlayOffsetCss(8);
 
       panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px"><div style="font-weight:600">Chat attachments</div><button id="chat-attachments-close" class="icon-btn" title="Close"><i class="fas fa-xmark"></i></button></div>';
 
@@ -2642,6 +2722,7 @@
 
       const host = document.body;
       if (host){ host.appendChild(backdrop); host.appendChild(panel); }
+      this.refreshFloatingPanelsPositions();
       const closeBtn = panel.querySelector('#chat-attachments-close');
       if (closeBtn) closeBtn.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
       backdrop.addEventListener('click', ()=>{ panel.remove(); backdrop.remove(); });
@@ -5741,18 +5822,11 @@
         toBottomBtn.className = 'btn secondary';
         toBottomBtn.textContent = '↓';
         toBottomBtn.title = 'Scroll to latest';
-        toBottomBtn.style.cssText = 'position:fixed;right:16px;bottom:84px;z-index:40;display:none;width:34px;height:34px;border-radius:17px;padding:0;font-size:18px;line-height:34px;text-align:center';
-        const main = document.querySelector('.main') || document.body;
-        main.appendChild(toBottomBtn);
+        toBottomBtn.style.cssText = '';
+        toBottomBtn.setAttribute('aria-label', 'Scroll to latest');
       }
-      const placeToBottomBtn = ()=>{
-        const mobile = this.isMobileViewport();
-        const kb = Math.max(0, Number(parseInt(String(getComputedStyle(document.getElementById('chat-app') || document.body).getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
-        toBottomBtn.style.bottom = mobile
-          ? `calc(${136 + kb}px + env(safe-area-inset-bottom))`
-          : '84px';
-      };
-      placeToBottomBtn();
+      this.ensureBottomUiHost();
+      this.layoutBottomUi();
       const updateBottomUi = ()=>{
         // column-reverse chat: end-of-chat is near scrollTop = 0.
         const scrollPos = Math.max(0, Math.abs(Number(box.scrollTop || 0)));
@@ -5840,7 +5914,7 @@
             }catch(_){ }
           });
         }, { passive: true });
-        window.addEventListener('resize', placeToBottomBtn, { passive: true });
+        window.addEventListener('resize', ()=> this.layoutBottomUi(), { passive: true });
         toBottomBtn.addEventListener('click', ()=>{ try{ box.scrollTo({ top: 0, behavior: 'smooth' }); }catch(_){ box.scrollTop = 0; } updateBottomUi(); });
       }
       try{
@@ -6850,6 +6924,15 @@
         const a = (asset && typeof asset === 'object') ? asset : {};
         let kind = String(a.kind || a.type || (a.post || a.postId ? 'post' : '')).toLowerCase();
         if (!kind && a.url) kind = String(this.inferMediaKindFromUrl(a.url) || '').toLowerCase();
+        if (kind === 'link'){
+          const href = String(a.url || '').trim();
+          const title = this.renderText(String(a.title || href || 'Shared link'));
+          const text = this.renderText(String(a.text || ''));
+          if (!href){
+            return `<div class="shared-asset-card" data-shared-kind="link" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520"><div class="shared-asset-title" style="font-weight:600">${title}</div><div style="font-size:12px;opacity:.82;margin-top:4px">This content is unavailable.</div></div>`;
+          }
+          return `<div class="shared-asset-card" data-shared-kind="link" data-shared-url="${this.renderText(href)}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520"><div class="shared-asset-title" style="font-weight:600;word-break:break-word">${title}</div>${text ? `<div style="font-size:12px;opacity:.86;margin-top:6px;word-break:break-word">${text}</div>` : ''}<a href="${this.renderText(href)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;text-decoration:none"><i class="fas fa-up-right-from-square"></i> Open link</a></div>`;
+        }
         if (kind === 'post'){
           const pRaw = (a.post && typeof a.post === 'object') ? a.post : {};
           const p = { ...pRaw };
@@ -6890,7 +6973,11 @@
         const actions = kind === 'audio'
           ? `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span><button class="shared-asset-add-btn btn secondary" style="padding:4px 10px" title="Add to library"><i class="fas fa-plus"></i></button></div>`
           : `<div class="shared-asset-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="shared-like-btn btn secondary" style="padding:4px 10px"><i class="fas fa-heart"></i></button><span class="shared-like-count">0</span></div>`;
-        return `<div class="shared-asset-card shared-asset-waveconnect" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520">${titleBy}${visual}${actions}</div>`;
+        const sourceId = this.renderText(String(a.sourceId || a.id || ''));
+        const authorId = this.renderText(String(a.authorId || ''));
+        const authorAvatar = this.renderText(String(a.authorAvatar || a.avatarUrl || ''));
+        const sharedCover = this.renderText(String(cover || ''));
+        return `<div class="shared-asset-card shared-asset-waveconnect" data-shared-kind="${this.renderText(kind)}" data-shared-url="${this.renderText(url)}" data-shared-source-id="${sourceId}" data-shared-author-id="${authorId}" data-shared-author-avatar="${authorAvatar}" data-shared-cover="${sharedCover}" data-msg-id="${this.renderText(String(msgId || ''))}" style="margin-top:6px;border:1px solid #2b3240;border-radius:12px;padding:12px;background:#0f1520">${titleBy}${visual}${actions}</div>`;
       }catch(_){ return `<div>${this.renderText('Shared')}</div>`; }
     }
 
@@ -6977,8 +7064,27 @@
         if (!card || !pid) return;
         if (!this.db) return;
         const snap = await firebase.getDoc(firebase.doc(this.db, 'posts', pid));
-        if (!snap.exists()) return;
+        if (!snap.exists()){
+          const textHost = card.querySelector('.shared-post-text');
+          if (textHost){
+            textHost.style.display = '';
+            textHost.innerHTML = 'This content is private.';
+          }
+          return;
+        }
         const p = snap.data() || {};
+        const visibility = String(p.visibility || '').trim().toLowerCase();
+        const isPublic = visibility === 'public' || visibility === 'pub' || p.isPublic === true || p.public === true || String(p.privacy || '').trim().toLowerCase() === 'public';
+        if (!isPublic){
+          const textHost = card.querySelector('.shared-post-text');
+          if (textHost){
+            textHost.style.display = '';
+            textHost.innerHTML = 'This content is private.';
+          }
+          const mediaHost = card.querySelector('.shared-post-media');
+          if (mediaHost) mediaHost.innerHTML = '';
+          return;
+        }
         let text = String(p.text || '').trim();
         try{
           if (window.dashboardManager && typeof window.dashboardManager.getPostDisplayText === 'function'){
@@ -7009,7 +7115,16 @@
           textHost.style.display = '';
           textHost.innerHTML = this.renderText(nextText);
         }
-      }catch(_){ }
+      }catch(_){
+        try{
+          const card = root && root.classList?.contains('shared-asset-card') ? root : (root?.querySelector?.('.shared-asset-card') || null);
+          const textHost = card?.querySelector?.('.shared-post-text');
+          if (textHost){
+            textHost.style.display = '';
+            textHost.innerHTML = 'This content is private.';
+          }
+        }catch(__){ }
+      }
     }
 
     activateChatPlayers(root){
@@ -7221,12 +7336,14 @@
                   url: String(vNode.currentSrc || vNode.src || '').trim(),
                   title: String(titleNode?.textContent || 'Video').trim(),
                   by: String(byNode?.textContent || '').replace(/^by\s+/i, '').trim(),
-                  cover: '',
-                  sourceId: ''
+                  cover: String(card.getAttribute('data-shared-cover') || '').trim(),
+                  sourceId: String(card.getAttribute('data-shared-source-id') || '').trim(),
+                  authorId: String(card.getAttribute('data-shared-author-id') || '').trim(),
+                  authorAvatar: String(card.getAttribute('data-shared-author-avatar') || '').trim()
                 };
               }).filter((it)=> !!it?.url);
               if (!items.length){
-                this.openFullscreenMedia([{ type:'video', url, title: String(a.title || a.name || 'Video'), by: String(a.by || a.authorName || '') }], 0);
+                this.openFullscreenMedia([{ type:'video', url, title: String(a.title || a.name || 'Video'), by: String(a.by || a.authorName || ''), cover: String(a.cover || a.coverUrl || a.thumbnailUrl || ''), sourceId: String(a.sourceId || ''), authorId: String(a.authorId || ''), authorAvatar: String(a.authorAvatar || a.avatarUrl || '') }], 0);
                 return;
               }
               const idx = Math.max(0, items.findIndex((it)=> it.url === url));
@@ -7752,7 +7869,8 @@
       backdrop.style.cssText = 'position:fixed;inset:0;z-index:102;background:rgba(0,0,0,.24)';
       const panel = document.createElement('div');
       panel.id = 'msg-share-sheet';
-      panel.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(96px + env(safe-area-inset-bottom));max-height:min(62vh,480px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:103;padding:10px';
+      panel.style.cssText = 'position:fixed;left:10px;right:10px;max-height:min(62vh,480px);overflow:auto;background:#10141c;border:1px solid #2a2f36;border-radius:12px;z-index:103;padding:10px';
+      panel.style.bottom = this.getBottomOverlayOffsetCss(12);
       panel.innerHTML = `<div style="font-weight:600;margin-bottom:8px">${payloads.length > 1 ? `Share ${payloads.length} messages to chat` : 'Share message to chat'}</div><input id="share-chat-filter" type="text" placeholder="Search chats..." style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2a2f36;background:#0f1116;color:#fff;margin-bottom:8px">`;
       const list = document.createElement('div');
       panel.appendChild(list);
@@ -7792,6 +7910,7 @@
       panel.addEventListener('click', (e)=> e.stopPropagation());
       document.body.appendChild(backdrop);
       document.body.appendChild(panel);
+      this.refreshFloatingPanelsPositions();
     }
 
     formatTypingText(names){
@@ -8037,6 +8156,7 @@
       const host = document.querySelector('.main') || document.body;
       host.appendChild(backdrop);
       host.appendChild(panel);
+      this.refreshFloatingPanelsPositions();
       backdrop.addEventListener('click', ()=>{
         panel.remove();
         backdrop.remove();
@@ -10585,6 +10705,7 @@
     }
 
     _syncCallFab(){
+      this.ensureBottomUiHost();
       const showBtn = document.getElementById('show-call-btn');
       const incomingPrompt = document.getElementById('incoming-call-prompt');
       const ov = document.getElementById('call-overlay');
@@ -10609,6 +10730,7 @@
       if (incomingPrompt){
         incomingPrompt.classList.toggle('hidden', !incoming);
       }
+      this.layoutBottomUi();
       this._notifyParentCallState();
     }
 
