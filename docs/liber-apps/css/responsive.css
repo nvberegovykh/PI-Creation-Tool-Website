@@ -593,7 +593,13 @@
 
 /* Final mobile override: remove extra black gap above bottom nav */
 @media (max-width: 768px) {
+    .dashboard {
+        padding-top: 0 !important;
+    }
     .dashboard-content {
+        padding-top: calc(max(env(safe-area-inset-top, 0px), 10px) + 6px) !important;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
         padding-bottom: calc(56px + env(safe-area-inset-bottom)) !important;
     }
     .mobile-bottom-nav {

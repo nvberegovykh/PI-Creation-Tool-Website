@@ -1252,6 +1252,9 @@ class DashboardManager {
     applyHorizontalMasonryOrder(container){
         try{
             if (!container || window.innerWidth < 1024) return;
+            const containerId = String(container.id || '');
+            // Keep wall feed readable and chronologically stable (no visual "duplication" from column reordering).
+            if (containerId === 'global-feed' || containerId === 'global-suggestions') return;
             const cards = Array.from(container.querySelectorAll(':scope > .post-item'));
             if (!cards.length) return;
             cards.forEach((el, idx)=>{
@@ -4292,16 +4295,36 @@ class DashboardManager {
             const fromHash = (window.location.hash||'').replace('#','');
             const stored = localStorage.getItem('liber_last_section') || '';
             const preferred = fromHash || stored || 'apps';
-            this.switchSection(preferred);
-            if (preferred === 'feed'){
-                setTimeout(()=> this.loadGlobalFeed(this._wallSearchTerm || ''), 120);
+            const runInitialLoad = ()=>{
+                if (this._dashboardSuspended) return;
+                try{
+                    this.switchSection(preferred);
+                    if (preferred === 'feed'){
+                        setTimeout(()=> this.loadGlobalFeed(this._wallSearchTerm || ''), 120);
+                    }
+                    const returnTo = (typeof URLSearchParams !== 'undefined' && new URLSearchParams(window.location.search).get('returnTo')) || '';
+                    if ((returnTo === 'chat' || returnTo === 'tracker') && window.appsManager && typeof window.appsManager.loadApps === 'function'){
+                        setTimeout(()=> window.appsManager.loadApps(), 300);
+                    }
+                    setTimeout(()=>{ this.handleIncomingDeepLink().catch(()=>{}); }, 260);
+                    setTimeout(()=>{ this.handleIncomingShareIntent().catch(()=>{}); }, 420);
+                }catch(_){ this.switchSection('apps'); }
+            };
+            if (window.firebaseService && window.firebaseService.isInitialized){
+                runInitialLoad();
+            } else {
+                const onReady = ()=>{
+                    window.removeEventListener('firebase-ready', onReady);
+                    runInitialLoad();
+                };
+                window.addEventListener('firebase-ready', onReady);
+                setTimeout(()=>{
+                    if (window.firebaseService && window.firebaseService.isInitialized){
+                        window.removeEventListener('firebase-ready', onReady);
+                        runInitialLoad();
+                    }
+                }, 800);
             }
-            const returnTo = (typeof URLSearchParams !== 'undefined' && new URLSearchParams(window.location.search).get('returnTo')) || '';
-            if ((returnTo === 'chat' || returnTo === 'tracker') && window.appsManager && typeof window.appsManager.loadApps === 'function'){
-                setTimeout(()=> window.appsManager.loadApps(), 300);
-            }
-            setTimeout(()=>{ this.handleIncomingDeepLink().catch(()=>{}); }, 260);
-            setTimeout(()=>{ this.handleIncomingShareIntent().catch(()=>{}); }, 420);
         }catch(_){ this.switchSection('apps'); }
         this.updateNavigation();
         // Mobile Chrome/PWA can hydrate auth state slightly later; retry nav role gate.
@@ -5754,8 +5777,19 @@ class DashboardManager {
                 })
                 : list;
             filteredList.sort((a,b)=> (b.createdAtTS?.toMillis?.()||0) - (a.createdAtTS?.toMillis?.()||0) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
-            await Promise.all(filteredList.slice(0, 20).map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
-            for (const p of filteredList.slice(0,20)){
+            const renderList = [];
+            const seenMediaKeys = new Set();
+            for (const p of filteredList){
+                const mediaKey = this.normalizeMediaUrl(String(p?.media || p?.mediaUrl || '').trim());
+                if (mediaKey){
+                    if (seenMediaKeys.has(mediaKey)) continue;
+                    seenMediaKeys.add(mediaKey);
+                }
+                renderList.push(p);
+                if (renderList.length >= 20) break;
+            }
+            await Promise.all(renderList.map((p)=> this.primeWaveMetaForMedia(p?.media || p?.mediaUrl)));
+            for (const p of renderList){
                 const div = document.createElement('div');
                 div.className = 'post-item';
                 div.dataset.postId = p.id;
@@ -10467,7 +10501,7 @@ Do you want to proceed?`);
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:23090;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
       overlay.innerHTML = `
         <div class="modal" style="max-width:860px;width:min(860px,96vw);max-height:calc(100vh - 32px);overflow:auto;margin:0 auto;">
           <div class="modal-header"><h3>${data.username || data.email || 'User'}</h3><button class="modal-close">&times;</button></div>

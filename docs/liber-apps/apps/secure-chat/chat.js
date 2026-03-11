@@ -562,10 +562,12 @@
         const composer = document.querySelector('.composer');
         const messages = document.getElementById('messages');
         if (!app) return;
+        const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
+        const baseOffset = Math.max(72, ch + 16);
         if (!this.isMobileViewport()){
           app.style.setProperty('--chat-kb-offset', '0px');
-          app.style.setProperty('--chat-composer-height', '64px');
-          app.style.setProperty('--chat-bottom-ui-base', '84px');
+          app.style.setProperty('--chat-composer-height', `${ch}px`);
+          app.style.setProperty('--chat-bottom-ui-base', `${baseOffset}px`);
           if (messages) messages.style.paddingBottom = '';
           this.layoutBottomUi();
           return;
@@ -581,9 +583,8 @@
           }
         }catch(_){ kbOffset = 0; }
         app.style.setProperty('--chat-kb-offset', `${kbOffset}px`);
-        const ch = Math.max(56, Math.round(Number(composer?.getBoundingClientRect?.().height || 0) || 56));
         app.style.setProperty('--chat-composer-height', `${ch}px`);
-        app.style.setProperty('--chat-bottom-ui-base', `${ch + 14}px`);
+        app.style.setProperty('--chat-bottom-ui-base', `${baseOffset}px`);
         if (messages){
           const floor = Math.max(20, ch + 12);
           messages.style.paddingBottom = `${floor}px`;
@@ -781,7 +782,7 @@
         const styles = getComputedStyle(app);
         const kb = Math.max(0, Number(parseInt(String(styles.getPropertyValue('--chat-kb-offset') || '0'), 10) || 0));
         const base = Math.max(80, Number(parseInt(String(styles.getPropertyValue('--chat-bottom-ui-base') || '84'), 10) || 84));
-        host.style.bottom = this.isMobileViewport() ? `${base + kb}px` : '84px';
+        host.style.bottom = `${base + kb}px`;
         this.syncBottomUiHostState();
         this.refreshFloatingPanelsPositions();
       }catch(_){ }
