@@ -67,9 +67,9 @@
 .lvp-video-host{
   flex:1 1 auto; min-height:240px; max-height:min(72vh, 820px); aspect-ratio:16/9; border-radius:14px; overflow:hidden;
   border:1px solid rgba(255,255,255,.1); background:#000;
-  display:flex; align-items:center; justify-content:center;
+  display:flex; align-items:center; justify-content:center; position:relative;
 }
-.lvp-video{ width:100%; height:100%; object-fit:contain; background:#000; }
+.lvp-video{ width:100%; height:100%; object-fit:contain; background:#000; will-change:transform,opacity; }
 .lvp-progress{ height:3px; background:rgba(255,255,255,.12); margin-top:8px; border-radius:999px; overflow:hidden; }
 .lvp-progress-fill{ display:block; width:0%; height:100%; background:#5ba9ff; transition:width .15s linear; }
 .lvp-meta{ margin-top:8px; }

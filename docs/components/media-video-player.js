@@ -29,7 +29,8 @@
     verticalStartY: 0,
     verticalStartX: 0,
     verticalTouching: false,
-    horizontalSwipe: null
+    horizontalSwipe: null,
+    swipeDeltaY: 0
   };
   const authorAvatarCache = new Map();
   const authorInfoCache = new Map();
@@ -230,28 +231,38 @@
       }
       if (!out.uid && sourceId && window.firebaseService?.db){
         try{
-          const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, 'videos', sourceId));
-          if (snap.exists()){
+          const readById = async (collectionName)=>{
+            const snap = await firebase.getDoc(firebase.doc(window.firebaseService.db, collectionName, sourceId));
+            if (!snap.exists()) return false;
             const v = snap.data() || {};
-            out.uid = String(v.authorId || v.owner || v.originalAuthorId || '').trim();
+            out.uid = String(v.authorId || v.owner || v.originalAuthorId || v.ownerId || '').trim();
             out.avatar = out.avatar || String(v.authorAvatar || v.avatarUrl || '').trim();
             out.name = out.name || String(v.authorName || '').trim();
+            return !!out.uid;
+          };
+          if (!(await readById('videos'))){
+            await readById('wave');
           }
         }catch(_){ }
       }
       if (!out.uid && normUrl && window.firebaseService?.db){
         try{
-          const q = firebase.query(
-            firebase.collection(window.firebaseService.db, 'videos'),
-            firebase.where('url', '==', normUrl),
-            firebase.limit(1)
-          );
-          const s = await firebase.getDocs(q);
-          if (!s.empty){
+          const readByUrl = async (collectionName)=>{
+            const q = firebase.query(
+              firebase.collection(window.firebaseService.db, collectionName),
+              firebase.where('url', '==', normUrl),
+              firebase.limit(1)
+            );
+            const s = await firebase.getDocs(q);
+            if (s.empty) return false;
             const v = s.docs[0].data() || {};
-            out.uid = String(v.authorId || v.owner || v.originalAuthorId || '').trim();
+            out.uid = String(v.authorId || v.owner || v.originalAuthorId || v.ownerId || '').trim();
             out.avatar = out.avatar || String(v.authorAvatar || v.avatarUrl || '').trim();
             out.name = out.name || String(v.authorName || '').trim();
+            return !!out.uid;
+          };
+          if (!(await readByUrl('videos'))){
+            await readByUrl('wave');
           }
         }catch(_){ }
       }
@@ -306,11 +317,33 @@
     }catch(_){ }
   }
 
+  function buildFallbackShareLink(current){
+    try{
+      const base = new URL(window.location.href);
+      base.hash = '';
+      base.search = '';
+      if (!/\/[^/]+\.[a-z0-9]+$/i.test(base.pathname || '')){
+        const clean = String(base.pathname || '').replace(/\/$/, '');
+        base.pathname = `${clean || '/'}${clean ? '/' : ''}index.html`;
+      }
+      base.searchParams.set('open', 'wave');
+      base.searchParams.set('type', 'video');
+      const sid = String(current?.sourceId || current?.id || '').trim();
+      const href = String(current?.url || '').trim();
+      if (sid) base.searchParams.set('id', sid);
+      if (!sid && href) base.searchParams.set('u', href);
+      return base.toString();
+    }catch(_){
+      return String(current?.url || '').trim();
+    }
+  }
+
   async function shareExternally(current){
-    const shareData = { title: current.title || 'Video', text: current.description || '', url: current.url };
+    const shareUrl = buildFallbackShareLink(current);
+    const shareData = { title: current.title || 'Video', text: current.description || '', url: shareUrl };
     try{
       if (navigator.share) await navigator.share(shareData);
-      else await navigator.clipboard?.writeText(current.url);
+      else await navigator.clipboard?.writeText(shareUrl);
     }catch(_){ }
   }
 
@@ -338,11 +371,17 @@
         close();
       });
       layer.querySelector('[data-share-external]')?.addEventListener('click', async ()=>{
-        await shareExternally(current);
+        const detail = (current && typeof current === 'object') ? current : {};
+        try { window.dispatchEvent(new CustomEvent('liber-video-share-external', { detail })); } catch (_) { }
+        if (!detail.__liberShareHandled) await shareExternally(current);
         close();
       });
       layer.querySelector('[data-share-copy]')?.addEventListener('click', async ()=>{
-        try{ await navigator.clipboard?.writeText(String(current?.url || '')); }catch(_){ }
+        const detail = (current && typeof current === 'object') ? current : {};
+        try { window.dispatchEvent(new CustomEvent('liber-video-copy-link', { detail })); } catch (_) { }
+        if (!detail.__liberShareHandled){
+          try{ await navigator.clipboard?.writeText(String(buildFallbackShareLink(current) || '')); }catch(_){ }
+        }
         close();
       });
     }catch(_){ }
@@ -499,25 +538,83 @@
     }catch(_){ }
   }
 
-  async function setIndex(next){
+  function animateSwipeTransition(nextItem, direction){
+    return new Promise((resolve)=>{
+      try{
+        if (!state.playerHost) return resolve(false);
+        const current = getCurrentVideoNode();
+        if (!current) return resolve(false);
+        const incoming = buildVideoNode(nextItem);
+        incoming.controls = !isMobile();
+        state.playerHost.style.position = 'relative';
+        state.playerHost.style.overflow = 'hidden';
+        current.style.position = 'absolute';
+        current.style.inset = '0';
+        incoming.style.position = 'absolute';
+        incoming.style.inset = '0';
+        const from = direction > 0 ? '100%' : '-100%';
+        const out = direction > 0 ? '-100%' : '100%';
+        incoming.style.transform = `translate3d(0, ${from}, 0)`;
+        incoming.style.opacity = '1';
+        incoming.style.transition = 'none';
+        current.style.transition = 'none';
+        state.playerHost.appendChild(incoming);
+        requestAnimationFrame(()=>{
+          const easing = 'cubic-bezier(.22,.75,.14,1)';
+          incoming.style.transition = `transform .28s ${easing}`;
+          current.style.transition = `transform .28s ${easing}, opacity .22s ease`;
+          incoming.style.transform = 'translate3d(0,0,0)';
+          current.style.transform = `translate3d(0, ${out}, 0)`;
+          current.style.opacity = '.88';
+          let finished = false;
+          const done = ()=>{
+            if (finished) return;
+            finished = true;
+            try{ current.pause(); }catch(_){ }
+            try{ current.remove(); }catch(_){ }
+            incoming.style.position = '';
+            incoming.style.inset = '';
+            incoming.style.transform = '';
+            incoming.style.transition = '';
+            incoming.style.opacity = '';
+            resolve(true);
+          };
+          incoming.addEventListener('transitionend', done, { once: true });
+          setTimeout(done, 360);
+        });
+      }catch(_){ resolve(false); }
+    });
+  }
+
+  async function setIndex(next, opts = {}){
     if (!state.items.length) return;
+    const prevIndex = Number(state.index || 0);
     state.index = clamp(next, 0, state.items.length - 1);
     const item = state.items[state.index];
     if (!item) return;
     if (state.playerHost){
       const current = getCurrentVideoNode();
-      if (current){
-        try{ current.pause(); }catch(_){ }
+      const directionRaw = Number(opts?.direction || 0);
+      const direction = directionRaw || (state.index > prevIndex ? 1 : -1);
+      const shouldSwipeAnimate = !!opts?.swipe && isMobile() && current && state.index !== prevIndex;
+      if (shouldSwipeAnimate){
+        current.style.transform = '';
+        current.style.transition = '';
+        await animateSwipeTransition(item, direction);
+      } else {
+        if (current){
+          try{ current.pause(); }catch(_){ }
+        }
+        const nextVideo = buildVideoNode(item);
+        nextVideo.controls = !isMobile();
+        nextVideo.style.opacity = '0';
+        nextVideo.style.transition = 'opacity .22s ease';
+        state.playerHost.innerHTML = '';
+        state.playerHost.appendChild(nextVideo);
+        requestAnimationFrame(()=>{
+          nextVideo.style.opacity = '1';
+        });
       }
-      const nextVideo = buildVideoNode(item);
-      nextVideo.controls = !isMobile();
-      nextVideo.style.opacity = '0';
-      nextVideo.style.transition = 'opacity .22s ease';
-      state.playerHost.innerHTML = '';
-      state.playerHost.appendChild(nextVideo);
-      requestAnimationFrame(()=>{
-        nextVideo.style.opacity = '1';
-      });
     }
     try{
       window.firebaseService?.trackVideoInteraction?.({
@@ -575,8 +672,8 @@
     if (!state.open || !isMobile()) return;
     if (Math.abs(e.deltaY) < 14) return;
     e.preventDefault();
-    if (e.deltaY > 0) setIndex(state.index + 1);
-    else setIndex(state.index - 1);
+    if (e.deltaY > 0) setIndex(state.index + 1, { swipe: true, direction: 1 });
+    else setIndex(state.index - 1, { swipe: true, direction: -1 });
   }
 
   function onTouchStart(e){
@@ -587,6 +684,7 @@
     state.verticalStartX = t.clientX;
     state.verticalTouching = true;
     state.horizontalSwipe = null;
+    state.swipeDeltaY = 0;
     clearTimeout(state.holdTimer);
     state.holdTimer = setTimeout(()=>{
       state.uiHidden = true;
@@ -600,7 +698,16 @@
     const dx = Math.abs(t.clientX - state.verticalStartX);
     const dy = Math.abs(t.clientY - state.verticalStartY);
     if (state.horizontalSwipe === null) state.horizontalSwipe = dy > (dx * 1.2);
-    if (state.horizontalSwipe) e.preventDefault();
+    if (state.horizontalSwipe){
+      e.preventDefault();
+      const delta = t.clientY - state.verticalStartY;
+      state.swipeDeltaY = delta;
+      const v = getCurrentVideoNode();
+      if (v){
+        v.style.transition = 'none';
+        v.style.transform = `translate3d(0, ${Math.round(delta)}px, 0)`;
+      }
+    }
   }
 
   function onTouchEnd(e){
@@ -620,8 +727,8 @@
 
     // Vertical swipe switches video.
     if (Math.abs(deltaY) > 50){
-      if (deltaY > 0) setIndex(state.index + 1);
-      else setIndex(state.index - 1);
+      if (deltaY > 0) setIndex(state.index + 1, { swipe: true, direction: 1 });
+      else setIndex(state.index - 1, { swipe: true, direction: -1 });
     } else {
       // Simple tap on the video area toggles play/pause on mobile.
       const target = e.target instanceof Element ? e.target : null;
@@ -635,7 +742,13 @@
         }
       }
     }
+    const v = getCurrentVideoNode();
+    if (v){
+      v.style.transition = 'transform .18s ease';
+      v.style.transform = 'translate3d(0,0,0)';
+    }
     state.verticalTouching = false;
+    state.swipeDeltaY = 0;
   }
 
   function ensureDom(){

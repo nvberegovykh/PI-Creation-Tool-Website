@@ -57,7 +57,8 @@
     zoomRange: null,
     counter: null,
     lastActive: null,
-    suppressBackdropCloseUntil: 0
+    suppressBackdropCloseUntil: 0,
+    dragDistance: 0
   };
 
   function getCurrentSlide(){
@@ -189,6 +190,7 @@
     state.lastTs = state.startTs;
     state.startIdx = state.idx;
     state.horizontalSwipe = null;
+    state.dragDistance = 0;
     state.panning = state.scale > 1;
     state.suppressBackdropCloseUntil = Date.now() + 260;
     if (state.panning) {
@@ -199,11 +201,12 @@
 
   function onPointerMove(e){
     if (!state.open || state.pointerId !== e.pointerId) return;
+    const moveX = e.clientX - state.lastX;
+    const moveY = e.clientY - state.startY;
+    state.dragDistance += Math.hypot(moveX, moveY);
     if (state.panning){
-      const dx = e.clientX - state.lastX;
-      const dy = e.clientY - state.startY;
-      state.panX += dx;
-      state.panY += dy;
+      state.panX += moveX;
+      state.panY += moveY;
       state.lastX = e.clientX;
       state.startY = e.clientY;
       applyZoomTransform();
@@ -239,6 +242,38 @@
     }
     if (state.scale > 1) state.suppressBackdropCloseUntil = Date.now() + 320;
     state.pointerId = null;
+  }
+
+  function toggleZoomAtClientPoint(clientX, clientY){
+    if (!state.stage) return;
+    const rect = state.stage.getBoundingClientRect();
+    const anchorX = Number(clientX || 0) - rect.left - rect.width / 2;
+    const anchorY = Number(clientY || 0) - rect.top - rect.height / 2;
+    const next = state.scale > 1 ? 1 : 2;
+    setScale(next, anchorX, anchorY);
+  }
+
+  function onStageClick(e){
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const img = t.closest('img.lmfs-img');
+    if (!img) return;
+    if (state.dragDistance > 10) return;
+    if (Date.now() < Number(state.suppressBackdropCloseUntil || 0)) return;
+    const looksTouch = !!(e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents);
+    if (looksTouch) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleZoomAtClientPoint(e.clientX, e.clientY);
+  }
+
+  function onStageDoubleClick(e){
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (!t.closest('img.lmfs-img')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleZoomAtClientPoint(e.clientX, e.clientY);
   }
 
   function touchDistance(t0, t1){
@@ -417,6 +452,8 @@
     state.stage.addEventListener('touchmove', onTouchMove, { passive: false });
     state.stage.addEventListener('touchend', onTouchEnd, { passive: true });
     state.stage.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    state.stage.addEventListener('click', onStageClick, { passive: false });
+    state.stage.addEventListener('dblclick', onStageDoubleClick, { passive: false });
     document.addEventListener('keydown', onKeyDown);
   }
 
